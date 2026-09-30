@@ -63,6 +63,12 @@ const toAcademicProgram = (row) => ({
 });
 
 const toAnnouncement = (row) => ({ ...row, createdAt: row.created_at });
+const toCustomDeadline = (row) => ({
+  id: row.id,
+  title: row.title,
+  deadline: row.deadline,
+  createdAt: row.created_at,
+});
 const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at });
 const toDepartmentReview = (row) => ({
   ...row,
@@ -77,7 +83,7 @@ const ensureReady = () => hasSupabaseConfig && supabase;
 export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   if (!ensureReady()) return { success: false, fallback: true };
 
-  const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult] = await Promise.all([
+  const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, deadlinesResult] = await Promise.all([
     supabase.from('scholarships').select('*').order('deadline', { ascending: true }),
     supabase.from('applications').select('*').order('updated_at', { ascending: false }),
     supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
@@ -86,9 +92,17 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     role === 'department_chair'
       ? supabase.from('department_reviews').select('*').eq('department', department).order('created_at', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
+    supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId),
   ]);
   const failed = [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult].find((result) => result.error);
   if (failed) return { success: false, fallback: false, message: failed.error.message };
+
+  // Pending-migration tolerance: an unavailable custom_deadlines table yields no
+  // server-side deadlines rather than failing the whole workspace, so the
+  // prototype still hydrates if the frontend ships ahead of the migration.
+  const serverDeadlines = !deadlinesResult.error && Array.isArray(deadlinesResult.data)
+    ? deadlinesResult.data.map(toCustomDeadline)
+    : [];
 
   const scholarships = (scholarshipsResult.data || []).map(toScholarship);
   const scholarshipById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry]));
@@ -117,6 +131,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     announcements: (announcementsResult.data || []).map(toAnnouncement),
     notifications: (notificationsResult.data || []).map(toNotification),
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
+    customDeadlines: serverDeadlines,
   };
 };
 
@@ -202,3 +217,53 @@ export const createSupabaseAnnouncement = ({ title, body, audience, createdBy })
 export const markSupabaseNotificationRead = (notificationId) => (
   ensureReady() ? supabase.from('notifications').update({ status: 'Read' }).eq('id', notificationId) : Promise.resolve({ error: null })
 );
+
+// Persists the notification channel and reminder-timing settings so the
+// scheduled Edge Function can honor them server-side. Mirrors the localStorage
+// `notificationPreferences` shape verbatim so the two never drift.
+export const updateSupabaseNotificationPreferences = (userId, preferences) => (
+  ensureReady()
+    ? supabase
+        .from('profiles')
+        .update({ notification_preferences: preferences, updated_at: new Date().toISOString() })
+        .eq('user_id', userId)
+    : Promise.resolve({ error: null })
+);
+
+// Custom calendar deadlines are persisted so server-side reminders can email
+// them. The client-generated `custom-<uuid>` id is stored verbatim so the
+// `deadline-reminder-<id>-<days>` sourceKey matches on both sides, which is
+// also what lets notificationMerge collapse the duplicate in-app rows.
+export const createSupabaseCustomDeadline = ({ id, ownerId, title, deadline }) => (
+  ensureReady()
+    ? supabase
+        .from('custom_deadlines')
+        .upsert({ id, owner_id: ownerId, title, deadline }, { onConflict: 'id' })
+    : Promise.resolve({ error: null })
+);
+
+export const deleteSupabaseCustomDeadline = (id) => (
+  ensureReady() ? supabase.from('custom_deadlines').delete().eq('id', id) : Promise.resolve({ error: null })
+);
+
+// Both email Edge Functions answer with a normalized shape so the UI can report
+// real delivery feedback instead of assuming success.
+const invokeEmailFunction = async (functionName, body = {}) => {
+  if (!ensureReady()) {
+    return { ok: false, sent: false, skipped: true, reason: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke(functionName, { body });
+    if (error) {
+      return { ok: false, sent: false, skipped: false, reason: error.message || 'Unable to reach the email service.' };
+    }
+    return data ?? { ok: false, sent: false, skipped: false, reason: 'The email service returned no response.' };
+  } catch (error) {
+    return { ok: false, sent: false, skipped: false, reason: error?.message || 'Unable to reach the email service.' };
+  }
+};
+
+export const sendSupabaseTestEmail = () => invokeEmailFunction('send-test-email');
+
+export const notifySupabaseApplicationStatus = (applicationId) => invokeEmailFunction('notify-application-status', { applicationId });

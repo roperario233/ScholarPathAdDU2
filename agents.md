@@ -130,6 +130,7 @@ These rules come from the manuscript and should guide implementation details:
 - Documents should expose verification states (`Pending`, `Verified`, and `Rejected`) and remain reusable across applications through attached document IDs.
 - Custom calendar deadlines must be future-facing, persisted locally, removable, and eligible for configured 7-day, 3-day, and 1-day in-app reminders.
 - In-app notification creation must respect `notificationPreferences.inAppEnabled`; generated reminders must use a stable source key so they are not duplicated on each render.
+- Server-side email must honor `emailEnabled` and the `deadlineReminders` offsets read from `profiles.notification_preferences`, and must record every delivery in `notification_email_log` so a reminder reaches a student at most once.
 - The app should continue to feel like a prototype aligned with the study, not a generic scholarship portal.
 
 
@@ -216,7 +217,8 @@ Do not:
 - Replace the current domain model with a generic template app model.
 - Rename core manuscript concepts without a good reason.
 - Make broad styling changes that are unrelated to the task.
-- Treat SMS and email settings as prototype preferences only; do not claim that real external delivery exists unless an integration is implemented.
+- Email notifications are a real integration through Resend: deadline reminders (scholarship, application, and persisted custom deadlines) and application status updates are delivered by the `process-deadline-reminders` and `notify-application-status` Edge Functions, with `send-test-email` for self-service delivery checks.
+- SMS remains a prototype preference only. There is no SMS gateway integration, so do not claim that text-message delivery exists.
 
 
 ## Practical Notes For Future Agents

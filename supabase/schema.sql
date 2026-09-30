@@ -17,6 +17,14 @@ create table if not exists profiles (
 );
 alter table profiles add column if not exists student_number text;
 
+-- Server-side mirror of the notification center settings (see
+-- src/lib/demoState.js `notificationPreferences`). Required so the scheduled
+-- reminder Edge Function can honor the Email Notifications toggle and the
+-- 7-day / 3-day / 1-day reminder choices, which otherwise live only in the
+-- browser's localStorage. Shape: { smsEnabled, emailEnabled, inAppEnabled,
+-- deadlineReminders: { oneWeekBefore, threeDaysBefore, dayBefore } }.
+alter table profiles add column if not exists notification_preferences jsonb not null default '{}'::jsonb;
+
 -- Standard Procedure stage records (endorsement, interview, deliberation,
 -- release) and the event timeline live on applications as JSON payloads.
 alter table applications add column if not exists endorsement jsonb;
@@ -267,21 +275,52 @@ create policy "osa_academic_programs_manage" on academic_programs
 for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
 
 -- ---------------------------------------------------------------------------
--- Server-side deadline reminder delivery log.
+-- Server-side deadline reminder delivery ledger.
 --
 -- One row per delivered reminder (source_key = `deadline-reminder-<id>-<days>`
--- scoped to a user). Used by the process-deadline-reminders Edge Function to
--- guarantee each reminder is delivered at most once, regardless of how often
--- the scheduled job runs. Written only via the service role.
+-- scoped to a user as `<sourceKey>:<userId>`; application status emails use
+-- `application-status-<applicationId>-<status>`). Used by the
+-- process-deadline-reminders and notify-application-status Edge Functions to
+-- guarantee each reminder reaches a student at most once, regardless of how
+-- often the scheduled job runs. Written only via the service role.
+--
+-- The email_* columns record the Resend outcome so a failed send stays
+-- observable instead of silently disappearing.
 -- ---------------------------------------------------------------------------
 create table if not exists notification_email_log (
   id uuid primary key default gen_random_uuid(),
   source_key text not null,
   user_id uuid not null,
   reminder_title text,
+  email_to text,
+  email_status text check (email_status in ('sent', 'failed', 'skipped')),
+  email_id text,
+  email_error text,
   delivered_at timestamptz not null default now(),
   unique (source_key, user_id)
 );
+
+-- ---------------------------------------------------------------------------
+-- Student-created calendar deadlines, persisted so server-side reminders can
+-- email them. `id` is text because the client generates `custom-<uuid>` ids and
+-- keeping them verbatim makes the client and server reminder sourceKeys
+-- identical, which is what lets src/lib/notificationMerge.js collapse the
+-- duplicate in-app rows.
+-- ---------------------------------------------------------------------------
+create table if not exists custom_deadlines (
+  id text primary key,
+  owner_id uuid not null references profiles(user_id) on delete cascade,
+  title text not null,
+  deadline date not null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists custom_deadlines_owner_id_idx on custom_deadlines (owner_id);
+
+alter table custom_deadlines enable row level security;
+
+create policy "custom_deadlines_self_access" on custom_deadlines
+for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
 
 alter table notification_email_log enable row level security;
 
@@ -293,8 +332,21 @@ for select using (auth.uid() = user_id);
 --
 -- Requires the pg_cron and pg_net extensions (available on Supabase projects;
 -- enable them from the dashboard if not already active). Runs daily at
--- 07:00 Asia/Manila. The function URL below must be replaced with the
--- deployed project ref before enabling the schedule.
+-- 07:00 Asia/Manila.
+--
+-- Setup, in order:
+--   1. Replace <project-ref> below with the deployed project ref.
+--   2. Store the scheduled-caller secret once, so the job can authenticate.
+--      Use the same value you set as the REMINDER_CRON_SECRET Edge Function
+--      secret:
+--        alter database postgres
+--          set app.settings.reminder_cron_secret = '<the same value>';
+--   3. Run the create extension and cron.schedule statements below.
+--
+-- The function deliberately runs with verify_jwt disabled: the platform-level
+-- JWT check rejects the service role key, and a shared secret is compared by
+-- exact value inside the function instead. Never send the anon key here — it is
+-- public, and this endpoint can email every student.
 -- ---------------------------------------------------------------------------
 -- create extension if not exists pg_cron;
 -- create extension if not exists pg_net;
@@ -306,7 +358,8 @@ for select using (auth.uid() = user_id);
 --   select net.http_post(
 --     url := 'https://<project-ref>.supabase.co/functions/v1/process-deadline-reminders',
 --     headers := jsonb_build_object(
---       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key')
+--       'Authorization', 'Bearer ' || current_setting('app.settings.reminder_cron_secret'),
+--       'Content-Type', 'application/json'
 --     ),
 --     body := '{}'::jsonb
 --   );
