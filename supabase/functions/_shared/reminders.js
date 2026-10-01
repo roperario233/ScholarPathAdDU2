@@ -81,3 +81,16 @@ export const computeDueReminders = ({ today, items, reminderPreferences = {}, ex
 
   return due;
 };
+
+/**
+ * Date key for a fixed UTC+8 offset (Asia/Manila).
+ *
+ * The reminder rule is evaluated against the Manila calendar because that is
+ * the calendar students see and the schedule runs at 07:00 PHT. Calling
+ * `toISOString()` on the raw UTC clock would resolve to the previous day when
+ * the job fires at 23:00 UTC.
+ */
+export const manilaDateKey = (now = new Date()) => {
+  const shifted = new Date(now.getTime() + 8 * 60 * 60 * 1000);
+  return `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())}`;
+};

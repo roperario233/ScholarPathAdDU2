@@ -5,7 +5,7 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { getDeadlineStatus, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateUserProfile } from './lib/auth';
-import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseDocument, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -56,6 +56,17 @@ const prependInAppNotification = (previous, notification) => (
     ? [notification, ...previous.notifications]
     : previous.notifications
 );
+
+// Locally created deadlines live in localStorage while the same rows are also
+// persisted to Supabase (so server-side reminders can email them). Merge by id
+// so a hydrated session neither drops an unsynced local deadline nor duplicates
+// one that already round-tripped through the database.
+const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
+  const local = Array.isArray(localDeadlines) ? localDeadlines : [];
+  const server = Array.isArray(serverDeadlines) ? serverDeadlines : [];
+  const localIds = new Set(local.map((entry) => entry.id));
+  return [...local, ...server.filter((entry) => !localIds.has(entry.id))];
+};
 
 function App() {
   const [state, setState] = useState(createInitialState);
@@ -206,6 +217,7 @@ function App() {
           // but locally generated deadline reminders only exist in localStorage.
           // Merge instead of replacing so hydrated sessions cannot wipe them.
           notifications: mergeNotifications(previous.notifications, workspace.notifications),
+          customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
         }));
         setIsSupabaseWorkspaceLoaded(true);
       }
@@ -332,7 +344,12 @@ function App() {
       }));
       const workspace = await loadSupabaseWorkspace({ role: account.role, userId: authResult.user?.id || account.id, department: profile?.department || account.department });
       if (workspace.success) {
-        updateState((previous) => ({ ...previous, ...workspace }));
+        updateState((previous) => ({
+          ...previous,
+          ...workspace,
+          notifications: mergeNotifications(previous.notifications, workspace.notifications),
+          customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
+        }));
         setIsSupabaseWorkspaceLoaded(true);
       }
       const academicProgramsResult = await loadSupabaseAcademicPrograms();
@@ -485,7 +502,13 @@ function App() {
   };
 
   const submitApplication = (applicationId) => {
-    if (isSupabaseWorkspaceLoaded) submitSupabaseApplication(applicationId);
+    if (isSupabaseWorkspaceLoaded) {
+      // Wait for the status write to land before emailing, so the Edge Function
+      // reads the submitted status rather than the previous one.
+      Promise.resolve(submitSupabaseApplication(applicationId))
+        .then(() => notifySupabaseApplicationStatus(applicationId))
+        .catch(() => undefined);
+    }
     setState((previous) => ({
       ...previous,
       applications: previous.applications.map((entry) => entry.id === applicationId ? {
@@ -497,7 +520,7 @@ function App() {
       notifications: prependInAppNotification(previous, {
         id: `not-${crypto.randomUUID()}`,
         title: 'Application submitted',
-        channel: 'Email',
+        channel: 'In-app',
         body: 'Your scholarship application has been submitted to the centralized tracker.',
         status: 'Unread',
         createdAt: new Date().toISOString().slice(0, 10),
@@ -506,7 +529,13 @@ function App() {
   };
 
   const changeApplicationStatus = (applicationId, status, options = {}) => {
-    if (isSupabaseWorkspaceLoaded) updateSupabaseApplicationStatus(applicationId, status);
+    if (isSupabaseWorkspaceLoaded) {
+      // Chain rather than fire-and-forget so the Edge Function reads the new
+      // status instead of the previous one.
+      Promise.resolve(updateSupabaseApplicationStatus(applicationId, status))
+        .then(() => notifySupabaseApplicationStatus(applicationId))
+        .catch(() => undefined);
+    }
     const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'OSA Administrator';
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
@@ -528,7 +557,7 @@ function App() {
       notifications: prependInAppNotification(previous, {
         id: `not-${crypto.randomUUID()}`,
         title: `Application moved to ${status}`,
-        channel: 'Email',
+        channel: 'In-app',
         body: `${actor} updated the application status to ${status} in the admin workspace.`,
         status: 'Unread',
         createdAt: new Date().toISOString().slice(0, 10),
@@ -762,6 +791,17 @@ function App() {
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
+    if (isSupabaseWorkspaceLoaded) {
+      // Persisting the deadline lets the scheduled reminder function email the
+      // same 7-day / 3-day / 1-day reminders the client generates locally.
+      createSupabaseCustomDeadline({
+        id: newDeadline.id,
+        ownerId: currentProfile.id,
+        title: newDeadline.title,
+        deadline: newDeadline.deadline,
+      });
+    }
+
     setState((previous) => {
       const updatedState = {
         ...previous,
@@ -773,6 +813,7 @@ function App() {
   };
 
   const deleteCustomDeadline = (deadlineId) => {
+    if (isSupabaseWorkspaceLoaded) deleteSupabaseCustomDeadline(deadlineId);
     setState((previous) => ({
       ...previous,
       customDeadlines: previous.customDeadlines.filter((d) => d.id !== deadlineId),
@@ -1109,7 +1150,16 @@ function App() {
           {state.activeView === 'settings' && (
             <SettingsViewPage
               notificationPreferences={state.notificationPreferences}
-              onUpdatePreferences={(prefs) => updateState({ notificationPreferences: prefs })}
+              isEmailDeliveryAvailable={isSupabaseWorkspaceLoaded}
+              onUpdatePreferences={(prefs) => {
+                updateState({ notificationPreferences: prefs });
+                // Mirror the settings to Supabase so the scheduled reminder
+                // function can honor the same channel choices.
+                if (isSupabaseWorkspaceLoaded && state.authUser?.id) {
+                  updateSupabaseNotificationPreferences(state.authUser.id, prefs);
+                }
+              }}
+              onSendTestEmail={isSupabaseWorkspaceLoaded ? sendSupabaseTestEmail : null}
             />
           )}
 
