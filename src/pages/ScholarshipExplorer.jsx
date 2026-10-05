@@ -1,7 +1,7 @@
 import { EmptyState } from '../components/pageParts';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { coverageTypes } from '../lib/constants';
-import { getDeadlineStatus } from '../lib/eligibility';
+import { DENIAL_MESSAGE, evaluateApplicationGate, getDeadlineStatus, isInternalScholarship } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
 
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply }) {
@@ -85,6 +85,8 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {scholarships.length ? scholarships.map((scholarship) => {
           const deadline = getDeadlineStatus(scholarship.deadline);
+          const isInternal = isInternalScholarship(scholarship);
+          const gateResult = isInternal ? evaluateApplicationGate(profile, scholarship) : null;
           return (
             <article key={scholarship.id} className="rounded-app border bg-app-card p-5 shadow-app backdrop-blur scholarship-card">
                 <div className="flex min-w-0 items-start justify-between gap-4">
@@ -108,7 +110,20 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                 {scholarship.tags.map((tag) => <span key={tag} className="rounded-full border border-app-border bg-app-surface px-2.5 py-1 text-xs text-app-muted">{tag}</span>)}
               </div>
 
-              <button className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 w-full" onClick={() => onApply(scholarship)}>Add to applications</button>
+              {gateResult && !gateResult.allowed && (
+                <p className="mt-3 text-sm text-rose-700 dark:text-rose-300" role="status">
+                  {DENIAL_MESSAGE} {gateResult.reasons.join(' ')}
+                </p>
+              )}
+              <button
+                type="button"
+                className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => onApply(scholarship)}
+                disabled={Boolean(gateResult && !gateResult.allowed)}
+                title={gateResult && !gateResult.allowed ? DENIAL_MESSAGE : undefined}
+              >
+                {gateResult && !gateResult.allowed ? 'Not qualified' : 'Add to applications'}
+              </button>
             </article>
           );
         }) : <EmptyState title="No scholarships match your filters" description="Relax the filters or use a broader search term to surface more programs." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Reset filters</button>} />}

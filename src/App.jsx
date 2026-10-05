@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createInitialState, demoUsers, readStoredState, storageKey } from './lib/demoState';
 import { mergeNotifications } from './lib/notificationMerge';
-import { getDeadlineStatus, rankScholarships, searchScholarships } from './lib/eligibility';
+import { evaluateApplicationGate, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateUserProfile } from './lib/auth';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
@@ -460,9 +460,14 @@ function App() {
     setIsSavingProfile(false);
   };
 
-  const applyToScholarship = (scholarship) => {
+  const applyToScholarship = (scholarship, qualificationProfile = studentMatchProfile) => {
+    if (isInternalScholarship(scholarship)) {
+      const gateResult = evaluateApplicationGate(qualificationProfile, scholarship);
+      if (!gateResult.allowed) return gateResult;
+    }
+
     const alreadyExists = state.applications.some((entry) => entry.scholarshipId === scholarship.id && entry.studentId === currentProfile.id);
-    if (alreadyExists) return;
+    if (alreadyExists) return { allowed: false, reasons: ['You already have an application for this scholarship.'] };
 
     const eligibleDocs = studentDocuments.filter((doc) => doc.verificationStatus === 'Verified').map((doc) => doc.id);
     const nextApplication = {
@@ -499,6 +504,7 @@ function App() {
       }),
       activeView: 'applications',
     }));
+    return { allowed: true, reasons: [] };
   };
 
   const submitApplication = (applicationId) => {

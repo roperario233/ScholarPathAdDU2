@@ -1,17 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Minus, Plus } from 'lucide-react';
-import { rankScholarships } from '../lib/eligibility';
-import { Card, EmptyState, ScholarshipRow } from '../components/pageParts';
+import { DENIAL_MESSAGE, evaluateApplicationGate, getInternalScholarships } from '../lib/eligibility';
+import { Card } from '../components/pageParts';
 import { SelectPicker } from './LoginScreen';
 
 export default function EligibilityChecker({ profileDraft, scholarships, onApply, onSaveProfile, academicPrograms = [], academicProgramCategories = [] }) {
-  const [result, setResult] = useState([]);
+  const [checkResult, setCheckResult] = useState(null);
+  const [selectedScholarshipId, setSelectedScholarshipId] = useState('');
   const [editableProfile, setEditableProfile] = useState(profileDraft);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [qpiText, setQpiText] = useState(String(editableProfile.qpi ?? ''));
   const [incomeText, setIncomeText] = useState(String(editableProfile.householdIncome ?? ''));
   const qpiValue = Number(editableProfile.qpi);
+  const internalScholarships = getInternalScholarships(scholarships);
+  const selectedScholarship = internalScholarships.find((item) => String(item.id) === selectedScholarshipId) || internalScholarships[0] || null;
   const hasTemporaryChanges = JSON.stringify(editableProfile) !== JSON.stringify(profileDraft);
   const isQpiOutOfRange = Number.isFinite(qpiValue) && (qpiValue < 0 || qpiValue > 4);
 
@@ -20,11 +23,21 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
     setQpiText(String(profileDraft.qpi ?? ''));
     setIncomeText(String(profileDraft.householdIncome ?? ''));
     setSaveMessage('');
+    setCheckResult(null);
   }, [profileDraft]);
 
   const updateEditableProfile = (patch) => {
     setSaveMessage('');
+    setCheckResult(null);
     setEditableProfile((previous) => ({ ...previous, ...patch }));
+  };
+
+  const handleCheckEligibility = () => {
+    setCheckResult(evaluateApplicationGate({
+      ...editableProfile,
+      qpi: qpiText,
+      householdIncome: incomeText,
+    }, selectedScholarship));
   };
 
   const resetToSavedProfile = () => {
@@ -32,6 +45,7 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
     setQpiText(String(profileDraft.qpi ?? ''));
     setIncomeText(String(profileDraft.householdIncome ?? ''));
     setSaveMessage('');
+    setCheckResult(null);
   };
 
   const handleSaveProfile = async () => {
@@ -47,6 +61,7 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
 
     if (normalizedValue === '') {
       setQpiText('');
+      updateEditableProfile({ qpi: '' });
       return;
     }
 
@@ -64,7 +79,7 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
 
   const clampQpi = () => {
     if (qpiText.trim() === '') {
-      setQpiText(String(editableProfile.qpi ?? ''));
+      updateEditableProfile({ qpi: '' });
       return;
     }
 
@@ -88,6 +103,7 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
 
     if (normalizedValue === '') {
       setIncomeText('');
+      updateEditableProfile({ householdIncome: '' });
       return;
     }
 
@@ -105,7 +121,7 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
 
   const clampIncome = () => {
     if (incomeText.trim() === '') {
-      setIncomeText(String(editableProfile.householdIncome ?? ''));
+      updateEditableProfile({ householdIncome: '' });
       return;
     }
 
@@ -121,28 +137,16 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
     updateEditableProfile({ householdIncome: roundedValue });
   };
 
-  useEffect(() => {
-    const numericQpi = Number(editableProfile.qpi);
-
-    if (!Number.isFinite(numericQpi) || numericQpi < 0 || numericQpi > 4) {
-      setResult([]);
-      return;
-    }
-
-    const matches = rankScholarships(editableProfile, scholarships);
-    setResult(matches.slice(0, 8));
-  }, [editableProfile, scholarships]);
-
   return (
     <div className="blue-action-view grid gap-4">
       <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row">
         <div className="page-title-copy">
           <span className="page-section-label">Smart Eligibility Checker</span>
-          <h2>Check QPI, income, and degree eligibility</h2>
+          <h2>Check qualifications before applying</h2>
         </div>
         <div className="page-metric eligible-grants-metric rounded-2xl border border-app-border bg-app-surface p-4 text-center sm:min-w-36">
-          <strong>{result.length}</strong>
-          <span>Eligible grants</span>
+          <strong>{checkResult ? (checkResult.allowed ? 'Qualified' : 'Not qualified') : '—'}</strong>
+          <span>Qualification check</span>
         </div>
       </section>
 
@@ -219,11 +223,55 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
           </div>
         </Card>
 
-        <Card title="Matched scholarships">
-          <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-2">
-            {result.length ? result.map((scholarship) => (
-              <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onApply} compact />
-            )) : <EmptyState title="No matches for this profile" description="Adjust QPI, income, degree, or grant status to see matching scholarships here." />}
+        <Card title="Check an internal scholarship">
+          <div className="grid gap-4">
+            <p className="m-0 text-sm text-app-muted">Choose one of AdDU’s internal scholarships. The checker uses your QPI, household income, degree program, and applicable exclusion rules to determine whether you may proceed.</p>
+            {internalScholarships.length ? (
+              <>
+                <SelectPicker
+                  label="Internal scholarship"
+                  value={selectedScholarshipId || selectedScholarship?.id || ''}
+                  onChange={(value) => {
+                    setSelectedScholarshipId(value);
+                    setCheckResult(null);
+                  }}
+                  options={internalScholarships.map((scholarship) => ({ value: scholarship.id, label: scholarship.title }))}
+                  idPrefix="eligibility-scholarship"
+                />
+                <button
+                  type="button"
+                  className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={handleCheckEligibility}
+                >
+                  Check eligibility
+                </button>
+                {checkResult && (
+                  <div className={`grid gap-3 rounded-xl border p-4 ${checkResult.allowed ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-rose-500/40 bg-rose-500/10'}`} role="status" aria-live="polite">
+                    <strong className={checkResult.allowed ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}>
+                      {checkResult.allowed ? 'You are qualified to proceed' : DENIAL_MESSAGE}
+                    </strong>
+                    {checkResult.reasons.length > 0 && (
+                      <ul className="m-0 grid gap-1 pl-5 text-sm text-app-muted">
+                        {checkResult.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                      </ul>
+                    )}
+                    {checkResult.allowed && (
+                      <button
+                        type="button"
+                        className="inline-flex min-h-10 w-fit items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                        onClick={() => onApply(selectedScholarship, editableProfile)}
+                      >
+                        Add to applications
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="rounded-xl border border-app-border bg-app-surface p-4 text-sm text-app-muted" role="status">
+                The internal scholarship catalog is not available right now. Please try again later or contact the Office of Student Affairs.
+              </div>
+            )}
           </div>
         </Card>
       </section>

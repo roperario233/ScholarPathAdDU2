@@ -5,6 +5,26 @@ export const GENERAL_POOL_INCOME_CEILING = 250000;
 export const GENERAL_POOL_QPI_FLOOR = 2.5;
 export const GENERAL_POOL_EXCLUDED_DEGREES = ['BS Nursing', 'BS Architecture'];
 
+export const ADDU_INTERNAL_RULE_FAMILIES = ['general-pool', 'honors', 'work-study'];
+export const DENIAL_MESSAGE = "You don't have any qualifications for this scholarship.";
+
+export const isInternalScholarship = (scholarship = {}) => {
+  if (ADDU_INTERNAL_RULE_FAMILIES.includes(scholarship.ruleFamily)) return true;
+  const title = String(scholarship.title || '').toLowerCase();
+  return /jubilee|grant[ -]?in[ -]?aid|\bgia\b|student assistant|working scholar/.test(title);
+};
+
+export const getInternalScholarships = (scholarships = []) => scholarships.filter(isInternalScholarship);
+
+const getInternalRuleFamily = (scholarship) => {
+  if (ADDU_INTERNAL_RULE_FAMILIES.includes(scholarship.ruleFamily)) return scholarship.ruleFamily;
+  const title = String(scholarship.title || '').toLowerCase();
+  if (/jubilee/.test(title)) return 'honors';
+  if (/student assistant|working scholar/.test(title)) return 'work-study';
+  if (/grant[ -]?in[ -]?aid|\bgia\b/.test(title)) return 'general-pool';
+  return null;
+};
+
 export const getDeadlineStatus = (deadline, today = new Date()) => {
   if (!deadline) return { label: 'Rolling / TBA', tone: 'neutral', remainingDays: null };
   const due = toDate(deadline);
@@ -155,6 +175,45 @@ export const evaluateScholarship = (profile, scholarship) => {
     infoNotes,
     fitScore: eligible ? getScholarshipFit(profile, scholarship) : null,
     deadlineStatus,
+  };
+};
+
+export const evaluateApplicationGate = (profile, scholarship) => {
+  const reasons = [];
+  const qpi = Number(profile?.qpi);
+  const householdIncome = Number(profile?.householdIncome);
+
+  if (profile?.qpi == null || profile.qpi === '' || !Number.isFinite(qpi)) {
+    reasons.push('Enter a valid QPI before checking qualifications.');
+  } else if (qpi < 0 || qpi > 4) {
+    reasons.push('QPI must be between 0.00 and 4.00.');
+  }
+
+  if (profile?.householdIncome == null || profile.householdIncome === '' || !Number.isFinite(householdIncome)) {
+    reasons.push('Enter your household income before checking qualifications.');
+  } else if (householdIncome < 0) {
+    reasons.push('Household income cannot be negative.');
+  }
+
+  if (!scholarship) reasons.push('Select an internal scholarship to check.');
+  if (scholarship && !isInternalScholarship(scholarship)) {
+    reasons.push('The Smart Eligibility Checker only evaluates AdDU internal scholarships.');
+  }
+
+  if (scholarship && isInternalScholarship(scholarship) && reasons.length === 0) {
+    const ruleFamily = getInternalRuleFamily(scholarship);
+    if (!ruleFamily) {
+      reasons.push('Scholarship qualification rules are not configured. Please contact the Office of Student Affairs.');
+    } else {
+      reasons.push(...evaluateScholarship(profile, { ...scholarship, ruleFamily }).reasons);
+    }
+  }
+
+  const allowed = reasons.length === 0;
+  return {
+    allowed,
+    reasons,
+    message: allowed ? 'You meet the qualifications to proceed with this scholarship application.' : DENIAL_MESSAGE,
   };
 };
 
