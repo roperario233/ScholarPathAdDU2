@@ -80,22 +80,24 @@ describe('internal scholarship eligibility gate', () => {
     expect(result.reasons).toContain('Enter your household income before checking qualifications.');
   });
 
-  it('uses title fallback to evaluate Jubilee and Working Scholars rule families', () => {
+  it('allows Jubilee honors graduates beyond incoming first-year students', () => {
     const jubileeResult = evaluateApplicationGate({
       ...eligibleProfile,
       applicantType: 'current',
-      isHonorsGraduate: false,
+      isHonorsGraduate: true,
       graduatingClassSize: 100,
     }, { title: 'Jubilee Scholarship', isActive: true });
-    expect(jubileeResult.allowed).toBe(false);
-    expect(jubileeResult.reasons).toContain('Open only to incoming AdDU first-year students.');
+    expect(jubileeResult.allowed).toBe(true);
+    expect(jubileeResult.reasons).not.toContain('Open only to incoming AdDU first-year students.');
+  });
 
+  it('allows Student Assistant applicants from any degree program', () => {
     const workingScholarsResult = evaluateApplicationGate(eligibleProfile, {
       title: 'Student Assistant Program (Working Scholars)',
       isActive: true,
       eligibleDegrees: ['BS Nursing'],
     });
-    expect(workingScholarsResult.allowed).toBe(false);
-    expect(workingScholarsResult.reasons).toContain('Currently limited to BS Nursing.');
+    expect(workingScholarsResult.allowed).toBe(true);
+    expect(workingScholarsResult.reasons).toEqual([]);
   });
 });

@@ -124,6 +124,8 @@ These rules come from the manuscript and should guide implementation details:
 
 - Eligibility matching should honor QPI, income, degree program, active status, deadline state, and exclusion logic.
 - Specific exclusions must override broad inclusions.
+- Jubilee Scholarship eligibility is not restricted to incoming first-year students; retain its official Valedictorian/Salutatorian standing and graduating-class size criteria.
+- Student Assistant (SA) / Working Scholar eligibility is open to students across all academic programs and must not be blocked by degree-specific catalog metadata.
 - Scholarship discovery should support faceted filtering and fast search over the current taxonomy.
 - Document handling should behave like a normalized vault where the same file can be attached to multiple applications.
 - Notifications should remain event-oriented in concept, even if the local demo simulates the behavior.

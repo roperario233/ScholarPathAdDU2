@@ -103,7 +103,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                 <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
                 <span><strong>Income</strong> ≤ {fmtCurrency(scholarship.maximumIncome)}</span>
                 <span><strong>Deadline</strong> {fmtDate(scholarship.deadline)}</span>
-                <span><strong>Degrees</strong> {scholarship.eligibleDegrees.includes('ALL') ? 'All programs' : scholarship.eligibleDegrees.length}</span>
+                <span><strong>Degrees</strong> {scholarship.ruleFamily === 'work-study' || scholarship.eligibleDegrees.includes('ALL') ? 'All programs' : scholarship.eligibleDegrees.length}</span>
               </div>
 
               <div className="flex flex-wrap gap-2">

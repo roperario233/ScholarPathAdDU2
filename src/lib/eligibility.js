@@ -90,20 +90,12 @@ const evaluateGeneralPool = (profile, scholarship) => {
 
 const evaluateHonorsTrack = (profile) => {
   const reasons = [];
-  if (profile.applicantType !== 'first-year') reasons.push('Open only to incoming AdDU first-year students.');
   if (!profile.isHonorsGraduate) reasons.push('Requires official Valedictorian or Salutatorian standing.');
   if (!profile.graduatingClassSize || Number(profile.graduatingClassSize) < 80) reasons.push('Graduating class must have at least 80 students.');
   return reasons;
 };
 
-const evaluateWorkStudy = (profile, scholarship) => {
-  const reasons = [];
-  const eligibleDegrees = scholarship.eligibleDegrees || [];
-  if (!eligibleDegrees.includes(profile.degreeProgram)) {
-    reasons.push(`Currently limited to ${eligibleDegrees.join(' and ')}.`);
-  }
-  return reasons;
-};
+const evaluateWorkStudy = () => [];
 
 const GOV_EVALUATORS = {
   CHED_SSP: () => ['SSP is reserved for SUC/LUC students \u2014 AdDU is a private HEI, so this program does not apply.'],
