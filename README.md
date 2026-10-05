@@ -9,6 +9,7 @@ A React + Vite and Supabase webapp for our ScholarPath AdDU capstone.
 - Reusable document vault
 - Admissions Office application operations
 - Department chair review view
+- My Profile editing for every role (personal, academic, household, eligibility background, and account security details)
 
 ## Authentication redirect configuration
 
@@ -31,6 +32,42 @@ redirect URI.
 Optional: set `VITE_SITE_URL` in the deployed environment (see `.env.example`)
 to make every build return to one canonical origin. Leave it unset locally so
 local development signs in against `http://localhost:5173`.
+
+## My Profile
+
+Every role has a **My Profile** page (sidebar → My Profile, or the avatar in the
+mobile header). Overview is read-only; every other section saves on its own:
+
+| Section | Who sees it | What it covers |
+| --- | --- | --- |
+| Overview | Everyone | Identity card, profile completeness checklist, and (students) an eligibility snapshot listing any Exclusion Flag Hierarchy flags |
+| Personal information | Everyone | Full name, Philippine mobile number, and short bio; sign-in email, role, and department are read-only |
+| Academic profile | Students | Student number, degree program (sets the department), year level, applicant type, academic standing, and annual QPI |
+| Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
+| Eligibility background | Students | Citizenship, graduating honors standing and class size, senior high school strand and average, and sponsor ties (GSIS, AFP/CAA, US veteran) |
+| Account security | Everyone | Change password or email a reset link (needs Supabase; demo accounts see a notice) |
+
+The Smart Eligibility Checker uses the saved values right away. QPI and income
+are self-reported; the prototype does not verify them with the Registrar.
+
+Department Chairs and Admissions Office administrators can edit only their name,
+mobile number, and bio. Department assignment is never self-editable, because it
+scopes the Department Review queue.
+
+In demo mode (no Supabase environment variables), edits are stored in the
+browser and survive signing out and back in.
+
+### Database migration
+
+Apply `supabase/migrations/20261005140000_add_profile_details.sql` to an
+existing Supabase project. It adds `profiles.bio` (up to 280 characters) and
+`profiles.eligibility_attributes` (JSON). Until it is applied, the fields that
+already have `profiles` columns still save (name, mobile number, student number,
+degree program, QPI, household income, and the government grant answer). The
+bio and the other eligibility answers (year level, applicant type, academic
+standing, the remaining household exclusion answers, and the whole Eligibility
+background section) do not reach the server. Fresh projects get both columns
+from `supabase/schema.sql`.
 
 ## Email notifications (Resend)
 
@@ -114,8 +151,9 @@ the same per-user ledger row.
 
 ### SMS recipients
 
-Students add their mobile number in the academic profile (optional field,
-validated to the Philippine mobile format, e.g. `0917 123 4567`). The Edge
+Students add their mobile number in the first-login academic profile or later
+under **My Profile → Personal information** (optional field, validated to the
+Philippine mobile format, e.g. `0917 123 4567`). The Edge
 Functions normalize it to the international `639XXXXXXXXX` form iprogSMS
 expects; a student without a usable number is skipped, not failed, so the
 reminder stays retryable once they add one.
