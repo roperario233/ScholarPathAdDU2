@@ -72,6 +72,27 @@ const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
   return [...local, ...server.filter((entry) => !localIds.has(entry.id))];
 };
 
+// Persists one student-created deadline so the scheduled reminder function can
+// email the same 7-day / 3-day / 1-day reminders the client generates locally.
+// The write is awaited and any failure is logged rather than thrown, so the
+// calendar keeps working offline; the reconciliation effect in App() retries a
+// deadline whose first write did not land.
+const persistCustomDeadline = async (deadline, ownerId) => {
+  try {
+    const { error } = await createSupabaseCustomDeadline({
+      id: deadline.id,
+      ownerId,
+      title: deadline.title,
+      deadline: deadline.deadline,
+    });
+    if (error) {
+      console.warn('[ScholarPath] Reminder saved locally but not synced for email delivery:', error.message || error);
+    }
+  } catch (error) {
+    console.warn('[ScholarPath] Reminder saved locally but not synced for email delivery:', error?.message || error);
+  }
+};
+
 function App() {
   const [state, setState] = useState(createInitialState);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -173,6 +194,22 @@ function App() {
       document.removeEventListener('visibilitychange', syncDeadlineReminders);
     };
   }, [isBooting]);
+
+  // The local deadline list is the source of truth for the calendar, but the
+  // server-side reminder function can only email deadlines it can read from
+  // `custom_deadlines`. Mirror the current list once the workspace is ready, and
+  // again after every change, so a reminder created before the workspace finished
+  // loading (or one whose first write failed) is still persisted and eligible for
+  // email. The upsert is idempotent on the client-generated id.
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || !state.authUser?.id) {
+      return;
+    }
+
+    state.customDeadlines.forEach((deadline) => {
+      persistCustomDeadline(deadline, state.authUser.id);
+    });
+  }, [isSupabaseWorkspaceLoaded, state.authUser?.id, state.customDeadlines]);
 
   useEffect(() => {
     if (isBooting) {
@@ -802,15 +839,11 @@ function App() {
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
-    if (isSupabaseWorkspaceLoaded) {
+    if (isSupabaseWorkspaceLoaded && currentProfile.id) {
       // Persisting the deadline lets the scheduled reminder function email the
-      // same 7-day / 3-day / 1-day reminders the client generates locally.
-      createSupabaseCustomDeadline({
-        id: newDeadline.id,
-        ownerId: currentProfile.id,
-        title: newDeadline.title,
-        deadline: newDeadline.deadline,
-      });
+      // same 7-day / 3-day / 1-day reminders the client generates locally. A
+      // failure is logged and retried by the reconciliation effect below.
+      persistCustomDeadline(newDeadline, currentProfile.id);
     }
 
     setState((previous) => {

@@ -342,13 +342,19 @@ for select using (auth.uid() = user_id);
 -- enable them from the dashboard if not already active). Runs daily at
 -- 07:00 Asia/Manila.
 --
+-- Applied to the deployed project by the migration
+-- supabase/migrations/20261005000001_schedule_deadline_reminders.sql; the block
+-- below stays as the documented, project-ref-agnostic reference for a fresh
+-- project.
+--
 -- Setup, in order:
 --   1. Replace <project-ref> below with the deployed project ref.
---   2. Store the scheduled-caller secret once, so the job can authenticate.
---      Use the same value you set as the REMINDER_CRON_SECRET Edge Function
---      secret:
---        alter database postgres
---          set app.settings.reminder_cron_secret = '<the same value>';
+--   2. Replace <REMINDER_CRON_SECRET> below with the same long random value you
+--      set as the REMINDER_CRON_SECRET Edge Function secret. The scheduled
+--      caller authenticates with it, and the function compares it by exact value
+--      (failing closed when its own secret is unset). The value is bound into the
+--      scheduled command because Supabase's `postgres` role cannot run
+--      `alter database postgres set app.settings.reminder_cron_secret`.
 --   3. Run the create extension and cron.schedule statements below.
 --
 -- The function deliberately runs with verify_jwt disabled: the platform-level
@@ -366,7 +372,7 @@ for select using (auth.uid() = user_id);
 --   select net.http_post(
 --     url := 'https://<project-ref>.supabase.co/functions/v1/process-deadline-reminders',
 --     headers := jsonb_build_object(
---       'Authorization', 'Bearer ' || current_setting('app.settings.reminder_cron_secret'),
+--       'Authorization', 'Bearer <REMINDER_CRON_SECRET>',
 --       'Content-Type', 'application/json'
 --     ),
 --     body := '{}'::jsonb

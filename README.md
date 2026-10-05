@@ -79,11 +79,13 @@ Deadline reminders and application status updates are emailed through
    - `--use-api` only if you do not have Docker running; the CLI needs Docker to
      bundle functions locally otherwise.
 
-4. **Schedule the daily run** (optional). Uncomment the `pg_cron` block at the
-   bottom of `supabase/schema.sql`, replace the project ref, store the same
-   `REMINDER_CRON_SECRET` value with
-   `alter database postgres set app.settings.reminder_cron_secret = '...'`, and
-   apply it. The job runs at 07:00 Asia/Manila.
+4. **Schedule the daily run.** `supabase/migrations/20261005000001_schedule_deadline_reminders.sql`
+   enables `pg_cron` + `pg_net` and schedules the job (07:00 Asia/Manila). Replace
+   its `<project-ref>` and `<REMINDER_CRON_SECRET>` placeholders (the latter with
+   the same value as the Edge Function secret) before applying. The secret is
+   bound into the scheduled command because Supabase's `postgres` role cannot run
+   `alter database postgres set app.settings.reminder_cron_secret`. The equivalent
+   block stays documented at the bottom of `supabase/schema.sql`.
 
 ### Verifying delivery
 
