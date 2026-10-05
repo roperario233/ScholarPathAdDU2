@@ -4,8 +4,10 @@ import { createInitialState, demoUsers, readStoredState, storageKey } from './li
 import { mergeNotifications } from './lib/notificationMerge';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateUserProfile } from './lib/auth';
-import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
+import { hasSupabaseConfig } from './lib/supabaseClient';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -18,6 +20,7 @@ import AdminConsolePage from './pages/AdminConsole';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
+import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 
 const roleLabels = {
@@ -70,6 +73,27 @@ const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
   const server = Array.isArray(serverDeadlines) ? serverDeadlines : [];
   const localIds = new Set(local.map((entry) => entry.id));
   return [...local, ...server.filter((entry) => !localIds.has(entry.id))];
+};
+
+// Persists one student-created deadline so the scheduled reminder function can
+// email the same 7-day / 3-day / 1-day reminders the client generates locally.
+// The write is awaited and any failure is logged rather than thrown, so the
+// calendar keeps working offline; the reconciliation effect in App() retries a
+// deadline whose first write did not land.
+const persistCustomDeadline = async (deadline, ownerId) => {
+  try {
+    const { error } = await createSupabaseCustomDeadline({
+      id: deadline.id,
+      ownerId,
+      title: deadline.title,
+      deadline: deadline.deadline,
+    });
+    if (error) {
+      console.warn('[ScholarPath] Reminder saved locally but not synced for email delivery:', error.message || error);
+    }
+  } catch (error) {
+    console.warn('[ScholarPath] Reminder saved locally but not synced for email delivery:', error?.message || error);
+  }
 };
 
 function App() {
@@ -174,6 +198,22 @@ function App() {
     };
   }, [isBooting]);
 
+  // The local deadline list is the source of truth for the calendar, but the
+  // server-side reminder function can only email deadlines it can read from
+  // `custom_deadlines`. Mirror the current list once the workspace is ready, and
+  // again after every change, so a reminder created before the workspace finished
+  // loading (or one whose first write failed) is still persisted and eligible for
+  // email. The upsert is idempotent on the client-generated id.
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || !state.authUser?.id) {
+      return;
+    }
+
+    state.customDeadlines.forEach((deadline) => {
+      persistCustomDeadline(deadline, state.authUser.id);
+    });
+  }, [isSupabaseWorkspaceLoaded, state.authUser?.id, state.customDeadlines]);
+
   useEffect(() => {
     if (isBooting) {
       return undefined;
@@ -190,6 +230,7 @@ function App() {
       const user = result.session.user;
       const profileResult = await getUserProfile(user.id);
       const profile = profileResult.profile;
+      const profileDetails = await getProfileDetails(user.id);
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
       updateState((previous) => ({
         ...previous,
@@ -199,6 +240,7 @@ function App() {
         authUser: {
           id: user.id,
           email: user.email,
+          phone: profile?.phone || '',
           role: userRole,
           fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user',
           department: profile?.department || '',
@@ -207,10 +249,13 @@ function App() {
           qpi: profile?.qpi ?? '',
           householdIncome: profile?.household_income ?? '',
           hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
+          bio: profileDetails.bio,
         },
-        profileDraft: profile?.degree_program
-          ? { ...previous.profileDraft, degreeProgram: profile.degree_program }
-          : previous.profileDraft,
+        profileDraft: {
+          ...previous.profileDraft,
+          ...profileDetails.eligibilityAttributes,
+          ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
+        },
       }));
       const workspace = await loadSupabaseWorkspace({ role: userRole, userId: user.id, department: profile?.department || '' });
       if (active && workspace.success) {
@@ -233,7 +278,7 @@ function App() {
       }
       if (userRole === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null)) {
         if (readStoredState()?.profileSkipped) return;
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
     };
 
@@ -320,8 +365,10 @@ function App() {
     if (authResult.success || authResult.fallback) {
       const profileResult = authResult.user?.id ? await getUserProfile(authResult.user.id) : { profile: null };
       const profile = profileResult.profile;
+      const profileDetails = authResult.user?.id ? await getProfileDetails(authResult.user.id) : { bio: '', eligibilityAttributes: {} };
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const account = resolveAccount(resolvedRole);
+      const accountId = authResult.user?.id || account.id;
       updateState((previous) => ({
         ...previous,
         isAuthenticated: true,
@@ -330,7 +377,7 @@ function App() {
         viewerRole: account.role,
         activeView: landingViewForRole(account.role),
         authUser: {
-          id: authResult.user?.id || account.id,
+          id: accountId,
           email: credentials.email,
           role: account.role,
           fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName,
@@ -339,13 +386,22 @@ function App() {
           studentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '',
           qpi: profile?.qpi ?? '',
           householdIncome: profile?.household_income ?? '',
+          ...(profile ? {
+            phone: profile.phone || '',
+            hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
+            bio: profileDetails.bio,
+          } : {}),
+          // Demo accounts have no server profile, so restore their My Profile edits.
+          ...(authResult.fallback ? previous.profileEdits?.[accountId] : {}),
         },
         rememberMe: credentials.rememberMe || false,
         savedEmail: credentials.rememberMe ? credentials.email : previous.savedEmail,
         savedRole: credentials.rememberMe ? account.role : previous.savedRole,
-        profileDraft: profile?.degree_program
-          ? { ...previous.profileDraft, degreeProgram: profile.degree_program }
-          : previous.profileDraft,
+        profileDraft: {
+          ...previous.profileDraft,
+          ...profileDetails.eligibilityAttributes,
+          ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
+        },
       }));
       const workspace = await loadSupabaseWorkspace({ role: account.role, userId: authResult.user?.id || account.id, department: profile?.department || account.department });
       if (workspace.success) {
@@ -362,7 +418,7 @@ function App() {
         updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
       }
       if (authResult.user?.id && account.role === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null) && !readStoredState()?.profileSkipped) {
-        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -431,7 +487,7 @@ function App() {
     setIsSupabaseWorkspaceLoaded(false);
   };
 
-  const saveAcademicProfile = async (program, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant) => {
+  const saveAcademicProfile = async (program, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone) => {
     if (!program) {
       updateState({ profileSkipped: true });
       setProfileOnboarding(null);
@@ -448,6 +504,7 @@ function App() {
       householdIncome,
       qpi,
       hasActiveGovernmentGrant,
+      phone,
     });
 
     if (!result.success) {
@@ -457,7 +514,7 @@ function App() {
     }
 
     updateState((previous) => ({
-      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant },
+      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone },
       profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi, hasActiveGovernmentGrant },
       profileSkipped: false,
     }));
@@ -802,15 +859,11 @@ function App() {
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
-    if (isSupabaseWorkspaceLoaded) {
+    if (isSupabaseWorkspaceLoaded && currentProfile.id) {
       // Persisting the deadline lets the scheduled reminder function email the
-      // same 7-day / 3-day / 1-day reminders the client generates locally.
-      createSupabaseCustomDeadline({
-        id: newDeadline.id,
-        ownerId: currentProfile.id,
-        title: newDeadline.title,
-        deadline: newDeadline.deadline,
-      });
+      // same 7-day / 3-day / 1-day reminders the client generates locally. A
+      // failure is logged and retried by the reconciliation effect below.
+      persistCustomDeadline(newDeadline, currentProfile.id);
     }
 
     setState((previous) => {
@@ -862,6 +915,49 @@ function App() {
     return result;
   };
 
+  // Saves one My Profile section. Students may edit academic and eligibility
+  // fields; staff may edit only their name, mobile number, and bio, so a
+  // Department Chair can never re-scope their own department from this page.
+  const saveProfile = async (patch) => {
+    const isStudent = state.viewerRole === 'student';
+    const accountFields = pickFields(patch, isStudent ? ACCOUNT_FIELD_KEYS : STAFF_EDITABLE_FIELD_KEYS);
+    if (isStudent && accountFields.degreeProgram) {
+      const selectedProgram = activeAcademicPrograms.find((program) => program.value === accountFields.degreeProgram) || getAcademicProgram(accountFields.degreeProgram);
+      accountFields.department = selectedProgram.department;
+    }
+    const eligibilityAttributes = isStudent ? pickEligibilityAttributes(patch) : {};
+    const hasEligibilityAttributes = Object.keys(eligibilityAttributes).length > 0;
+    const userId = state.authUser?.id || currentProfile.id;
+
+    const result = await updateProfileFields(userId, {
+      ...accountFields,
+      ...(hasEligibilityAttributes
+        ? { eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes } }
+        : {}),
+    });
+    if (!result.success) return result;
+
+    updateState((previous) => ({
+      authUser: { ...previous.authUser, ...accountFields },
+      profileDraft: isStudent
+        ? { ...previous.profileDraft, ...pickFields(accountFields, PROFILE_DRAFT_KEYS), ...eligibilityAttributes }
+        : previous.profileDraft,
+      profileEdits: result.fallback
+        ? { ...previous.profileEdits, [userId]: { ...previous.profileEdits?.[userId], ...accountFields } }
+        : previous.profileEdits,
+    }));
+
+    return {
+      success: true,
+      message: result.detailsSynced === false
+        ? 'Saved. Some details are kept on this device until the server profile is updated.'
+        : result.fallback ? 'Saved to this demo session.' : 'Profile saved.',
+    };
+  };
+
+  const changeAccountPassword = (password) => updateAccountPassword({ password });
+  const requestOwnPasswordReset = () => requestPasswordReset({ email: currentIdentity.email || '' });
+
   const eligiblePreview = eligibleScholarships.slice(0, 6);
   // Department queue is derived from applications joined to the student's
   // school-level department, so it stays consistent with profiles.department
@@ -888,6 +984,7 @@ function App() {
       initialStudentNumber: currentIdentity.studentNumber || '',
       initialQpi: currentIdentity.qpi ?? '',
       initialHouseholdIncome: currentIdentity.householdIncome ?? '',
+      initialPhone: currentIdentity.phone || '',
       initialHasActiveGovernmentGrant: currentIdentity.hasActiveGovernmentGrant ?? false,
     });
   };
@@ -901,6 +998,7 @@ function App() {
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
     { view: 'admin', label: 'Admissions Office', visible: state.viewerRole === 'admissions_office' },
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
+    { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
@@ -978,13 +1076,19 @@ function App() {
 
         <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 sm:gap-3">
           {state.authUser && (
-            <div className="mr-1 inline-flex min-w-0 items-center gap-2 sm:hidden" title={`${state.authUser.fullName} · ${roleLabels[state.viewerRole]}`}>
+            <button
+              type="button"
+              className="mr-1 inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:hidden"
+              title={`${state.authUser.fullName} · ${roleLabels[state.viewerRole]}`}
+              aria-label="Open My Profile"
+              onClick={() => navigate('profile')}
+            >
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ateneo to-sky-400 text-xs font-extrabold text-white" aria-hidden="true">{getInitials(state.authUser.fullName)}</span>
               <span className="hidden min-w-0 max-w-[12rem] leading-tight sm:grid">
                 <strong className="truncate">{state.authUser.fullName}</strong>
                 <span className="text-xs text-app-muted">{roleLabels[state.viewerRole]}</span>
               </span>
-            </div>
+            </button>
           )}
           <NotificationDropdown
             notifications={visibleNotifications}
@@ -1158,6 +1262,21 @@ function App() {
             />
           )}
 
+          {state.activeView === 'profile' && (
+            <ProfileViewPage
+              profile={currentIdentity}
+              role={state.viewerRole}
+              roleLabel={roleLabels[state.viewerRole]}
+              academicPrograms={activeAcademicPrograms}
+              academicProgramCategories={activeAcademicProgramCategories}
+              isAccountManaged={hasSupabaseConfig}
+              onSaveProfile={saveProfile}
+              onChangePassword={changeAccountPassword}
+              onRequestPasswordReset={requestOwnPasswordReset}
+              onOpenEligibility={() => navigate('eligibility')}
+            />
+          )}
+
           {state.activeView === 'settings' && (
             <SettingsViewPage
               notificationPreferences={state.notificationPreferences}
@@ -1171,6 +1290,8 @@ function App() {
                 }
               }}
               onSendTestEmail={isSupabaseWorkspaceLoaded ? sendSupabaseTestEmail : null}
+              onSendTestSms={isSupabaseWorkspaceLoaded ? sendSupabaseTestSms : null}
+              mobileNumber={currentIdentity.phone || ''}
             />
           )}
 

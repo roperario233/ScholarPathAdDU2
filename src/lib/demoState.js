@@ -415,6 +415,9 @@ const createDefaultState = () => ({
   notifications,
   announcements,
   customDeadlines: [],
+  // Demo-mode My Profile edits keyed by account id, so a demo account keeps its
+  // edited name, mobile number, and bio after signing out and back in.
+  profileEdits: {},
   profileSkipped: false,
   theme: 'light',
   academicPrograms,
@@ -467,6 +470,9 @@ export const createInitialState = () => {
     notifications: Array.isArray(stored.notifications) && stored.notifications.length ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) && stored.announcements.length ? stored.announcements : defaults.announcements,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
+    profileEdits: stored.profileEdits && typeof stored.profileEdits === 'object' && !Array.isArray(stored.profileEdits)
+      ? stored.profileEdits
+      : defaults.profileEdits,
     academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,
   };

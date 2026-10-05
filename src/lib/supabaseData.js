@@ -266,4 +266,8 @@ const invokeEmailFunction = async (functionName, body = {}) => {
 
 export const sendSupabaseTestEmail = () => invokeEmailFunction('send-test-email');
 
+// Same invoker and normalized response shape as the email test, backed by the
+// send-test-sms Edge Function (recipient is always the caller's own number).
+export const sendSupabaseTestSms = () => invokeEmailFunction('send-test-sms');
+
 export const notifySupabaseApplicationStatus = (applicationId) => invokeEmailFunction('notify-application-status', { applicationId });

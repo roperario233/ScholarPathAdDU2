@@ -44,11 +44,33 @@ export function StatusBadge({ tone = 'neutral', children, className = '' }) {
 
 export function FormField({ label, hint, error, children, className = '' }) {
   return (
-    <label className={clsx('grid gap-2', className)}>
+    // content-start keeps label, control, and hint packed at the top, so a field
+    // beside a taller neighbour (longer hint or error) is not stretched out of line.
+    <label className={clsx('grid content-start gap-2', className)}>
       <span className="text-sm font-semibold text-app-text">{label}</span>
       {children}
       {hint && <small className="field-hint">{hint}</small>}
       {error && <span className="text-sm text-rose-300" role="alert">{error}</span>}
+    </label>
+  );
+}
+
+export function SettingToggle({ checked, onChange, title, description }) {
+  return (
+    <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
+      <span className="relative mt-0.5 h-7 w-12 shrink-0 rounded-full bg-slate-400/20 transition-colors has-[:checked]:bg-ateneo">
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(event) => onChange(event.target.checked)}
+          className="peer sr-only"
+        />
+        <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+      </span>
+      <span className="min-w-0">
+        <strong className="block text-sm font-semibold text-app-text">{title}</strong>
+        <span className="mt-1 block text-sm text-app-muted">{description}</span>
+      </span>
     </label>
   );
 }

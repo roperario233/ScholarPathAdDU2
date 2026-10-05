@@ -1,4 +1,5 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
+import { pickEligibilityAttributes } from './profile';
 
 const getAuthErrorMessage = (error, fallbackMessage) => {
   if (!error) return fallbackMessage;
@@ -186,7 +187,7 @@ export const getUserProfile = async (userId) => {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('full_name, role, email, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
+      .select('full_name, role, email, phone, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
       .eq('user_id', userId)
       .maybeSingle();
     if (error) return { profile: null, fallback: false, message: getAuthErrorMessage(error, 'Unable to load your profile.') };
@@ -202,7 +203,7 @@ const getCurrentAcademicYear = (date = new Date()) => {
   return `${startYear}-${startYear + 1}`;
 };
 
-export const updateUserProfile = async (userId, { degreeProgram, department, studentNumber, qpi, householdIncome, hasActiveGovernmentGrant }) => {
+export const updateUserProfile = async (userId, { degreeProgram, department, studentNumber, qpi, householdIncome, hasActiveGovernmentGrant, phone }) => {
   if (!hasSupabaseConfig || !supabase || !userId) return { success: true, fallback: true };
 
   try {
@@ -247,14 +248,114 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
 
     const { data, error } = await supabase
       .from('profiles')
-      .update({ degree_program: degreeProgram, department, student_number: studentNumber, qpi, household_income: householdIncome, has_active_government_grant: Boolean(hasActiveGovernmentGrant), updated_at: new Date().toISOString() })
+      .update({ degree_program: degreeProgram, department, student_number: studentNumber, qpi, household_income: householdIncome, has_active_government_grant: Boolean(hasActiveGovernmentGrant), ...(phone === undefined ? {} : { phone: phone || null }), updated_at: new Date().toISOString() })
       .eq('user_id', userId)
-      .select('full_name, role, email, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
+      .select('full_name, role, email, phone, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
       .single();
     if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your academic profile.') };
     return { success: true, fallback: false, profile: data };
   } catch (error) {
     return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your academic profile.') };
+  }
+};
+
+// Maps camelCase profile fields to the core `profiles` columns. Only the keys
+// present on the patch are written, so each My Profile section saves alone.
+const coreProfileColumns = {
+  fullName: 'full_name',
+  phone: 'phone',
+  department: 'department',
+  degreeProgram: 'degree_program',
+  studentNumber: 'student_number',
+  qpi: 'qpi',
+  householdIncome: 'household_income',
+  hasActiveGovernmentGrant: 'has_active_government_grant',
+};
+
+// Columns added by 20261005140000_add_profile_details.sql. They are written in
+// a separate statement so a project that has not applied the migration yet
+// still saves the core profile.
+const detailProfileColumns = {
+  bio: 'bio',
+  eligibilityAttributes: 'eligibility_attributes',
+};
+
+const toProfileColumns = (fields, columnMap) => Object.fromEntries(
+  Object.entries(columnMap)
+    .filter(([key]) => fields[key] !== undefined)
+    .map(([key, column]) => [column, fields[key] === '' ? null : fields[key]]),
+);
+
+const isMissingColumnError = (error) => error?.code === '42703' || error?.code === 'PGRST204';
+
+export const getProfileDetails = async (userId) => {
+  const empty = { bio: '', eligibilityAttributes: {} };
+  if (!hasSupabaseConfig || !supabase || !userId) return empty;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('bio, eligibility_attributes')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return empty;
+    return { bio: data.bio || '', eligibilityAttributes: pickEligibilityAttributes(data.eligibility_attributes) };
+  } catch {
+    return empty;
+  }
+};
+
+export const updateProfileFields = async (userId, fields = {}) => {
+  if (!hasSupabaseConfig || !supabase || !userId) return { success: true, fallback: true };
+
+  try {
+    const updatedAt = new Date().toISOString();
+
+    if (fields.qpi !== undefined && fields.qpi !== '' && fields.qpi !== null) {
+      const { error: historyError } = await supabase
+        .from('annual_qpi_records')
+        .upsert({ user_id: userId, academic_year: getCurrentAcademicYear(), qpi: fields.qpi }, { onConflict: 'user_id,academic_year' });
+      if (historyError) return { success: false, fallback: false, message: getAuthErrorMessage(historyError, 'Unable to save your annual QPI record.') };
+    }
+
+    const coreColumns = toProfileColumns(fields, coreProfileColumns);
+    if (Object.keys(coreColumns).length) {
+      const { data, error } = await supabase
+        .from('profiles')
+        .update({ ...coreColumns, updated_at: updatedAt })
+        .eq('user_id', userId)
+        .select('user_id');
+      if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile.') };
+      if (!data?.length) return { success: false, fallback: false, message: 'Your profile record was not found. Please sign in again.' };
+    }
+
+    const detailColumns = toProfileColumns(fields, detailProfileColumns);
+    if (Object.keys(detailColumns).length) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ ...detailColumns, updated_at: updatedAt })
+        .eq('user_id', userId);
+      if (error && isMissingColumnError(error)) return { success: true, fallback: false, detailsSynced: false };
+      if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile details.') };
+    }
+
+    return { success: true, fallback: false, detailsSynced: true };
+  } catch (error) {
+    return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile.') };
+  }
+};
+
+export const updateAccountPassword = async ({ password }) => {
+  if (!hasSupabaseConfig || !supabase) {
+    return { success: false, fallback: true, message: 'Password changes are available once the Supabase workspace is configured.' };
+  }
+
+  try {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to update your password.') };
+    return { success: true, fallback: false, message: 'Your password has been updated.' };
+  } catch (error) {
+    return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to update your password.') };
   }
 };
 

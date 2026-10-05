@@ -29,6 +29,15 @@ alter table profiles add constraint profiles_role_check
 -- deadlineReminders: { oneWeekBefore, threeDaysBefore, dayBefore } }.
 alter table profiles add column if not exists notification_preferences jsonb not null default '{}'::jsonb;
 
+-- My Profile details (see migrations/20261005140000_add_profile_details.sql):
+-- a short bio and the extended Smart Eligibility Checker attributes listed in
+-- src/lib/profile.js (ELIGIBILITY_ATTRIBUTE_KEYS).
+alter table profiles add column if not exists bio text;
+alter table profiles add column if not exists eligibility_attributes jsonb not null default '{}'::jsonb;
+alter table profiles drop constraint if exists profiles_bio_length_check;
+alter table profiles add constraint profiles_bio_length_check
+  check (bio is null or char_length(bio) <= 280);
+
 -- Standard Procedure stage records (endorsement, interview, deliberation,
 -- release) and the event timeline live on applications as JSON payloads.
 alter table applications add column if not exists endorsement jsonb;
@@ -293,7 +302,9 @@ for all using (public.current_profile_role() = 'admissions_office') with check (
 -- often the scheduled job runs. Written only via the service role.
 --
 -- The email_* columns record the Resend outcome so a failed send stays
--- observable instead of silently disappearing.
+-- observable instead of silently disappearing; the sms_* columns record the
+-- matching iprogSMS outcome (sms_message_id is the gateway's queue-accept id,
+-- since iprogSMS has no delivery webhooks).
 -- ---------------------------------------------------------------------------
 create table if not exists notification_email_log (
   id uuid primary key default gen_random_uuid(),
@@ -304,6 +315,10 @@ create table if not exists notification_email_log (
   email_status text check (email_status in ('sent', 'failed', 'skipped')),
   email_id text,
   email_error text,
+  sms_to text,
+  sms_status text check (sms_status in ('sent', 'failed', 'skipped')),
+  sms_message_id text,
+  sms_error text,
   delivered_at timestamptz not null default now(),
   unique (source_key, user_id)
 );
@@ -342,13 +357,19 @@ for select using (auth.uid() = user_id);
 -- enable them from the dashboard if not already active). Runs daily at
 -- 07:00 Asia/Manila.
 --
+-- Applied to the deployed project by the migration
+-- supabase/migrations/20261005000001_schedule_deadline_reminders.sql; the block
+-- below stays as the documented, project-ref-agnostic reference for a fresh
+-- project.
+--
 -- Setup, in order:
 --   1. Replace <project-ref> below with the deployed project ref.
---   2. Store the scheduled-caller secret once, so the job can authenticate.
---      Use the same value you set as the REMINDER_CRON_SECRET Edge Function
---      secret:
---        alter database postgres
---          set app.settings.reminder_cron_secret = '<the same value>';
+--   2. Replace <REMINDER_CRON_SECRET> below with the same long random value you
+--      set as the REMINDER_CRON_SECRET Edge Function secret. The scheduled
+--      caller authenticates with it, and the function compares it by exact value
+--      (failing closed when its own secret is unset). The value is bound into the
+--      scheduled command because Supabase's `postgres` role cannot run
+--      `alter database postgres set app.settings.reminder_cron_secret`.
 --   3. Run the create extension and cron.schedule statements below.
 --
 -- The function deliberately runs with verify_jwt disabled: the platform-level
@@ -366,7 +387,7 @@ for select using (auth.uid() = user_id);
 --   select net.http_post(
 --     url := 'https://<project-ref>.supabase.co/functions/v1/process-deadline-reminders',
 --     headers := jsonb_build_object(
---       'Authorization', 'Bearer ' || current_setting('app.settings.reminder_cron_secret'),
+--       'Authorization', 'Bearer <REMINDER_CRON_SECRET>',
 --       'Content-Type', 'application/json'
 --     ),
 --     body := '{}'::jsonb
