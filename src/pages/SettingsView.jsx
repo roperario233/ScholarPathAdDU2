@@ -1,26 +1,6 @@
 import { useState } from 'react';
-import { Button } from '../components/ui';
+import { Button, SettingToggle } from '../components/ui';
 import { maskPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
-
-function SettingToggle({ checked, onChange, title, description }) {
-  return (
-    <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
-      <span className="relative mt-0.5 h-7 w-12 shrink-0 rounded-full bg-slate-400/20 transition-colors has-[:checked]:bg-ateneo">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          className="peer sr-only"
-        />
-        <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
-      </span>
-      <span className="min-w-0">
-        <strong className="block text-sm font-semibold text-app-text">{title}</strong>
-        <span className="mt-1 block text-sm text-app-muted">{description}</span>
-      </span>
-    </label>
-  );
-}
 
 export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '' }) {
   const [testEmail, setTestEmail] = useState({ status: 'idle', message: '' });
@@ -145,7 +125,7 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
                   <span className="mt-1 block text-sm text-app-muted">
                     {maskedMobileNumber
                       ? `Delivery number: ${maskedMobileNumber}`
-                      : 'No Philippine mobile number on file yet — add one in your academic profile.'}
+                      : 'No Philippine mobile number on file yet — add one under My Profile → Personal information.'}
                   </span>
                 </div>
                 <Button type="button" variant="primary" onClick={handleSendTestSms} disabled={testSms.status === 'sending'}>

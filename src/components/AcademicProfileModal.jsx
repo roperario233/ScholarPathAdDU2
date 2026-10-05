@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import logoImage from '../../pictures/logo.png';
 import { Button, FormField, ModalShell } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
-import { formatPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
+import { validateHouseholdIncome, validateMobileNumber, validateQpi, validateStudentNumber } from '../lib/profile';
 
 export default function AcademicProfileModal({ fullName, initialProgram, initialStudentNumber, initialPhone, initialHouseholdIncome, initialQpi, initialHasActiveGovernmentGrant, academicPrograms = [], academicProgramCategories = [], onSave, isSaving, errorMessage }) {
   const [program, setProgram] = useState(initialProgram || '');
@@ -29,37 +29,17 @@ export default function AcademicProfileModal({ fullName, initialProgram, initial
 
   const handleSubmit = (event) => {
     event.preventDefault();
-    const normalizedStudentNumber = studentNumber.trim();
     if (!program) return;
-    if (!/^\d{4,12}$/.test(normalizedStudentNumber)) {
-      setValidationError('Enter your AdDU student number using 4–12 digits.');
+    const checks = [validateStudentNumber(studentNumber), validateHouseholdIncome(householdIncome), validateQpi(qpi), validateMobileNumber(phone)];
+    const firstError = checks.find((check) => check.error);
+    if (firstError) {
+      setValidationError(firstError.error);
       return;
     }
 
-    const normalizedIncome = Number(householdIncome);
-    if (!Number.isFinite(normalizedIncome) || normalizedIncome < 0) {
-      setValidationError('Enter a valid annual household income in Philippine pesos.');
-      return;
-    }
-
-    const normalizedQpi = Number(qpi);
-    if (!Number.isFinite(normalizedQpi) || normalizedQpi < 0 || normalizedQpi > 4) {
-      setValidationError('Enter your annual QPI from 0.00 to 4.00.');
-      return;
-    }
-
-    let normalizedPhone = null;
-    const rawPhone = phone.trim();
-    if (rawPhone) {
-      normalizedPhone = formatPhilippineMobile(rawPhone);
-      if (!normalizedPhone) {
-        setValidationError('Enter a valid Philippine mobile number, e.g. 0917 123 4567.');
-        return;
-      }
-    }
-
+    const [normalizedStudentNumber, normalizedIncome, normalizedQpi, normalizedPhone] = checks.map((check) => check.value);
     setValidationError('');
-    onSave(selectedProgram, normalizedStudentNumber, Math.round(normalizedIncome), Math.round(normalizedQpi * 100) / 100, hasActiveGovernmentGrant, normalizedPhone);
+    onSave(selectedProgram, normalizedStudentNumber, normalizedIncome, normalizedQpi, hasActiveGovernmentGrant, normalizedPhone);
   };
 
   return (

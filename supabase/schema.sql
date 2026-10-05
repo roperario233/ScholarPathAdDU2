@@ -29,6 +29,15 @@ alter table profiles add constraint profiles_role_check
 -- deadlineReminders: { oneWeekBefore, threeDaysBefore, dayBefore } }.
 alter table profiles add column if not exists notification_preferences jsonb not null default '{}'::jsonb;
 
+-- My Profile details (see migrations/20261005140000_add_profile_details.sql):
+-- a short bio and the extended Smart Eligibility Checker attributes listed in
+-- src/lib/profile.js (ELIGIBILITY_ATTRIBUTE_KEYS).
+alter table profiles add column if not exists bio text;
+alter table profiles add column if not exists eligibility_attributes jsonb not null default '{}'::jsonb;
+alter table profiles drop constraint if exists profiles_bio_length_check;
+alter table profiles add constraint profiles_bio_length_check
+  check (bio is null or char_length(bio) <= 280);
+
 -- Standard Procedure stage records (endorsement, interview, deliberation,
 -- release) and the event timeline live on applications as JSON payloads.
 alter table applications add column if not exists endorsement jsonb;

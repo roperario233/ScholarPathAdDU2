@@ -132,6 +132,17 @@ describe('createInitialState', () => {
     expect(state.notifications.length).toBeGreaterThan(0);
   });
 
+  it('restores demo My Profile edits and ignores malformed ones', () => {
+    installStorage({ profileEdits: { 'user-student': { fullName: 'Ana Cruz' } } });
+    expect(createInitialState().profileEdits).toEqual({ 'user-student': { fullName: 'Ana Cruz' } });
+
+    installStorage({ profileEdits: ['not', 'an', 'object'] });
+    expect(createInitialState().profileEdits).toEqual({});
+
+    installStorage({ theme: 'dark' });
+    expect(createInitialState().profileEdits).toEqual({});
+  });
+
   it('survives corrupted localStorage payloads', () => {
     globalThis.window = { localStorage: createMemoryStorage({ [storageKey]: '{not json' }) };
 
