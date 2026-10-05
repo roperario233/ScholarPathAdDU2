@@ -293,7 +293,9 @@ for all using (public.current_profile_role() = 'admissions_office') with check (
 -- often the scheduled job runs. Written only via the service role.
 --
 -- The email_* columns record the Resend outcome so a failed send stays
--- observable instead of silently disappearing.
+-- observable instead of silently disappearing; the sms_* columns record the
+-- matching iprogSMS outcome (sms_message_id is the gateway's queue-accept id,
+-- since iprogSMS has no delivery webhooks).
 -- ---------------------------------------------------------------------------
 create table if not exists notification_email_log (
   id uuid primary key default gen_random_uuid(),
@@ -304,6 +306,10 @@ create table if not exists notification_email_log (
   email_status text check (email_status in ('sent', 'failed', 'skipped')),
   email_id text,
   email_error text,
+  sms_to text,
+  sms_status text check (sms_status in ('sent', 'failed', 'skipped')),
+  sms_message_id text,
+  sms_error text,
   delivered_at timestamptz not null default now(),
   unique (source_key, user_id)
 );

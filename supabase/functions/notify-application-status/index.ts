@@ -1,9 +1,9 @@
 // Supabase Edge Function: notify-application-status
 //
-// Emails a student when their application status changes. The application
-// workspace calls this after writing the new status, but the authoritative
-// content (recipient, status, scholarship) is re-read here so the request body
-// cannot spoof who receives the message.
+// Notifies a student (email and SMS) when their application status changes.
+// The application workspace calls this after writing the new status, but the
+// authoritative content (recipient, status, scholarship) is re-read here so
+// the request body cannot spoof who receives the message.
 //
 // Deployed with verify_jwt enabled. The caller must be an Admissions Office administrator,
 // the Department Chair responsible for the student's department, or the student
@@ -11,14 +11,17 @@
 //
 // A record is written to notification_email_log keyed by
 // `application-status-<applicationId>-<status>` so a repeated save never
-// re-emails the same transition.
+// re-sends the same transition on either channel. The email and SMS channels
+// are independently opt-in through the student's notification preferences.
 //
 // Required Edge Function secrets: RESEND_API_KEY, RESEND_FROM_EMAIL,
-// RESEND_FROM_NAME (optional), APP_SITE_URL (optional).
+// RESEND_FROM_NAME (optional), APP_SITE_URL (optional), IPROGSMS_API_TOKEN,
+// IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { isEmailEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
+import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, sendSms } from '../_shared/sms.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,7 +91,7 @@ Deno.serve(async (req) => {
       .maybeSingle(),
     supabaseAdmin
       .from('profiles')
-      .select('full_name, email, department, notification_preferences')
+      .select('full_name, email, phone, department, notification_preferences')
       .eq('user_id', application.student_id)
       .maybeSingle(),
   ]);
@@ -118,11 +121,25 @@ Deno.serve(async (req) => {
   }
 
   const preferences = studentProfile?.notification_preferences ?? {};
-  if (!isEmailEnabledForUser(preferences)) {
-    return json({ ok: true, sent: false, skipped: true, reason: 'Email notifications are disabled for this student' });
-  }
-  if (!studentProfile?.email) {
-    return json({ ok: true, sent: false, skipped: true, reason: 'This student has no email address on file' });
+  // Both channels are independently opt-in: a student may disable email but
+  // keep SMS, so the gates are evaluated separately and the function only
+  // short-circuits when neither channel can be attempted.
+  const wantsEmail = isEmailEnabledForUser(preferences) && Boolean(studentProfile?.email);
+  const smsTo = normalizePhilippineMobile(studentProfile?.phone);
+  const wantsSms = isSmsEnabledForUser(preferences) && Boolean(smsTo);
+  if (!wantsEmail && !wantsSms) {
+    return json({
+      ok: true,
+      sent: false,
+      skipped: true,
+      reason: !isEmailEnabledForUser(preferences) && !isSmsEnabledForUser(preferences)
+        ? 'Email and SMS notifications are disabled for this student'
+        : !studentProfile?.email && !smsTo
+          ? 'This student has no email address or mobile number on file'
+          : !studentProfile?.email
+            ? 'This student has no email address on file'
+            : 'This student has no mobile number on file',
+    });
   }
 
   const { data: scholarship } = await supabaseAdmin
@@ -137,6 +154,7 @@ Deno.serve(async (req) => {
 
   const env = Deno.env.toObject();
   const resend = getResendConfig(env);
+  const sms = getSmsConfig(env);
   const message = renderApplicationStatusEmail({
     subject: `Application status: ${status}`,
     body: `Your application status was updated to ${status} through ${actorLabel}. Sign in to review the next steps.`,
@@ -145,36 +163,64 @@ Deno.serve(async (req) => {
     siteUrl: resolveSiteUrl(env),
   });
 
-  const result = await sendEmail({
-    apiKey: resend.apiKey,
-    from: resend.from,
-    to: studentProfile.email,
-    subject: message.subject,
-    html: message.html,
-    text: message.text,
-    idempotencyKey: `${sourceKey}:${application.student_id}`,
-  });
+  const emailResult = wantsEmail
+    ? await sendEmail({
+        apiKey: resend.apiKey,
+        from: resend.from,
+        to: studentProfile.email,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+        idempotencyKey: `${sourceKey}:${application.student_id}`,
+      })
+    : { ok: false, skipped: true, reason: 'Email notifications are disabled or no email address on file' };
 
-  if (!result.ok) {
+  const smsResult = wantsSms
+    ? await sendSms({
+        apiToken: sms.apiToken,
+        phoneNumber: smsTo,
+        message: renderApplicationStatusSms({
+          scholarshipTitle: scholarship?.title,
+          status,
+        }).message,
+        provider: sms.provider,
+      })
+    : { ok: false, skipped: true, reason: 'SMS notifications are disabled or no mobile number on file' };
+
+  if (!emailResult.ok && !smsResult.ok) {
     return json({
       ok: false,
       sent: false,
-      skipped: Boolean(result.skipped),
-      reason: result.error || result.reason || 'Unable to send the status email',
+      skipped: Boolean(emailResult.skipped) && Boolean(smsResult.skipped),
+      reason: emailResult.error || emailResult.reason || smsResult.error || smsResult.reason || 'Unable to send the status notification',
     });
   }
 
+  // Record the delivered channels on the same at-most-once ledger row. A
+  // skipped or failed channel records its reason, but the row is written only
+  // when at least one channel was actually delivered.
   await supabaseAdmin
     .from('notification_email_log')
     .upsert({
       source_key: sourceKey,
       user_id: application.student_id,
       reminder_title: message.subject,
-      email_to: studentProfile.email,
-      email_status: 'sent',
-      email_id: result.id ?? null,
-      email_error: null,
+      email_to: emailResult.ok ? studentProfile.email : null,
+      email_status: emailResult.ok ? 'sent' : wantsEmail ? 'failed' : 'skipped',
+      email_id: emailResult.id ?? null,
+      email_error: emailResult.error ?? null,
+      sms_to: smsResult.ok ? (formatPhilippineMobile(studentProfile.phone) ?? smsTo) : null,
+      sms_status: smsResult.ok ? 'sent' : wantsSms ? 'failed' : 'skipped',
+      sms_message_id: smsResult.messageId ?? null,
+      sms_error: smsResult.error ?? smsResult.reason ?? null,
     });
 
-  return json({ ok: true, sent: true, to: studentProfile.email, emailId: result.id });
+  return json({
+    ok: true,
+    sent: true,
+    to: emailResult.ok ? studentProfile.email : null,
+    emailId: emailResult.id ?? null,
+    smsTo: smsResult.ok ? smsTo : null,
+    smsMessageId: smsResult.messageId ?? null,
+  });
 });

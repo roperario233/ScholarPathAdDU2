@@ -5,7 +5,7 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateUserProfile } from './lib/auth';
-import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -236,6 +236,7 @@ function App() {
         authUser: {
           id: user.id,
           email: user.email,
+          phone: profile?.phone || '',
           role: userRole,
           fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user',
           department: profile?.department || '',
@@ -270,7 +271,7 @@ function App() {
       }
       if (userRole === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null)) {
         if (readStoredState()?.profileSkipped) return;
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
     };
 
@@ -399,7 +400,7 @@ function App() {
         updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
       }
       if (authResult.user?.id && account.role === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null) && !readStoredState()?.profileSkipped) {
-        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -468,7 +469,7 @@ function App() {
     setIsSupabaseWorkspaceLoaded(false);
   };
 
-  const saveAcademicProfile = async (program, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant) => {
+  const saveAcademicProfile = async (program, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone) => {
     if (!program) {
       updateState({ profileSkipped: true });
       setProfileOnboarding(null);
@@ -485,6 +486,7 @@ function App() {
       householdIncome,
       qpi,
       hasActiveGovernmentGrant,
+      phone,
     });
 
     if (!result.success) {
@@ -494,7 +496,7 @@ function App() {
     }
 
     updateState((previous) => ({
-      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant },
+      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone },
       profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi, hasActiveGovernmentGrant },
       profileSkipped: false,
     }));
@@ -921,6 +923,7 @@ function App() {
       initialStudentNumber: currentIdentity.studentNumber || '',
       initialQpi: currentIdentity.qpi ?? '',
       initialHouseholdIncome: currentIdentity.householdIncome ?? '',
+      initialPhone: currentIdentity.phone || '',
       initialHasActiveGovernmentGrant: currentIdentity.hasActiveGovernmentGrant ?? false,
     });
   };
@@ -1204,6 +1207,8 @@ function App() {
                 }
               }}
               onSendTestEmail={isSupabaseWorkspaceLoaded ? sendSupabaseTestEmail : null}
+              onSendTestSms={isSupabaseWorkspaceLoaded ? sendSupabaseTestSms : null}
+              mobileNumber={currentIdentity.phone || ''}
             />
           )}
 

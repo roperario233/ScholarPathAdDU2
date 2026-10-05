@@ -35,13 +35,16 @@ local development signs in against `http://localhost:5173`.
 ## Email notifications (Resend)
 
 Deadline reminders and application status updates are emailed through
-[Resend](https://resend.com). Three Supabase Edge Functions handle delivery:
+[Resend](https://resend.com) and texted through
+[iprogSMS](https://www.iprogsms.com/api/v1/documentation). Three Supabase Edge
+Functions handle delivery on both channels:
 
 | Function | Trigger | Purpose |
 | --- | --- | --- |
-| `process-deadline-reminders` | Scheduled (pg_cron + pg_net) | Emails the 7-day / 3-day / 1-day reminders for scholarships, open applications, and saved calendar deadlines |
-| `notify-application-status` | Called by the app after a status change | Emails the applicant when staff (or the applicant) moves an application |
+| `process-deadline-reminders` | Scheduled (pg_cron + pg_net) | Sends the 7-day / 3-day / 1-day reminders for scholarships, open applications, and saved calendar deadlines, in-app plus email and SMS |
+| `notify-application-status` | Called by the app after a status change | Notifies the applicant (email and SMS) when staff (or the applicant) moves an application |
 | `send-test-email` | Settings -> Email delivery test | Sends one message to the signed-in user so delivery is verifiable without waiting for a schedule |
+| `send-test-sms` | Settings -> SMS delivery test | Sends one text to the signed-in user's own mobile number |
 
 ### Setup
 
@@ -58,8 +61,19 @@ Deadline reminders and application status updates are emailed through
      RESEND_FROM_EMAIL=alerts@yourdomain \
      RESEND_FROM_NAME="ScholarPath AdDU" \
      APP_SITE_URL=https://scholarpath-addu.vercel.app/ \
-     REMINDER_CRON_SECRET=<a long random value>
+     REMINDER_CRON_SECRET=<a long random value> \
+     IPROGSMS_API_TOKEN=<your iprogSMS API token> \
+     IPROGSMS_PROVIDER=0
    ```
+
+   SMS notes: `IPROGSMS_API_TOKEN` enables the mobile channel; leave it unset
+   and every SMS send is skipped (the demo flow keeps working). `IPROGSMS_PROVIDER`
+   maps to the gateway's optional `sms_provider` flag (0/1/2) and can be omitted.
+   iprogSMS supports Globe, TM, DITO, and GOMO on the shared `iprogSMS` sender;
+   Smart and TNT recipients require a paid custom sender name. A 200 response
+   confirms queue-accept only — the gateway has no delivery webhooks, so the
+   ledger records the `message_id` and delivery can be checked poll-only via
+   `GET /sms_messages/status?message_id=...`.
 
 3. **Deploy the functions:**
 
@@ -67,6 +81,7 @@ Deadline reminders and application status updates are emailed through
    supabase functions deploy process-deadline-reminders --no-verify-jwt --use-api
    supabase functions deploy notify-application-status
    supabase functions deploy send-test-email
+   supabase functions deploy send-test-sms
    ```
 
    Two deliberate choices here:
@@ -91,15 +106,27 @@ Deadline reminders and application status updates are emailed through
 
 Open **Settings -> Email delivery test** and press *Send test email*. It sends
 one message to the signed-in user's own address and reports the real outcome, so
-delivery can be confirmed without waiting for a scheduled reminder. Every
-scheduled send is also recorded in `notification_email_log` with the Resend
-message id and status.
+delivery can be confirmed without waiting for a scheduled reminder. The matching
+**SMS delivery test** text messages the signed-in user's own `profiles.phone`
+number (masked in the response). Every scheduled send is also recorded in
+`notification_email_log` with the Resend or iprogSMS message id and status, on
+the same per-user ledger row.
+
+### SMS recipients
+
+Students add their mobile number in the academic profile (optional field,
+validated to the Philippine mobile format, e.g. `0917 123 4567`). The Edge
+Functions normalize it to the international `639XXXXXXXXX` form iprogSMS
+expects; a student without a usable number is skipped, not failed, so the
+reminder stays retryable once they add one.
 
 ### How delivery preferences are honored
 
 The notification center settings live in localStorage, so they are mirrored to
 `profiles.notification_preferences` whenever they change. The reminder function
-skips the in-app row when `inAppEnabled` is false, and skips the email when
-`emailEnabled` is false or the relevant reminder timing is switched off. Every
-delivery is recorded in `notification_email_log`, keyed by a stable per-user
-source key, so a reminder is never sent twice.
+skips the in-app row when `inAppEnabled` is false, skips the email when
+`emailEnabled` is false or the relevant reminder timing is switched off, and
+skips the SMS when `smsEnabled` is false, the timing is off, or the student has
+no usable mobile number. Every delivery is recorded in `notification_email_log`,
+keyed by a stable per-user source key, so a reminder is never sent twice on
+either channel.

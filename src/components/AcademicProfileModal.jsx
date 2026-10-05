@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import logoImage from '../../pictures/logo.png';
 import { Button, FormField, ModalShell } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
+import { formatPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
 
-export default function AcademicProfileModal({ fullName, initialProgram, initialStudentNumber, initialHouseholdIncome, initialQpi, initialHasActiveGovernmentGrant, academicPrograms = [], academicProgramCategories = [], onSave, isSaving, errorMessage }) {
+export default function AcademicProfileModal({ fullName, initialProgram, initialStudentNumber, initialPhone, initialHouseholdIncome, initialQpi, initialHasActiveGovernmentGrant, academicPrograms = [], academicProgramCategories = [], onSave, isSaving, errorMessage }) {
   const [program, setProgram] = useState(initialProgram || '');
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber || '');
+  const [phone, setPhone] = useState(initialPhone || '');
   const [householdIncome, setHouseholdIncome] = useState(initialHouseholdIncome ?? '');
   const [qpi, setQpi] = useState(initialQpi ?? '');
   const [hasActiveGovernmentGrant, setHasActiveGovernmentGrant] = useState(Boolean(initialHasActiveGovernmentGrant));
@@ -19,10 +21,11 @@ export default function AcademicProfileModal({ fullName, initialProgram, initial
   useEffect(() => {
     setProgram(initialProgram || '');
     setStudentNumber(initialStudentNumber || '');
+    setPhone(initialPhone || '');
     setHouseholdIncome(initialHouseholdIncome ?? '');
     setQpi(initialQpi ?? '');
     setHasActiveGovernmentGrant(Boolean(initialHasActiveGovernmentGrant));
-  }, [initialProgram, initialStudentNumber, initialHouseholdIncome, initialQpi, initialHasActiveGovernmentGrant]);
+  }, [initialProgram, initialStudentNumber, initialPhone, initialHouseholdIncome, initialQpi, initialHasActiveGovernmentGrant]);
 
   const handleSubmit = (event) => {
     event.preventDefault();
@@ -45,8 +48,18 @@ export default function AcademicProfileModal({ fullName, initialProgram, initial
       return;
     }
 
+    let normalizedPhone = null;
+    const rawPhone = phone.trim();
+    if (rawPhone) {
+      normalizedPhone = formatPhilippineMobile(rawPhone);
+      if (!normalizedPhone) {
+        setValidationError('Enter a valid Philippine mobile number, e.g. 0917 123 4567.');
+        return;
+      }
+    }
+
     setValidationError('');
-    onSave(selectedProgram, normalizedStudentNumber, Math.round(normalizedIncome), Math.round(normalizedQpi * 100) / 100, hasActiveGovernmentGrant);
+    onSave(selectedProgram, normalizedStudentNumber, Math.round(normalizedIncome), Math.round(normalizedQpi * 100) / 100, hasActiveGovernmentGrant, normalizedPhone);
   };
 
   return (
@@ -78,6 +91,9 @@ export default function AcademicProfileModal({ fullName, initialProgram, initial
           <FormField label="Annual QPI" hint="Use your latest annual QPI on the AdDU 0.00–4.00 scale.">
             <input className="min-h-12 rounded-control" value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); setValidationError(''); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" min="0" max="4" step="0.01" required />
           </FormField>
+          <FormField label="Mobile number" hint="Optional. Deadline reminder texts use this Philippine mobile number (e.g. 0917 123 4567).">
+            <input className="min-h-12 rounded-control" value={phone} onChange={(event) => { setPhone(event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20)); setValidationError(''); }} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" />
+          </FormField>
           <label className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
             <input className="h-4 w-4 shrink-0 accent-[var(--primary)]" type="checkbox" checked={hasActiveGovernmentGrant} onChange={(event) => setHasActiveGovernmentGrant(event.target.checked)} />
             <span className="min-w-0 flex-1 leading-relaxed">I currently have an active government grant</span>
@@ -97,7 +113,7 @@ export default function AcademicProfileModal({ fullName, initialProgram, initial
             <button
               type="button"
               className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-muted transition hover:-translate-y-px hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-              onClick={() => onSave(null, null, null, null, null)}
+              onClick={() => onSave(null, null, null, null, null, null)}
             >
               Skip for now
             </button>

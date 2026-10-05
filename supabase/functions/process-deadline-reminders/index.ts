@@ -7,20 +7,22 @@
 // Computes the deadline reminders that are due today (Manila calendar) from
 // active scholarships, non-terminal applications, and persisted custom
 // deadlines; writes the in-app notification, emails the recipient through
-// Resend, and records every delivery in notification_email_log so a reminder
-// reaches a given student at most once.
+// Resend, texts the recipient through iprogSMS, and records every delivery in
+// notification_email_log so a reminder reaches a given student at most once.
 //
 // Each channel is independently opt-in, matching the notification center
-// settings: the in-app row honors `inAppEnabled`, and the email honors
-// `emailEnabled` plus the 7-day / 3-day / 1-day reminder toggles.
+// settings: the in-app row honors `inAppEnabled`, and the email and SMS honor
+// `emailEnabled` / `smsEnabled` plus the 7-day / 3-day / 1-day reminder toggles.
 //
 // Required Edge Function secrets: RESEND_API_KEY, RESEND_FROM_EMAIL,
-// RESEND_FROM_NAME (optional), APP_SITE_URL (optional), REMINDER_CRON_SECRET.
+// RESEND_FROM_NAME (optional), APP_SITE_URL (optional), REMINDER_CRON_SECRET,
+// IPROGSMS_API_TOKEN, IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { computeDueReminders, manilaDateKey } from '../_shared/reminders.js';
 import { isEmailEnabledForUser, isReminderEnabledForUser, renderReminderEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
+import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderReminderSms, sendSms } from '../_shared/sms.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -151,11 +153,13 @@ Deno.serve(async (req) => {
 
     const dueReminders = computeDueReminders({ today, items });
     const deadlineById = new Map(items.map((item) => [item.id, item.deadline]));
-    const siteUrl = resolveSiteUrl(Deno.env.toObject());
-    const resend = getResendConfig(Deno.env.toObject());
+    const env = Deno.env.toObject();
+    const siteUrl = resolveSiteUrl(env);
+    const resend = getResendConfig(env);
+    const sms = getSmsConfig(env);
     const recipients = new Map();
     const deliveries = [];
-    const stats = { inApp: 0, emailed: 0, emailSkipped: 0, emailFailed: 0 };
+    const stats = { inApp: 0, emailed: 0, emailSkipped: 0, emailFailed: 0, smsSent: 0, smsSkipped: 0, smsFailed: 0 };
 
     for (const reminder of dueReminders) {
       const isApplicationReminder = reminder.kind === 'application';
@@ -177,7 +181,7 @@ Deno.serve(async (req) => {
         if (!recipients.has(userId)) {
           const { data: profile, error: profileError } = await supabaseAdmin
             .from('profiles')
-            .select('user_id, full_name, email, notification_preferences')
+            .select('user_id, full_name, email, phone, notification_preferences')
             .eq('user_id', userId)
             .maybeSingle();
           if (profileError) throw profileError;
@@ -244,11 +248,41 @@ Deno.serve(async (req) => {
           stats.emailSkipped += 1;
         }
 
+        // Channel 3 — SMS, gated by smsEnabled plus the reminder timing.
+        // profiles.phone is normalized to the 639XXXXXXXXX form iprogSMS
+        // expects; a student without a usable mobile number is skipped, not
+        // failed, so the reminder stays retryable once they add one.
+        const smsTo = normalizePhilippineMobile(profile.phone);
+        const wantsSms = isSmsEnabledForUser(preferences) && offsetEnabled;
+        let smsResult = { ok: false, skipped: true, reason: 'SMS notifications disabled' };
+        if (wantsSms && !smsTo) {
+          smsResult = { ok: false, skipped: true, reason: 'This student has no mobile number on file' };
+          stats.smsSkipped += 1;
+        } else if (wantsSms) {
+          const message = renderReminderSms({
+            title: reminder.title,
+            itemTitle: reminder.itemTitle,
+            deadline,
+            daysBefore: reminder.daysBefore,
+          });
+          smsResult = await sendSms({
+            apiToken: sms.apiToken,
+            phoneNumber: smsTo,
+            message: message.message,
+            provider: sms.provider,
+          });
+          if (smsResult.ok) stats.smsSent += 1;
+          else if (smsResult.skipped) stats.smsSkipped += 1;
+          else stats.smsFailed += 1;
+        } else {
+          stats.smsSkipped += 1;
+        }
+
         // Only write the ledger row when something was actually delivered. A
-        // reminder where both channels were unavailable (or the only attempted
-        // channel failed) stays unlogged so the next run retries it instead of
-        // dropping it permanently.
-        if (inAppWritten || emailResult.ok) {
+        // reminder where every attempted channel was unavailable (or the only
+        // attempted channel failed) stays unlogged so the next run retries it
+        // instead of dropping it permanently.
+        if (inAppWritten || emailResult.ok || smsResult.ok) {
           await supabaseAdmin
             .from('notification_email_log')
             .upsert({
@@ -259,6 +293,10 @@ Deno.serve(async (req) => {
               email_status: emailResult.ok ? 'sent' : wantsEmail ? 'failed' : 'skipped',
               email_id: emailResult.id ?? null,
               email_error: emailResult.error ?? null,
+              sms_to: smsResult.ok ? (formatPhilippineMobile(profile.phone) ?? smsTo) : null,
+              sms_status: smsResult.ok ? 'sent' : wantsSms ? 'failed' : 'skipped',
+              sms_message_id: smsResult.messageId ?? null,
+              sms_error: smsResult.error ?? smsResult.reason ?? null,
             });
           deliveredKeys.add(userKey);
         }
@@ -272,6 +310,8 @@ Deno.serve(async (req) => {
           inApp: inAppWritten,
           inAppError,
           emailStatus: emailResult.ok ? 'sent' : wantsEmail ? (emailResult.error || 'failed') : 'skipped',
+          smsTo: smsResult.ok ? (formatPhilippineMobile(profile.phone) ?? smsTo) : null,
+          smsStatus: smsResult.ok ? 'sent' : wantsSms ? (smsResult.error || smsResult.reason || 'failed') : 'skipped',
         });
       }
     }
@@ -286,6 +326,10 @@ Deno.serve(async (req) => {
       emailSkipped: stats.emailSkipped,
       emailFailed: stats.emailFailed,
       emailConfigured: Boolean(resend.apiKey),
+      smsSent: stats.smsSent,
+      smsSkipped: stats.smsSkipped,
+      smsFailed: stats.smsFailed,
+      smsConfigured: Boolean(sms.apiToken),
       preview: deliveries.slice(0, 10),
     });
   } catch (error) {

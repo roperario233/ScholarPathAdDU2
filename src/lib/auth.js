@@ -186,7 +186,7 @@ export const getUserProfile = async (userId) => {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('full_name, role, email, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
+      .select('full_name, role, email, phone, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
       .eq('user_id', userId)
       .maybeSingle();
     if (error) return { profile: null, fallback: false, message: getAuthErrorMessage(error, 'Unable to load your profile.') };
@@ -202,7 +202,7 @@ const getCurrentAcademicYear = (date = new Date()) => {
   return `${startYear}-${startYear + 1}`;
 };
 
-export const updateUserProfile = async (userId, { degreeProgram, department, studentNumber, qpi, householdIncome, hasActiveGovernmentGrant }) => {
+export const updateUserProfile = async (userId, { degreeProgram, department, studentNumber, qpi, householdIncome, hasActiveGovernmentGrant, phone }) => {
   if (!hasSupabaseConfig || !supabase || !userId) return { success: true, fallback: true };
 
   try {
@@ -247,9 +247,9 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
 
     const { data, error } = await supabase
       .from('profiles')
-      .update({ degree_program: degreeProgram, department, student_number: studentNumber, qpi, household_income: householdIncome, has_active_government_grant: Boolean(hasActiveGovernmentGrant), updated_at: new Date().toISOString() })
+      .update({ degree_program: degreeProgram, department, student_number: studentNumber, qpi, household_income: householdIncome, has_active_government_grant: Boolean(hasActiveGovernmentGrant), ...(phone === undefined ? {} : { phone: phone || null }), updated_at: new Date().toISOString() })
       .eq('user_id', userId)
-      .select('full_name, role, email, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
+      .select('full_name, role, email, phone, department, degree_program, student_number, qpi, household_income, has_active_government_grant')
       .single();
     if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your academic profile.') };
     return { success: true, fallback: false, profile: data };
