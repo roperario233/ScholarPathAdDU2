@@ -269,7 +269,7 @@ export default function EligibilityChecker({ profileDraft, scholarships, onApply
               </>
             ) : (
               <div className="rounded-xl border border-app-border bg-app-surface p-4 text-sm text-app-muted" role="status">
-                The internal scholarship catalog is not available right now. Please try again later or contact the Office of Student Affairs.
+                The internal scholarship catalog is not available right now. Please try again later or contact the Admissions Office.
               </div>
             )}
           </div>

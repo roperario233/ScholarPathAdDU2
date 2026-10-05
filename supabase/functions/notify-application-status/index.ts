@@ -5,7 +5,7 @@
 // content (recipient, status, scholarship) is re-read here so the request body
 // cannot spoof who receives the message.
 //
-// Deployed with verify_jwt enabled. The caller must be an OSA administrator,
+// Deployed with verify_jwt enabled. The caller must be an Admissions Office administrator,
 // the Department Chair responsible for the student's department, or the student
 // who owns the application (which covers a self-service submission).
 //
@@ -94,13 +94,13 @@ Deno.serve(async (req) => {
   ]);
 
   const callerRole = callerProfile?.role;
-  const isOsaAdmin = callerRole === 'osa_admin';
+  const isAdmissionsOffice = callerRole === 'admissions_office' || callerRole === 'osa_admin';
   const isOwningChair = callerRole === 'department_chair'
     && Boolean(studentProfile?.department)
     && callerProfile?.department === studentProfile?.department;
   const isOwner = jwtUser.user.id === application.student_id;
 
-  if (!isOsaAdmin && !isOwningChair && !isOwner) {
+  if (!isAdmissionsOffice && !isOwningChair && !isOwner) {
     return json({ error: 'You are not allowed to notify this application' }, 403);
   }
 
@@ -133,7 +133,7 @@ Deno.serve(async (req) => {
 
   const actorLabel = isOwner
     ? 'your submission'
-    : isOsaAdmin ? 'the Office of Student Affairs' : 'your Department Chair';
+    : isAdmissionsOffice ? 'the Admissions Office' : 'your Department Chair';
 
   const env = Deno.env.toObject();
   const resend = getResendConfig(env);

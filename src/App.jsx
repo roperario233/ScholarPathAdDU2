@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createInitialState, demoUsers, readStoredState, storageKey } from './lib/demoState';
 import { mergeNotifications } from './lib/notificationMerge';
-import { evaluateApplicationGate, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
+import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateUserProfile } from './lib/auth';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
@@ -22,11 +22,15 @@ import logoImage from '../pictures/logo.png';
 
 const roleLabels = {
   student: 'Student',
-  osa_admin: 'OSA Admin',
+  admissions_office: 'Admissions Office Administrator',
   department_chair: 'Department Chair',
 };
 
-const landingViewForRole = (role) => role === 'osa_admin' ? 'admin' : role === 'department_chair' ? 'review' : 'dashboard';
+const normalizeRole = (role) => role === 'osa_admin' || role === 'admissions_office'
+  ? 'admissions_office'
+  : role === 'department_chair' ? 'department_chair' : 'student';
+
+const landingViewForRole = (role) => normalizeRole(role) === 'admissions_office' ? 'admin' : normalizeRole(role) === 'department_chair' ? 'review' : 'dashboard';
 
 const getInitials = (fullName = '') => fullName
   .split(/\s+/)
@@ -186,7 +190,7 @@ function App() {
       const user = result.session.user;
       const profileResult = await getUserProfile(user.id);
       const profile = profileResult.profile;
-      const userRole = profile?.role || user.user_metadata?.role || 'student';
+      const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
       updateState((previous) => ({
         ...previous,
         isAuthenticated: true,
@@ -242,13 +246,13 @@ function App() {
 
   const roleKeyMap = {
     student: 'student',
-    osa_admin: 'admin',
+    admissions_office: 'admin',
     department_chair: 'chair',
   };
 
   const resolveAccount = (roleValue) => {
-    const normalizedRole = roleValue === 'osa_admin' ? 'osa_admin' : roleValue === 'department_chair' ? 'department_chair' : 'student';
-    return normalizedRole === 'osa_admin'
+    const normalizedRole = normalizeRole(roleValue);
+    return normalizedRole === 'admissions_office'
       ? demoUsers.admin
       : normalizedRole === 'department_chair'
         ? demoUsers.chair
@@ -258,6 +262,7 @@ function App() {
   const currentProfile = {
     ...demoUsers[roleKeyMap[state.viewerRole] || 'student'],
     ...(state.authUser || {}),
+    role: normalizeRole(state.authUser?.role || state.viewerRole),
   };
 
   const themeClass = state.theme === 'light' ? 'theme-light' : '';
@@ -268,7 +273,7 @@ function App() {
   const activeAcademicPrograms = state.academicPrograms?.length ? state.academicPrograms : academicPrograms;
   const activeAcademicProgramCategories = [...new Set(activeAcademicPrograms.map((program) => program.category))];
   const scholarshipCatalog = isSupabaseWorkspaceLoaded && state.scholarships?.length
-    ? state.scholarships
+    ? getAdduInternalPrograms(state.scholarships)
     : [];
 
   const eligibleScholarships = useMemo(() => rankScholarships(studentMatchProfile, scholarshipCatalog), [studentMatchProfile, scholarshipCatalog]);
@@ -315,7 +320,7 @@ function App() {
     if (authResult.success || authResult.fallback) {
       const profileResult = authResult.user?.id ? await getUserProfile(authResult.user.id) : { profile: null };
       const profile = profileResult.profile;
-      const resolvedRole = profile?.role || authResult.user?.user_metadata?.role || selectedRole;
+      const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const account = resolveAccount(resolvedRole);
       updateState((previous) => ({
         ...previous,
@@ -542,7 +547,7 @@ function App() {
         .then(() => notifySupabaseApplicationStatus(applicationId))
         .catch(() => undefined);
     }
-    const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'OSA Administrator';
+    const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'Admissions Office';
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
@@ -564,7 +569,7 @@ function App() {
         id: `not-${crypto.randomUUID()}`,
         title: `Application moved to ${status}`,
         channel: 'In-app',
-        body: `${actor} updated the application status to ${status} in the admin workspace.`,
+        body: `${actor} updated the application status to ${status} in the application workspace.`,
         status: 'Unread',
         createdAt: new Date().toISOString().slice(0, 10),
       }),
@@ -644,12 +649,12 @@ function App() {
   };
 
   // SOP steps 7 and 8 — the scholarship committee approves and the result is
-  // released to the applicant through the Office of Admission.
+  // released to the applicant through the Admissions Office.
   const releaseApplicationResults = (applicationId) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application) return;
     const record = {
-      releasedTo: 'Office of Admission',
+      releasedTo: 'Admissions Office',
       releasedAt: new Date().toISOString().slice(0, 10),
       reference: `OAA-${applicationId.slice(0, 8).toUpperCase()}`,
     };
@@ -666,8 +671,8 @@ function App() {
         timeline: [...(entry.timeline || []), {
           id: `ev-${crypto.randomUUID()}`,
           stage: 'Released',
-          note: `Result released to the applicant through the Office of Admission (${record.reference}).`,
-          actor: 'OSA Administrator',
+          note: `Result released to the applicant through the Admissions Office (${record.reference}).`,
+          actor: 'Admissions Office',
           at: new Date().toISOString().slice(0, 10),
         }],
       } : entry),
@@ -675,7 +680,7 @@ function App() {
         id: `not-${crypto.randomUUID()}`,
         title: `${application.scholarshipTitle} result released`,
         channel: 'Email',
-        body: 'The Office of Admission has released the result of your scholarship application.',
+        body: 'The Admissions Office has released the result of your scholarship application.',
         status: 'Unread',
         createdAt: new Date().toISOString().slice(0, 10),
       }),
@@ -894,7 +899,7 @@ function App() {
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
-    { view: 'admin', label: 'OSA Console', visible: state.viewerRole === 'osa_admin' },
+    { view: 'admin', label: 'Admissions Office', visible: state.viewerRole === 'admissions_office' },
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
@@ -1123,7 +1128,7 @@ function App() {
             />
           )}
 
-          {state.activeView === 'admin' && state.viewerRole === 'osa_admin' && (
+          {state.activeView === 'admin' && state.viewerRole === 'admissions_office' && (
             <AdminConsolePage
               applications={state.applications}
               documents={state.documents}

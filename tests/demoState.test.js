@@ -108,6 +108,20 @@ describe('createInitialState', () => {
     expect(state.profileDraft.degreeProgram).toBe('BS Computer Science');
   });
 
+  it('migrates saved OSA administrator sessions to the Admissions Office role', () => {
+    installStorage({
+      viewerRole: 'osa_admin',
+      savedRole: 'osa_admin',
+      authUser: { id: 'staff-1', role: 'osa_admin', fullName: 'Office Admin' },
+    });
+
+    const state = createInitialState();
+
+    expect(state.viewerRole).toBe('admissions_office');
+    expect(state.savedRole).toBe('admissions_office');
+    expect(state.authUser.role).toBe('admissions_office');
+  });
+
   it('falls back to seed data when saved arrays are empty or malformed', () => {
     installStorage({ applications: [], documents: [], announcements: [], notifications: [] });
 

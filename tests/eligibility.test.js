@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DENIAL_MESSAGE,
   evaluateApplicationGate,
+  getAdduInternalPrograms,
   getInternalScholarships,
   isInternalScholarship,
 } from '../src/lib/eligibility';
@@ -40,6 +41,22 @@ describe('internal scholarship eligibility gate', () => {
       scholarship,
       { id: 'external-1', title: 'External donor scholarship' },
     ])).toEqual([scholarship]);
+  });
+
+  it('keeps only GIA, Jubilee, and Student Assistant from the scholarship catalog', () => {
+    const gia = { title: 'Grant-in-Aid (GIA)', ruleFamily: 'general-pool' };
+    const jubilee = { title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors' };
+    const studentAssistant = { title: 'Student Assistant (SA) Program', ruleFamily: 'work-study' };
+    const donorEndowment = { title: 'Ateneo Alumni Association of Canada', ruleFamily: 'general-pool' };
+    const externalProgram = { title: 'CHED Scholarship Program', ruleFamily: 'government-linked' };
+
+    expect(getAdduInternalPrograms([
+      gia,
+      donorEndowment,
+      jubilee,
+      externalProgram,
+      studentAssistant,
+    ])).toEqual([gia, jubilee, studentAssistant]);
   });
 
   it('allows a qualified GIA profile', () => {

@@ -4,7 +4,7 @@ create table if not exists profiles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique,
   full_name text not null,
-  role text not null check (role in ('student', 'osa_admin', 'department_chair')),
+  role text not null check (role in ('student', 'admissions_office', 'department_chair')),
   email text,
   phone text,
   department text,
@@ -16,6 +16,10 @@ create table if not exists profiles (
   updated_at timestamptz not null default now()
 );
 alter table profiles add column if not exists student_number text;
+alter table profiles drop constraint if exists profiles_role_check;
+update profiles set role = 'admissions_office' where role = 'osa_admin';
+alter table profiles add constraint profiles_role_check
+  check (role in ('student', 'admissions_office', 'department_chair'));
 
 -- Server-side mirror of the notification center settings (see
 -- src/lib/demoState.js `notificationPreferences`). Required so the scheduled
@@ -182,8 +186,8 @@ begin
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1), 'ScholarPath user'),
-    -- Public registration cannot grant privileged roles. Assign OSA Admin or
-    -- Department Chair only after verifying the account in Supabase.
+    -- Public registration cannot grant privileged roles. Assign Admissions Office
+    -- or Department Chair only after verifying the account in Supabase.
     'student',
     new.email,
     nullif(new.raw_user_meta_data->>'student_id', '')
@@ -203,35 +207,39 @@ drop policy if exists "staff_read_profiles" on profiles;
 drop policy if exists "scholarships_read_all" on scholarships;
 drop policy if exists "documents_self_access" on documents;
 drop policy if exists "osa_documents_access" on documents;
+drop policy if exists "admissions_office_documents_access" on documents;
 drop policy if exists "applications_self_access" on applications;
 drop policy if exists "osa_applications_access" on applications;
+drop policy if exists "admissions_office_applications_access" on applications;
 drop policy if exists "chair_applications_read" on applications;
 drop policy if exists "chair_applications_status" on applications;
 drop policy if exists "application_documents_self_access" on application_documents;
 drop policy if exists "staff_application_documents_access" on application_documents;
 drop policy if exists "announcements_read_all" on announcements;
 drop policy if exists "osa_announcements_manage" on announcements;
+drop policy if exists "admissions_office_announcements_manage" on announcements;
 drop policy if exists "notifications_self_access" on notifications;
 drop policy if exists "department_reviews_restricted" on department_reviews;
 drop policy if exists "chair_department_reviews_access" on department_reviews;
 drop policy if exists "academic_programs_read_all" on academic_programs;
 drop policy if exists "osa_academic_programs_manage" on academic_programs;
+drop policy if exists "admissions_office_academic_programs_manage" on academic_programs;
 
 create policy "profiles_self_read_write" on profiles
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "staff_read_profiles" on profiles
-for select using (public.current_profile_role() in ('osa_admin', 'department_chair'));
+for select using (public.current_profile_role() in ('admissions_office', 'department_chair'));
 
 create policy "scholarships_read_all" on scholarships
 for select using (true);
 create policy "documents_self_access" on documents
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
-create policy "osa_documents_access" on documents
-for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
+create policy "admissions_office_documents_access" on documents
+for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
 create policy "applications_self_access" on applications
 for all using (auth.uid() = student_id) with check (auth.uid() = student_id);
-create policy "osa_applications_access" on applications
-for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
+create policy "admissions_office_applications_access" on applications
+for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
 create policy "chair_applications_read" on applications
 for select using (
   public.current_profile_role() = 'department_chair'
@@ -256,12 +264,12 @@ for all using (
   )
 );
 create policy "staff_application_documents_access" on application_documents
-for all using (public.current_profile_role() in ('osa_admin', 'department_chair'))
-with check (public.current_profile_role() in ('osa_admin', 'department_chair'));
+for all using (public.current_profile_role() in ('admissions_office', 'department_chair'))
+with check (public.current_profile_role() in ('admissions_office', 'department_chair'));
 create policy "announcements_read_all" on announcements
 for select using (true);
-create policy "osa_announcements_manage" on announcements
-for insert with check (public.current_profile_role() = 'osa_admin' and created_by = auth.uid());
+create policy "admissions_office_announcements_manage" on announcements
+for insert with check (public.current_profile_role() = 'admissions_office' and created_by = auth.uid());
 create policy "notifications_self_access" on notifications
 for all using (auth.uid() = profile_id) with check (auth.uid() = profile_id);
 create policy "department_reviews_restricted" on department_reviews
@@ -271,8 +279,8 @@ for all using (public.current_profile_role() = 'department_chair' and auth.uid()
 with check (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id);
 create policy "academic_programs_read_all" on academic_programs
 for select using (true);
-create policy "osa_academic_programs_manage" on academic_programs
-for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
+create policy "admissions_office_academic_programs_manage" on academic_programs
+for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
 
 -- ---------------------------------------------------------------------------
 -- Server-side deadline reminder delivery ledger.

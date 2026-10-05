@@ -220,9 +220,11 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
     }
 
     const metadata = authUser.user_metadata || {};
-    const role = ['student', 'osa_admin', 'department_chair'].includes(metadata.role)
-      ? metadata.role
-      : 'student';
+    const role = metadata.role === 'osa_admin'
+      ? 'admissions_office'
+      : ['student', 'admissions_office', 'department_chair'].includes(metadata.role)
+        ? metadata.role
+        : 'student';
     const fullName = metadata.full_name?.trim() || authUser.email?.split('@')[0] || 'ScholarPath user';
 
     const { error: profileEnsureError } = await supabase

@@ -37,16 +37,16 @@ export const demoUsers = {
   },
   admin: {
     id: 'user-admin',
-    role: 'osa_admin',
-    fullName: 'OSA Administrator',
-    email: 'osa@addu.edu.ph',
+    role: 'admissions_office',
+    fullName: 'Admissions Office Administrator',
+    email: 'admissions@addu.edu.ph',
     phone: '+63 917 000 0000',
-    department: 'Office of Student Affairs',
+    department: 'Office of Admissions',
     degreeProgram: 'Administration',
     qpi: null,
     householdIncome: null,
     hasActiveGovernmentGrant: false,
-    bio: 'Reviews applications, documents, announcements, and analytics.',
+    bio: 'Coordinates scholarship application operations, document verification, announcements, and results.',
   },
   chair: {
     id: 'user-chair',
@@ -59,12 +59,12 @@ export const demoUsers = {
     qpi: null,
     householdIncome: null,
     hasActiveGovernmentGrant: false,
-    bio: 'Evaluates GIA recommendations, convenes the interview panel, and endorses qualified students to OSA.',
+    bio: 'Reviews department-scoped applications, convenes the interview panel, and records recommendations.',
   },
 };
 
-// Demo applications are seeded across the Standard Procedure pipeline so the OSA
-// console and Department Chair review demonstrate the stage flow. Applicant
+// Demo applications are seeded across the Standard Procedure pipeline so the
+// Admissions Office console and Department Chair review demonstrate the stage flow. Applicant
 // context (name, program, department, QPI, income) is denormalized onto each
 // application so staff work queues never have to resolve it again.
 const studentProfileFields = {
@@ -99,10 +99,10 @@ export const applications = [
     submittedAt: dateFromToday(-3),
     updatedAt: dateFromToday(-1),
     attachedDocuments: ['doc-001', 'doc-002'],
-    notes: 'Awaiting OSA document verification.',
+    notes: 'Awaiting Admissions Office document verification.',
     timeline: [
       { id: 'ev-001', stage: 'Submitted', note: 'Application submitted for review.', actor: 'Student', at: dateFromToday(-3) },
-      { id: 'ev-002', stage: 'Under Review', note: 'Routed to the OSA review queue.', actor: 'OSA', at: dateFromToday(-1) },
+      { id: 'ev-002', stage: 'Under Review', note: 'Routed to the Admissions Office review queue.', actor: 'Admissions Office', at: dateFromToday(-1) },
     ],
     endorsement: null,
     interview: null,
@@ -138,10 +138,10 @@ export const applications = [
     submittedAt: dateFromToday(-6),
     updatedAt: dateFromToday(-2),
     attachedDocuments: ['doc-002', 'doc-003'],
-    notes: 'Income documents pending OSA verification.',
+    notes: 'Income documents pending Admissions Office verification.',
     timeline: [
       { id: 'ev-003', stage: 'Submitted', note: 'Application submitted for review.', actor: 'Student', at: dateFromToday(-6) },
-      { id: 'ev-004', stage: 'For Verification', note: 'Supporting documents queued for verification.', actor: 'OSA', at: dateFromToday(-2) },
+      { id: 'ev-004', stage: 'For Verification', note: 'Supporting documents queued for verification.', actor: 'Admissions Office', at: dateFromToday(-2) },
     ],
     endorsement: null,
     interview: null,
@@ -161,7 +161,7 @@ export const applications = [
     attachedDocuments: ['doc-001', 'doc-002'],
     notes: 'Endorsed by the College of Computer Studies for the interview stage.',
     timeline: [
-      { id: 'ev-005', stage: 'For Verification', note: 'Documents verified by OSA.', actor: 'OSA', at: dateFromToday(-4) },
+      { id: 'ev-005', stage: 'For Verification', note: 'Documents verified by the Admissions Office.', actor: 'Admissions Office', at: dateFromToday(-4) },
       { id: 'ev-006', stage: 'Endorsed', note: 'Endorsed to the interview stage by the Department Chair.', actor: 'Department Chair', at: dateFromToday(-1) },
     ],
     endorsement: { reviewedBy: 'Department Chair', decision: 'Endorsed', note: 'Qualified based on verified income documents and active enrollment.', decidedAt: dateFromToday(-1) },
@@ -183,7 +183,7 @@ export const applications = [
     notes: 'Interview panel scheduled from the College of Computer Studies.',
     timeline: [
       { id: 'ev-007', stage: 'Endorsed', note: 'Endorsed to the interview stage.', actor: 'Department Chair', at: dateFromToday(-5) },
-      { id: 'ev-008', stage: 'Interview', note: 'Interview scheduled with the CCS panel.', actor: 'OSA', at: dateFromToday(0) },
+      { id: 'ev-008', stage: 'Interview', note: 'Interview scheduled with the CCS panel.', actor: 'Department Chair', at: dateFromToday(0) },
     ],
     endorsement: { reviewedBy: 'Department Chair', decision: 'Endorsed', note: 'Recommended for the next evaluation stage.', decidedAt: dateFromToday(-5) },
     interview: { scheduledAt: dateFromToday(3), panel: 'CCS Scholarship Panel', school: 'College of Computer Studies (CCS)', note: 'Bring the original income documents.', outcome: null },
@@ -222,10 +222,10 @@ export const applications = [
     submittedAt: dateFromToday(-20),
     updatedAt: dateFromToday(-1),
     attachedDocuments: ['doc-001', 'doc-002'],
-    notes: 'Approved and queued for release to the Office of Admission.',
+    notes: 'Approved and queued for release through the Admissions Office.',
     timeline: [
       { id: 'ev-011', stage: 'Recommended', note: 'Recommended by the sub-committee.', actor: 'Department Chair', at: dateFromToday(-6) },
-      { id: 'ev-012', stage: 'Approved', note: 'Approved by the School Scholarship Committee.', actor: 'OSA', at: dateFromToday(-1) },
+      { id: 'ev-012', stage: 'Approved', note: 'Approved by the School Scholarship Committee.', actor: 'School Scholarship Committee', at: dateFromToday(-1) },
     ],
     endorsement: { reviewedBy: 'Department Chair', decision: 'Endorsed', note: 'Recommended for approval.', decidedAt: dateFromToday(-6) },
     interview: { scheduledAt: dateFromToday(-8), panel: 'CCS Scholarship Panel', school: 'College of Computer Studies (CCS)', note: 'Interview completed.', outcome: 'Passed' },
@@ -281,7 +281,7 @@ export const notifications = [
     id: 'not-002',
     title: 'Application status update',
     channel: 'Email',
-    body: 'Your Grant-in-Aid application was moved to Under Review by OSA.',
+    body: 'Your Grant-in-Aid application was moved to Under Review by the Admissions Office.',
     status: 'Unread',
     createdAt: dateFromToday(-1),
   },
@@ -298,7 +298,7 @@ export const notifications = [
 export const announcements = [
   {
     id: 'ann-001',
-    title: 'OSA Scholarship Window Open',
+    title: 'Scholarship Application Window Open',
     body: 'Students can now search, match, and submit scholarship applications from the centralized dashboard.',
     audience: 'Students',
     createdAt: dateFromToday(-2),
@@ -307,7 +307,7 @@ export const announcements = [
     id: 'ann-002',
     title: 'Document Review Queue Updated',
     body: 'Admin reviewers should clear pending proof-of-income documents before application finalization.',
-    audience: 'OSA Admin',
+    audience: 'Admissions Office',
     createdAt: dateFromToday(-1),
   },
 ];
@@ -428,16 +428,24 @@ export const createInitialState = () => {
     return defaults;
   }
 
+  const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
+  const viewerRole = migrateRole(stored.viewerRole);
+  const savedRole = migrateRole(stored.savedRole);
+  const authUser = stored.authUser
+    ? { ...stored.authUser, role: migrateRole(stored.authUser.role) }
+    : defaults.authUser;
+
   return {
     ...defaults,
     ...stored,
+    viewerRole: ['student', 'admissions_office', 'department_chair'].includes(viewerRole) ? viewerRole : defaults.viewerRole,
     theme: stored.theme ?? 'light',
-    authUser: stored.authUser ?? defaults.authUser,
+    authUser,
     hasLoggedInBefore: stored.hasLoggedInBefore ?? defaults.hasLoggedInBefore,
     showFirstLoginWelcome: stored.showFirstLoginWelcome ?? defaults.showFirstLoginWelcome,
     rememberMe: stored.rememberMe ?? defaults.rememberMe,
     savedEmail: stored.savedEmail ?? defaults.savedEmail,
-    savedRole: stored.savedRole ?? defaults.savedRole,
+    savedRole: ['student', 'admissions_office', 'department_chair'].includes(savedRole) ? savedRole : defaults.savedRole,
     filters: {
       ...defaults.filters,
       ...(stored.filters ?? {}),

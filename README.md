@@ -7,7 +7,7 @@ A React + Vite and Supabase webapp for our ScholarPath AdDU capstone.
 - Smart Eligibility Checker based on QPI, income, degree, and exclusion rules
 - Application tracker
 - Reusable document vault
-- OSA admin console
+- Admissions Office application operations
 - Department chair review view
 
 ## Authentication redirect configuration

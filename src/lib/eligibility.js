@@ -8,6 +8,20 @@ export const GENERAL_POOL_EXCLUDED_DEGREES = ['BS Nursing', 'BS Architecture'];
 export const ADDU_INTERNAL_RULE_FAMILIES = ['general-pool', 'honors', 'work-study'];
 export const DENIAL_MESSAGE = "You don't have any qualifications for this scholarship.";
 
+export const ADDU_INTERNAL_PROGRAM_TITLES = [
+  'Grant-in-Aid (GIA)',
+  'Jubilee Scholarship Fund (Valedictorian & Salutatorian)',
+  'Student Assistant (SA) Program',
+];
+
+const ADDU_INTERNAL_PROGRAM_TITLE_SET = new Set(ADDU_INTERNAL_PROGRAM_TITLES.map((title) => title.toLowerCase()));
+
+export const isAdduInternalProgram = (scholarship = {}) => (
+  ADDU_INTERNAL_PROGRAM_TITLE_SET.has(String(scholarship.title || '').trim().toLowerCase())
+);
+
+export const getAdduInternalPrograms = (scholarships = []) => scholarships.filter(isAdduInternalProgram);
+
 export const isInternalScholarship = (scholarship = {}) => {
   if (ADDU_INTERNAL_RULE_FAMILIES.includes(scholarship.ruleFamily)) return true;
   const title = String(scholarship.title || '').toLowerCase();
@@ -203,7 +217,7 @@ export const evaluateApplicationGate = (profile, scholarship) => {
   if (scholarship && isInternalScholarship(scholarship) && reasons.length === 0) {
     const ruleFamily = getInternalRuleFamily(scholarship);
     if (!ruleFamily) {
-      reasons.push('Scholarship qualification rules are not configured. Please contact the Office of Student Affairs.');
+      reasons.push('Scholarship qualification rules are not configured. Please contact the Admissions Office.');
     } else {
       reasons.push(...evaluateScholarship(profile, { ...scholarship, ruleFamily }).reasons);
     }

@@ -179,7 +179,7 @@ export const upsertSupabaseDepartmentReview = ({ applicationId, reviewerId, stud
 const recommendationNote = (status) => (
   status === 'Endorsed'
     ? 'Endorsed to the next evaluation stage by the Department Chair.'
-    : 'Returned to OSA for document validation.'
+    : 'Returned for central document validation.'
 );
 
 export const createSupabaseApplication = async ({ studentId, scholarshipId, documentStatus, attachedDocuments, notes }) => {

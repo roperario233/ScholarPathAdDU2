@@ -1,7 +1,7 @@
 // Supabase Edge Function: send-test-email
 //
 // Self-service delivery check for the notification center settings. Sends one
-// email to the authenticated caller only, so a student or OSA administrator can
+// email to the authenticated caller only, so a student or Admissions Office administrator can
 // confirm real Resend delivery without waiting for a scheduled deadline
 // reminder.
 //

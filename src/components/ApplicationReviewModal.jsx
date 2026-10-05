@@ -24,7 +24,7 @@ const DetailRow = ({ label, value }) => (
 
 const sopTones = { success: 'success', danger: 'danger', warning: 'warning', neutral: 'neutral' };
 
-// Shared SOP review surface for OSA administrators and Department Chairs.
+// Shared SOP review surface for the Admissions Office and Department Chairs.
 export default function ApplicationReviewModal({
   application,
   documents,
@@ -44,7 +44,7 @@ export default function ApplicationReviewModal({
   const linkedDocuments = (application.attachedDocuments || [])
     .map((id) => documents.find((doc) => doc.id === id))
     .filter(Boolean);
-  const isOsa = role === 'osa_admin';
+  const isAdmissionsOffice = role === 'admissions_office';
 
   return (
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-detail-modal">
@@ -96,7 +96,7 @@ export default function ApplicationReviewModal({
                     <span className="min-w-0 text-sm text-app-text">{doc.title} <span className="text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
                     <span className="flex items-center gap-2">
                       <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
-                      {isOsa && onChangeDocument && (
+                      {isAdmissionsOffice && onChangeDocument && (
                         <span className="flex gap-1">
                           {verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
                             <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>

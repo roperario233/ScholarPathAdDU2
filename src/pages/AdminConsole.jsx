@@ -52,13 +52,13 @@ export default function AdminConsole({
   const releasedApplications = applications.filter((entry) => entry.status === 'Released');
 
   const exportAcceptedList = () => {
-    const lines = ['SCHOLARPATH ADDU — ACCEPTED APPLICANTS FOR THE OFFICE OF ADMISSION', ''];
+    const lines = ['SCHOLARPATH ADDU — ACCEPTED APPLICANTS FOR THE ADMISSIONS OFFICE', ''];
     [...approvedApplications, ...releasedApplications].forEach((entry) => {
       lines.push(`${entry.studentName} · ${entry.scholarshipTitle} · ${entry.status} · Reference ${entry.release?.reference || 'Pending release'}`);
     });
     const link = document.createElement('a');
     link.href = `data:text/plain;charset=utf-8,${encodeURIComponent(lines.join('\n'))}`;
-    link.download = 'Accepted_applicants_Office_of_Admission.txt';
+    link.download = 'Accepted_applicants_Admissions_Office.txt';
     link.click();
   };
 
@@ -66,9 +66,9 @@ export default function AdminConsole({
     <div className="grid gap-5">
       <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
         <div className="page-title-copy">
-          <span className="page-section-label">OSA administrator workspace</span>
+          <span className="page-section-label">Admissions Office workspace</span>
           <h2>Scholarship application operations</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applications, verify documents, deliberate with the sub-committee, and release results through the Office of Admission.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Coordinate application operations, verify documents, track sub-committee recommendations, and release results through the Admissions Office.</p>
         </div>
         <StatusBadge tone="info">Internal operations</StatusBadge>
       </section>
@@ -76,8 +76,8 @@ export default function AdminConsole({
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
         <StatCard label="Documents for review" value={pendingDocuments.length} note="Blocking endorsement and approval" />
-        <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for the Office of Admission" />
-        <StatCard label="Results released" value={releasedApplications.length} note="Released through the Office of Admission" />
+        <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for the Admissions Office" />
+        <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -98,7 +98,7 @@ export default function AdminConsole({
                   <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
                 </div>
               </article>
-            )) : <EmptyState title="No applications in review" description="Submitted applications will appear here for the OSA workflow." />}
+            )) : <EmptyState title="No applications in review" description="Submitted applications will appear here for central office review." />}
           </div>
         </Card>
 
@@ -130,7 +130,7 @@ export default function AdminConsole({
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
         <Card title="Recommendation and release" action={<StatusBadge tone={approvedApplications.length ? 'warning' : 'success'}>{approvedApplications.length} ready</StatusBadge>}>
-          <p className="mb-3 text-sm text-app-muted">The School Scholarship Committee approves qualified applicants, then the accepted list is released through the Office of Admission.</p>
+          <p className="mb-3 text-sm text-app-muted">The School Scholarship Committee approves qualified applicants, then the Admissions Office releases the results.</p>
           <div className="grid max-h-[280px] gap-3 overflow-y-auto pr-1">
             {[...approvedApplications, ...releasedApplications].length ? [...approvedApplications, ...releasedApplications].map((entry) => (
               <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
@@ -143,7 +143,7 @@ export default function AdminConsole({
                   <Button type="button" disabled={entry.status !== 'Approved'} onClick={() => onReleaseResults(entry.id)}>Release results</Button>
                 </div>
               </article>
-            )) : <EmptyState title="Nothing to release yet" description="Approved applications will queue here for release through the Office of Admission." />}
+            )) : <EmptyState title="Nothing to release yet" description="Approved applications will queue here for release through the Admissions Office." />}
           </div>
           <Button className="mt-3" type="button" disabled={!approvedApplications.length && !releasedApplications.length} onClick={exportAcceptedList}>Export accepted list</Button>
         </Card>
@@ -153,7 +153,7 @@ export default function AdminConsole({
             <FormField label="Audience">
               <select name="announcementAudience">
                 <option>Students</option>
-                <option>OSA Admin</option>
+                <option>Admissions Office</option>
                 <option>Department Chairs</option>
                 <option>All users</option>
               </select>
@@ -178,7 +178,7 @@ export default function AdminConsole({
           </div>
         </Card>
 
-        <Card title="OSA workflow snapshot">
+        <Card title="Admissions Office workflow snapshot">
           <div className="grid gap-3">
             <p className="text-sm text-app-muted">{reviewApplications.length} application(s) in review · {pendingDocuments.length} document(s) pending verification · {approvedApplications.length} approved for release</p>
             <div className="grid max-h-[300px] gap-3 overflow-y-auto pr-1">
@@ -194,7 +194,7 @@ export default function AdminConsole({
         <ApplicationReviewModal
           application={selected}
           documents={documents}
-          role="osa_admin"
+          role="admissions_office"
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
           onEndorse={onEndorseApplication}

@@ -28,7 +28,7 @@ ScholarPath AdDU is a centralized hybrid web and mobile system for student schol
 - A Smart Eligibility Checker that evaluates QPI, household income, degree program, and exclusion rules.
 - A Document Vault that supports one-time upload and multi-application reuse.
 - A notification subsystem for deadline and status alerts.
-- Role-based access control for students, OSA administrators, and Department Chairs.
+- Role-based access control for students, Admissions Office administrators, and Department Chairs.
 - A student application workspace for filtering, submitting, inspecting, and exporting application reports.
 - A reusable Document Vault with upload validation, verification states, and application links.
 - A deadline calendar supporting scholarship deadlines and student-created reminders.
@@ -54,7 +54,7 @@ Use the manuscript language consistently in new code, UI text, documentation, an
 - Exclusion Flag Hierarchy.
 - Document Vault.
 - Dynamic Faceted Search.
-- OSA administrators.
+- Admissions Office administrators.
 - Department Chairs and Coordinators.
 - Grant-in-Aid or GIA.
 - Financial aid pipelines.
@@ -62,6 +62,8 @@ Use the manuscript language consistently in new code, UI text, documentation, an
 - Application workspace.
 - Notification center.
 - Deadline calendar.
+
+The Admissions Office administrator is the central office operations role, not a Dean or a reviewer for every academic department. Department Chair access and review remain scoped to the Chair's assigned department. OSA is not a participating scholarship-process role in the web app.
 
 
 Avoid introducing alternate names for the same feature unless the current codebase already uses a different stable label that users see.
@@ -86,7 +88,7 @@ The present implementation is organized as follows:
   - `SettingsView.jsx`
 - `src/components/` contains shared UI building blocks, modal/page-part helpers, notification cards, announcements, and the `NotificationDropdown` center.
 - `src/lib/` contains the domain logic, formatting helpers, authentication helpers, eligibility rules, demo state, backend-status helpers, academic-program taxonomy, and Supabase setup. The scholarship catalog is read from the Supabase `scholarships` table via `src/lib/supabaseData.js`; offline demo state (demo users, applications, documents, notifications, announcements, and department reviews) lives in `src/lib/demoState.js`; and academic programs are loaded from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` (in `src/lib/supabaseData.js`), with `src/lib/academicPrograms.js` (value/label/department/category) as the offline fallback.
-- `supabase/schema.sql` is the reference schema for backend-aligned work.
+- `supabase/schema.sql` is the reference schema for fresh Supabase projects. For an existing/deployed project, add and apply a migration under `supabase/migrations/` rather than re-running the full schema; keep the reference schema aligned with those migrations.
 - `src/tailwind.css` is the primary Tailwind entry point and contains the shared theme primitives.
 - `src/styles.css` contains component-specific CSS, browser behavior, pseudo-elements, keyframes, and rules that are not practical as utilities.
 
@@ -125,7 +127,7 @@ These rules come from the manuscript and should guide implementation details:
 - Scholarship discovery should support faceted filtering and fast search over the current taxonomy.
 - Document handling should behave like a normalized vault where the same file can be attached to multiple applications.
 - Notifications should remain event-oriented in concept, even if the local demo simulates the behavior.
-- Role-based access should preserve student, OSA admin, and Department Chair boundaries.
+- Role-based access should preserve student, central Admissions Office administrator, and department-scoped Department Chair boundaries; never give the central administrator Dean-like scope under a department role.
 - Application progress should remain status-driven (`Draft`, `Submitted`, `Under Review`, `For Verification`, `Approved`, and `Rejected`) and submitting a draft should create a trackable review event.
 - Documents should expose verification states (`Pending`, `Verified`, and `Rejected`) and remain reusable across applications through attached document IDs.
 - Custom calendar deadlines must be future-facing, persisted locally, removable, and eligible for configured 7-day, 3-day, and 1-day in-app reminders.
