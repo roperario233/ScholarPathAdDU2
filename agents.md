@@ -89,6 +89,7 @@ The present implementation is organized as follows:
 - `src/components/` contains shared UI building blocks, modal/page-part helpers, notification cards, announcements, and the `NotificationDropdown` center.
 - `src/lib/` contains the domain logic, formatting helpers, authentication helpers, eligibility rules, demo state, backend-status helpers, academic-program taxonomy, and Supabase setup. The scholarship catalog is read from the Supabase `scholarships` table via `src/lib/supabaseData.js`; offline demo state (demo users, applications, documents, notifications, announcements, and department reviews) lives in `src/lib/demoState.js`; and academic programs are loaded from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` (in `src/lib/supabaseData.js`), with `src/lib/academicPrograms.js` (value/label/department/category) as the offline fallback.
 - `supabase/schema.sql` is the reference schema for fresh Supabase projects. For an existing/deployed project, add and apply a migration under `supabase/migrations/` rather than re-running the full schema; keep the reference schema aligned with those migrations.
+- `supabase/functions/` holds the email delivery Edge Functions described under Email And Notification Delivery.
 - `src/tailwind.css` is the primary Tailwind entry point and contains the shared theme primitives.
 - `src/styles.css` contains component-specific CSS, browser behavior, pseudo-elements, keyframes, and rules that are not practical as utilities.
 
@@ -132,10 +133,23 @@ These rules come from the manuscript and should guide implementation details:
 - Role-based access should preserve student, central Admissions Office administrator, and department-scoped Department Chair boundaries; never give the central administrator Dean-like scope under a department role.
 - Application progress should remain status-driven (`Draft`, `Submitted`, `Under Review`, `For Verification`, `Approved`, and `Rejected`) and submitting a draft should create a trackable review event.
 - Documents should expose verification states (`Pending`, `Verified`, and `Rejected`) and remain reusable across applications through attached document IDs.
-- Custom calendar deadlines must be future-facing, persisted locally, removable, and eligible for configured 7-day, 3-day, and 1-day in-app reminders.
+- Custom calendar deadlines must be future-facing, persisted locally, removable, and eligible for the configured 7-day, 3-day, and 1-day reminders. They are also mirrored to the Supabase `custom_deadlines` table with the client id stored verbatim (for example `custom-<uuid>`), so the scheduled function can email the same reminder the client generates locally.
 - In-app notification creation must respect `notificationPreferences.inAppEnabled`; generated reminders must use a stable source key so they are not duplicated on each render.
-- Server-side email must honor `emailEnabled` and the `deadlineReminders` offsets read from `profiles.notification_preferences`, and must record every delivery in `notification_email_log` so a reminder reaches a student at most once.
+- Server-side delivery must honor `profiles.notification_preferences` per channel and per reminder, and must record only real deliveries in `notification_email_log` so a reminder reaches a student at most once while a skipped or failed send stays unlogged and retryable. See Email And Notification Delivery.
 - The app should continue to feel like a prototype aligned with the study, not a generic scholarship portal.
+
+
+## Email And Notification Delivery
+Notifications stay event-oriented, and delivery runs through Supabase Edge Functions rather than the browser:
+
+- `process-deadline-reminders` is invoked daily at 07:00 Asia/Manila by pg_cron + pg_net (`supabase/migrations/20261005000001_schedule_deadline_reminders.sql`, with the reference block at the bottom of `supabase/schema.sql`). It evaluates the reminder rule on the Manila calendar, writes the in-app row, emails through Resend, and records the delivery in `notification_email_log`. It runs with `verify_jwt` disabled and authenticates the scheduled caller against `REMINDER_CRON_SECRET` by exact value; a signed-in user's JWT is also accepted for on-demand runs. Never point this endpoint at the anon key.
+- `notify-application-status` is called by the app after a status change and runs with `verify_jwt` enabled. It re-reads the application, recipient, and caller role server-side so the request body cannot spoof the recipient, and it allows only the Admissions Office administrator, the Department Chair for that student's department, or the student who owns the application.
+- `send-test-email` backs Settings -> Email delivery test and only ever sends to the signed-in caller.
+- Shared, dependency-free modules live in `supabase/functions/_shared/`: `email.js` (Resend-compatible table HTML, plain-text alternatives, and the delivery-preference checks), `reminders.js` (the reminder math shared with `src/App.jsx`), and `resend.js` (the minimal fetch client). They are plain JavaScript so Deno and the vitest suite can both import them.
+- Delivery is opt-in per channel and per reminder. `profiles.notification_preferences` is the only server-side input: the in-app row needs `inAppEnabled` plus the matching `deadlineReminders` offset, and the email needs `emailEnabled` plus the same offset. Status emails honor the student's `emailEnabled` and dedupe on `application-status-<applicationId>-<status>`.
+- `notifications.channel` is constrained to `SMS` / `Email` / `In-app`, so carry the deadline kind in the notification title and body instead of adding a channel value.
+- Email requires the verified Resend sending domain and the Edge Function secrets (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `APP_SITE_URL`, `REMINDER_CRON_SECRET`). They are server-side only and must never carry a `VITE_` prefix. Email only sends when the Supabase workspace is loaded, and the demo flow must keep working without it.
+- The email CTA links use `?view=calendar`, `?view=applications`, and `?view=settings`, but the app does not read a `view` query parameter yet, so a recipient lands on the role's landing view. Do not describe those links as deep links until `App.jsx` handles the parameter.
 
 
 ## UI And UX Expectations
@@ -165,6 +179,7 @@ Use the existing local shapes and patterns already established in the app:
 - New persisted state should be additive and guarded so old localStorage entries do not break the app.
 - Avoid breaking assumptions in `App.jsx` around `viewerRole`, `activeView`, `profileDraft`, `documents`, `applications`, `notifications`, and `announcements`.
 - Preserve the nested shape of `notificationPreferences`, including `smsEnabled`, `emailEnabled`, `inAppEnabled`, and `deadlineReminders.oneWeekBefore`, `threeDaysBefore`, and `dayBefore`.
+- That preference shape is mirrored to `profiles.notification_preferences` whenever the Settings toggles change, and it is the scheduled function's only input. The other server-side mirrors are `custom_deadlines` (one row per student-created deadline, id stored verbatim) and `notification_email_log` (the service-role delivery ledger). Keep the local and server shapes identical so the two never disagree.
 - New localStorage state must be merged with defaults so older saved sessions remain loadable; do not assume `customDeadlines` or notification preferences exist in older records.
 
 
@@ -186,6 +201,7 @@ Prefer these checks when appropriate:
 - `npm run build` for general validation.
 - `npm run dev` for manual review of the local prototype.
 - Targeted checks for any touched Supabase, auth, or eligibility logic.
+- `npm test` (vitest) covers the shared email templates, reminder math, eligibility rules, demo state, auth redirect, and notification merge; run it whenever `supabase/functions/_shared/` or `src/lib/notificationMerge.js` is touched.
 - Manually smoke-test the student flows: apply from Scholarship Explorer, submit/view/export an application, upload/filter/delete a vault document, add/delete a calendar reminder, and toggle notification preferences.
 
 
@@ -195,6 +211,7 @@ If validation fails, fix the same slice before widening the scope.
 Before pushing a change:
 
 - Run `npm run build` and resolve any build errors.
+- Run `npm test` when the change touches reminder, notification, or email rendering logic.
 - Confirm `package-lock.json` is updated whenever `package.json` dependencies change.
 - Check that demo mode still loads when Supabase environment variables are absent.
 - Review `git diff` for accidental changes, generated secrets, or unrelated files.
@@ -221,7 +238,8 @@ Do not:
 - Replace the current domain model with a generic template app model.
 - Rename core manuscript concepts without a good reason.
 - Make broad styling changes that are unrelated to the task.
-- Email notifications are a real integration through Resend: deadline reminders (scholarship, application, and persisted custom deadlines) and application status updates are delivered by the `process-deadline-reminders` and `notify-application-status` Edge Functions, with `send-test-email` for self-service delivery checks.
+- Add a browser-side mailer, a second email provider, or a client-visible email secret instead of the Resend Edge Functions.
+- Write a delivery row for a reminder that was skipped or failed; leave it out of `notification_email_log` so the next run retries it.
 - SMS remains a prototype preference only. There is no SMS gateway integration, so do not claim that text-message delivery exists.
 
 
