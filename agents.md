@@ -77,8 +77,7 @@ The present implementation is organized as follows:
 - `src/pages/` contains the main screens:
   - `LoginScreen.jsx`
   - `DashboardView.jsx`
-  - `ScholarshipExplorer.jsx`
-  - `EligibilityChecker.jsx`
+  - `ScholarshipExplorer.jsx` — scholarship discovery with the inline Smart Eligibility Checker on each scholarship card.
   - `ApplicationsView.jsx` — student application filtering, progress, submission, detail modal, and text report export.
   - `DocumentVaultView.jsx` — student document upload, search/filter, verification display, and deletion.
   - `ApplicationsAndVault.jsx` — legacy/combined application and vault screen retained for compatibility where referenced.

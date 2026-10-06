@@ -13,7 +13,6 @@ import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
 import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
-import EligibilityCheckerPage from './pages/EligibilityChecker';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
 import AdminConsolePage from './pages/AdminConsole';
@@ -884,37 +883,6 @@ function App() {
     }));
   };
 
-  const saveEligibilityProfile = async (profile) => {
-    const selectedProgram = activeAcademicPrograms.find((program) => program.value === profile.degreeProgram) || getAcademicProgram(profile.degreeProgram);
-    const profileUpdate = {
-      degreeProgram: profile.degreeProgram,
-      department: selectedProgram.department,
-      studentNumber: state.authUser?.studentNumber || currentProfile.studentNumber,
-      householdIncome: profile.householdIncome,
-      qpi: profile.qpi,
-      hasActiveGovernmentGrant: Boolean(profile.hasActiveGovernmentGrant),
-    };
-
-    if (!state.authUser?.id) {
-      updateState((previous) => ({
-        ...previous,
-        profileDraft: { ...previous.profileDraft, ...profile },
-        authUser: { ...previous.authUser, ...profileUpdate },
-      }));
-      return { success: true };
-    }
-
-    const result = await updateUserProfile(state.authUser.id, profileUpdate);
-    if (!result.success) return result;
-
-    updateState((previous) => ({
-      ...previous,
-      profileDraft: { ...previous.profileDraft, ...profile },
-      authUser: { ...previous.authUser, ...profileUpdate },
-    }));
-    return result;
-  };
-
   // Saves one My Profile section. Students may edit academic and eligibility
   // fields; staff may edit only their name, mobile number, and bio, so a
   // Department Chair can never re-scope their own department from this page.
@@ -992,7 +960,6 @@ function App() {
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: true },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
-    { view: 'eligibility', label: 'Eligibility Checker', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
@@ -1180,7 +1147,7 @@ function App() {
               notifications={visibleNotifications}
               announcements={state.announcements}
               onOpenExplorer={() => navigate('explore')}
-              onOpenEligibility={() => navigate('eligibility')}
+              onOpenEligibility={() => navigate('explore')}
               onTrackScholarship={applyToScholarship}
               onMarkRead={markNotificationRead}
               onShowApplications={() => navigate('applications')}
@@ -1201,17 +1168,6 @@ function App() {
               onSearchChange={(value) => updateState({ searchQuery: value })}
               onFilterChange={(patch) => updateState((previous) => ({ filters: { ...previous.filters, ...patch } }))}
               onApply={applyToScholarship}
-            />
-          )}
-
-          {state.activeView === 'eligibility' && (
-            <EligibilityCheckerPage
-              academicPrograms={activeAcademicPrograms}
-              academicProgramCategories={activeAcademicProgramCategories}
-              profileDraft={state.profileDraft}
-              scholarships={scholarshipCatalog}
-              onApply={applyToScholarship}
-              onSaveProfile={saveEligibilityProfile}
             />
           )}
 
@@ -1273,7 +1229,7 @@ function App() {
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
-              onOpenEligibility={() => navigate('eligibility')}
+              onOpenEligibility={() => navigate('explore')}
             />
           )}
 

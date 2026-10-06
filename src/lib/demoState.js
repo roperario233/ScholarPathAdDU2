@@ -434,6 +434,7 @@ export const createInitialState = () => {
   const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
+  const activeView = stored.activeView === 'eligibility' ? 'explore' : (stored.activeView ?? defaults.activeView);
   const authUser = stored.authUser
     ? { ...stored.authUser, role: migrateRole(stored.authUser.role) }
     : defaults.authUser;
@@ -441,6 +442,7 @@ export const createInitialState = () => {
   return {
     ...defaults,
     ...stored,
+    activeView,
     viewerRole: ['student', 'admissions_office', 'department_chair'].includes(viewerRole) ? viewerRole : defaults.viewerRole,
     theme: stored.theme ?? 'light',
     authUser,

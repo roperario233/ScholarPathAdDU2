@@ -63,6 +63,12 @@ describe('createInitialState', () => {
     expect(storage.getItem(storageKey)).not.toBeNull();
   });
 
+  it('redirects saved Eligibility Checker sessions to Scholarships', () => {
+    installStorage({ activeView: 'eligibility' });
+
+    expect(createInitialState().activeView).toBe('explore');
+  });
+
   it('restores persisted custom deadlines', () => {
     installStorage({
       customDeadlines: [

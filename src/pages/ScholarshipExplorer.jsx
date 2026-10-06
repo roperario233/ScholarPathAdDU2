@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { EmptyState } from '../components/pageParts';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { coverageTypes } from '../lib/constants';
-import { DENIAL_MESSAGE, evaluateApplicationGate, getDeadlineStatus, isInternalScholarship } from '../lib/eligibility';
+import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, isInternalScholarship } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
 
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply }) {
+  const [expandedEligibilityId, setExpandedEligibilityId] = useState(null);
   const activeFilterCount = [filters.category, filters.coverage, filters.deadline].filter((value) => value !== 'all').length + (filters.activeOnly ? 1 : 0);
 
   return (
@@ -87,6 +89,10 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
           const deadline = getDeadlineStatus(scholarship.deadline);
           const isInternal = isInternalScholarship(scholarship);
           const gateResult = isInternal ? evaluateApplicationGate(profile, scholarship) : null;
+          const isEligibilityExpanded = String(expandedEligibilityId) === String(scholarship.id);
+          const eligibilityResult = isInternal
+            ? evaluateScholarship(profile, scholarship)
+            : null;
           return (
             <article key={scholarship.id} className="rounded-app border bg-app-card p-5 shadow-app backdrop-blur scholarship-card">
                 <div className="flex min-w-0 items-start justify-between gap-4">
@@ -110,20 +116,79 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                 {scholarship.tags.map((tag) => <span key={tag} className="rounded-full border border-app-border bg-app-surface px-2.5 py-1 text-xs text-app-muted">{tag}</span>)}
               </div>
 
-              {gateResult && !gateResult.allowed && (
-                <p className="mt-3 text-sm text-rose-700 dark:text-rose-300" role="status">
-                  {DENIAL_MESSAGE} {gateResult.reasons.join(' ')}
-                </p>
-              )}
               <button
                 type="button"
-                className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
-                onClick={() => onApply(scholarship)}
-                disabled={Boolean(gateResult && !gateResult.allowed)}
-                title={gateResult && !gateResult.allowed ? DENIAL_MESSAGE : undefined}
+                className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                onClick={() => setExpandedEligibilityId(isEligibilityExpanded ? null : scholarship.id)}
+                aria-expanded={isEligibilityExpanded}
+                aria-controls={`eligibility-details-${scholarship.id}`}
               >
-                {gateResult && !gateResult.allowed ? 'Not qualified' : 'Add to applications'}
+                {isEligibilityExpanded ? 'Close eligibility details' : 'Check eligibility'}
               </button>
+
+              {isEligibilityExpanded && (
+                <section
+                  id={`eligibility-details-${scholarship.id}`}
+                  className="mt-3 grid gap-3 rounded-xl border border-app-border bg-app-surface p-4"
+                  aria-label={`Eligibility details for ${scholarship.title}`}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h4 className="m-0 text-sm font-bold text-app-text">Smart Eligibility Checker</h4>
+                    {isInternal && (
+                      <span className={`rounded-full px-3 py-1 text-xs font-bold ${gateResult.allowed ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'}`}>
+                        {gateResult.allowed ? 'Qualified to proceed' : 'Not qualified'}
+                      </span>
+                    )}
+                  </div>
+
+                  {isInternal ? (
+                    <>
+                      <p className="m-0 text-sm text-app-muted">
+                        {gateResult.allowed
+                          ? 'Your saved profile meets the current AdDU qualification rules for this scholarship.'
+                          : DENIAL_MESSAGE}
+                      </p>
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-app-muted">
+                        <span><strong>Minimum QPI:</strong> {scholarship.minimumQpi ?? 'See program rules'}</span>
+                        <span><strong>Maximum household income:</strong> {scholarship.maximumIncome == null ? 'See program rules' : fmtCurrency(scholarship.maximumIncome)}</span>
+                        <span><strong>Degree scope:</strong> {scholarship.ruleFamily === 'work-study' || scholarship.eligibleDegrees?.includes('ALL') ? 'All programs' : scholarship.eligibleDegrees?.length ? `${scholarship.eligibleDegrees.length} eligible program(s)` : 'See program rules'}</span>
+                      </div>
+                      {!gateResult.allowed && gateResult.reasons.length > 0 && (
+                        <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
+                          {gateResult.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                        </ul>
+                      )}
+                      {eligibilityResult?.infoNotes?.map((note) => (
+                        <p key={note} className="m-0 text-xs text-app-muted">{note}</p>
+                      ))}
+                    </>
+                  ) : (
+                    <p className="m-0 text-sm text-app-muted">
+                      Eligibility for this external program is determined by the provider. Please review its published requirements before applying.
+                    </p>
+                  )}
+
+                  {isInternal && gateResult.allowed && (
+                    <button
+                      type="button"
+                      className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                      onClick={() => onApply(scholarship)}
+                    >
+                      Add to applications
+                    </button>
+                  )}
+                </section>
+              )}
+
+              {!isInternal && (
+                <button
+                  type="button"
+                  className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                  onClick={() => onApply(scholarship)}
+                >
+                  Add to applications
+                </button>
+              )}
             </article>
           );
         }) : <EmptyState title="No scholarships match your filters" description="Relax the filters or use a broader search term to surface more programs." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Reset filters</button>} />}

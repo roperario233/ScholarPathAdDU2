@@ -28,7 +28,7 @@ export const SPONSOR_TIE_KEYS = ['gsisMemberDependent', 'afpDependent', 'usVeter
 // `profiles` columns in Supabase).
 export const ACCOUNT_FIELD_KEYS = ['fullName', 'phone', 'bio', 'studentNumber', 'degreeProgram', 'qpi', 'householdIncome', 'hasActiveGovernmentGrant'];
 export const STAFF_EDITABLE_FIELD_KEYS = ['fullName', 'phone', 'bio'];
-// Mirrors the subset saveEligibilityProfile keeps on `profileDraft`.
+// Core profile fields mirrored into `profileDraft` for eligibility matching.
 export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'hasActiveGovernmentGrant'];
 
 export const BIO_MAX_LENGTH = 280;

@@ -228,7 +228,7 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
             )}
           </div>
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button variant="primary" type="button" onClick={onOpenEligibility}>Open Smart Eligibility Checker</Button>
+            <Button variant="primary" type="button" onClick={onOpenEligibility}>Check scholarships and eligibility</Button>
             <Button type="button" onClick={() => onEditSection('financial')}>Review exclusion answers</Button>
           </div>
         </Card>
