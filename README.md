@@ -40,8 +40,8 @@ mobile header). Overview is read-only; every other section saves on its own:
 
 | Section | Who sees it | What it covers |
 | --- | --- | --- |
-| Overview | Everyone | Identity card, profile completeness checklist, and (students) an eligibility snapshot listing any Exclusion Flag Hierarchy flags |
-| Personal information | Everyone | Full name, Philippine mobile number, and short bio (students also set religion and civil status); sign-in email, role, and department are read-only |
+| Overview | Everyone | Identity card and a profile completeness checklist that also surfaces each verifiable attribute's Document Vault verification state |
+| Personal information | Everyone | Full name, Philippine mobile number, and short bio (students also set religion, civil status, and a scholarship essay); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
 | Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
@@ -87,6 +87,15 @@ eligibility answers (program choices, IP community, PWD, and employment status)
 ride along in `profiles.eligibility_attributes`. Until the migration is applied,
 these fields stay on the device and the rest of the profile still saves. Fresh
 projects get the column from `supabase/schema.sql`.
+
+Document Vault files are stored in a private Supabase Storage bucket named
+`documents` (10 MB limit; PDF, JPG, and PNG only). The bucket, its storage RLS
+policies, and the department-scoped `chair_documents_read` policy come from
+`supabase/migrations/20261009000000_add_document_storage.sql`; fresh projects get
+them from `supabase/schema.sql`. Students manage only their own folder, the
+Admissions Office reads every document, and a Department Chair reads documents
+owned by students in the chair's department. Viewing is always through a
+short-lived signed URL, so no document is ever public.
 
 ## Provisioning staff accounts
 

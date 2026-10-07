@@ -1,4 +1,5 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
+import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
 
 const toScholarship = (row) => ({
   ...row,
@@ -197,15 +198,37 @@ export const submitSupabaseApplication = (applicationId) => (
     : Promise.resolve({ error: null })
 );
 
-export const createSupabaseDocument = ({ ownerId, title, fileName, documentType, linkedAttributes }) => (
-  ensureReady()
-    ? supabase.from('documents').insert({ owner_id: ownerId, title, file_name: fileName, document_type: documentType, linked_attributes: Array.isArray(linkedAttributes) ? linkedAttributes : [] }).select().single()
-    : Promise.resolve({ data: null, error: null })
-);
+export const createSupabaseDocument = async ({ id, ownerId, title, fileName, documentType, linkedAttributes, file }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const storagePath = buildDocumentStoragePath({ ownerId, documentId: id, fileName });
+  const upload = await supabase.storage.from(DOCUMENT_BUCKET).upload(storagePath, file, { contentType: file?.type || undefined, upsert: false });
+  if (upload.error) return { data: null, error: upload.error };
+  const result = await supabase.from('documents').insert({
+    id,
+    owner_id: ownerId,
+    title,
+    file_name: fileName,
+    document_type: documentType,
+    linked_attributes: Array.isArray(linkedAttributes) ? linkedAttributes : [],
+    storage_path: storagePath,
+  }).select().single();
+  // Roll back the orphaned object if the metadata row could not be written.
+  if (result.error) await supabase.storage.from(DOCUMENT_BUCKET).remove([storagePath]);
+  return result;
+};
 
-export const deleteSupabaseDocument = (documentId) => (
-  ensureReady() ? supabase.from('documents').delete().eq('id', documentId) : Promise.resolve({ error: null })
-);
+// Short-lived signed URL for a private-bucket object (RLS-checked per caller).
+export const getSupabaseDocumentUrl = async (storagePath, expiresIn = 3600) => {
+  if (!ensureReady() || !storagePath) return { url: null, error: null };
+  const { data, error } = await supabase.storage.from(DOCUMENT_BUCKET).createSignedUrl(storagePath, expiresIn);
+  return { url: data?.signedUrl || null, error };
+};
+
+export const deleteSupabaseDocument = async (documentId, storagePath) => {
+  if (!ensureReady()) return { error: null };
+  if (storagePath) await supabase.storage.from(DOCUMENT_BUCKET).remove([storagePath]);
+  return supabase.from('documents').delete().eq('id', documentId);
+};
 
 export const updateSupabaseDocumentStatus = (documentId, verificationStatus) => (
   ensureReady() ? supabase.from('documents').update({ verification_status: verificationStatus }).eq('id', documentId) : Promise.resolve({ error: null })

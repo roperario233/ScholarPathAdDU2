@@ -55,7 +55,7 @@ describe('section validators', () => {
   it('normalizes personal information and limits the bio length', () => {
     const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single' });
+    expect(valid.values).toEqual({ fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', essay: '' });
 
     expect(validatePersonalSection({ fullName: 'A', bio: 'x'.repeat(281) }).errors).toMatchObject({
       fullName: expect.any(String),
@@ -63,6 +63,14 @@ describe('section validators', () => {
     });
     // An unknown religion or civil status is rejected.
     expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Jedi', civilStatus: 'Single' }).errors.religion).toBeTruthy();
+  });
+
+  it('keeps paragraph breaks in the scholarship essay and enforces the cap', () => {
+    const kept = validatePersonalSection({ fullName: 'Ana Cruz', essay: '  First paragraph.\n\nSecond paragraph.  ' });
+    expect(kept.errors).toEqual({});
+    expect(kept.values.essay).toBe('First paragraph.\n\nSecond paragraph.');
+
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', essay: 'x'.repeat(5001) }).errors.essay).toMatch(/essay/);
   });
 
   it('resolves the residing address from the same-as-complete-address toggle', () => {
@@ -205,6 +213,7 @@ describe('getProfileCompleteness', () => {
     const completeStudent = {
       ...studentProfile,
       civilStatus: 'Single',
+      essay: 'My scholarship essay.',
       studentNumber: '2023001',
       completeAddress: '123 Rizal St, Davao City',
       ipCommunity: 'No',
@@ -214,7 +223,9 @@ describe('getProfileCompleteness', () => {
     const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic' })]);
-    expect(completeness.percent).toBe(Math.round((12 / 13) * 100));
+    // The essay is a tracked personal-information item.
+    expect(completeness.items).toContainEqual(expect.objectContaining({ key: 'essay', section: 'personal', done: true }));
+    expect(completeness.percent).toBe(Math.round((13 / 14) * 100));
   });
 
   it('only asks staff for personal information', () => {
