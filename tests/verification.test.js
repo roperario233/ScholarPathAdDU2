@@ -6,7 +6,7 @@ import {
   getAttributeVerificationTone,
 } from '../src/lib/verification';
 import { VERIFIABLE_ATTRIBUTE_KEYS } from '../src/lib/profile';
-import { normalizeDocument } from '../src/lib/demoState';
+import { normalizeDocument } from '../src/lib/appState';
 
 const doc = (overrides) => ({ id: 'doc-x', linkedAttributes: [], verificationStatus: 'Pending', ...overrides });
 

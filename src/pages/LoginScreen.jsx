@@ -156,8 +156,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       const result = await onLogin({ email, password, rememberMe });
 
       if (result?.success) {
-        setFeedbackMessage(result.fallback ? 'Signed in using the demo mode fallback.' : 'Signed in successfully.');
-        setFeedbackTone(result.fallback ? 'info' : 'success');
+        setFeedbackMessage('Signed in successfully.');
+        setFeedbackTone('success');
       } else {
         setFeedbackMessage(result?.message || 'Unable to sign in. Please check your credentials.');
         setFeedbackTone('error');

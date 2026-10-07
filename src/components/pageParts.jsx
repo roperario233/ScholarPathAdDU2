@@ -127,7 +127,7 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead 
             </div>
             <button type="button" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-app-surface hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => setIsOpen(false)} aria-label="Close notifications"><X size={18} /></button>
           </div>
-          <div className="grid max-h-[min(62vh,32rem)] gap-2 overflow-y-auto p-3">
+          <div className="app-scroll grid max-h-[min(62vh,32rem)] gap-2 overflow-y-auto p-3">
             {notifications.slice(0, 5).map((entry) => (
               <NotificationItem key={entry.id} entry={entry} onMarkRead={onMarkRead} />
             ))}

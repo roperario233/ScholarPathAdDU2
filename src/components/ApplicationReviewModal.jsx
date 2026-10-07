@@ -48,6 +48,7 @@ export default function ApplicationReviewModal({
 
   return (
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-detail-modal">
+      <div className="application-detail-modal-body">
       <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
@@ -213,6 +214,7 @@ export default function ApplicationReviewModal({
             ) : <p className="text-sm text-app-muted">No stage events recorded yet.</p>}
           </Panel>
         </section>
+      </div>
       </div>
     </ModalShell>
   );

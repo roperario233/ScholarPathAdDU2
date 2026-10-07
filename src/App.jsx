@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
-import { createInitialState, demoUsers, readStoredState, storageKey } from './lib/demoState';
+import { createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
-import { hasSupabaseConfig } from './lib/supabaseClient';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications } from './lib/verification';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
@@ -311,29 +310,32 @@ function App() {
     };
   }, [isBooting]);
 
-  const roleKeyMap = {
-    student: 'student',
-    admissions_office: 'admin',
-    department_chair: 'chair',
-  };
-
-  const resolveAccount = (roleValue) => {
-    const normalizedRole = normalizeRole(roleValue);
-    return normalizedRole === 'admissions_office'
-      ? demoUsers.admin
-      : normalizedRole === 'department_chair'
-        ? demoUsers.chair
-        : demoUsers.student;
+  // Supabase is the required backend, so a signed-in session always carries a
+  // real authUser. This empty scaffold only fills fields the profile row does
+  // not yet have, so the authenticated shell never renders `undefined`.
+  const emptyAccount = {
+    id: null,
+    role: 'student',
+    fullName: '',
+    email: '',
+    phone: '',
+    department: '',
+    degreeProgram: '',
+    studentNumber: '',
+    qpi: '',
+    householdIncome: '',
+    hasActiveGovernmentGrant: false,
+    bio: '',
   };
 
   const currentProfile = {
-    ...demoUsers[roleKeyMap[state.viewerRole] || 'student'],
+    ...emptyAccount,
     ...(state.authUser || {}),
     role: normalizeRole(state.authUser?.role || state.viewerRole),
   };
 
   const themeClass = state.theme === 'light' ? 'theme-light' : '';
-  const studentMatchProfile = { ...demoUsers.student, ...state.profileDraft, ...(state.authUser || {}) };
+  const studentMatchProfile = { ...state.profileDraft, ...(state.authUser || {}) };
   const currentIdentity = state.viewerRole === 'student'
     ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}) }
     : currentProfile;
@@ -387,26 +389,26 @@ function App() {
       password: credentials.password,
     });
 
-    if (authResult.success || authResult.fallback) {
+    if (authResult.success) {
       const profileResult = authResult.user?.id ? await getUserProfile(authResult.user.id) : { profile: null };
       const profile = profileResult.profile;
       const profileDetails = authResult.user?.id ? await getProfileDetails(authResult.user.id) : { bio: '', eligibilityAttributes: {} };
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
-      const account = resolveAccount(resolvedRole);
-      const accountId = authResult.user?.id || account.id;
+      const accountId = authResult.user?.id;
+      const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
       updateState((previous) => ({
         ...previous,
         isAuthenticated: true,
         hasLoggedInBefore: true,
         showFirstLoginWelcome: !previous.hasLoggedInBefore,
-        viewerRole: account.role,
-        activeView: landingViewForRole(account.role),
+        viewerRole: resolvedRole,
+        activeView: landingViewForRole(resolvedRole),
         authUser: {
           id: accountId,
           email: credentials.email,
-          role: account.role,
-          fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName,
-          department: profile?.department || account.department,
+          role: resolvedRole,
+          fullName: displayName,
+          department: profile?.department || '',
           degreeProgram: profile?.degree_program || '',
           studentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '',
           qpi: profile?.qpi ?? '',
@@ -416,12 +418,10 @@ function App() {
             hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
             bio: profileDetails.bio,
           } : {}),
-          // Demo accounts have no server profile, so restore their My Profile edits.
-          ...(authResult.fallback ? previous.profileEdits?.[accountId] : {}),
         },
         rememberMe: credentials.rememberMe || false,
         savedEmail: credentials.rememberMe ? credentials.email : previous.savedEmail,
-        savedRole: credentials.rememberMe ? account.role : previous.savedRole,
+        savedRole: credentials.rememberMe ? resolvedRole : previous.savedRole,
         profileDraft: {
           ...previous.profileDraft,
           ...profileDetails.eligibilityAttributes,
@@ -429,7 +429,7 @@ function App() {
           ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
         },
       }));
-      const workspace = await loadSupabaseWorkspace({ role: account.role, userId: authResult.user?.id || account.id, department: profile?.department || account.department });
+      const workspace = await loadSupabaseWorkspace({ role: resolvedRole, userId: accountId, department: profile?.department || '' });
       if (workspace.success) {
         updateState((previous) => ({
           ...previous,
@@ -443,14 +443,14 @@ function App() {
       if (academicProgramsResult.success && academicProgramsResult.academicPrograms?.length) {
         updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
       }
-      if (authResult.user?.id && account.role === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
+      if (authResult.user?.id && resolvedRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
         success: true,
-        fallback: authResult.fallback,
+        fallback: false,
         message: authResult.message,
       };
     }
@@ -1000,16 +1000,13 @@ function App() {
       profileDraft: isStudent
         ? { ...previous.profileDraft, ...pickFields(accountFields, PROFILE_DRAFT_KEYS), ...eligibilityAttributes, ...profileDetails }
         : previous.profileDraft,
-      profileEdits: result.fallback
-        ? { ...previous.profileEdits, [userId]: { ...previous.profileEdits?.[userId], ...accountFields } }
-        : previous.profileEdits,
     }));
 
     return {
       success: true,
       message: result.detailsSynced === false
         ? 'Saved. Some details are kept on this device until the server profile is updated.'
-        : result.fallback ? 'Saved to this demo session.' : 'Profile saved.',
+        : 'Profile saved.',
     };
   };
 
@@ -1190,7 +1187,7 @@ function App() {
             onClick={() => setIsMobileNavOpen(false)}
             aria-label="Close page navigation"
           />
-          <aside className="fixed inset-y-0 right-0 z-50 w-[min(21rem,88vw)] overflow-y-auto border-l border-app-border bg-app-card p-5 shadow-2xl lg:hidden" aria-label="Page navigation">
+          <aside className="app-scroll fixed inset-y-0 right-0 z-50 w-[min(21rem,88vw)] overflow-y-auto border-l border-app-border bg-app-card p-5 shadow-2xl lg:hidden" aria-label="Page navigation">
             <div className="mb-5 flex justify-end">
               <button type="button" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text" onClick={() => setIsMobileNavOpen(false)} aria-label="Close page navigation"><X size={18} /></button>
             </div>
@@ -1330,7 +1327,6 @@ function App() {
               roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
               academicProgramCategories={activeAcademicProgramCategories}
-              isAccountManaged={hasSupabaseConfig}
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}

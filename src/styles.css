@@ -33,6 +33,54 @@ button {
   cursor: pointer;
 }
 
+/* Scrollbars: thin, translucent, and theme-aware. `scrollbar-width` and
+   `scrollbar-color` are inherited, so the global rule only needs to sit on
+   `html`. The `.app-scroll` helper opts a container into a stable gutter and
+   hover feedback. Chromium/Edge and Firefox use the standard properties; the
+   guarded WebKit block covers legacy Safari, where setting `scrollbar-width`
+   disables the ::-webkit-scrollbar customization. */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+.app-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
+}
+
+.select-picker-menu:hover,
+.select-picker-modal-list:hover,
+.modal-overlay:hover,
+.application-detail-modal-body:hover,
+.academic-profile-overlay > section:hover,
+.app-scroll:hover {
+  scrollbar-color: var(--scrollbar-thumb-hover) var(--scrollbar-track);
+}
+
+@supports not (scrollbar-width: thin) {
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+}
+
 /* Keep legacy page-specific action buttons visually consistent with the
    shared Button component. This targets buttons only, not form controls or
    panels that intentionally use the same surface tokens. */
@@ -484,6 +532,7 @@ main .deadline-item > .deadline-actions {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  scrollbar-gutter: stable;
   border-radius: 16px;
   background: color-mix(in srgb, var(--surface) 96%, transparent 4%);
   border: 1px solid rgba(148, 163, 184, 0.18);
@@ -525,6 +574,7 @@ main .deadline-item > .deadline-actions {
   gap: 0.35rem;
   overflow-y: auto;
   padding-right: 0.25rem;
+  scrollbar-gutter: stable;
 }
 
 .select-picker-modal-list .select-picker-group {
@@ -1032,8 +1082,11 @@ main .deadline-item > .deadline-actions {
     transition: none;
   }
 }
-.application-detail-modal { width: min(620px, 100%); max-height: min(80vh, 680px); overflow: auto; padding: 1.5rem; }
+.application-detail-modal { width: min(620px, 100%); max-height: min(80vh, 680px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
 .application-detail-modal h2 { margin: 0; }
+/* Keep the modal header fixed and scroll only the body so the scrollbar no
+   longer tracks the rounded corner of the modal surface. */
+.application-detail-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 0.4rem; }
 .wrap { flex-wrap: wrap; }
 
 .scholarship-card {

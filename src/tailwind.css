@@ -19,6 +19,9 @@
     --accent: #bfdbfe;
     --shadow: 0 24px 70px rgba(0, 8, 25, 0.34);
     --shadow-card: 0 12px 30px rgba(0, 8, 25, 0.22);
+    --scrollbar-thumb: rgba(148, 163, 184, 0.30);
+    --scrollbar-thumb-hover: rgba(148, 163, 184, 0.55);
+    --scrollbar-track: transparent;
     --radius-app: 24px;
     --radius-control: 14px;
     font-family: theme('fontFamily.sans');
@@ -42,6 +45,9 @@
     --accent: #0055d4;
     --shadow: 0 22px 55px rgba(23, 70, 130, 0.12);
     --shadow-card: 0 10px 26px rgba(23, 70, 130, 0.08);
+    --scrollbar-thumb: rgba(100, 116, 139, 0.28);
+    --scrollbar-thumb-hover: rgba(71, 85, 105, 0.50);
+    --scrollbar-track: transparent;
     --radius-app: 24px;
     --radius-control: 14px;
   }

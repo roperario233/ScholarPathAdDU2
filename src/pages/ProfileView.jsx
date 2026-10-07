@@ -20,7 +20,6 @@ export default function ProfileView({
   roleLabel,
   academicPrograms = [],
   academicProgramCategories = [],
-  isAccountManaged = false,
   attributeVerifications = {},
   onSaveProfile,
   onChangePassword,
@@ -98,7 +97,6 @@ export default function ProfileView({
           {activeSection === 'security' && (
             <SecuritySection
               email={profile.email}
-              isAccountManaged={isAccountManaged}
               onChangePassword={onChangePassword}
               onRequestPasswordReset={onRequestPasswordReset}
               onDirtyChange={setHasUnsavedChanges}

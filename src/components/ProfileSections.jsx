@@ -567,7 +567,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   );
 }
 
-export function SecuritySection({ email, isAccountManaged, onChangePassword, onRequestPasswordReset, onDirtyChange }) {
+export function SecuritySection({ email, onChangePassword, onRequestPasswordReset, onDirtyChange }) {
   const [resetStatus, setResetStatus] = useState({ tone: '', message: '' });
   const [isSendingReset, setIsSendingReset] = useState(false);
   const form = useSectionForm({
@@ -585,17 +585,6 @@ export function SecuritySection({ email, isAccountManaged, onChangePassword, onR
     setIsSendingReset(false);
     setResetStatus({ tone: result?.success ? 'success' : 'error', message: result?.message || 'Unable to send a reset link.' });
   };
-
-  if (!isAccountManaged) {
-    return (
-      <Card title="Account security">
-        <ReadOnlyField label="Sign-in email" value={email} />
-        <p className="mb-0 mt-4 rounded-xl border border-app-border bg-app-surface p-4 text-sm text-app-muted">
-          This session uses a prototype demo account. Password changes and reset links become available once the Supabase workspace is configured.
-        </p>
-      </Card>
-    );
-  }
 
   return (
     <div className="grid gap-4">
