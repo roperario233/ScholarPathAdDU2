@@ -176,29 +176,9 @@ const assignmentNote = {
   admissions_office: 'Central Admissions Office operations role.',
 };
 
-export function ProfileOverview({ profile, roleLabel, completeness, onEditSection, attributeVerifications = {}, onAttachProof }) {
-  const initials = (profile.fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join('') || 'SP';
-
+export function ProfileOverview({ completeness, onEditSection, attributeVerifications = {}, onAttachProof }) {
   return (
     <div className="grid gap-4">
-      <Card title="Account identity">
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
-          <span className="grid h-16 w-16 shrink-0 place-items-center rounded-[20px] bg-gradient-to-br from-ateneo to-sky-400 text-xl font-extrabold text-white" aria-hidden="true">{initials}</span>
-          <div className="min-w-0 flex-1">
-            <strong className="block break-words text-lg text-app-text">{profile.fullName}</strong>
-            <span className="mt-1 block text-sm text-app-muted">{roleLabel}{profile.department ? ` · ${profile.department}` : ''}</span>
-            <span className="mt-1 block break-all text-sm text-app-muted">{profile.email}</span>
-          </div>
-          <Button type="button" onClick={() => onEditSection('personal')}>Edit personal information</Button>
-        </div>
-        {profile.bio && <p className="mb-0 mt-4 border-t border-app-border pt-4 text-sm text-app-muted">{profile.bio}</p>}
-      </Card>
-
       <Card title="Profile completeness">
         <div className="flex items-center gap-3">
           <div
