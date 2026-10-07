@@ -186,8 +186,17 @@ describe('profile field picking', () => {
 });
 
 describe('getProfileCompleteness', () => {
-  it('scores the demo student profile and points missing items to their section', () => {
-    const completeness = getProfileCompleteness({ ...demoUsers.student, studentNumber: '' }, 'student');
+  it('scores a complete student profile and points missing items to their section', () => {
+    const completeStudent = {
+      ...demoUsers.student,
+      civilStatus: 'Single',
+      studentNumber: '2023001',
+      completeAddress: '123 Rizal St, Davao City',
+      ipCommunity: 'No',
+      pwd: 'No',
+      employed: 'Not employed',
+    };
+    const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic' })]);
     expect(completeness.percent).toBe(Math.round((12 / 13) * 100));
