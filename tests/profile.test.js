@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  deriveYearStanding,
   getProfileCompleteness,
+  getStandingRequirements,
   pickEligibilityAttributes,
   pickFields,
+  resolveYearStanding,
   validateAcademicSection,
   validateBackgroundSection,
   validateFinancialSection,
@@ -43,14 +46,24 @@ describe('section validators', () => {
     });
   });
 
-  it('requires a known degree program and a year level consistent with first-year applicants', () => {
-    const base = { studentNumber: '2023001', degreeProgram: 'BS Information Technology', yearLevel: '1', applicantType: 'first-year', academicStanding: 'good', qpi: '3.1' };
-    const valid = validateAcademicSection(base, programs);
-    expect(valid.errors).toEqual({});
-    expect(valid.values).toMatchObject({ yearLevel: 1, qpi: 3.1 });
+  it('derives applicant type and year level from the year standing', () => {
+    const base = { degreeProgram: 'BS Information Technology', academicStanding: 'good' };
+    const incoming = validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs);
+    expect(incoming.errors).toEqual({});
+    expect(incoming.values).toMatchObject({ yearStanding: 'incoming-1st', applicantType: 'first-year', yearLevel: 1, qpi: '' });
 
-    expect(validateAcademicSection({ ...base, degreeProgram: 'BS Unknown' }, programs).errors.degreeProgram).toBeTruthy();
-    expect(validateAcademicSection({ ...base, yearLevel: '3' }, programs).errors.yearLevel).toMatch(/first-year/);
+    const continuing = validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1' }, programs);
+    expect(continuing.errors).toEqual({});
+    expect(continuing.values).toMatchObject({ yearStanding: '3rd', applicantType: 'current', yearLevel: 3, qpi: 3.1 });
+
+    // A continuing student must report a QPI and an AdDU student number; an
+    // incoming first-year must report senior high school standing instead.
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '' }, programs).errors.qpi).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '2nd', qpi: '3.1' }, programs).errors.studentNumber).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '' }, programs).errors.yearStanding).toBeTruthy();
+    expect(validateAcademicSection({ ...base, degreeProgram: 'BS Unknown', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs).errors.degreeProgram).toBeTruthy();
   });
 
   it('keeps financial flags boolean so the Exclusion Flag Hierarchy reads them directly', () => {
@@ -70,20 +83,44 @@ describe('section validators', () => {
     const honors = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Valedictorian', graduatingClassSize: '' });
     expect(honors.errors.graduatingClassSize).toBeTruthy();
 
-    const valid = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Salutatorian', graduatingClassSize: '120', hsAverage: '95', sponsorTies: { afpDependent: true } });
+    const valid = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Salutatorian', graduatingClassSize: '120', sponsorTies: { afpDependent: true } });
     expect(valid.errors).toEqual({});
     expect(valid.values).toMatchObject({
       isHonorsGraduate: true,
       graduatingClassSize: 120,
-      hsAverage: 95,
       sponsorTies: { gsisMemberDependent: false, afpDependent: true, usVeteranDependent: false },
     });
+    // Senior high school standing now lives with the academic profile.
+    expect(valid.values).not.toHaveProperty('hsAverage');
   });
 
   it('requires a matching password with letters and numbers', () => {
     expect(validatePasswordChange({ password: 'abc12345', confirmPassword: 'abc12345' }).errors).toEqual({});
     expect(validatePasswordChange({ password: 'short1', confirmPassword: 'short1' }).errors.password).toBeTruthy();
     expect(validatePasswordChange({ password: 'abc12345', confirmPassword: 'abc12346' }).errors.confirmPassword).toBeTruthy();
+  });
+});
+
+describe('year standing', () => {
+  it('derives a single standing from legacy attributes and expands it back', () => {
+    expect(deriveYearStanding({ applicantType: 'first-year', yearLevel: 1 })).toBe('incoming-1st');
+    expect(deriveYearStanding({ applicantType: 'current', yearLevel: 3 })).toBe('3rd');
+    expect(deriveYearStanding({ yearStanding: '5th', applicantType: 'current', yearLevel: 2 })).toBe('5th');
+    expect(deriveYearStanding({})).toBe('');
+
+    expect(resolveYearStanding('incoming-1st')).toMatchObject({ isIncomingFirstYear: true, applicantType: 'first-year', yearLevel: 1 });
+    expect(resolveYearStanding('4th')).toMatchObject({ isIncomingFirstYear: false, applicantType: 'current', yearLevel: 4 });
+    expect(resolveYearStanding('')).toMatchObject({ yearStanding: '', yearLevel: null });
+  });
+
+  it('reports what each standing requires in one place', () => {
+    expect(getStandingRequirements('incoming-1st')).toMatchObject({ requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: true, programLabel: 'Program / Course (to be enrolled)' });
+    expect(getStandingRequirements('4th')).toMatchObject({ yearStanding: '4th', requiresStudentNumber: true, requiresQpi: true, requiresHsStanding: false, programLabel: 'Program / Course' });
+    // Accepts a profile-shaped object too, for the routing gates.
+    expect(getStandingRequirements({ applicantType: 'current', yearLevel: 3 })).toMatchObject({ yearStanding: '3rd', requiresStudentNumber: true });
+    // An unanswered standing requires nothing yet, so no standing-specific field
+    // shows before the student picks one.
+    expect(getStandingRequirements('')).toMatchObject({ yearStanding: '', requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: false });
   });
 });
 
@@ -121,8 +158,7 @@ describe('validateOnboardingEssentials', () => {
   const base = {
     studentNumber: '2023001',
     degreeProgram: 'BS Information Technology',
-    yearLevel: '2',
-    applicantType: 'current',
+    yearStanding: '2nd',
     academicStanding: 'good',
     qpi: '3.1',
     householdIncome: '240000',
@@ -137,10 +173,13 @@ describe('validateOnboardingEssentials', () => {
     expect(result.values).toEqual({
       studentNumber: '2023001',
       degreeProgram: 'BS Information Technology',
-      yearLevel: 2,
+      yearStanding: '2nd',
       applicantType: 'current',
+      yearLevel: 2,
       academicStanding: 'good',
       qpi: 3.1,
+      hsStrand: '',
+      hsAverage: '',
       householdIncome: 240000,
       hasActiveGovernmentGrant: false,
       phone: '+63 917 123 4567',
@@ -150,7 +189,9 @@ describe('validateOnboardingEssentials', () => {
 
   it('reuses the shared section rules for the essentials', () => {
     expect(validateOnboardingEssentials({ ...base, citizenship: '' }, programs).errors.citizenship).toBeTruthy();
-    expect(validateOnboardingEssentials({ ...base, applicantType: 'first-year', yearLevel: '3' }, programs).errors.yearLevel).toMatch(/first-year/);
+    // An incoming first-year needs senior high school standing, not a QPI.
+    expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
+    expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, programs).errors).toEqual({});
     expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
     expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toMatch(/Philippine mobile/);
   });

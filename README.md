@@ -42,9 +42,9 @@ mobile header). Overview is read-only; every other section saves on its own:
 | --- | --- | --- |
 | Overview | Everyone | Identity card, profile completeness checklist, and (students) an eligibility snapshot listing any Exclusion Flag Hierarchy flags |
 | Personal information | Everyone | Full name, Philippine mobile number, and short bio; sign-in email, role, and department are read-only |
-| Academic profile | Students | Student number, degree program (sets the department), year level, applicant type, academic standing, and annual QPI |
+| Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI |
 | Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
-| Eligibility background | Students | Citizenship, graduating honors standing and class size, senior high school strand and average, and sponsor ties (GSIS, AFP/CAA, US veteran) |
+| Eligibility background | Students | Citizenship, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
 | Account security | Everyone | Change password or email a reset link (needs Supabase; demo accounts see a notice) |
 
 The Smart Eligibility Checker uses the saved values right away. QPI and income
@@ -64,8 +64,8 @@ existing Supabase project. It adds `profiles.bio` (up to 280 characters) and
 `profiles.eligibility_attributes` (JSON). Until it is applied, the fields that
 already have `profiles` columns still save (name, mobile number, student number,
 degree program, QPI, household income, and the government grant answer). The
-bio and the other eligibility answers (year level, applicant type, academic
-standing, the remaining household exclusion answers, and the whole Eligibility
+bio and the other eligibility answers (year standing, academic standing, the
+remaining household exclusion answers, and the whole Eligibility
 background section) do not reach the server. Fresh projects get both columns
 from `supabase/schema.sql`.
 

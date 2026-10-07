@@ -9,6 +9,7 @@ import { formatPhilippineMobile } from '../../supabase/functions/_shared/sms.js'
 export const ELIGIBILITY_ATTRIBUTE_KEYS = [
   'citizenship',
   'academicStanding',
+  'yearStanding',
   'applicantType',
   'yearLevel',
   'isHonorsGraduate',
@@ -35,12 +36,67 @@ export const BIO_MAX_LENGTH = 280;
 export const FULL_NAME_MAX_LENGTH = 100;
 export const PASSWORD_MIN_LENGTH = 8;
 
-export const yearLevelOptions = [1, 2, 3, 4, 5].map((level) => ({ value: level, label: `Year ${level}` }));
-
-export const applicantTypeOptions = [
-  { value: 'first-year', label: 'Incoming first-year student' },
-  { value: 'current', label: 'Continuing student' },
+// Year standing is the single control a student picks. The eligibility engine
+// and the profile gates still read the derived `applicantType` and `yearLevel`
+// attributes, so `deriveYearStanding` / `resolveYearStanding` bridge the two
+// directions and let records saved before this control existed keep resolving.
+// An incoming first-year has no college QPI yet (its programs key off senior
+// high school standing), while every continuing year reports a QPI.
+export const yearStandingOptions = [
+  { value: 'incoming-1st', label: 'Incoming 1st year' },
+  { value: '1st', label: '1st year' },
+  { value: '2nd', label: '2nd year' },
+  { value: '3rd', label: '3rd year' },
+  { value: '4th', label: '4th year' },
+  { value: '5th', label: '5th year' },
 ];
+
+const YEAR_STANDING_VALUES = new Set(yearStandingOptions.map((option) => option.value));
+const YEAR_LEVEL_ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th' };
+
+// Reconstructs the single standing from stored attributes: a saved standing
+// wins, then the legacy `applicantType`, then the numeric `yearLevel`.
+export const deriveYearStanding = ({ yearStanding, applicantType, yearLevel } = {}) => {
+  if (YEAR_STANDING_VALUES.has(yearStanding)) return yearStanding;
+  if (applicantType === 'first-year') return 'incoming-1st';
+  return YEAR_LEVEL_ORDINALS[Number(yearLevel)] || '';
+};
+
+// Expands the chosen standing into everything the eligibility engine, the
+// completeness checklist, and the onboarding gates read.
+export const resolveYearStanding = (value) => {
+  const yearStanding = YEAR_STANDING_VALUES.has(value) ? value : '';
+  const isIncomingFirstYear = yearStanding === 'incoming-1st';
+  const level = !yearStanding ? null : (isIncomingFirstYear ? 1 : Number(yearStanding.charAt(0)));
+  return {
+    yearStanding,
+    isIncomingFirstYear,
+    applicantType: isIncomingFirstYear ? 'first-year' : 'current',
+    yearLevel: Number.isInteger(level) ? level : null,
+  };
+};
+
+// Single source of truth for what a standing requires, so the onboarding modal,
+// the My Profile sections, the validators, and the routing gates never re-derive
+// the rules independently. Accepts a standing value or a profile-shaped object.
+// An unanswered standing requires nothing yet; an incoming first-year reports
+// senior high school standing and has no AdDU student number or college QPI,
+// while every continuing year (1st–5th) reports both.
+export const getStandingRequirements = (value) => {
+  const yearStanding = value && typeof value === 'object' ? deriveYearStanding(value) : value;
+  const resolved = resolveYearStanding(yearStanding);
+  const isContinuing = Boolean(resolved.yearStanding) && !resolved.isIncomingFirstYear;
+  return {
+    ...resolved,
+    isContinuing,
+    requiresStudentNumber: isContinuing,
+    requiresQpi: isContinuing,
+    requiresHsStanding: resolved.isIncomingFirstYear,
+    // An incoming first-year is not enrolled yet, so the header reads as a
+    // program/course being applied for; an enrolled student keeps the plain form.
+    programLabel: resolved.isIncomingFirstYear ? 'Program / Course (to be enrolled)' : 'Program / Course',
+  };
+};
 
 export const academicStandingOptions = [
   { value: 'good', label: 'Good academic standing' },
@@ -166,22 +222,39 @@ export const validatePersonalSection = (form = {}) => {
 };
 
 export const validateAcademicSection = (form = {}, academicPrograms = []) => {
-  const yearLevel = Number(form.yearLevel);
+  const standing = getStandingRequirements(form.yearStanding);
   const result = collect({
-    studentNumber: validateStudentNumber(form.studentNumber),
+    // An incoming first-year has not been issued an AdDU student number yet, so
+    // only a continuing student is required to provide one.
+    studentNumber: standing.requiresStudentNumber
+      ? validateStudentNumber(form.studentNumber)
+      : (isBlank(form.studentNumber) ? ok('') : validateStudentNumber(form.studentNumber)),
     degreeProgram: !form.degreeProgram || (academicPrograms.length && !academicPrograms.some((program) => program.value === form.degreeProgram))
       ? { value: form.degreeProgram || '', error: 'Choose your degree program.' }
       : ok(form.degreeProgram),
-    yearLevel: yearLevelOptions.some((option) => option.value === yearLevel)
-      ? ok(yearLevel)
-      : { value: form.yearLevel, error: 'Choose your current year level.' },
-    applicantType: oneOf(form.applicantType, applicantTypeOptions, 'Choose your applicant type.'),
+    yearStanding: standing.yearStanding
+      ? ok(standing.yearStanding)
+      : { value: form.yearStanding, error: 'Choose your year standing.' },
     academicStanding: oneOf(form.academicStanding, academicStandingOptions, 'Choose your academic standing.'),
-    qpi: validateQpi(form.qpi),
+    // An incoming first-year has no college QPI yet, so only a continuing year
+    // is required to report one; a blank entry clears it.
+    qpi: standing.requiresQpi ? validateQpi(form.qpi) : (isBlank(form.qpi) ? ok('') : validateQpi(form.qpi)),
+    // Senior high school standing lives with the academic profile (see My
+    // Profile); incoming first-years are matched on it instead of a QPI.
+    hsStrand: oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.'),
+    hsAverage: validateOptionalInteger(form.hsAverage, { min: 60, max: 100, message: 'Enter a general average from 60 to 100.' }),
+    // Derived so the eligibility engine keeps reading the same attributes.
+    applicantType: ok(standing.applicantType),
+    yearLevel: standing.yearLevel == null
+      ? { value: '', error: 'Choose your year standing.' }
+      : ok(standing.yearLevel),
   });
 
-  if (!result.errors.yearLevel && !result.errors.applicantType && result.values.applicantType === 'first-year' && result.values.yearLevel > 1) {
-    result.errors.yearLevel = 'Incoming first-year students are in year level 1.';
+  // Incoming first-years are matched on senior high school standing rather than
+  // QPI, so their strand and general average become required.
+  if (standing.requiresHsStanding) {
+    if (!result.values.hsStrand && !result.errors.hsStrand) result.errors.hsStrand = 'Choose your senior high school strand.';
+    if (result.values.hsAverage === '' && !result.errors.hsAverage) result.errors.hsAverage = 'Add your senior high school general average.';
   }
   return result;
 };
@@ -201,8 +274,6 @@ export const validateBackgroundSection = (form = {}) => {
     honorsRank: oneOf(honorsRank, honorsRankOptions, 'Choose an honors standing.'),
     isHonorsGraduate: ok(Boolean(honorsRank)),
     graduatingClassSize: validateOptionalInteger(form.graduatingClassSize, { min: 1, max: 10000, message: 'Enter the graduating class size as a whole number.' }),
-    hsStrand: oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.'),
-    hsAverage: validateOptionalInteger(form.hsAverage, { min: 60, max: 100, message: 'Enter a general average from 60 to 100.' }),
     sponsorTies: ok(Object.fromEntries(SPONSOR_TIE_KEYS.map((key) => [key, Boolean(form.sponsorTies?.[key])]))),
   });
 
@@ -229,10 +300,13 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
     values: {
       studentNumber: academic.values.studentNumber,
       degreeProgram: academic.values.degreeProgram,
-      yearLevel: academic.values.yearLevel,
+      yearStanding: academic.values.yearStanding,
       applicantType: academic.values.applicantType,
+      yearLevel: academic.values.yearLevel,
       academicStanding: academic.values.academicStanding,
       qpi: academic.values.qpi,
+      hsStrand: academic.values.hsStrand,
+      hsAverage: academic.values.hsAverage,
       householdIncome: financial.values.householdIncome,
       hasActiveGovernmentGrant: financial.values.hasActiveGovernmentGrant,
       phone: phone.value,
@@ -252,6 +326,7 @@ export const validatePasswordChange = ({ password = '', confirmPassword = '' } =
 };
 
 export const getProfileCompleteness = (profile = {}, role = 'student') => {
+  const { yearStanding, requiresStudentNumber, requiresQpi } = getStandingRequirements(profile);
   const items = [
     { key: 'fullName', label: 'Full name', section: 'personal', done: !validateFullName(profile.fullName).error },
     { key: 'phone', label: 'Philippine mobile number', section: 'personal', done: Boolean(formatPhilippineMobile(profile.phone || '')) },
@@ -259,10 +334,10 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
 
   if (role === 'student') {
     items.push(
-      { key: 'studentNumber', label: 'AdDU student number', section: 'academic', done: !validateStudentNumber(profile.studentNumber).error },
+      { key: 'studentNumber', label: 'AdDU student number', section: 'academic', done: !requiresStudentNumber || !validateStudentNumber(profile.studentNumber).error },
       { key: 'degreeProgram', label: 'Degree program', section: 'academic', done: !isBlank(profile.degreeProgram) },
-      { key: 'yearLevel', label: 'Year level', section: 'academic', done: !isBlank(profile.yearLevel) },
-      { key: 'qpi', label: 'Annual QPI', section: 'academic', done: !validateQpi(profile.qpi).error },
+      { key: 'yearStanding', label: 'Year standing', section: 'academic', done: Boolean(yearStanding) },
+      { key: 'qpi', label: 'Annual QPI', section: 'academic', done: !requiresQpi || !validateQpi(profile.qpi).error },
       { key: 'householdIncome', label: 'Annual household income', section: 'financial', done: !validateHouseholdIncome(profile.householdIncome).error },
       { key: 'citizenship', label: 'Citizenship', section: 'background', done: !isBlank(profile.citizenship) },
     );

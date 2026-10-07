@@ -241,10 +241,14 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
       return { success: false, fallback: false, message: getAuthErrorMessage(profileEnsureError, 'Unable to prepare your academic profile.') };
     }
 
-    const { error: historyError } = await supabase
-      .from('annual_qpi_records')
-      .upsert({ user_id: userId, academic_year: getCurrentAcademicYear(), qpi }, { onConflict: 'user_id,academic_year' });
-    if (historyError) return { success: false, fallback: false, message: getAuthErrorMessage(historyError, 'Unable to save your annual QPI record.') };
+    // An incoming first-year has no college QPI yet, so skip the annual record
+    // instead of writing an empty value (mirrors updateProfileFields).
+    if (qpi !== undefined && qpi !== '' && qpi !== null) {
+      const { error: historyError } = await supabase
+        .from('annual_qpi_records')
+        .upsert({ user_id: userId, academic_year: getCurrentAcademicYear(), qpi }, { onConflict: 'user_id,academic_year' });
+      if (historyError) return { success: false, fallback: false, message: getAuthErrorMessage(historyError, 'Unable to save your annual QPI record.') };
+    }
 
     const { data, error } = await supabase
       .from('profiles')

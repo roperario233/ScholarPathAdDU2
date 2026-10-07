@@ -7,8 +7,9 @@ import { fmtCurrency } from '../lib/formatters';
 import {
   BIO_MAX_LENGTH,
   academicStandingOptions,
-  applicantTypeOptions,
   citizenshipOptions,
+  deriveYearStanding,
+  getStandingRequirements,
   honorsRankOptions,
   hsStrandOptions,
   validateAcademicSection,
@@ -16,7 +17,7 @@ import {
   validateFinancialSection,
   validatePasswordChange,
   validatePersonalSection,
-  yearLevelOptions,
+  yearStandingOptions,
 } from '../lib/profile';
 
 // One fixed height for text boxes and native selects (matching the SelectPicker
@@ -215,7 +216,7 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
             <ReadOnlyField label="Degree program" value={profile.degreeProgram} />
             <ReadOnlyField label="Annual QPI" value={asText(profile.qpi) === '' ? '' : Number(profile.qpi).toFixed(2)} />
             <ReadOnlyField label="Household income" value={asText(profile.householdIncome) === '' ? '' : fmtCurrency(profile.householdIncome)} />
-            <ReadOnlyField label="Year level" value={[optionLabel(yearLevelOptions, profile.yearLevel), optionLabel(applicantTypeOptions, profile.applicantType)].filter(Boolean).join(' · ')} />
+            <ReadOnlyField label="Year standing" value={optionLabel(yearStandingOptions, deriveYearStanding(profile))} />
           </div>
           <div className={`mt-4 rounded-xl border p-4 text-sm ${exclusionFlags.length ? 'border-amber-400/40 bg-amber-500/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
             <strong className="block text-app-text">
@@ -273,16 +274,20 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
     initialValues: {
       studentNumber: asText(profile.studentNumber),
       degreeProgram: asText(profile.degreeProgram),
-      yearLevel: asText(profile.yearLevel),
-      applicantType: asText(profile.applicantType),
+      yearStanding: deriveYearStanding(profile),
       academicStanding: asText(profile.academicStanding),
       qpi: asText(profile.qpi),
+      hsStrand: asText(profile.hsStrand),
+      hsAverage: asText(profile.hsAverage),
     },
     validate: (values) => validateAcademicSection(values, academicPrograms),
     onSave,
     onDirtyChange,
   });
   const { values, errors, update } = form;
+  // The standing decides which fields apply: an incoming first-year reports
+  // senior high school standing and has no AdDU student number or QPI yet.
+  const standing = getStandingRequirements(values.yearStanding);
   const selectedProgram = academicPrograms.find((program) => program.value === values.degreeProgram);
   const programOptions = academicProgramCategories.flatMap((category) => [
     { value: `group-${category}`, label: category, isGroup: true },
@@ -292,23 +297,34 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   return (
     <SectionForm title="Academic profile" description="Your enrollment details drive degree-specific matching in the Smart Eligibility Checker." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record." error={errors.studentNumber}>
-          <input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} />
-        </FormField>
-        <FormField label="Annual QPI" hint="Self-reported on the 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." error={errors.qpi}>
-          <input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} />
-        </FormField>
+        <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value })} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
+        {standing.requiresStudentNumber && (
+          <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record." error={errors.studentNumber}>
+            <input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} />
+          </FormField>
+        )}
       </div>
       <div className="grid gap-2">
-        <SelectPicker label="Degree program" value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value })} options={programOptions} idPrefix="profile-degree-program" />
+        <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value })} options={programOptions} idPrefix="profile-degree-program" />
         {errors.degreeProgram && <span className="text-sm text-rose-600 dark:text-rose-300" role="alert">{errors.degreeProgram}</span>}
       </div>
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates automatically when you change your degree program." />
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Year level" value={values.yearLevel} onChange={(value) => update({ yearLevel: value })} options={yearLevelOptions} placeholder="Choose year level" error={errors.yearLevel} />
-        <SelectField label="Applicant type" value={values.applicantType} onChange={(value) => update({ applicantType: value })} options={applicantTypeOptions} placeholder="Choose applicant type" error={errors.applicantType} />
         <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} />
+        {standing.requiresQpi && (
+          <FormField label="Annual QPI" hint="Self-reported on the 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." error={errors.qpi}>
+            <input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} />
+          </FormField>
+        )}
       </div>
+      {standing.requiresHsStanding && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <SelectField label="Senior high school strand" hint="Incoming first-year students are matched on their senior high school standing." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions} error={errors.hsStrand} />
+          <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage}>
+            <input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} />
+          </FormField>
+        </div>
+      )}
     </SectionForm>
   );
 }
@@ -351,8 +367,6 @@ export function BackgroundSection({ profile, onSave, onDirtyChange }) {
       citizenship: asText(profile.citizenship),
       honorsRank: asText(profile.honorsRank),
       graduatingClassSize: asText(profile.graduatingClassSize),
-      hsStrand: asText(profile.hsStrand),
-      hsAverage: asText(profile.hsAverage),
       sponsorTies: {
         gsisMemberDependent: Boolean(profile.sponsorTies?.gsisMemberDependent),
         afpDependent: Boolean(profile.sponsorTies?.afpDependent),
@@ -367,16 +381,12 @@ export function BackgroundSection({ profile, onSave, onDirtyChange }) {
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });
 
   return (
-    <SectionForm title="Eligibility background" description="Citizenship, senior high school standing, and sponsor ties used by honors-track and government-linked financial aid pipelines." form={form}>
+    <SectionForm title="Eligibility background" description="Citizenship, graduating honors standing, and sponsor ties used by honors-track and government-linked financial aid pipelines." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} />
-        <SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions} error={errors.hsStrand} />
         <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} />
         <FormField label="Graduating class size" hint="Optional unless you hold an honors standing." error={errors.graduatingClassSize}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
-        </FormField>
-        <FormField label="Senior high school general average" hint="Optional. Whole number from 60 to 100." error={errors.hsAverage}>
-          <input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} />
         </FormField>
       </div>
       <fieldset className="m-0 grid gap-3 border-0 p-0">

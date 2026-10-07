@@ -26,6 +26,7 @@ export const demoUsers = {
     hasActiveGovernmentGrant: false,
     academicStanding: 'good',
     applicantType: 'current',
+    yearStanding: '2nd',
     yearLevel: 2,
     isHonorsGraduate: false,
     honorsRank: '',

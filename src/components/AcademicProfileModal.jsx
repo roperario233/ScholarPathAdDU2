@@ -4,10 +4,11 @@ import { Button, FormField, ModalShell } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
 import {
   academicStandingOptions,
-  applicantTypeOptions,
   citizenshipOptions,
+  getStandingRequirements,
+  hsStrandOptions,
   validateOnboardingEssentials,
-  yearLevelOptions,
+  yearStandingOptions,
 } from '../lib/profile';
 
 // Text boxes and selects share one fixed height (matching the SelectPicker
@@ -29,13 +30,14 @@ export default function AcademicProfileModal({
   fullName,
   initialProgram,
   initialStudentNumber,
-  initialYearLevel,
-  initialApplicantType,
+  initialYearStanding,
   initialAcademicStanding,
   initialCitizenship,
   initialPhone,
   initialHouseholdIncome,
   initialQpi,
+  initialHsStrand,
+  initialHsAverage,
   initialHasActiveGovernmentGrant,
   academicPrograms = [],
   academicProgramCategories = [],
@@ -45,15 +47,17 @@ export default function AcademicProfileModal({
 }) {
   const [program, setProgram] = useState(initialProgram || '');
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber || '');
-  const [yearLevel, setYearLevel] = useState(initialYearLevel ?? '');
-  const [applicantType, setApplicantType] = useState(initialApplicantType || '');
+  const [yearStanding, setYearStanding] = useState(initialYearStanding || '');
   const [academicStanding, setAcademicStanding] = useState(initialAcademicStanding || '');
   const [citizenship, setCitizenship] = useState(initialCitizenship || '');
   const [phone, setPhone] = useState(initialPhone || '');
   const [householdIncome, setHouseholdIncome] = useState(initialHouseholdIncome ?? '');
   const [qpi, setQpi] = useState(initialQpi ?? '');
+  const [hsStrand, setHsStrand] = useState(initialHsStrand || '');
+  const [hsAverage, setHsAverage] = useState(initialHsAverage ?? '');
   const [hasActiveGovernmentGrant, setHasActiveGovernmentGrant] = useState(Boolean(initialHasActiveGovernmentGrant));
   const [validationError, setValidationError] = useState('');
+  const standing = getStandingRequirements(yearStanding);
   const selectedProgram = academicPrograms.find((entry) => entry.value === program) || academicPrograms[0];
   const programOptions = academicProgramCategories.flatMap((category) => [
     { value: `group-${category}`, label: category, isGroup: true },
@@ -63,29 +67,36 @@ export default function AcademicProfileModal({
   useEffect(() => {
     setProgram(initialProgram || '');
     setStudentNumber(initialStudentNumber || '');
-    setYearLevel(initialYearLevel ?? '');
-    setApplicantType(initialApplicantType || '');
+    setYearStanding(initialYearStanding || '');
     setAcademicStanding(initialAcademicStanding || '');
     setCitizenship(initialCitizenship || '');
     setPhone(initialPhone || '');
     setHouseholdIncome(initialHouseholdIncome ?? '');
     setQpi(initialQpi ?? '');
+    setHsStrand(initialHsStrand || '');
+    setHsAverage(initialHsAverage ?? '');
     setHasActiveGovernmentGrant(Boolean(initialHasActiveGovernmentGrant));
-  }, [initialProgram, initialStudentNumber, initialYearLevel, initialApplicantType, initialAcademicStanding, initialCitizenship, initialPhone, initialHouseholdIncome, initialQpi, initialHasActiveGovernmentGrant]);
+  }, [initialProgram, initialStudentNumber, initialYearStanding, initialAcademicStanding, initialCitizenship, initialPhone, initialHouseholdIncome, initialQpi, initialHsStrand, initialHsAverage, initialHasActiveGovernmentGrant]);
 
   const clearError = () => setValidationError('');
-  const isComplete = Boolean(program && studentNumber && yearLevel && applicantType && academicStanding && citizenship)
-    && householdIncome !== '' && qpi !== '';
+  // An incoming first-year is matched on senior high school standing instead of
+  // a college QPI, so the required inputs swap accordingly.
+  const isComplete = Boolean(program && yearStanding && academicStanding && citizenship)
+    && householdIncome !== ''
+    && (standing.requiresHsStanding
+      ? Boolean(hsStrand) && hsAverage !== ''
+      : Boolean(studentNumber) && qpi !== '');
 
   const handleSubmit = (event) => {
     event.preventDefault();
     const result = validateOnboardingEssentials({
       studentNumber,
       degreeProgram: program,
-      yearLevel,
-      applicantType,
+      yearStanding,
       academicStanding,
       qpi,
+      hsStrand,
+      hsAverage,
       householdIncome,
       hasActiveGovernmentGrant,
       phone,
@@ -115,30 +126,39 @@ export default function AcademicProfileModal({
         </p>
         <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record.">
-              <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required />
-            </FormField>
-            <NativeSelect label="Year level" value={yearLevel} onChange={(value) => { setYearLevel(value); clearError(); }} options={yearLevelOptions} placeholder="Choose year level" />
+            <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError(); }} options={yearStandingOptions} placeholder="Choose year standing" />
+            {standing.requiresStudentNumber && (
+              <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record.">
+                <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required />
+              </FormField>
+            )}
           </div>
-          <SelectPicker label="Program / Course" value={program} onChange={(value) => { setProgram(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program" />
+          <SelectPicker label={standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program" />
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Applicant type" value={applicantType} onChange={(value) => { setApplicantType(value); clearError(); }} options={applicantTypeOptions} placeholder="Choose applicant type" />
             <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError(); }} options={academicStandingOptions} placeholder="Choose standing" />
+            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError(); }} options={citizenshipOptions} placeholder="Choose citizenship" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError(); }} options={citizenshipOptions} placeholder="Choose citizenship" />
             <FormField label="Mobile number" hint="Optional. Deadline reminder texts use this Philippine mobile number.">
               <input className={controlClass} value={phone} onChange={(event) => { setPhone(event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20)); clearError(); }} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" />
             </FormField>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos.">
               <input className={controlClass} value={householdIncome} onChange={(event) => { setHouseholdIncome(event.target.value.replace(/[^\d]/g, '')); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" required />
             </FormField>
+          </div>
+          {standing.requiresHsStanding && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <NativeSelect label="Senior high school strand" value={hsStrand} onChange={(value) => { setHsStrand(value); clearError(); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" />
+              <FormField label="Senior high school general average" hint="Whole number from 60 to 100.">
+                <input className={controlClass} value={hsAverage} onChange={(event) => { setHsAverage(event.target.value.replace(/\D/g, '').slice(0, 3)); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" required />
+              </FormField>
+            </div>
+          )}
+          {standing.requiresQpi && (
             <FormField label="Annual QPI" hint="Self-reported on the AdDU 0.00–4.00 scale. The prototype does not verify QPI with the Registrar.">
               <input className={controlClass} value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); clearError(); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" required />
             </FormField>
-          </div>
+          )}
           <label className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
             <input className="h-4 w-4 shrink-0 accent-[var(--primary)]" type="checkbox" checked={hasActiveGovernmentGrant} onChange={(event) => setHasActiveGovernmentGrant(event.target.checked)} />
             <span className="min-w-0 flex-1 leading-relaxed">I currently have an active government grant</span>
