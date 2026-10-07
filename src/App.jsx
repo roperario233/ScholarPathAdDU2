@@ -1330,7 +1330,6 @@ function App() {
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
-              onOpenEligibility={() => navigate('explore')}
               attributeVerifications={attributeVerifications}
               onAttachProof={() => navigate('vault')}
             />

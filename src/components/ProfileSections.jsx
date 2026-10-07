@@ -2,14 +2,11 @@ import { useEffect, useState } from 'react';
 import { Circle, CircleCheck } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
-import { checkAdduInternalGate, checkUniversalGate } from '../lib/eligibility';
-import { fmtCurrency } from '../lib/formatters';
 import { getAttributeVerificationTone } from '../lib/verification';
 import {
   ADDRESS_MAX_LENGTH,
   BIO_MAX_LENGTH,
   COUNTRY_MAX_LENGTH,
-  VERIFIABLE_ATTRIBUTE_OPTIONS,
   academicStandingOptions,
   citizenshipOptions,
   civilStatusOptions,
@@ -37,7 +34,6 @@ import {
 // size inputs and selects a few pixels apart.
 const controlClass = 'h-12 py-0';
 const asText = (value) => (value === undefined || value === null ? '' : String(value));
-const optionLabel = (options, value) => options.find((option) => String(option.value) === String(value))?.label || '';
 
 // Shared draft/validate/save lifecycle for one My Profile section. The draft
 // re-syncs whenever the saved profile changes, so a successful save (or a
@@ -179,11 +175,7 @@ const assignmentNote = {
   admissions_office: 'Central Admissions Office operations role.',
 };
 
-export function ProfileOverview({ profile, role, roleLabel, completeness, onEditSection, onOpenEligibility, attributeVerifications = {}, onAttachProof }) {
-  const isStudent = role === 'student';
-  const exclusionFlags = isStudent
-    ? [...checkUniversalGate(profile).reasons, ...checkAdduInternalGate(profile).reasons]
-    : [];
+export function ProfileOverview({ profile, roleLabel, completeness, onEditSection, attributeVerifications = {}, onAttachProof }) {
   const initials = (profile.fullName || '')
     .split(/\s+/)
     .filter(Boolean)
@@ -220,61 +212,36 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
           </div>
           <strong className="w-12 text-right text-app-text">{completeness.percent}%</strong>
         </div>
-        <ul className="m-0 mt-4 grid list-none gap-2 p-0 md:grid-cols-2">
-          {completeness.items.map((item) => (
-            <li key={item.key} className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-app-surface px-3 py-2">
-              <span className="flex min-w-0 items-center gap-2 text-sm text-app-text">
-                {item.done
-                  ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
-                  : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
-                <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
-              </span>
-              {!item.done && (
-                <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
-              )}
-            </li>
-          ))}
+        <p className="-mt-1 mb-4 text-sm text-app-muted">Upload a proof document in the Document Vault for each attribute you want verified; the Admissions Office verifies the file and the attribute together. Verification is informational and never blocks applying, and QPI and income stay self-reported rather than Registrar-verified.</p>
+        <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
+          {completeness.items.map((item) => {
+            const status = attributeVerifications[item.key];
+            const showAttachProof = status !== undefined && status !== 'Verified';
+            const showAdd = !item.done && !showAttachProof;
+            return (
+              <li key={item.key} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
+                <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
+                  {item.done
+                    ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
+                    : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
+                  <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
+                  {status !== undefined && (
+                    <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
+                  )}
+                </span>
+                <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  {showAttachProof && (
+                    <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>Attach proof</button>
+                  )}
+                  {showAdd && (
+                    <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       </Card>
-
-      {isStudent && (
-        <>
-        <Card title="Eligibility snapshot">
-          <p className="-mt-1 mb-4 text-sm text-app-muted">The Smart Eligibility Checker matches scholarships using these saved values.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ReadOnlyField label="Degree program" value={profile.degreeProgram} />
-            <ReadOnlyField label="Annual QPI" value={asText(profile.qpi) === '' ? '' : Number(profile.qpi).toFixed(2)} />
-            <ReadOnlyField label="Household income" value={asText(profile.householdIncome) === '' ? '' : fmtCurrency(profile.householdIncome)} />
-            <ReadOnlyField label="Year standing" value={optionLabel(yearStandingOptions, deriveYearStanding(profile))} />
-          </div>
-          <div className={`mt-4 rounded-xl border p-4 text-sm ${exclusionFlags.length ? 'border-amber-400/40 bg-amber-500/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
-            <strong className="block text-app-text">
-              {exclusionFlags.length ? `Exclusion Flag Hierarchy: ${exclusionFlags.length} flag${exclusionFlags.length === 1 ? '' : 's'} recorded` : 'Exclusion Flag Hierarchy: no flags recorded'}
-            </strong>
-            {exclusionFlags.length > 0 && (
-              <ul className="m-0 mt-2 grid gap-1 pl-5 text-app-muted">
-                {exclusionFlags.map((reason) => <li key={reason}>{reason}</li>)}
-              </ul>
-            )}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button variant="primary" type="button" onClick={onOpenEligibility}>Check scholarships and eligibility</Button>
-            <Button type="button" onClick={() => onEditSection('financial')}>Review exclusion answers</Button>
-          </div>
-        </Card>
-        <Card title="Profile verification">
-          <p className="-mt-1 mb-4 text-sm text-app-muted">Upload a proof document in the Document Vault for each attribute you want verified; the Admissions Office verifies the file and the attribute together. Verification is informational and never blocks applying, and QPI and income stay self-reported rather than Registrar-verified.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => (
-              <div key={option.key} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-3">
-                <span className="min-w-0 text-sm text-app-text">{option.label}</span>
-                <AttributeVerification attributeKey={option.key} attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
-              </div>
-            ))}
-          </div>
-        </Card>
-        </>
-      )}
     </div>
   );
 }

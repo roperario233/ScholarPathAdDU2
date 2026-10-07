@@ -40,7 +40,7 @@ mobile header). Overview is read-only; every other section saves on its own:
 
 | Section | Who sees it | What it covers |
 | --- | --- | --- |
-| Overview | Everyone | Identity card, profile completeness checklist, and (students) an eligibility snapshot listing any Exclusion Flag Hierarchy flags |
+| Overview | Everyone | Identity card and a profile completeness checklist that also surfaces each verifiable attribute's Document Vault verification state |
 | Personal information | Everyone | Full name, Philippine mobile number, and short bio (students also set religion and civil status); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
