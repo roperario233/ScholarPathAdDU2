@@ -6,7 +6,7 @@ import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, is
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { hasSupabaseConfig } from './lib/supabaseClient';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications } from './lib/verification';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
@@ -274,6 +274,7 @@ function App() {
         profileDraft: {
           ...previous.profileDraft,
           ...profileDetails.eligibilityAttributes,
+          ...profileDetails.profileDetails,
           ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
         },
       }));
@@ -424,6 +425,7 @@ function App() {
         profileDraft: {
           ...previous.profileDraft,
           ...profileDetails.eligibilityAttributes,
+          ...profileDetails.profileDetails,
           ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
         },
       }));
@@ -977,6 +979,11 @@ function App() {
     }
     const eligibilityAttributes = isStudent ? pickEligibilityAttributes(patch) : {};
     const hasEligibilityAttributes = Object.keys(eligibilityAttributes).length > 0;
+    // Descriptive fields (religion, civil status, address, family details) are
+    // stored separately from the eligibility attributes and never feed the
+    // Smart Eligibility Checker.
+    const profileDetails = isStudent ? pickFields(patch, PROFILE_DETAIL_KEYS) : {};
+    const hasProfileDetails = Object.keys(profileDetails).length > 0;
     const userId = state.authUser?.id || currentProfile.id;
 
     const result = await updateProfileFields(userId, {
@@ -984,13 +991,14 @@ function App() {
       ...(hasEligibilityAttributes
         ? { eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes } }
         : {}),
+      ...(hasProfileDetails ? { profileDetails } : {}),
     });
     if (!result.success) return result;
 
     updateState((previous) => ({
       authUser: { ...previous.authUser, ...accountFields },
       profileDraft: isStudent
-        ? { ...previous.profileDraft, ...pickFields(accountFields, PROFILE_DRAFT_KEYS), ...eligibilityAttributes }
+        ? { ...previous.profileDraft, ...pickFields(accountFields, PROFILE_DRAFT_KEYS), ...eligibilityAttributes, ...profileDetails }
         : previous.profileDraft,
       profileEdits: result.fallback
         ? { ...previous.profileEdits, [userId]: { ...previous.profileEdits?.[userId], ...accountFields } }

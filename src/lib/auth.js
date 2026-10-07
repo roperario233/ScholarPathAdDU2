@@ -284,6 +284,12 @@ const detailProfileColumns = {
   eligibilityAttributes: 'eligibility_attributes',
 };
 
+// Column added by 20261008000000_add_profile_details_json.sql. Written in its own
+// statement so a pending migration never blocks the bio/eligibility write above.
+const extraDetailProfileColumns = {
+  profileDetails: 'profile_details',
+};
+
 const toProfileColumns = (fields, columnMap) => Object.fromEntries(
   Object.entries(columnMap)
     .filter(([key]) => fields[key] !== undefined)
@@ -293,7 +299,7 @@ const toProfileColumns = (fields, columnMap) => Object.fromEntries(
 const isMissingColumnError = (error) => error?.code === '42703' || error?.code === 'PGRST204';
 
 export const getProfileDetails = async (userId) => {
-  const empty = { bio: '', eligibilityAttributes: {} };
+  const empty = { bio: '', eligibilityAttributes: {}, profileDetails: {} };
   if (!hasSupabaseConfig || !supabase || !userId) return empty;
 
   try {
@@ -302,8 +308,21 @@ export const getProfileDetails = async (userId) => {
       .select('bio, eligibility_attributes')
       .eq('user_id', userId)
       .maybeSingle();
-    if (error || !data) return empty;
-    return { bio: data.bio || '', eligibilityAttributes: pickEligibilityAttributes(data.eligibility_attributes) };
+    const base = error || !data
+      ? { bio: '', eligibilityAttributes: {} }
+      : { bio: data.bio || '', eligibilityAttributes: pickEligibilityAttributes(data.eligibility_attributes) };
+
+    // `profile_details` comes from a later migration, so it is read in its own
+    // query: a project with the column pending still returns bio and eligibility.
+    const { data: detailData, error: detailError } = await supabase
+      .from('profiles')
+      .select('profile_details')
+      .eq('user_id', userId)
+      .maybeSingle();
+    const stored = detailData?.profile_details;
+    const profileDetails = !detailError && stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+
+    return { ...base, profileDetails };
   } catch {
     return empty;
   }
@@ -338,6 +357,18 @@ export const updateProfileFields = async (userId, fields = {}) => {
       const { error } = await supabase
         .from('profiles')
         .update({ ...detailColumns, updated_at: updatedAt })
+        .eq('user_id', userId);
+      if (error && isMissingColumnError(error)) return { success: true, fallback: false, detailsSynced: false };
+      if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile details.') };
+    }
+
+    // Descriptive profile fields live in their own JSON column from a later
+    // migration, so they are written separately for the same reason.
+    const extraDetailColumns = toProfileColumns(fields, extraDetailProfileColumns);
+    if (Object.keys(extraDetailColumns).length) {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ ...extraDetailColumns, updated_at: updatedAt })
         .eq('user_id', userId);
       if (error && isMissingColumnError(error)) return { success: true, fallback: false, detailsSynced: false };
       if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile details.') };

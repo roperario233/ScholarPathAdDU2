@@ -63,6 +63,9 @@ describe('deriveAttributeVerifications', () => {
     const verifications = deriveAttributeVerifications(documents);
     expect(Object.keys(verifications)).toEqual(VERIFIABLE_ATTRIBUTE_KEYS);
     expect(verifications).toMatchObject({ qpi: 'Verified', householdIncome: 'Pending', academicStanding: 'Rejected', hsAverage: 'Unverified' });
+    // The self-reported citizenship, IP community, PWD, and employment answers
+    // are verifiable too, so they appear with an Unverified default.
+    expect(verifications).toMatchObject({ citizenship: 'Unverified', ipCommunity: 'Unverified', pwd: 'Unverified', employed: 'Unverified' });
   });
 });
 

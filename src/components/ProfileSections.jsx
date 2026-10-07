@@ -6,16 +6,26 @@ import { checkAdduInternalGate, checkUniversalGate } from '../lib/eligibility';
 import { fmtCurrency } from '../lib/formatters';
 import { getAttributeVerificationTone } from '../lib/verification';
 import {
+  ADDRESS_MAX_LENGTH,
   BIO_MAX_LENGTH,
+  COUNTRY_MAX_LENGTH,
   VERIFIABLE_ATTRIBUTE_OPTIONS,
   academicStandingOptions,
   citizenshipOptions,
+  civilStatusOptions,
   deriveYearStanding,
+  employmentOptions,
+  familyPositionOptions,
   getStandingRequirements,
   honorsRankOptions,
   hsStrandOptions,
+  ipCommunityOptions,
+  pwdOptions,
+  religionOptions,
   validateAcademicSection,
+  validateAddressSection,
   validateBackgroundSection,
+  validateFamilySection,
   validateFinancialSection,
   validatePasswordChange,
   validatePersonalSection,
@@ -270,8 +280,15 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
 }
 
 export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChange }) {
+  const isStudent = role === 'student';
   const form = useSectionForm({
-    initialValues: { fullName: asText(profile.fullName), phone: asText(profile.phone), bio: asText(profile.bio) },
+    initialValues: {
+      fullName: asText(profile.fullName),
+      phone: asText(profile.phone),
+      bio: asText(profile.bio),
+      religion: asText(profile.religion),
+      civilStatus: asText(profile.civilStatus),
+    },
     validate: validatePersonalSection,
     onSave,
     onDirtyChange,
@@ -287,6 +304,12 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField label="Mobile number" hint="Optional. SMS deadline reminders use this Philippine mobile number when SMS notifications are on in Settings." error={errors.phone}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
+        {isStudent && (
+          <>
+            <SelectField label="Religion" value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />
+            <SelectField label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} />
+          </>
+        )}
       </div>
       <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
         <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
@@ -295,6 +318,97 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <ReadOnlyField label="Sign-in email" value={profile.email} note="Managed by your AdDU sign-in account." className="md:col-span-2" />
         <ReadOnlyField label="Role" value={roleLabel} />
         <ReadOnlyField label={role === 'admissions_office' ? 'Office' : 'School / Department'} value={profile.department} note={assignmentNote[role]} />
+      </div>
+    </SectionForm>
+  );
+}
+
+export function AddressSection({ profile, onSave, onDirtyChange }) {
+  const form = useSectionForm({
+    initialValues: {
+      completeAddress: asText(profile.completeAddress),
+      country: asText(profile.country),
+      sameAsCompleteAddress: profile.sameAsCompleteAddress !== false,
+      residingAddress: asText(profile.residingAddress),
+    },
+    validate: validateAddressSection,
+    onSave,
+    onDirtyChange,
+  });
+  const { values, errors, update } = form;
+
+  return (
+    <SectionForm title="Address" description="Where ScholarPath can reach you for scholarship correspondence. The residing address can mirror your complete address." form={form}>
+      <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}>
+        <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} placeholder="e.g. 123 Rizal Street, Barangay 5-A, Davao City, Davao del Sur" aria-invalid={Boolean(errors.completeAddress)} />
+      </FormField>
+      <FormField label="Country" hint={`Up to ${COUNTRY_MAX_LENGTH} characters.`} error={errors.country}>
+        <input className={controlClass} value={values.country} onChange={(event) => update({ country: event.target.value.slice(0, COUNTRY_MAX_LENGTH) })} autoComplete="country-name" placeholder="e.g. Philippines" aria-invalid={Boolean(errors.country)} />
+      </FormField>
+      <SettingToggle checked={values.sameAsCompleteAddress} onChange={(checked) => update({ sameAsCompleteAddress: checked })} title="Residing address is the same as my complete address" description="Turn this off to enter a different address where you currently reside." />
+      {!values.sameAsCompleteAddress && (
+        <FormField label="Residing address" hint={`Where you currently reside. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.residingAddress}>
+          <textarea className="min-h-24" value={values.residingAddress} onChange={(event) => update({ residingAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} placeholder="e.g. Boarding house, Barangay 10, Davao City" aria-invalid={Boolean(errors.residingAddress)} />
+        </FormField>
+      )}
+    </SectionForm>
+  );
+}
+
+export function FamilySection({ profile, onSave, onDirtyChange }) {
+  const stored = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
+  const form = useSectionForm({
+    initialValues: {
+      familyDetails: {
+        fatherName: asText(stored.fatherName),
+        fatherOccupation: asText(stored.fatherOccupation),
+        fatherDeceased: Boolean(stored.fatherDeceased),
+        motherName: asText(stored.motherName),
+        motherOccupation: asText(stored.motherOccupation),
+        motherDeceased: Boolean(stored.motherDeceased),
+        familyPosition: asText(stored.familyPosition),
+        numberOfSiblings: asText(stored.numberOfSiblings),
+      },
+    },
+    validate: validateFamilySection,
+    onSave,
+    onDirtyChange,
+  });
+  const { values, errors, update } = form;
+  const family = values.familyDetails;
+  const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } });
+
+  return (
+    <SectionForm title="Family details" description="Your family composition supports household-income and dependent-based financial aid review." form={form}>
+      <fieldset className="m-0 grid gap-4 border-0 p-0">
+        <legend className="text-sm font-semibold text-app-text">Father</legend>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField label="Father's name" error={errors.fatherName}>
+            <input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} autoComplete="off" placeholder="Full name" aria-invalid={Boolean(errors.fatherName)} />
+          </FormField>
+          <FormField label="Father's occupation" error={errors.fatherOccupation}>
+            <input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} autoComplete="off" placeholder="e.g. Fisherman" aria-invalid={Boolean(errors.fatherOccupation)} />
+          </FormField>
+        </div>
+        <SettingToggle checked={family.fatherDeceased} onChange={(checked) => updateFamily({ fatherDeceased: checked })} title="Father is deceased" description="Mark this if your father has passed away." />
+      </fieldset>
+      <fieldset className="m-0 grid gap-4 border-0 p-0">
+        <legend className="text-sm font-semibold text-app-text">Mother</legend>
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField label="Mother's name" error={errors.motherName}>
+            <input className={controlClass} value={family.motherName} onChange={(event) => updateFamily({ motherName: event.target.value })} autoComplete="off" placeholder="Full name" aria-invalid={Boolean(errors.motherName)} />
+          </FormField>
+          <FormField label="Mother's occupation" error={errors.motherOccupation}>
+            <input className={controlClass} value={family.motherOccupation} onChange={(event) => updateFamily({ motherOccupation: event.target.value })} autoComplete="off" placeholder="e.g. Sari-sari store owner" aria-invalid={Boolean(errors.motherOccupation)} />
+          </FormField>
+        </div>
+        <SettingToggle checked={family.motherDeceased} onChange={(checked) => updateFamily({ motherDeceased: checked })} title="Mother is deceased" description="Mark this if your mother has passed away." />
+      </fieldset>
+      <div className="grid gap-4 md:grid-cols-2">
+        <SelectField label="Family position" value={family.familyPosition} onChange={(value) => updateFamily({ familyPosition: value })} options={familyPositionOptions} error={errors.familyPosition} />
+        <FormField label="Number of siblings" hint="Whole number, not counting yourself." error={errors.numberOfSiblings}>
+          <input className={controlClass} value={family.numberOfSiblings} onChange={(event) => updateFamily({ numberOfSiblings: event.target.value.replace(/\D/g, '').slice(0, 2) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 2" aria-invalid={Boolean(errors.numberOfSiblings)} />
+        </FormField>
       </div>
     </SectionForm>
   );
@@ -310,6 +424,8 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       qpi: asText(profile.qpi),
       hsStrand: asText(profile.hsStrand),
       hsAverage: asText(profile.hsAverage),
+      programChoice2: asText(profile.programChoice2),
+      programChoice3: asText(profile.programChoice3),
     },
     validate: (values) => validateAcademicSection(values, academicPrograms),
     onSave,
@@ -340,6 +456,19 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
         {errors.degreeProgram && <span className="text-sm text-rose-600 dark:text-rose-300" role="alert">{errors.degreeProgram}</span>}
       </div>
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates automatically when you change your degree program." />
+      {standing.requiresProgramChoices && (
+        <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
+          <div>
+            <p className="m-0 text-sm font-semibold text-app-text">Program choices</p>
+            <small className="field-hint mt-1 block">Your 1st choice is the program above. Add a 2nd and 3rd choice when you are applying to more than one program.</small>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            <SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value })} options={programOptions} idPrefix="profile-program-choice-2" />
+            <SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={programOptions} idPrefix="profile-program-choice-3" />
+          </div>
+          {(errors.programChoice2 || errors.programChoice3) && <span className="text-sm text-rose-600 dark:text-rose-300" role="alert">{errors.programChoice2 || errors.programChoice3}</span>}
+        </div>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && (
@@ -396,6 +525,9 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   const form = useSectionForm({
     initialValues: {
       citizenship: asText(profile.citizenship),
+      ipCommunity: asText(profile.ipCommunity),
+      pwd: asText(profile.pwd),
+      employed: asText(profile.employed),
       honorsRank: asText(profile.honorsRank),
       graduatingClassSize: asText(profile.graduatingClassSize),
       sponsorTies: {
@@ -412,9 +544,12 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });
 
   return (
-    <SectionForm title="Eligibility background" description="Citizenship, graduating honors standing, and sponsor ties used by honors-track and government-linked financial aid pipelines." form={form}>
+    <SectionForm title="Eligibility background" description="Citizenship, IP community, disability, employment status, graduating honors standing, and sponsor ties used by honors-track and government-linked financial aid pipelines." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} />
+        <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <SelectField label="Indigenous People (IP) community" hint="Whether you belong to a recognized IP community." value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <SelectField label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <SelectField label="Employment status" hint="Whether you are currently employed while studying." value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <FormField label="Graduating class size" hint="Optional unless you hold an honors standing." error={errors.graduatingClassSize}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />

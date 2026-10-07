@@ -41,10 +41,12 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Section | Who sees it | What it covers |
 | --- | --- | --- |
 | Overview | Everyone | Identity card, profile completeness checklist, and (students) an eligibility snapshot listing any Exclusion Flag Hierarchy flags |
-| Personal information | Everyone | Full name, Philippine mobile number, and short bio; sign-in email, role, and department are read-only |
-| Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI |
+| Personal information | Everyone | Full name, Philippine mobile number, and short bio (students also set religion and civil status); sign-in email, role, and department are read-only |
+| Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
+| Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
+| Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
 | Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
-| Eligibility background | Students | Citizenship, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
+| Eligibility background | Students | Citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
 | Account security | Everyone | Change password or email a reset link (needs Supabase; demo accounts see a notice) |
 
 The Smart Eligibility Checker uses the saved values right away. QPI and income
@@ -77,6 +79,14 @@ Profile attribute verification adds `documents.linked_attributes` through
 is applied, the project still loads and uploads documents; only the proof links
 that drive the verified badges are absent. Fresh projects get the column from
 `supabase/schema.sql`.
+
+Descriptive profile fields (religion, civil status, address, country, and family
+details) are stored in `profiles.profile_details` (JSON) through
+`supabase/migrations/20261008000000_add_profile_details_json.sql`. The new
+eligibility answers (program choices, IP community, PWD, and employment status)
+ride along in `profiles.eligibility_attributes`. Until the migration is applied,
+these fields stay on the device and the rest of the profile still saves. Fresh
+projects get the column from `supabase/schema.sql`.
 
 ## Provisioning staff accounts (demo)
 

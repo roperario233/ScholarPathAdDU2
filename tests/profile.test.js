@@ -7,7 +7,9 @@ import {
   pickFields,
   resolveYearStanding,
   validateAcademicSection,
+  validateAddressSection,
   validateBackgroundSection,
+  validateFamilySection,
   validateFinancialSection,
   validateMobileNumber,
   validateOnboardingEssentials,
@@ -36,14 +38,47 @@ describe('field validators', () => {
 
 describe('section validators', () => {
   it('normalizes personal information and limits the bio length', () => {
-    const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ' });
+    const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello' });
+    expect(valid.values).toEqual({ fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single' });
 
     expect(validatePersonalSection({ fullName: 'A', bio: 'x'.repeat(281) }).errors).toMatchObject({
       fullName: expect.any(String),
       bio: expect.any(String),
     });
+    // An unknown religion or civil status is rejected.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Jedi', civilStatus: 'Single' }).errors.religion).toBeTruthy();
+  });
+
+  it('resolves the residing address from the same-as-complete-address toggle', () => {
+    const mirrored = validateAddressSection({ completeAddress: '123 Rizal St, Davao City', country: 'Philippines', sameAsCompleteAddress: true, residingAddress: 'ignored' });
+    expect(mirrored.errors).toEqual({});
+    expect(mirrored.values).toMatchObject({ completeAddress: '123 Rizal St, Davao City', country: 'Philippines', sameAsCompleteAddress: true, residingAddress: '123 Rizal St, Davao City' });
+
+    const separate = validateAddressSection({ completeAddress: '123 Rizal St', country: 'Philippines', sameAsCompleteAddress: false, residingAddress: '  Boarding house, Davao City  ' });
+    expect(separate.errors).toEqual({});
+    expect(separate.values.residingAddress).toBe('Boarding house, Davao City');
+
+    expect(validateAddressSection({ completeAddress: 'x'.repeat(241) }).errors.completeAddress).toBeTruthy();
+  });
+
+  it('normalizes family details and validates the sibling count', () => {
+    const result = validateFamilySection({
+      familyDetails: { fatherName: '  Roberto   Espinosa ', fatherOccupation: 'Fisherman', fatherDeceased: false, motherName: 'Liza Espinosa', motherDeceased: true, familyPosition: 'Eldest', numberOfSiblings: '2' },
+    });
+    expect(result.errors).toEqual({});
+    expect(result.values.familyDetails).toEqual({
+      fatherName: 'Roberto Espinosa',
+      fatherOccupation: 'Fisherman',
+      fatherDeceased: false,
+      motherName: 'Liza Espinosa',
+      motherOccupation: '',
+      motherDeceased: true,
+      familyPosition: 'Eldest',
+      numberOfSiblings: 2,
+    });
+    expect(validateFamilySection({ familyDetails: { familyPosition: 'First born' } }).errors.familyPosition).toBeTruthy();
+    expect(validateFamilySection({ familyDetails: { numberOfSiblings: 'lots' } }).errors.numberOfSiblings).toBeTruthy();
   });
 
   it('derives applicant type and year level from the year standing', () => {
@@ -64,6 +99,17 @@ describe('section validators', () => {
     expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '' }, programs).errors.yearStanding).toBeTruthy();
     expect(validateAcademicSection({ ...base, degreeProgram: 'BS Unknown', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs).errors.degreeProgram).toBeTruthy();
+  });
+
+  it('validates ranked program choices for incoming first-years', () => {
+    const base = { degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' };
+    const ok = validateAcademicSection({ ...base, programChoice2: 'BS Computer Science' }, programs);
+    // Only the one seeded program is known to the validator; an unknown choice fails.
+    expect(ok.errors.programChoice2).toBeTruthy();
+    // A duplicate of the 1st choice is rejected.
+    expect(validateAcademicSection({ ...base, programChoice2: 'BS Information Technology' }, programs).errors.programChoice2).toBeTruthy();
+    // A continuing student is not asked for program choices.
+    expect(validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology' }, programs).errors.programChoice2).toBeUndefined();
   });
 
   it('keeps financial flags boolean so the Exclusion Flag Hierarchy reads them directly', () => {
@@ -114,13 +160,13 @@ describe('year standing', () => {
   });
 
   it('reports what each standing requires in one place', () => {
-    expect(getStandingRequirements('incoming-1st')).toMatchObject({ requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: true, programLabel: 'Program / Course (to be enrolled)' });
-    expect(getStandingRequirements('4th')).toMatchObject({ yearStanding: '4th', requiresStudentNumber: true, requiresQpi: true, requiresHsStanding: false, programLabel: 'Program / Course' });
+    expect(getStandingRequirements('incoming-1st')).toMatchObject({ requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: true, requiresProgramChoices: true, programLabel: 'Program / Course (to be enrolled)' });
+    expect(getStandingRequirements('4th')).toMatchObject({ yearStanding: '4th', requiresStudentNumber: true, requiresQpi: true, requiresHsStanding: false, requiresProgramChoices: false, programLabel: 'Program / Course' });
     // Accepts a profile-shaped object too, for the routing gates.
-    expect(getStandingRequirements({ applicantType: 'current', yearLevel: 3 })).toMatchObject({ yearStanding: '3rd', requiresStudentNumber: true });
+    expect(getStandingRequirements({ applicantType: 'current', yearLevel: 3 })).toMatchObject({ yearStanding: '3rd', requiresStudentNumber: true, requiresProgramChoices: false });
     // An unanswered standing requires nothing yet, so no standing-specific field
     // shows before the student picks one.
-    expect(getStandingRequirements('')).toMatchObject({ yearStanding: '', requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: false });
+    expect(getStandingRequirements('')).toMatchObject({ yearStanding: '', requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: false, requiresProgramChoices: false });
   });
 });
 
@@ -144,7 +190,7 @@ describe('getProfileCompleteness', () => {
     const completeness = getProfileCompleteness({ ...demoUsers.student, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic' })]);
-    expect(completeness.percent).toBe(Math.round((7 / 8) * 100));
+    expect(completeness.percent).toBe(Math.round((12 / 13) * 100));
   });
 
   it('only asks staff for personal information', () => {
