@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
+import DocumentPreviewModal from './DocumentPreviewModal';
 import { getNextApplicationStatuses, getDocumentTypeLabel, sopRequiredDocuments, verificationStatuses } from '../lib/constants';
 import { getApplicationProgress } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
@@ -40,6 +41,7 @@ export default function ApplicationReviewModal({
   const [interviewDate, setInterviewDate] = useState(application.interview?.scheduledAt || '');
   const [interviewPanel, setInterviewPanel] = useState(application.interview?.panel || '');
   const [deliberationNote, setDeliberationNote] = useState('');
+  const [previewDoc, setPreviewDoc] = useState(null);
   const nextStatuses = getNextApplicationStatuses(application.status);
   const linkedDocuments = (application.attachedDocuments || [])
     .map((id) => documents.find((doc) => doc.id === id))
@@ -47,6 +49,7 @@ export default function ApplicationReviewModal({
   const isAdmissionsOffice = role === 'admissions_office';
 
   return (
+    <>
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-detail-modal">
       <div className="application-detail-modal-body">
       <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -96,6 +99,7 @@ export default function ApplicationReviewModal({
                   <li key={doc.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                     <span className="min-w-0 text-sm text-app-text">{doc.title} <span className="text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
                     <span className="flex items-center gap-2">
+                      <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => setPreviewDoc(doc)}>View</Button>
                       <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
                       {isAdmissionsOffice && onChangeDocument && (
                         <span className="flex gap-1">
@@ -217,5 +221,7 @@ export default function ApplicationReviewModal({
       </div>
       </div>
     </ModalShell>
+    {previewDoc ? <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
+    </>
   );
 }

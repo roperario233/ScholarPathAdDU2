@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, EmptyState } from '../components/pageParts';
-import { StatusBadge } from '../components/ui';
+import { Button, StatusBadge } from '../components/ui';
 import { SelectPicker } from './LoginScreen';
+import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import { fmtDate } from '../lib/formatters';
 import { generalDocumentTypeOptions, getDocumentTypeLabel } from '../lib/constants';
+import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import {
   buildDocumentPickerOptions,
   decodeDocumentSelection,
@@ -33,6 +35,8 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [formError, setFormError] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
+  const [preview, setPreview] = useState(null);
   const { attributeKey, documentType } = decodeDocumentSelection(selection);
   const derivedTitle = getDocumentTitle({ attributeKey, documentType });
   const filtered = useMemo(() => documents.filter((doc) => {
@@ -47,12 +51,16 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
     setSelection(initialSelection(presetAttribute));
   }, [presetAttribute]);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     const file = event.currentTarget.documentFile.files[0];
-    if (!documentType || !file) { event.preventDefault(); setFormError('Choose a document type and a file.'); return; }
-    if (file.size > 10 * 1024 * 1024) { event.preventDefault(); setFormError('Files must be 10 MB or smaller.'); return; }
+    if (!documentType || !file) { setFormError('Choose a document type and a file.'); return; }
+    if (file.size > DOCUMENT_MAX_BYTES) { setFormError('Files must be 10 MB or smaller.'); return; }
     setFormError('');
-    onUpload(event);
+    setIsUploading(true);
+    const result = await onUpload(event);
+    setIsUploading(false);
+    if (result?.error) { setFormError(result.error); return; }
     setSelection(initialSelection(''));
   };
 
@@ -66,8 +74,7 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
       </section>
 
       <Card title="Upload a document">
-        <p className="-mt-1 mb-4 text-sm text-app-muted">Pick the document type under the profile attribute it proves, or under General documents if it is not a profile proof. The vault names the file for you, so you can reuse it across applications.</p>
-        <form className="vault-upload-form grid gap-4" onSubmit={handleSubmit}>
+        <form className="vault-upload-form grid gap-3" onSubmit={handleSubmit}>
           <SelectPicker
             label="Document type"
             value={selection}
@@ -75,16 +82,19 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
             options={documentPickerOptions}
             idPrefix="vault-document-type"
           />
+          <small className="field-hint -mt-1">Each attribute lists the document types it accepts; General documents are not a profile proof.</small>
           <input type="hidden" name="documentAttribute" value={attributeKey} />
           <input type="hidden" name="documentType" value={documentType} />
           <label>
             <span>File</span>
-            <input name="documentFile" required type="file" accept=".pdf,.jpg,.jpeg,.png" />
-            <small className="field-hint">PDF, JPG, or PNG · maximum 10 MB</small>
+            <input name="documentFile" required type="file" accept={DOCUMENT_ACCEPT} />
+            <small className="field-hint">PDF, JPG, or PNG · up to 10 MB</small>
           </label>
-          <p className="field-hint m-0">Saved in your vault as <strong>{derivedTitle}</strong>.</p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p>
+            <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>
+          </div>
           {formError && <p className="form-error" role="alert">{formError}</p>}
-          <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit">Upload to vault</button>
         </form>
       </Card>
 
@@ -110,21 +120,20 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
               <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-app-border/60 pt-3 text-sm text-app-muted">
                 <span><strong>Uploaded</strong> {fmtDate(doc.uploadedAt)}</span>
                 <span><strong>Used in</strong> {doc.sharedWith?.length || 0} {doc.sharedWith?.length === 1 ? 'application' : 'applications'}</span>
+                {Array.isArray(doc.linkedAttributes) && doc.linkedAttributes.length ? (
+                  <span><strong>Proof for</strong> {doc.linkedAttributes.map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
+                ) : null}
               </div>
-              {Array.isArray(doc.linkedAttributes) && doc.linkedAttributes.length ? (
-                <div className="flex flex-wrap items-center gap-2 border-t border-app-border/60 pt-3">
-                  <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proof for</span>
-                  {doc.linkedAttributes.map((key) => <StatusBadge key={key} tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>)}
-                </div>
-              ) : null}
-              <div className="flex items-center justify-between gap-3 border-t border-app-border/60 pt-3">
-                <span className="text-xs text-app-muted">Stored in your vault</span>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/60 pt-3">
+                <Button variant="secondary" type="button" onClick={() => setPreview(doc)}>View</Button>
                 <button className="inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:-translate-y-px hover:bg-rose-500/15 focus:outline-none focus:ring-4 focus:ring-rose-500/20 dark:text-rose-300" type="button" onClick={() => onDelete(doc.id)}>Delete</button>
               </div>
             </article>
           )) : <EmptyState title={documents.length ? 'No matching documents' : 'Document vault is empty'} description={documents.length ? 'Try a different search or status filter.' : 'Upload transcripts, IDs, and income proofs once to reuse them.'} />}
         </div>
       </Card>
+
+      {preview ? <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} /> : null}
     </div>
   );
 }

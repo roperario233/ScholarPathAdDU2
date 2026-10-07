@@ -88,6 +88,15 @@ ride along in `profiles.eligibility_attributes`. Until the migration is applied,
 these fields stay on the device and the rest of the profile still saves. Fresh
 projects get the column from `supabase/schema.sql`.
 
+Document Vault files are stored in a private Supabase Storage bucket named
+`documents` (10 MB limit; PDF, JPG, and PNG only). The bucket, its storage RLS
+policies, and the department-scoped `chair_documents_read` policy come from
+`supabase/migrations/20261009000000_add_document_storage.sql`; fresh projects get
+them from `supabase/schema.sql`. Students manage only their own folder, the
+Admissions Office reads every document, and a Department Chair reads documents
+owned by students in the chair's department. Viewing is always through a
+short-lived signed URL, so no document is ever public.
+
 ## Provisioning staff accounts
 
 Public registration cannot grant a privileged role, so the Admissions Office and

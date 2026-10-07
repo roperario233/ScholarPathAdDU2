@@ -7,6 +7,7 @@ import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications } from './lib/verification';
+import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -843,7 +844,7 @@ function App() {
   const deleteDocument = (documentId) => {
     const documentToDelete = state.documents.find((entry) => entry.id === documentId);
     if (!documentToDelete || !window.confirm(`Delete “${documentToDelete.title}” from your vault?`)) return;
-    if (isSupabaseWorkspaceLoaded) deleteSupabaseDocument(documentId);
+    if (isSupabaseWorkspaceLoaded) deleteSupabaseDocument(documentId, documentToDelete.storagePath);
     setState((previous) => ({
       ...previous,
       documents: previous.documents.filter((entry) => entry.id !== documentId),
@@ -855,26 +856,34 @@ function App() {
     }));
   };
 
-  const addDocument = (event) => {
+  const addDocument = async (event) => {
     event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const fileField = formData.get('documentFile');
-    const fileName = fileField instanceof File ? fileField.name.trim() : String(fileField || '').trim();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const file = formData.get('documentFile');
+    if (!(file instanceof File) || !file.name.trim()) return { error: 'Choose a file to upload.' };
+    if (file.size > DOCUMENT_MAX_BYTES) return { error: 'Files must be 10 MB or smaller.' };
+    if (!isSupabaseWorkspaceLoaded) return { error: 'Supabase is not configured, so the document could not be uploaded.' };
+
+    const fileName = file.name.trim();
     const documentType = String(formData.get('documentType') || 'Supporting Document');
     // The vault derives the title from the attribute the file proves and its
     // document type, so there is no free-text title. A blank attribute means a
     // general application document with no profile-attribute link.
     const attributeKey = String(formData.get('documentAttribute') || '').trim();
     const linkedAttributes = attributeKey ? [attributeKey] : [];
+    // A real uuid so the row, the storage path, and application_documents links
+    // all share the same identifier.
+    const id = crypto.randomUUID();
     const uploadedAt = new Date().toISOString().slice(0, 10);
     const baseTitle = getDocumentTitle({ attributeKey, documentType });
     // Two general documents can share a type, so disambiguate with the date.
     const title = studentDocuments.some((doc) => doc.title === baseTitle) ? `${baseTitle} (${uploadedAt})` : baseTitle;
 
-    if (!fileName || !documentType) return;
-
+    // Show the document immediately; the file uploads to Supabase Storage and the
+    // row records its storage_path on success.
     const nextDocument = {
-      id: `doc-${crypto.randomUUID()}`,
+      id,
       ownerId: currentProfile.id,
       title,
       fileName,
@@ -883,13 +892,20 @@ function App() {
       linkedAttributes,
       sharedWith: [],
       uploadedAt,
+      storagePath: null,
     };
+    setState((previous) => ({ ...previous, documents: [nextDocument, ...previous.documents] }));
 
-    if (isSupabaseWorkspaceLoaded) createSupabaseDocument({ ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes });
+    const result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, file });
+    if (result.error) {
+      // Drop the optimistic row so the vault never shows a document with no file.
+      setState((previous) => ({ ...previous, documents: previous.documents.filter((doc) => doc.id !== id) }));
+      return { error: result.error.message || 'The document could not be uploaded.' };
+    }
 
     setState((previous) => ({
       ...previous,
-      documents: [nextDocument, ...previous.documents],
+      documents: previous.documents.map((doc) => (doc.id === id ? { ...doc, storagePath: result.data?.storage_path ?? null } : doc)),
       notifications: prependInAppNotification(previous, {
         id: `not-${crypto.randomUUID()}`,
         title: `${title} uploaded to Document Vault`,
@@ -900,7 +916,8 @@ function App() {
       }),
     }));
 
-    event.currentTarget.reset();
+    form.reset();
+    return { ok: true };
   };
 
   const addAnnouncement = (event) => {

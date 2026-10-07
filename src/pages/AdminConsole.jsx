@@ -4,6 +4,7 @@ import { getVerifiableAttributeOption } from '../lib/profile';
 import { AnnouncementItem, NotificationItem, StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
+import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import { fmtDate } from '../lib/formatters';
 
 const stageTone = (status) => {
@@ -46,6 +47,7 @@ export default function AdminConsole({
   onMarkRead,
 }) {
   const [selectedId, setSelectedId] = useState(null);
+  const [previewDoc, setPreviewDoc] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
   const pendingDocuments = documents.filter((entry) => entry.verificationStatus === 'Pending');
   const reviewApplications = applications.filter((entry) => !['Draft', 'Approved', 'Released', 'Rejected'].includes(entry.status));
@@ -124,6 +126,7 @@ export default function AdminConsole({
                     </div>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
+                    <Button type="button" onClick={() => setPreviewDoc(doc)}>View</Button>
                     {verificationStatuses.map((status) => (
                       <Button key={status} type="button" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
                     ))}
@@ -211,6 +214,8 @@ export default function AdminConsole({
           onChangeDocument={onChangeDocument}
         />
       )}
+
+      {previewDoc ? <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
     </div>
   );
 }

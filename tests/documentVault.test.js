@@ -8,6 +8,7 @@ import {
   getDocumentTitle,
 } from '../src/lib/profile';
 import { documentTypeOptions, generalDocumentTypeOptions } from '../src/lib/constants';
+import { buildDocumentStoragePath, isImageFileName, sanitizeStorageFileName } from '../src/lib/documentStorage';
 
 describe('getAcceptedDocumentTypes', () => {
   it('returns the accepted document types for an attribute as value/label options', () => {
@@ -107,5 +108,32 @@ describe('buildDocumentPickerOptions', () => {
     generalDocumentTypeOptions.forEach((type) => {
       expect(options.some((entry) => entry.value === encodeDocumentSelection('', type.value))).toBe(true);
     });
+  });
+});
+
+describe('sanitizeStorageFileName', () => {
+  it('replaces characters that are unsafe in a storage key', () => {
+    expect(sanitizeStorageFileName('My Transcript (2026).pdf')).toBe('My_Transcript_2026_.pdf');
+    expect(sanitizeStorageFileName('a b')).toBe('a_b');
+  });
+
+  it('falls back to a placeholder when nothing usable remains', () => {
+    expect(sanitizeStorageFileName('')).toBe('document');
+    expect(sanitizeStorageFileName('...')).toBe('document');
+  });
+});
+
+describe('buildDocumentStoragePath', () => {
+  it('keys the object under the owner and document id', () => {
+    expect(buildDocumentStoragePath({ ownerId: 'u1', documentId: 'd1', fileName: 'passport.pdf' })).toBe('u1/d1/passport.pdf');
+    expect(buildDocumentStoragePath({ ownerId: 'u1', documentId: 'd1', fileName: 'My Passport!.PDF' })).toBe('u1/d1/My_Passport_.PDF');
+  });
+});
+
+describe('isImageFileName', () => {
+  it('recognizes image extensions only', () => {
+    expect(isImageFileName('scan.JPG')).toBe(true);
+    expect(isImageFileName('photo.png')).toBe(true);
+    expect(isImageFileName('transcript.pdf')).toBe(false);
   });
 });
