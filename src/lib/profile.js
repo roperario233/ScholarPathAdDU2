@@ -1,4 +1,5 @@
 import { formatPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
+import { generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
 
 // Profile fields the Smart Eligibility Checker reads beyond the core academic
 // columns (QPI, household income, degree program, active government grant).
@@ -59,31 +60,74 @@ export const STAFF_EDITABLE_FIELD_KEYS = ['fullName', 'phone', 'bio'];
 export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'hasActiveGovernmentGrant'];
 
 // Profile attributes that support verification through the Document Vault. A
-// student uploads a proof document tagged with one or more of these keys and the
-// Admissions Office verifies the document; the attribute state is then derived
-// from the linked documents (see src/lib/verification.js). `proofType` names the
-// suggested document type a student should upload for that attribute. Verification
-// is informational in this prototype: it never blocks eligibility matching or
-// applying, and QPI/income remain self-reported rather than Registrar-verified.
+// student uploads one proof document for an attribute and the Admissions Office
+// verifies it; the attribute state is then derived from the linked documents
+// (see src/lib/verification.js). `acceptedDocumentTypes` lists the document
+// types that count as proof for that attribute (values from `documentTypeOptions`
+// in src/lib/constants.js), so the vault can offer the accepted types instead of
+// a free-text type and title. Verification is informational in this prototype: it
+// never blocks eligibility matching or applying, and QPI/income remain
+// self-reported rather than Registrar-verified.
 //
 // Not every attribute needs proof. Attributes that are administrative or already
 // evidenced elsewhere (AdDU student number, degree program, year standing, active
 // government grant, and senior high school strand) are trusted as entered and are
 // intentionally excluded here.
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
-  { key: 'qpi', label: 'Annual QPI', section: 'academic', proofType: 'Transcript', hint: 'Upload your grade report or transcript showing your annual QPI.' },
-  { key: 'academicStanding', label: 'Academic standing', section: 'academic', proofType: 'Transcript', hint: 'Upload a grade report or transcript reflecting your academic standing.' },
-  { key: 'hsAverage', label: 'Senior high school general average', section: 'academic', proofType: 'HS Report Card', hint: 'Upload your senior high school report card showing your general average.' },
-  { key: 'householdIncome', label: 'Annual household income', section: 'financial', proofType: 'Income Proof', hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
-  { key: 'employed', label: 'Employment status', section: 'financial', proofType: 'Certificate of Employment', hint: 'Upload a certificate of employment or your latest payslip.' },
-  { key: 'honorsRank', label: 'Graduation honors', section: 'background', proofType: 'Certificate of Award', hint: 'Upload your Certificate of Award for your honors standing.' },
-  { key: 'citizenship', label: 'Citizenship', section: 'background', proofType: 'Passport / PSA Birth Certificate', hint: 'Upload your passport or PSA birth certificate showing your citizenship.' },
-  { key: 'ipCommunity', label: 'Indigenous People (IP) community', section: 'background', proofType: 'Certificate of Tribal Membership', hint: 'Upload your NCIP certificate of tribal membership or equivalent.' },
-  { key: 'pwd', label: 'Person with Disability (PWD)', section: 'background', proofType: 'PWD ID', hint: 'Upload your PWD ID or medical certificate of disability.' },
+  { key: 'qpi', label: 'Annual QPI', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Grade Report'], hint: 'Upload your grade report or transcript showing your annual QPI.' },
+  { key: 'academicStanding', label: 'Academic standing', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Good Moral Character'], hint: 'Upload a transcript or a certificate of good moral character reflecting your academic standing.' },
+  { key: 'hsAverage', label: 'Senior high school general average', section: 'academic', acceptedDocumentTypes: ['HS Report Card'], hint: 'Upload your senior high school report card showing your general average.' },
+  { key: 'householdIncome', label: 'Annual household income', section: 'financial', acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
+  { key: 'employed', label: 'Employment status', section: 'financial', acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'], hint: 'Upload a certificate of employment or your latest payslip.' },
+  { key: 'honorsRank', label: 'Graduation honors', section: 'background', acceptedDocumentTypes: ['Certificate of Award'], hint: 'Upload your Certificate of Award for your honors standing.' },
+  { key: 'citizenship', label: 'Citizenship', section: 'background', acceptedDocumentTypes: ['PSA Birth Certificate', 'Philippine National ID', "Driver's License", 'Passport'], hint: 'Upload a PSA birth certificate, national ID, driver’s license, or passport showing your citizenship.' },
+  { key: 'ipCommunity', label: 'Indigenous People (IP) community', section: 'background', acceptedDocumentTypes: ['Certificate of Tribal Membership'], hint: 'Upload your NCIP certificate of tribal membership or equivalent.' },
+  { key: 'pwd', label: 'Person with Disability (PWD)', section: 'background', acceptedDocumentTypes: ['PWD ID', 'Medical Certificate'], hint: 'Upload your PWD ID or medical certificate of disability.' },
 ];
 
 export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
 export const getVerifiableAttributeOption = (key) => VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.key === key);
+
+// The document types a profile attribute accepts as proof, shaped as picker
+// options (`{ value, label }`). An unknown attribute yields an empty list.
+export const getAcceptedDocumentTypes = (key) => {
+  const option = getVerifiableAttributeOption(key);
+  if (!option) return [];
+  return option.acceptedDocumentTypes.map((value) => ({ value, label: getDocumentTypeLabel(value) }));
+};
+
+// The vault derives a document's title from the attribute it proves and its
+// document type, so the student never types one. A general (non-attribute)
+// document is titled by its document type alone.
+export const getDocumentTitle = ({ attributeKey, documentType } = {}) => {
+  const attribute = attributeKey ? getVerifiableAttributeOption(attributeKey) : null;
+  const typeLabel = getDocumentTypeLabel(documentType);
+  return attribute ? `${attribute.label} — ${typeLabel}` : typeLabel;
+};
+
+// The vault's single grouped picker encodes the chosen attribute and document
+// type together as one string (`"citizenship::Passport"`, or `"::Application
+// Form"` for a general document), so one selection sets both.
+export const documentSelectionSeparator = '::';
+export const encodeDocumentSelection = (attributeKey = '', documentType = '') =>
+  `${attributeKey}${documentSelectionSeparator}${documentType}`;
+export const decodeDocumentSelection = (value) => {
+  const [attributeKey = '', documentType = ''] = String(value ?? '').split(documentSelectionSeparator);
+  return { attributeKey, documentType };
+};
+
+// The grouped option list for the vault upload picker, mirroring the
+// program/course picker in My Profile: each verifiable attribute is a group
+// header with the document types it accepts listed below it, preceded by a
+// "General documents" group for files that are not tied to a profile attribute.
+export const buildDocumentPickerOptions = () => [
+  { value: 'group-general', label: 'General documents', isGroup: true },
+  ...generalDocumentTypeOptions.map((type) => ({ value: encodeDocumentSelection('', type.value), label: type.label })),
+  ...VERIFIABLE_ATTRIBUTE_OPTIONS.flatMap((option) => [
+    { value: `group-${option.key}`, label: option.label, isGroup: true },
+    ...getAcceptedDocumentTypes(option.key).map((type) => ({ value: encodeDocumentSelection(option.key, type.value), label: type.label })),
+  ]),
+];
 
 export const BIO_MAX_LENGTH = 280;
 export const ESSAY_MAX_LENGTH = 5000;

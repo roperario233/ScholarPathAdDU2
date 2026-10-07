@@ -79,8 +79,7 @@ The present implementation is organized as follows:
   - `DashboardView.jsx`
   - `ScholarshipExplorer.jsx` — scholarship discovery with the inline Smart Eligibility Checker on each scholarship card.
   - `ApplicationsView.jsx` — student application filtering, progress, submission, detail modal, and text report export.
-  - `DocumentVaultView.jsx` — student document upload, search/filter, verification display, and deletion.
-  - `ApplicationsAndVault.jsx` — legacy/combined application and vault screen retained for compatibility where referenced.
+  - `DocumentVaultView.jsx` — student document upload, search/filter, verification display, and deletion. The upload form is attribute-driven: one grouped picker (mirroring the program/course picker) lists each profile attribute with the document types it accepts below it, plus a leading "General documents" group; picking an item chooses the attribute and document type together, and the vault derives the title from the pair, so there is no free-text title and no attribute checklist.
   - `AdminConsole.jsx`
   - `DepartmentReviewView.jsx`
   - `CalendarView.jsx`

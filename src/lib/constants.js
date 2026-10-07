@@ -39,7 +39,10 @@ export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 // linked documents, so it is distinct from a document's own verificationStatus.
 export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected'];
 
-export const documentTypeOptions = [
+// Standard Procedure submission types (step 2 required documents) plus the
+// generic fallbacks. These are the types offered when a vault file is a general
+// application document rather than proof for a profile attribute.
+export const generalDocumentTypeOptions = [
   { value: 'Application Form', label: 'Application Form' },
   { value: 'Entrance Exam Result', label: 'Entrance Exam Result' },
   { value: 'HS Report Card', label: 'HS Report Card' },
@@ -54,6 +57,28 @@ export const documentTypeOptions = [
   { value: 'Government ID', label: 'Government ID' },
   { value: 'Supporting Document', label: 'Supporting Doc' },
 ];
+
+// Additional document types that only serve as proof for a profile attribute
+// (see `acceptedDocumentTypes` in src/lib/profile.js). Kept separate from the
+// Standard Procedure submission types so the SOP document check in
+// ApplicationReviewModal keeps matching its own values.
+export const attributeProofDocumentTypeOptions = [
+  { value: 'Grade Report', label: 'Grade Report' },
+  { value: 'PSA Birth Certificate', label: 'PSA Birth Certificate' },
+  { value: 'Passport', label: 'Passport' },
+  { value: "Driver's License", label: "Driver's License" },
+  { value: 'Philippine National ID', label: 'Philippine National ID' },
+  { value: 'PWD ID', label: 'PWD ID' },
+  { value: 'Medical Certificate', label: 'Medical Certificate' },
+  { value: 'Certificate of Employment', label: 'Certificate of Employment' },
+  { value: 'Payslip', label: 'Payslip' },
+  { value: 'Certificate of Indigency', label: 'Certificate of Indigency' },
+  { value: 'Certificate of Tribal Membership', label: 'Certificate of Tribal Membership' },
+];
+
+// Every document type the vault can store, so `getDocumentTypeLabel` can resolve
+// any stored value (including a proof type) to its display label.
+export const documentTypeOptions = [...generalDocumentTypeOptions, ...attributeProofDocumentTypeOptions];
 
 // Standard Procedure for Scholarship Applications, step 2 — required submissions.
 export const sopRequiredDocuments = [
