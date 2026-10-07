@@ -69,6 +69,40 @@ standing, the remaining household exclusion answers, and the whole Eligibility
 background section) do not reach the server. Fresh projects get both columns
 from `supabase/schema.sql`.
 
+## Provisioning staff accounts (demo)
+
+Public registration cannot grant a privileged role, so the Admissions Office and
+Department Chair accounts are created server-side. The prototype demo uses these
+fixed credentials:
+
+| Role | Email | Password | Lands on |
+| --- | --- | --- | --- |
+| Admissions Office Administrator | `admissions@addu.edu.ph` | `Admissions@2026` | Admissions Office console |
+| Department Chair | `chair@addu.edu.ph` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
+
+These are demo-only credentials for the capstone prototype; do not reuse them in
+any real deployment. To provision or reset either account, create the auth user
+with a confirmed email address, then set the role and department on the matching
+`profiles` row:
+
+```sql
+update public.profiles
+set role = 'admissions_office', department = 'Office of Admissions'
+where email = 'admissions@addu.edu.ph';
+
+update public.profiles
+set role = 'department_chair', department = 'College of Computer Studies (CCS)'
+where email = 'chair@addu.edu.ph';
+```
+
+The Department Chair `department` scopes the Department Review queue, so it must
+match the applicant department the chair should see. Sign-in resolves the role
+from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
+so a role change only takes effect once this row is updated. The Admissions
+Office console and Department Review views appear in the sidebar only for those
+roles.
+
+
 ## Email notifications (Resend)
 
 Deadline reminders and application status updates are emailed through
