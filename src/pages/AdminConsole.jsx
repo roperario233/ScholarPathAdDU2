@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { verificationStatuses, sopStages, sopStageIndex } from '../lib/constants';
+import { verificationStatuses, sopStages, sopStageIndex, getDocumentTypeLabel } from '../lib/constants';
+import { getVerifiableAttributeOption } from '../lib/profile';
 import { AnnouncementItem, NotificationItem, StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
@@ -47,6 +48,13 @@ export default function AdminConsole({
   const [selectedId, setSelectedId] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
   const pendingDocuments = documents.filter((entry) => entry.verificationStatus === 'Pending');
+  // Documents that declare themselves as proof for one or more profile
+  // attributes. Verifying such a file also verifies those attributes
+  // (src/lib/verification.js), so the Admissions Office reviews them here.
+  const profileProofDocuments = documents.filter((entry) => Array.isArray(entry.linkedAttributes) && entry.linkedAttributes.length);
+  const ownerById = applications.reduce((directory, entry) => (
+    entry.studentId ? { ...directory, [entry.studentId]: { name: entry.studentName, department: entry.studentDepartment } } : directory
+  ), {});
   const reviewApplications = applications.filter((entry) => !['Draft', 'Approved', 'Released', 'Rejected'].includes(entry.status));
   const approvedApplications = applications.filter((entry) => entry.status === 'Approved');
   const releasedApplications = applications.filter((entry) => entry.status === 'Released');
@@ -124,6 +132,38 @@ export default function AdminConsole({
                 </article>
               );
             }) : <EmptyState title="All documents are verified" description="Pending files will show up here when students upload support documents." />}
+          </div>
+        </Card>
+      </section>
+
+      <section>
+        <Card title="Profile attribute verification" action={<StatusBadge tone={profileProofDocuments.length ? 'info' : 'success'}>{profileProofDocuments.length} proof file(s)</StatusBadge>}>
+          <p className="mb-3 text-sm text-app-muted">Verify the proof document to verify the profile attribute(s) it supports. Verification is informational and does not block eligibility matching.</p>
+          <div className="grid max-h-[420px] gap-3 overflow-y-auto pr-1">
+            {profileProofDocuments.length ? profileProofDocuments.map((doc) => {
+              const owner = ownerById[doc.ownerId];
+              return (
+                <article key={doc.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4">
+                  <div className="flex min-w-0 items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <h3>{doc.title}</h3>
+                      <p className="mt-1 text-sm text-app-muted">{doc.fileName} · {getDocumentTypeLabel(doc.documentType)}</p>
+                      <p className="mt-1 text-xs text-app-muted">Owner {owner?.name || 'Student on file'}{owner?.department ? ` · ${owner.department}` : ''}</p>
+                    </div>
+                    <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
+                    <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
+                    {doc.linkedAttributes.map((key) => <StatusBadge key={key} tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>)}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
+                    {verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
+                      <Button key={status} type="button" onClick={() => onChangeDocument(doc.id, status)}>{status === 'Verified' ? 'Verify' : status === 'Rejected' ? 'Reject' : 'Set pending'}</Button>
+                    ))}
+                  </div>
+                </article>
+              );
+            }) : <EmptyState title="No profile proof files" description="Declared proof documents will appear here so you can verify the profile attribute they support." />}
           </div>
         </Card>
       </section>

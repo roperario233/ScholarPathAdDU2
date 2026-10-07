@@ -33,6 +33,12 @@ export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents',
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 
+// Profile-attribute verification states. An attribute is verified when the
+// Admissions Office verifies a Document Vault file that declares it as proof
+// (see src/lib/verification.js). The state is derived per attribute from the
+// linked documents, so it is distinct from a document's own verificationStatus.
+export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected'];
+
 export const documentTypeOptions = [
   { value: 'Application Form', label: 'Application Form' },
   { value: 'Entrance Exam Result', label: 'Entrance Exam Result' },

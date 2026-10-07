@@ -19,17 +19,19 @@ export default function ProfileView({
   academicPrograms = [],
   academicProgramCategories = [],
   isAccountManaged = false,
+  attributeVerifications = {},
   onSaveProfile,
   onChangePassword,
   onRequestPasswordReset,
   onOpenEligibility,
+  onAttachProof,
 }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
   const completeness = getProfileCompleteness(profile, role);
-  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges };
+  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof };
 
   const openSection = (key) => {
     if (key === activeSection) return;
@@ -79,6 +81,8 @@ export default function ProfileView({
               completeness={completeness}
               onEditSection={openSection}
               onOpenEligibility={onOpenEligibility}
+              attributeVerifications={attributeVerifications}
+              onAttachProof={onAttachProof}
             />
           )}
           {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} roleLabel={roleLabel} />}

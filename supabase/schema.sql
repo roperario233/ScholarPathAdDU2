@@ -94,6 +94,11 @@ create table if not exists documents (
   uploaded_at timestamptz not null default now()
 );
 
+-- Profile-attribute proof links: which profile attribute(s) a vault document
+-- proves (see src/lib/verification.js and VERIFIABLE_ATTRIBUTE_OPTIONS in
+-- src/lib/profile.js). Additive so existing rows keep working.
+alter table documents add column if not exists linked_attributes text[] not null default '{}'::text[];
+
 create table if not exists applications (
   id uuid primary key default gen_random_uuid(),
   student_id uuid not null references profiles(user_id) on delete cascade,

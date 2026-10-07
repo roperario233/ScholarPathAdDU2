@@ -48,7 +48,10 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Account security | Everyone | Change password or email a reset link (needs Supabase; demo accounts see a notice) |
 
 The Smart Eligibility Checker uses the saved values right away. QPI and income
-are self-reported; the prototype does not verify them with the Registrar.
+are self-reported and are not verified with the Registrar. A student can
+optionally upload proof documents for these attributes in the Document Vault,
+and the Admissions Office verifies the file and the linked attribute together;
+verification is informational and never blocks eligibility matching or applying.
 
 Department Chairs and Admissions Office administrators can edit only their name,
 mobile number, and bio. Department assignment is never self-editable, because it
@@ -68,6 +71,12 @@ bio and the other eligibility answers (year standing, academic standing, the
 remaining household exclusion answers, and the whole Eligibility
 background section) do not reach the server. Fresh projects get both columns
 from `supabase/schema.sql`.
+
+Profile attribute verification adds `documents.linked_attributes` through
+`supabase/migrations/20261007000000_add_document_linked_attributes.sql`. Until it
+is applied, the project still loads and uploads documents; only the proof links
+that drive the verified badges are absent. Fresh projects get the column from
+`supabase/schema.sql`.
 
 ## Provisioning staff accounts (demo)
 

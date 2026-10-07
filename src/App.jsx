@@ -7,6 +7,7 @@ import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { hasSupabaseConfig } from './lib/supabaseClient';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { deriveAttributeVerifications } from './lib/verification';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -74,11 +75,14 @@ const reminderDateKey = (deadline, daysBefore) => {
   return dateKey(reminderDate);
 };
 
-const prependInAppNotification = (previous, notification) => (
-  previous.notificationPreferences?.inAppEnabled
-    ? [notification, ...previous.notifications]
-    : previous.notifications
-);
+const prependInAppNotification = (previous, notification) => {
+  if (!previous.notificationPreferences?.inAppEnabled) return previous.notifications;
+  // A notification carrying a stable sourceKey is only added once, so an event
+  // that re-runs (or is replayed) never duplicates the same in-app row.
+  const alreadyPresent = notification.sourceKey
+    && (previous.notifications ?? []).some((entry) => entry?.sourceKey === notification.sourceKey);
+  return alreadyPresent ? previous.notifications : [notification, ...previous.notifications];
+};
 
 // Locally created deadlines live in localStorage while the same rows are also
 // persisted to Supabase (so server-side reminders can email them). Merge by id
@@ -353,6 +357,9 @@ function App() {
     () => state.documents.filter((entry) => entry.ownerId === currentProfile.id),
     [state.documents, currentProfile.id],
   );
+  // Each profile attribute's verification state is derived from the proof
+  // documents the student linked in the vault (src/lib/verification.js).
+  const attributeVerifications = useMemo(() => deriveAttributeVerifications(studentDocuments), [studentDocuments]);
   const visibleNotifications = state.notificationPreferences.inAppEnabled ? state.notifications : [];
   const unreadNotifications = useMemo(() => visibleNotifications.filter((entry) => entry.status === 'Unread'), [visibleNotifications]);
   const activeDeadlineCount = useMemo(
@@ -795,7 +802,13 @@ function App() {
     }));
   };
 
+  // The Admissions Office verifies or rejects a vault document here. Because an
+  // attribute's state is derived from its linked proof documents
+  // (src/lib/verification.js), verifying the file also verifies the attributes it
+  // proves. A verified or rejected decision notifies the owner, deduped by a
+  // stable source key.
   const changeDocumentStatus = (documentId, verificationStatus) => {
+    const document = state.documents.find((entry) => entry.id === documentId);
     if (isSupabaseWorkspaceLoaded) updateSupabaseDocumentStatus(documentId, verificationStatus);
     setState((previous) => ({
       ...previous,
@@ -803,6 +816,19 @@ function App() {
         ...entry,
         verificationStatus,
       } : entry),
+      notifications: document && ['Verified', 'Rejected'].includes(verificationStatus)
+        ? prependInAppNotification(previous, {
+            id: `not-${crypto.randomUUID()}`,
+            sourceKey: `document-verification-${documentId}-${verificationStatus}`,
+            title: verificationStatus === 'Verified' ? `${document.title} verified` : `${document.title} needs attention`,
+            channel: 'In-app',
+            body: verificationStatus === 'Verified'
+              ? `The Admissions Office verified “${document.title}”. Any profile attributes it proves are now verified.`
+              : `The Admissions Office could not verify “${document.title}”. Upload a replacement to complete verification.`,
+            status: 'Unread',
+            createdAt: new Date().toISOString().slice(0, 10),
+          })
+        : previous.notifications,
     }));
   };
 
@@ -828,6 +854,9 @@ function App() {
     const fileField = formData.get('documentFile');
     const fileName = fileField instanceof File ? fileField.name.trim() : String(fileField || '').trim();
     const documentType = String(formData.get('documentType') || 'Supporting Document');
+    // Profile attributes this file proves. The Admissions Office review of the
+    // document drives each linked attribute's verification (src/lib/verification.js).
+    const linkedAttributes = formData.getAll('linkedAttributes').map(String).filter(Boolean);
 
     if (!title || !fileName) return;
 
@@ -838,11 +867,12 @@ function App() {
       fileName,
       documentType,
       verificationStatus: 'Pending',
+      linkedAttributes,
       sharedWith: [],
       uploadedAt: new Date().toISOString().slice(0, 10),
     };
 
-    if (isSupabaseWorkspaceLoaded) createSupabaseDocument({ ownerId: currentProfile.id, title, fileName, documentType });
+    if (isSupabaseWorkspaceLoaded) createSupabaseDocument({ ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes });
 
     setState((previous) => ({
       ...previous,
@@ -1297,6 +1327,8 @@ function App() {
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
               onOpenEligibility={() => navigate('explore')}
+              attributeVerifications={attributeVerifications}
+              onAttachProof={() => navigate('vault')}
             />
           )}
 

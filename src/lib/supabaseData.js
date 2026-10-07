@@ -25,6 +25,7 @@ const toDocument = (row) => ({
   fileName: row.file_name,
   documentType: row.document_type,
   verificationStatus: row.verification_status,
+  linkedAttributes: row.linked_attributes || [],
   storagePath: row.storage_path,
   sharedWith: row.shared_with || [],
   uploadedAt: row.uploaded_at,
@@ -196,9 +197,9 @@ export const submitSupabaseApplication = (applicationId) => (
     : Promise.resolve({ error: null })
 );
 
-export const createSupabaseDocument = ({ ownerId, title, fileName, documentType }) => (
+export const createSupabaseDocument = ({ ownerId, title, fileName, documentType, linkedAttributes }) => (
   ensureReady()
-    ? supabase.from('documents').insert({ owner_id: ownerId, title, file_name: fileName, document_type: documentType }).select().single()
+    ? supabase.from('documents').insert({ owner_id: ownerId, title, file_name: fileName, document_type: documentType, linked_attributes: Array.isArray(linkedAttributes) ? linkedAttributes : [] }).select().single()
     : Promise.resolve({ data: null, error: null })
 );
 

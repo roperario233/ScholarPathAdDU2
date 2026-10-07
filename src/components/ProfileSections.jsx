@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Circle, CircleCheck } from 'lucide-react';
-import { Button, Card, FormField, SettingToggle } from './ui';
+import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
 import { checkAdduInternalGate, checkUniversalGate } from '../lib/eligibility';
 import { fmtCurrency } from '../lib/formatters';
+import { getAttributeVerificationTone } from '../lib/verification';
 import {
   BIO_MAX_LENGTH,
+  VERIFIABLE_ATTRIBUTE_OPTIONS,
   academicStandingOptions,
   citizenshipOptions,
   deriveYearStanding,
@@ -134,9 +136,25 @@ function ReadOnlyField({ label, value, note, className = '' }) {
   );
 }
 
-function SelectField({ label, hint, error, value, onChange, options, placeholder }) {
+// A verification badge for one profile attribute, with a link to attach its
+// proof document in the Document Vault when it is not verified yet. The state is
+// derived from the student's linked proof documents (src/lib/verification.js) and
+// is informational: it never blocks eligibility matching or applying.
+function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
+  const status = attributeVerifications[attributeKey] || 'Unverified';
   return (
-    <FormField label={label} hint={hint} error={error}>
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
+      {status !== 'Verified' && onAttachProof && (
+        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>Attach proof</button>
+      )}
+    </span>
+  );
+}
+
+function SelectField({ label, hint, error, value, onChange, options, placeholder, labelAdornment }) {
+  return (
+    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment}>
       <select className={controlClass} value={value} onChange={(event) => onChange(event.target.value)} aria-invalid={Boolean(error)}>
         {placeholder && <option value="" disabled>{placeholder}</option>}
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -151,7 +169,7 @@ const assignmentNote = {
   admissions_office: 'Central Admissions Office operations role.',
 };
 
-export function ProfileOverview({ profile, role, roleLabel, completeness, onEditSection, onOpenEligibility }) {
+export function ProfileOverview({ profile, role, roleLabel, completeness, onEditSection, onOpenEligibility, attributeVerifications = {}, onAttachProof }) {
   const isStudent = role === 'student';
   const exclusionFlags = isStudent
     ? [...checkUniversalGate(profile).reasons, ...checkAdduInternalGate(profile).reasons]
@@ -210,6 +228,7 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
       </Card>
 
       {isStudent && (
+        <>
         <Card title="Eligibility snapshot">
           <p className="-mt-1 mb-4 text-sm text-app-muted">The Smart Eligibility Checker matches scholarships using these saved values.</p>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -233,6 +252,18 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
             <Button type="button" onClick={() => onEditSection('financial')}>Review exclusion answers</Button>
           </div>
         </Card>
+        <Card title="Profile verification">
+          <p className="-mt-1 mb-4 text-sm text-app-muted">Upload a proof document in the Document Vault for each attribute you want verified; the Admissions Office verifies the file and the attribute together. Verification is informational and never blocks applying, and QPI and income stay self-reported rather than Registrar-verified.</p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => (
+              <div key={option.key} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-3">
+                <span className="min-w-0 text-sm text-app-text">{option.label}</span>
+                <AttributeVerification attributeKey={option.key} attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
+              </div>
+            ))}
+          </div>
+        </Card>
+        </>
       )}
     </div>
   );
@@ -269,7 +300,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   );
 }
 
-export function AcademicSection({ profile, academicPrograms, academicProgramCategories, onSave, onDirtyChange }) {
+export function AcademicSection({ profile, academicPrograms, academicProgramCategories, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
   const form = useSectionForm({
     initialValues: {
       studentNumber: asText(profile.studentNumber),
@@ -310,9 +341,9 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       </div>
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates automatically when you change your degree program." />
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} />
+        <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && (
-          <FormField label="Annual QPI" hint="Self-reported on the 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." error={errors.qpi}>
+          <FormField label="Annual QPI" hint="Self-reported on the 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
             <input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} />
           </FormField>
         )}
@@ -320,7 +351,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       {standing.requiresHsStanding && (
         <div className="grid gap-4 md:grid-cols-2">
           <SelectField label="Senior high school strand" hint="Incoming first-year students are matched on their senior high school standing." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions} error={errors.hsStrand} />
-          <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage}>
+          <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
             <input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} />
           </FormField>
         </div>
@@ -329,7 +360,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   );
 }
 
-export function FinancialSection({ profile, onSave, onDirtyChange }) {
+export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
   const form = useSectionForm({
     initialValues: {
       householdIncome: asText(profile.householdIncome),
@@ -347,7 +378,7 @@ export function FinancialSection({ profile, onSave, onDirtyChange }) {
   return (
     <SectionForm title="Household and financial aid" description="Income ceilings and the Exclusion Flag Hierarchy use these answers. Specific exclusions override broad inclusions." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." error={errors.householdIncome}>
+        <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
           <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
         </FormField>
       </div>
@@ -361,7 +392,7 @@ export function FinancialSection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function BackgroundSection({ profile, onSave, onDirtyChange }) {
+export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
   const form = useSectionForm({
     initialValues: {
       citizenship: asText(profile.citizenship),
@@ -384,7 +415,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange }) {
     <SectionForm title="Eligibility background" description="Citizenship, graduating honors standing, and sponsor ties used by honors-track and government-linked financial aid pipelines." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} />
-        <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} />
+        <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <FormField label="Graduating class size" hint="Optional unless you hold an honors standing." error={errors.graduatingClassSize}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
         </FormField>

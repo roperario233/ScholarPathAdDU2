@@ -32,6 +32,29 @@ export const STAFF_EDITABLE_FIELD_KEYS = ['fullName', 'phone', 'bio'];
 // Core profile fields mirrored into `profileDraft` for eligibility matching.
 export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'hasActiveGovernmentGrant'];
 
+// Profile attributes that support verification through the Document Vault. A
+// student uploads a proof document tagged with one or more of these keys and the
+// Admissions Office verifies the document; the attribute state is then derived
+// from the linked documents (see src/lib/verification.js). `proofType` names the
+// suggested document type a student should upload for that attribute. Verification
+// is informational in this prototype: it never blocks eligibility matching or
+// applying, and QPI/income remain self-reported rather than Registrar-verified.
+//
+// Not every attribute needs proof. Attributes that are administrative or already
+// evidenced elsewhere (AdDU student number, degree program, year standing, active
+// government grant, citizenship, and senior high school strand) are trusted as
+// entered and are intentionally excluded here.
+export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
+  { key: 'qpi', label: 'Annual QPI', section: 'academic', proofType: 'Transcript', hint: 'Upload your grade report or transcript showing your annual QPI.' },
+  { key: 'academicStanding', label: 'Academic standing', section: 'academic', proofType: 'Transcript', hint: 'Upload a grade report or transcript reflecting your academic standing.' },
+  { key: 'hsAverage', label: 'Senior high school general average', section: 'academic', proofType: 'HS Report Card', hint: 'Upload your senior high school report card showing your general average.' },
+  { key: 'householdIncome', label: 'Annual household income', section: 'financial', proofType: 'Income Proof', hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
+  { key: 'honorsRank', label: 'Graduation honors', section: 'background', proofType: 'Certificate of Award', hint: 'Upload your Certificate of Award for your honors standing.' },
+];
+
+export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
+export const getVerifiableAttributeOption = (key) => VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.key === key);
+
 export const BIO_MAX_LENGTH = 280;
 export const FULL_NAME_MAX_LENGTH = 100;
 export const PASSWORD_MIN_LENGTH = 8;
