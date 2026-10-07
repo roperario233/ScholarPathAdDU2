@@ -7,6 +7,7 @@ import {
   ADDRESS_MAX_LENGTH,
   BIO_MAX_LENGTH,
   COUNTRY_MAX_LENGTH,
+  ESSAY_MAX_LENGTH,
   academicStandingOptions,
   citizenshipOptions,
   civilStatusOptions,
@@ -212,7 +213,7 @@ export function ProfileOverview({ profile, roleLabel, completeness, onEditSectio
           </div>
           <strong className="w-12 text-right text-app-text">{completeness.percent}%</strong>
         </div>
-        <p className="-mt-1 mb-4 text-sm text-app-muted">Upload a proof document in the Document Vault for each attribute you want verified; the Admissions Office verifies the file and the attribute together. Verification is informational and never blocks applying, and QPI and income stay self-reported rather than Registrar-verified.</p>
+        <p className="-mt-1 mb-4 text-sm text-app-muted">Complete your profile and upload proof documents in the Document Vault for each attribute in order for it to be verified by the Admissions Office.</p>
         <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
           {completeness.items.map((item) => {
             const status = attributeVerifications[item.key];
@@ -255,6 +256,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       bio: asText(profile.bio),
       religion: asText(profile.religion),
       civilStatus: asText(profile.civilStatus),
+      essay: asText(profile.essay),
     },
     validate: validatePersonalSection,
     onSave,
@@ -281,6 +283,11 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
         <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
       </FormField>
+      {isStudent && (
+        <FormField label="Scholarship essay" hint={`${values.essay.length}/${ESSAY_MAX_LENGTH} characters. Paragraph breaks are kept.`} error={errors.essay}>
+          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances for your scholarship applications." aria-invalid={Boolean(errors.essay)} />
+        </FormField>
+      )}
       <div className="grid gap-3 md:grid-cols-2">
         <ReadOnlyField label="Sign-in email" value={profile.email} note="Managed by your AdDU sign-in account." className="md:col-span-2" />
         <ReadOnlyField label="Role" value={roleLabel} />

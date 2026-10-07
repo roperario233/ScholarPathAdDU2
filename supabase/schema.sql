@@ -40,8 +40,8 @@ alter table profiles add constraint profiles_bio_length_check
 
 -- Descriptive My Profile fields that are not eligibility inputs (see
 -- migrations/20261008000000_add_profile_details_json.sql): religion, civil
--- status, address, country, and family details. The field keys mirror
--- PROFILE_DETAIL_KEYS in src/lib/profile.js.
+-- status, address, country, family details, and the scholarship essay. The field
+-- keys mirror PROFILE_DETAIL_KEYS in src/lib/profile.js.
 alter table profiles add column if not exists profile_details jsonb not null default '{}'::jsonb;
 
 -- Standard Procedure stage records (endorsement, interview, deliberation,

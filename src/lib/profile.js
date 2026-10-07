@@ -46,6 +46,9 @@ export const PROFILE_DETAIL_KEYS = [
   'residingAddress',
   'sameAsCompleteAddress',
   'familyDetails',
+  // A longer free-text scholarship essay the student writes once and can reuse
+  // across applications. Unlike the short bio it keeps its paragraph breaks.
+  'essay',
 ];
 
 // Fields stored on the authenticated account (`authUser` locally and the core
@@ -83,6 +86,7 @@ export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((optio
 export const getVerifiableAttributeOption = (key) => VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.key === key);
 
 export const BIO_MAX_LENGTH = 280;
+export const ESSAY_MAX_LENGTH = 5000;
 export const FULL_NAME_MAX_LENGTH = 100;
 export const PASSWORD_MIN_LENGTH = 8;
 
@@ -338,6 +342,9 @@ const validateText = (raw, { max, message }) => {
 
 export const validatePersonalSection = (form = {}) => {
   const bio = String(form.bio ?? '').trim();
+  // The essay is longer than the bio and keeps its paragraph breaks, so it is
+  // only trimmed at the edges and capped, never whitespace-collapsed.
+  const essay = String(form.essay ?? '').trim();
   return collect({
     fullName: validateFullName(form.fullName),
     phone: validateMobileNumber(form.phone),
@@ -346,6 +353,9 @@ export const validatePersonalSection = (form = {}) => {
       : ok(bio),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
+    essay: essay.length > ESSAY_MAX_LENGTH
+      ? { value: essay, error: `Keep your essay within ${ESSAY_MAX_LENGTH} characters.` }
+      : ok(essay),
   });
 };
 
@@ -528,6 +538,7 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   if (role === 'student') {
     items.push(
       { key: 'civilStatus', label: 'Civil status', section: 'personal', done: !isBlank(profile.civilStatus) },
+      { key: 'essay', label: 'Scholarship essay', section: 'personal', done: !isBlank(profile.essay) },
       { key: 'studentNumber', label: 'AdDU student number', section: 'academic', done: !requiresStudentNumber || !validateStudentNumber(profile.studentNumber).error },
       { key: 'degreeProgram', label: 'Degree program', section: 'academic', done: !isBlank(profile.degreeProgram) },
       { key: 'yearStanding', label: 'Year standing', section: 'academic', done: Boolean(yearStanding) },
