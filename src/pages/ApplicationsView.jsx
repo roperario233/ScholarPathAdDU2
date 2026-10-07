@@ -17,7 +17,6 @@ export default function ApplicationsView({ applications, documents, scholarships
     return matchesQuery && (status === 'all' || entry.status === status);
   }), [applications, query, status]);
   const selected = applications.find((entry) => entry.id === selectedId);
-  const counts = { total: applications.length, active: applications.filter((a) => !['Approved', 'Rejected'].includes(a.status)).length, drafts: applications.filter((a) => a.status === 'Draft').length, completed: applications.filter((a) => ['Approved', 'Rejected'].includes(a.status)).length };
 
   const exportReport = (entry) => {
     const scholarship = scholarships.find((item) => item.id === entry.scholarshipId);
@@ -29,12 +28,6 @@ export default function ApplicationsView({ applications, documents, scholarships
   };
 
   return <div className="blue-action-view grid gap-4">
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Total applications</span><strong className="!text-2xl">{counts.total}</strong><p className="text-xs">All tracked scholarships</p></article>
-      <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">In progress</span><strong className="!text-2xl">{counts.active}</strong><p className="text-xs">Drafts and reviews</p></article>
-      <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Drafts</span><strong className="!text-2xl">{counts.drafts}</strong><p className="text-xs">Ready to complete</p></article>
-      <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Completed</span><strong className="!text-2xl">{counts.completed}</strong><p className="text-xs">Approved or rejected</p></article>
-    </section>
     <Card title="Your applications" className="application-list-card">
       <div className="grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4"><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find an application</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search applications" aria-label="Search applications" /></label><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Application status</span><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter applications by status"><option value="all">All statuses</option>{applicationStatuses.map((item) => <option key={item}>{item}</option>)}</select></label></div>
       <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3"><p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'application' : 'applications'} found</p><span className="text-xs text-app-muted">Keep your application progress up to date</span></div>
