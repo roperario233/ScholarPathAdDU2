@@ -40,7 +40,7 @@ export const signInWithEmailPassword = async ({ email, password }) => {
     return {
       success: false,
       fallback: true,
-      message: 'Supabase is not configured. Falling back to demo mode.',
+      message: 'Sign-in is unavailable because the Supabase workspace is not configured.',
     };
   }
 
@@ -399,7 +399,7 @@ export const signInWithGoogle = async () => {
     return {
       success: false,
       fallback: true,
-      message: 'Supabase is not configured. Falling back to demo mode.',
+      message: 'Google sign-in is unavailable because the Supabase workspace is not configured.',
     };
   }
 

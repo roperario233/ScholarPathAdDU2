@@ -13,7 +13,7 @@ export const getSupabaseStatus = () => {
     return 'Supabase configured';
   }
 
-  return 'Frontend demo mode';
+  return 'Supabase not configured';
 };
 
 export const supabase = hasSupabaseConfig

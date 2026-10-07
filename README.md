@@ -47,7 +47,7 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
 | Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
 | Eligibility background | Students | Citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
-| Account security | Everyone | Change password or email a reset link (needs Supabase; demo accounts see a notice) |
+| Account security | Everyone | Change password or email a reset link |
 
 The Smart Eligibility Checker uses the saved values right away. QPI and income
 are self-reported and are not verified with the Registrar. A student can
@@ -59,8 +59,8 @@ Department Chairs and Admissions Office administrators can edit only their name,
 mobile number, and bio. Department assignment is never self-editable, because it
 scopes the Department Review queue.
 
-In demo mode (no Supabase environment variables), edits are stored in the
-browser and survive signing out and back in.
+Supabase is required: without the environment variables the app cannot load
+data or sign in, and there is no offline fallback.
 
 ### Database migration
 
@@ -88,18 +88,18 @@ ride along in `profiles.eligibility_attributes`. Until the migration is applied,
 these fields stay on the device and the rest of the profile still saves. Fresh
 projects get the column from `supabase/schema.sql`.
 
-## Provisioning staff accounts (demo)
+## Provisioning staff accounts
 
 Public registration cannot grant a privileged role, so the Admissions Office and
-Department Chair accounts are created server-side. The prototype demo uses these
-fixed credentials:
+Department Chair accounts are created server-side. The capstone prototype uses
+these seeded credentials:
 
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
 | Admissions Office Administrator | `admissions@addu.edu.ph` | `Admissions@2026` | Admissions Office console |
 | Department Chair | `chair@addu.edu.ph` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
 
-These are demo-only credentials for the capstone prototype; do not reuse them in
+These credentials exist only for the capstone prototype; do not reuse them in
 any real deployment. To provision or reset either account, create the auth user
 with a confirmed email address, then set the role and department on the matching
 `profiles` row:
@@ -157,7 +157,7 @@ Functions handle delivery on both channels:
    ```
 
    SMS notes: `IPROGSMS_API_TOKEN` enables the mobile channel; leave it unset
-   and every SMS send is skipped (the demo flow keeps working). `IPROGSMS_PROVIDER`
+   and every SMS send is skipped. `IPROGSMS_PROVIDER`
    maps to the gateway's optional `sms_provider` flag (0/1/2) and can be omitted.
    iprogSMS supports Globe, TM, DITO, and GOMO on the shared `iprogSMS` sender;
    Smart and TNT recipients require a paid custom sender name. A 200 response

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { applications as seedApplications, createInitialState, documents as seedDocuments, storageKey } from '../src/lib/demoState';
+import { createInitialState, normalizeDocument, storageKey } from '../src/lib/appState';
+
+const legacyStorageKey = 'scholarpath-addu-demo-state';
 
 const createMemoryStorage = (seed = {}) => {
   const store = new Map(Object.entries(seed));
@@ -23,13 +25,19 @@ afterEach(() => {
 });
 
 describe('createInitialState', () => {
-  it('returns manuscript-aligned defaults when nothing is persisted', () => {
+  it('returns empty, manuscript-aligned defaults when nothing is persisted', () => {
     installStorage(undefined);
     const state = createInitialState();
 
     expect(state.theme).toBe('light');
     expect(state.viewerRole).toBe('student');
+    expect(state.authUser).toBeNull();
+    expect(state.profileDraft.degreeProgram).toBe('');
     expect(state.customDeadlines).toEqual([]);
+    expect(state.applications).toEqual([]);
+    expect(state.documents).toEqual([]);
+    expect(state.notifications).toEqual([]);
+    expect(state.announcements).toEqual([]);
     expect(state.notificationPreferences).toEqual({
       smsEnabled: true,
       emailEnabled: true,
@@ -40,16 +48,14 @@ describe('createInitialState', () => {
         dayBefore: true,
       },
     });
-    expect(state.applications).toEqual(seedApplications);
-    expect(state.documents).toEqual(seedDocuments);
   });
 
-  it('returns defaults when window is unavailable (demo-safe)', () => {
+  it('returns defaults when window is unavailable', () => {
     delete globalThis.window;
     const state = createInitialState();
 
     expect(state.customDeadlines).toEqual([]);
-    expect(state.applications).toEqual(seedApplications);
+    expect(state.applications).toEqual([]);
   });
 
   it('preserves a saved dark theme instead of discarding the session', () => {
@@ -58,8 +64,6 @@ describe('createInitialState', () => {
     const state = createInitialState();
 
     expect(state.theme).toBe('dark');
-    // Regression guard: the old implementation removed the saved session entirely
-    // for dark-theme users, which wiped reminders on every reload.
     expect(storage.getItem(storageKey)).not.toBeNull();
   });
 
@@ -82,19 +86,6 @@ describe('createInitialState', () => {
     expect(state.customDeadlines[0].id).toBe('dl-1');
   });
 
-  it('restores persisted deadline reminder notifications', () => {
-    installStorage({
-      notifications: [
-        { id: 'not-1', sourceKey: 'deadline-reminder-dl-1-7', title: 'Reminder: due in 7 days' },
-      ],
-    });
-
-    const state = createInitialState();
-
-    expect(state.notifications).toHaveLength(1);
-    expect(state.notifications[0].sourceKey).toBe('deadline-reminder-dl-1-7');
-  });
-
   it('backfills nested notification preferences for legacy saved sessions', () => {
     installStorage({ notificationPreferences: { inAppEnabled: false } });
 
@@ -103,15 +94,6 @@ describe('createInitialState', () => {
     expect(state.notificationPreferences.inAppEnabled).toBe(false);
     expect(state.notificationPreferences.emailEnabled).toBe(true);
     expect(state.notificationPreferences.deadlineReminders.dayBefore).toBe(true);
-  });
-
-  it('merges the saved profile draft over the defaults', () => {
-    installStorage({ profileDraft: { qpi: 3.4 } });
-
-    const state = createInitialState();
-
-    expect(state.profileDraft.qpi).toBe(3.4);
-    expect(state.profileDraft.degreeProgram).toBe('BS Computer Science');
   });
 
   it('migrates saved OSA administrator sessions to the Admissions Office role', () => {
@@ -128,25 +110,30 @@ describe('createInitialState', () => {
     expect(state.authUser.role).toBe('admissions_office');
   });
 
-  it('falls back to seed data when saved arrays are empty or malformed', () => {
-    installStorage({ applications: [], documents: [], announcements: [], notifications: [] });
+  it('carries over only theme, preferences, and deadlines from the legacy demo key', () => {
+    const storage = createMemoryStorage({
+      [legacyStorageKey]: JSON.stringify({
+        theme: 'dark',
+        notificationPreferences: { inAppEnabled: false },
+        customDeadlines: [{ id: 'dl-9', title: 'Legacy', deadline: '2026-11-01' }],
+        applications: [{ id: 'app-legacy' }],
+        documents: [{ id: 'doc-legacy' }],
+      }),
+    });
+    globalThis.window = { localStorage: storage };
 
     const state = createInitialState();
 
-    expect(state.applications).toEqual(seedApplications);
-    expect(state.documents).toEqual(seedDocuments);
-    expect(state.notifications.length).toBeGreaterThan(0);
-  });
-
-  it('restores demo My Profile edits and ignores malformed ones', () => {
-    installStorage({ profileEdits: { 'user-student': { fullName: 'Ana Cruz' } } });
-    expect(createInitialState().profileEdits).toEqual({ 'user-student': { fullName: 'Ana Cruz' } });
-
-    installStorage({ profileEdits: ['not', 'an', 'object'] });
-    expect(createInitialState().profileEdits).toEqual({});
-
-    installStorage({ theme: 'dark' });
-    expect(createInitialState().profileEdits).toEqual({});
+    expect(state.theme).toBe('dark');
+    expect(state.notificationPreferences.inAppEnabled).toBe(false);
+    expect(state.customDeadlines).toHaveLength(1);
+    expect(state.customDeadlines[0].id).toBe('dl-9');
+    // Seeded demo records are dropped, never resurrected.
+    expect(state.applications).toEqual([]);
+    expect(state.documents).toEqual([]);
+    // The legacy key is consumed and the new key becomes authoritative.
+    expect(storage.getItem(storageKey)).not.toBeNull();
+    expect(storage.getItem(legacyStorageKey)).toBeNull();
   });
 
   it('survives corrupted localStorage payloads', () => {
@@ -155,6 +142,13 @@ describe('createInitialState', () => {
     const state = createInitialState();
 
     expect(state.theme).toBe('light');
-    expect(state.applications).toEqual(seedApplications);
+    expect(state.applications).toEqual([]);
+  });
+});
+
+describe('normalizeDocument', () => {
+  it('defaults a missing linkedAttributes list to empty so old sessions load', () => {
+    expect(normalizeDocument({ id: 'a' }).linkedAttributes).toEqual([]);
+    expect(normalizeDocument({ id: 'b', linkedAttributes: ['qpi'] }).linkedAttributes).toEqual(['qpi']);
   });
 });

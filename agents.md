@@ -17,7 +17,7 @@ When deciding what to change, use this priority order:
 3. Future enhancements or refactors that are not already supported by the manuscript or the current app.
 
 
-If the manuscript and the codebase conflict, preserve the manuscript intent first and then make the smallest code change that keeps the demo stable.
+If the manuscript and the codebase conflict, preserve the manuscript intent first and then make the smallest code change that keeps the app stable.
 
 
 ## Product Context
@@ -43,7 +43,7 @@ The manuscript also establishes important scope boundaries that must stay intact
 - It does not implement actual financial disbursement.
 - It does not integrate with the registrar for verified QPI.
 - It does not give external scholarship organizations direct administrative access.
-- It remains a prototype and must continue to work in demo mode when Supabase is not configured.
+- It remains a prototype. Supabase is required for data and authentication; the demo mode, its seeded data, and the fallback login were removed, which reverses the earlier scope statement that the system "must continue to work in demo mode when Supabase is not configured."
 
 
 ## Canonical Manuscript Terms
@@ -73,7 +73,7 @@ Avoid introducing alternate names for the same feature unless the current codeba
 The present implementation is organized as follows:
 
 
-- `src/App.jsx` is the main state and routing-style coordinator for authentication, demo state, theme, profile hydration and saving (`saveProfile`), notification generation, deadline reminders, and view switching. It persists the demo state in localStorage under `scholarpath-addu-demo-state`.
+- `src/App.jsx` is the main state and routing-style coordinator for authentication, app state, theme, profile hydration and saving (`saveProfile`), notification generation, deadline reminders, and view switching. It persists the app state in localStorage under `scholarpath-addu-state` (with a one-time migration from the legacy `scholarpath-addu-demo-state` key).
 - `src/pages/` contains the main screens:
   - `LoginScreen.jsx`
   - `DashboardView.jsx`
@@ -87,7 +87,7 @@ The present implementation is organized as follows:
   - `SettingsView.jsx`
   - `ProfileView.jsx` — My Profile for every role: section menu, completeness metric, and the Overview, Personal information, Address, Family details, Academic profile, Household and financial aid, Eligibility background, and Account security sections. Address, Family details, Academic profile, Household and financial aid, and Eligibility background are student-only.
 - `src/components/` contains shared UI building blocks (`ui.jsx`: `Button`, `Card`, `FormField`, `SettingToggle`, `ModalShell`, and related primitives), modal/page-part helpers, notification cards, announcements, the `NotificationDropdown` center, the first-login `AcademicProfileModal`, and the My Profile section forms in `ProfileSections.jsx` (built on its `useSectionForm` draft/validate/save hook).
-- `src/lib/` contains the domain logic, formatting helpers, authentication and profile helpers (`auth.js`), eligibility rules, demo state, backend-status helpers, academic-program taxonomy, profile field definitions and validators (`profile.js`), and Supabase setup. The scholarship catalog is read from the Supabase `scholarships` table via `src/lib/supabaseData.js`; offline demo state (demo users, applications, documents, notifications, announcements, and department reviews) lives in `src/lib/demoState.js`; and academic programs are loaded from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` (in `src/lib/supabaseData.js`), with `src/lib/academicPrograms.js` (value/label/department/category) as the offline fallback.
+- `src/lib/` contains the domain logic, formatting helpers, authentication and profile helpers (`auth.js`), eligibility rules, local persisted state (`appState.js`), academic-program taxonomy, profile field definitions and validators (`profile.js`), and Supabase setup. The scholarship catalog is read from the Supabase `scholarships` table via `src/lib/supabaseData.js`; the local persisted state (theme, notification preferences, custom deadlines, and onboarding flags) lives in `src/lib/appState.js`, which starts from empty defaults because Supabase is the authoritative source for applications, documents, notifications, announcements, and department reviews; and academic programs are loaded from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` (in `src/lib/supabaseData.js`), with `src/lib/academicPrograms.js` (value/label/department/category) as the offline reference fallback.
 - `supabase/schema.sql` is the reference schema for fresh Supabase projects. For an existing/deployed project, add and apply a migration under `supabase/migrations/` rather than re-running the full schema; keep the reference schema aligned with those migrations.
 - `supabase/functions/` holds the email and SMS delivery Edge Functions described under Email And SMS Notification Delivery.
 - `src/tailwind.css` is the primary Tailwind entry point and contains the shared theme primitives.
@@ -109,14 +109,14 @@ Follow these rules when making changes:
 
 - Prefer the smallest change that solves the task.
 - Reuse existing shared components, helpers, and data shapes instead of duplicating logic.
-- Keep demo mode intact unless the task explicitly requires backend integration work.
-- Preserve backward compatibility with stored demo state in localStorage.
-- Keep Supabase optional and safe when environment variables are missing.
+- Supabase is the required backend; do not reintroduce an offline demo mode, seeded data, or a fallback login.
+- Preserve backward compatibility with stored state in localStorage, including the one-time migration from the legacy demo key.
+- Fail cleanly with a clear "not configured" message when the Supabase environment variables are missing, instead of silently entering any offline mode.
 - Do not introduce new dependencies unless they clearly solve the task better than the current stack.
 - Do not remove or rewrite manuscript-aligned terminology just to make the code more generic.
 - Avoid unnecessary refactors that change behavior, layout, or data shape.
-- Treat `applications`, `documents`, `notifications`, `announcements`, `customDeadlines`, `notificationPreferences`, `profileDraft`, `profileEdits`, and `theme` as persisted demo-state domains; add compatibility defaults when extending them.
-- Keep file-upload behavior demo-safe: the browser stores document metadata and a local demo record rather than requiring a storage backend.
+- Treat `applications`, `documents`, `notifications`, `announcements`, `customDeadlines`, `notificationPreferences`, `profileDraft`, and `theme` as persisted state domains; add compatibility defaults when extending them.
+- Keep file-upload behavior safe: the browser stores document metadata and a local record alongside the Supabase row rather than requiring a storage backend.
 
 
 ## Domain Rules
@@ -129,7 +129,7 @@ These rules come from the manuscript and should guide implementation details:
 - Student Assistant (SA) / Working Scholar eligibility is open to students across all academic programs and must not be blocked by degree-specific catalog metadata.
 - Scholarship discovery should support faceted filtering and fast search over the current taxonomy.
 - Document handling should behave like a normalized vault where the same file can be attached to multiple applications.
-- Notifications should remain event-oriented in concept, even if the local demo simulates the behavior.
+- Notifications should remain event-oriented; the scheduled Edge Function is the delivery path, while the in-app center reads the local and server rows.
 - Role-based access should preserve student, central Admissions Office administrator, and department-scoped Department Chair boundaries; never give the central administrator Dean-like scope under a department role.
 - My Profile editing must keep the same boundaries: students edit their academic, household, and eligibility background fields, while Admissions Office administrators and Department Chairs edit only their name, mobile number, and bio. Department assignment is never self-editable because it scopes the Department Review queue; `saveProfile` in `App.jsx` enforces this with `STAFF_EDITABLE_FIELD_KEYS`, not only the UI.
 - Profile QPI and household income are self-reported. They can optionally be verified by the Admissions Office against Document Vault proof, so never describe them as Registrar-verified and never imply a registrar integration.
@@ -152,7 +152,7 @@ Notifications stay event-oriented, and delivery runs through Supabase Edge Funct
 - Shared, dependency-free modules live in `supabase/functions/_shared/`: `email.js` (Resend-compatible table HTML, plain-text alternatives, and the delivery-preference checks), `reminders.js` (the reminder math shared with `src/App.jsx`), `resend.js` (the minimal email fetch client), and `sms.js` (iprogSMS client, Philippine mobile normalization, and SMS text renderers). They are plain JavaScript so Deno, the vitest suite, and the client bundle can all import them (for example, `validateMobileNumber` in `src/lib/profile.js` reuses `formatPhilippineMobile` for the onboarding modal and My Profile, and Settings reuses `maskPhilippineMobile`).
 - Delivery is opt-in per channel and per reminder. `profiles.notification_preferences` is the only server-side input: the in-app row needs `inAppEnabled` plus the matching `deadlineReminders` offset, the email needs `emailEnabled` plus the same offset, and the SMS needs `smsEnabled` plus the same offset and a normalizable `profiles.phone` value. Status notifications honor the student's `emailEnabled` / `smsEnabled` and dedupe on `application-status-<applicationId>-<status>` across both channels.
 - `notifications.channel` is constrained to `SMS` / `Email` / `In-app`, so carry the deadline kind in the notification title and body instead of adding a channel value.
-- Email requires the verified Resend sending domain and the Edge Function secrets (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `APP_SITE_URL`, `REMINDER_CRON_SECRET`); SMS requires `IPROGSMS_API_TOKEN` (with optional `IPROGSMS_PROVIDER`, the gateway's `sms_provider` 0/1/2 flag). They are server-side only and must never carry a `VITE_` prefix. A send only happens when the Supabase workspace is loaded, and the demo flow must keep working with either gateway unset (skipped, never thrown).
+- Email requires the verified Resend sending domain and the Edge Function secrets (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `APP_SITE_URL`, `REMINDER_CRON_SECRET`); SMS requires `IPROGSMS_API_TOKEN` (with optional `IPROGSMS_PROVIDER`, the gateway's `sms_provider` 0/1/2 flag). They are server-side only and must never carry a `VITE_` prefix. A send only happens when the Supabase workspace is loaded, and either gateway may be left unset without breaking the app (sends are skipped, never thrown).
 - The email CTA links use `?view=calendar`, `?view=applications`, and `?view=settings`, but the app does not read a `view` query parameter yet, so a recipient lands on the role's landing view. Do not describe those links as deep links until `App.jsx` handles the parameter.
 - iprogSMS constraints: a 200 response confirms queue-accept (`message_id`) only — there are no delivery webhooks, so ledger rows describe queue-accept rather than confirmed carrier delivery (poll-only status via `GET /sms_messages/status`). Globe, TM, DITO, and GOMO recipients use the shared `iprogSMS` sender; Smart and TNT require a purchased custom sender name.
 
@@ -177,7 +177,7 @@ Match the existing design direction unless a task explicitly calls for redesign:
 Use the existing local shapes and patterns already established in the app:
 
 
-- Demo state should remain compatible with `src/lib/demoState.js`; the scholarship catalog is read from the Supabase `scholarships` table (including the manuscript-only columns `rule_family`, `gov_program`, `is_matchable`, `application_route`, `is_external`, and `appendix_number`) and falls back to an empty catalog when the Supabase workspace is not loaded.
+- Local persisted state lives in `src/lib/appState.js`; the scholarship catalog is read from the Supabase `scholarships` table (including the manuscript-only columns `rule_family`, `gov_program`, `is_matchable`, `application_route`, `is_external`, and `appendix_number`) and is empty until the Supabase workspace loads.
 - Academic programs should remain consistent with `src/lib/academicPrograms.js` and load from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` when the Supabase workspace is configured, falling back to the static file otherwise.
 - Eligibility logic should remain consistent with `src/lib/eligibility.js`.
 - Supabase configuration should continue to route through `src/lib/supabaseClient.js`.
@@ -185,11 +185,11 @@ Use the existing local shapes and patterns already established in the app:
 - Avoid breaking assumptions in `App.jsx` around `viewerRole`, `activeView`, `profileDraft`, `documents`, `applications`, `notifications`, and `announcements`.
 - Preserve the nested shape of `notificationPreferences`, including `smsEnabled`, `emailEnabled`, `inAppEnabled`, and `deadlineReminders.oneWeekBefore`, `threeDaysBefore`, and `dayBefore`.
 - That preference shape is mirrored to `profiles.notification_preferences` whenever the Settings toggles change, and it is the scheduled function's only input. The other server-side mirrors are `custom_deadlines` (one row per student-created deadline, id stored verbatim) and `notification_email_log` (the service-role delivery ledger). Keep the local and server shapes identical so the two never disagree.
-- Profile data has three local homes. `authUser` holds the account fields (`fullName`, `phone`, `bio`, `studentNumber`, `degreeProgram`, `department`, `qpi`, `householdIncome`, `hasActiveGovernmentGrant`), mirrored to the core `profiles` columns. `profileDraft` holds what the Smart Eligibility Checker reads, including the extended attributes listed in `ELIGIBILITY_ATTRIBUTE_KEYS` (`src/lib/profile.js`) — which now also carry the ranked `programChoice2` / `programChoice3` (an incoming first-year's 2nd and 3rd program choices) and the self-reported `ipCommunity`, `pwd`, and `employed` answers — plus the descriptive fields listed in `PROFILE_DETAIL_KEYS` (religion, civil status, address, country, and family details). The eligibility attributes are mirrored to `profiles.eligibility_attributes`; the descriptive fields are mirrored to `profiles.profile_details`. `profileEdits` is demo-only: per-account edits restored on a demo (fallback) login. Save through `saveProfile` / `updateProfileFields`, which write only the keys present on the patch, and keep the key lists in `src/lib/profile.js` as the single source.
+- Profile data has three local homes. `authUser` holds the account fields (`fullName`, `phone`, `bio`, `studentNumber`, `degreeProgram`, `department`, `qpi`, `householdIncome`, `hasActiveGovernmentGrant`), mirrored to the core `profiles` columns. `profileDraft` holds what the Smart Eligibility Checker reads, including the extended attributes listed in `ELIGIBILITY_ATTRIBUTE_KEYS` (`src/lib/profile.js`) — which now also carry the ranked `programChoice2` / `programChoice3` (an incoming first-year's 2nd and 3rd program choices) and the self-reported `ipCommunity`, `pwd`, and `employed` answers — plus the descriptive fields listed in `PROFILE_DETAIL_KEYS` (religion, civil status, address, country, and family details). The eligibility attributes are mirrored to `profiles.eligibility_attributes`; the descriptive fields are mirrored to `profiles.profile_details`. Save through `saveProfile` / `updateProfileFields`, which write only the keys present on the patch, and keep the key lists in `src/lib/profile.js` as the single source.
 - `profiles.bio` and `profiles.eligibility_attributes` come from `supabase/migrations/20261005140000_add_profile_details.sql`; `profiles.profile_details` comes from `supabase/migrations/20261008000000_add_profile_details_json.sql`. `getProfileDetails()` reads them in separate queries and `updateProfileFields()` writes each group in its own statement, reporting `detailsSynced: false` when a column is missing, so a project with a migration pending still signs in and saves the rest. Do not add these columns to the `getUserProfile()` select: a missing column would fail the whole query and reopen the onboarding modal.
 - Citizenship, IP community, PWD, and employment status are self-reported and verifiable through the Document Vault (`VERIFIABLE_ATTRIBUTE_OPTIONS`), like QPI and household income. Verification stays informational and never blocks eligibility matching or applying. Class size remains part of the Eligibility background section and the Jubilee honors criterion.
 - Saving a QPI through `updateUserProfile` or `updateProfileFields` also upserts the current academic year in `annual_qpi_records`.
-- New localStorage state must be merged with defaults so older saved sessions remain loadable; do not assume `customDeadlines`, `profileEdits`, or notification preferences exist in older records.
+- New localStorage state must be merged with defaults so older saved sessions remain loadable; do not assume `customDeadlines` or notification preferences exist in older records.
 
 
 ## Safe Implementation Workflow
@@ -198,7 +198,7 @@ When working on this repo, use this order:
 
 1. Read the relevant manuscript section first to understand the intended behavior.
 2. Inspect the specific code path in the current app.
-3. Make the smallest targeted change that aligns code with the manuscript and keeps the demo working.
+3. Make the smallest targeted change that aligns code with the manuscript and keeps the app working.
 4. Validate the touched area with the cheapest meaningful check, usually `npm run build`.
 5. If the change affects a narrow feature slice, prefer a narrow smoke test or local run before broader validation.
 
@@ -210,7 +210,7 @@ Prefer these checks when appropriate:
 - `npm run build` for general validation.
 - `npm run dev` for manual review of the local prototype.
 - Targeted checks for any touched Supabase, auth, or eligibility logic.
-- `npm test` (vitest) covers the shared email and SMS templates, the SMS client, reminder math, eligibility rules, demo state, auth redirect, notification merge, and the profile validators; run it whenever `supabase/functions/_shared/`, `src/lib/notificationMerge.js`, or `src/lib/profile.js` is touched.
+- `npm test` (vitest) covers the shared email and SMS templates, the SMS client, reminder math, eligibility rules, app state, auth redirect, notification merge, and the profile validators; run it whenever `supabase/functions/_shared/`, `src/lib/appState.js`, `src/lib/notificationMerge.js`, or `src/lib/profile.js` is touched.
 - Manually smoke-test the student flows: apply from Scholarship Explorer, submit/view/export an application, upload/filter/delete a vault document, add/delete a calendar reminder, toggle notification preferences, and edit and save each My Profile section.
 
 
@@ -222,7 +222,7 @@ Before pushing a change:
 - Run `npm run build` and resolve any build errors.
 - Run `npm test` when the change touches reminder, notification, email or SMS rendering, or profile validation logic.
 - Confirm `package-lock.json` is updated whenever `package.json` dependencies change.
-- Check that demo mode still loads when Supabase environment variables are absent.
+- Check that the app fails cleanly with a clear "not configured" message when Supabase environment variables are absent.
 - Review `git diff` for accidental changes, generated secrets, or unrelated files.
 - Smoke-test the affected student or reviewer flow in the Vite app when the change is visual or interactive.
 
@@ -242,8 +242,8 @@ Do not:
 
 
 - Add features that imply direct scholarship award allocation or monetary disbursement.
-- Turn optional Supabase support into a hard requirement.
-- Break demo mode or local state restoration.
+- Reintroduce demo seed data, a demo or fallback login, or any offline demo mode.
+- Break local state restoration or the one-time legacy storage-key migration.
 - Replace the current domain model with a generic template app model.
 - Rename core manuscript concepts without a good reason.
 - Make broad styling changes that are unrelated to the task.
@@ -256,7 +256,7 @@ Do not:
 The most likely high-value work in this repo is feature polishing, manuscript-aligned copy improvements, eligibility logic refinement, document workflow adjustments, and admin/student role behavior updates.
 
 
-Before any first substantive edit, identify the exact file and behavior being changed, confirm how it relates to the manuscript, and make the smallest edit that preserves the app's demo-first workflow.
+Before any first substantive edit, identify the exact file and behavior being changed, confirm how it relates to the manuscript, and make the smallest edit that preserves the app's workflow.
 
 ## Recent UI Implementation Notes
 

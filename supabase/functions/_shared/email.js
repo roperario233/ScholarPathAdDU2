@@ -28,7 +28,7 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/'/g, '&#39;');
 
 // Maps a reminder offset in days to the matching notificationPreferences key
-// used by the client (src/lib/demoState.js) and SettingsView.
+// used by the client (src/lib/appState.js) and SettingsView.
 export const REMINDER_OFFSET_KEYS = {
   7: 'oneWeekBefore',
   3: 'threeDaysBefore',

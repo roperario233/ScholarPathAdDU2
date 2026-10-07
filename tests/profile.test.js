@@ -18,9 +18,24 @@ import {
   validateQpi,
 } from '../src/lib/profile';
 import { checkAdduInternalGate } from '../src/lib/eligibility';
-import { demoUsers } from '../src/lib/demoState';
 
 const programs = [{ value: 'BS Information Technology', label: 'BS Information Technology', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' }];
+
+// Minimal fixtures for the completeness tests. They replace the demo-user
+// records that were removed along with demo mode.
+const studentProfile = {
+  fullName: 'Eriel John Espinosa',
+  phone: '+63 912 345 6789',
+  degreeProgram: 'BS Information Technology',
+  yearStanding: '2nd',
+  qpi: 2.86,
+  householdIncome: 240000,
+  citizenship: 'Filipino',
+};
+const chairProfile = {
+  fullName: 'Department Chair',
+  phone: '+63 918 000 0000',
+};
 
 describe('field validators', () => {
   it('rounds QPI to two decimals and rejects values outside 0.00–4.00', () => {
@@ -188,7 +203,7 @@ describe('profile field picking', () => {
 describe('getProfileCompleteness', () => {
   it('scores a complete student profile and points missing items to their section', () => {
     const completeStudent = {
-      ...demoUsers.student,
+      ...studentProfile,
       civilStatus: 'Single',
       studentNumber: '2023001',
       completeAddress: '123 Rizal St, Davao City',
@@ -203,7 +218,7 @@ describe('getProfileCompleteness', () => {
   });
 
   it('only asks staff for personal information', () => {
-    const completeness = getProfileCompleteness(demoUsers.chair, 'department_chair');
+    const completeness = getProfileCompleteness(chairProfile, 'department_chair');
     expect(completeness.items.map((item) => item.section)).toEqual(['personal', 'personal']);
     expect(completeness.percent).toBe(100);
   });

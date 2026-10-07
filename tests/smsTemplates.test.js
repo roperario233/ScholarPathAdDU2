@@ -12,7 +12,7 @@ import {
 import { formatDeadlineLabel } from '../supabase/functions/_shared/email.js';
 
 describe('normalizePhilippineMobile', () => {
-  it('canonicalizes the stored demo and profile formats to 639XXXXXXXXX', () => {
+  it('canonicalizes the stored and profile formats to 639XXXXXXXXX', () => {
     expect(normalizePhilippineMobile('+63 912 345 6789')).toBe('639123456789');
     expect(normalizePhilippineMobile('09171234567')).toBe('639171234567');
     expect(normalizePhilippineMobile('0912-345-6789')).toBe('639123456789');
