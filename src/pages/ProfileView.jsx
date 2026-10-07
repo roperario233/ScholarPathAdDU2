@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Award, GraduationCap, LayoutDashboard, ShieldCheck, UserRound, Wallet } from 'lucide-react';
-import { AcademicSection, BackgroundSection, FinancialSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
+import { Award, GraduationCap, LayoutDashboard, MapPin, ShieldCheck, UserRound, Users, Wallet } from 'lucide-react';
+import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancialSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
 import { getProfileCompleteness } from '../lib/profile';
 
 const sections = [
   { key: 'overview', label: 'Overview', icon: LayoutDashboard, studentOnly: false },
   { key: 'personal', label: 'Personal information', icon: UserRound, studentOnly: false },
+  { key: 'address', label: 'Address', icon: MapPin, studentOnly: true },
+  { key: 'family', label: 'Family details', icon: Users, studentOnly: true },
   { key: 'academic', label: 'Academic profile', icon: GraduationCap, studentOnly: true },
   { key: 'financial', label: 'Household and financial aid', icon: Wallet, studentOnly: true },
   { key: 'background', label: 'Eligibility background', icon: Award, studentOnly: true },
@@ -19,17 +21,19 @@ export default function ProfileView({
   academicPrograms = [],
   academicProgramCategories = [],
   isAccountManaged = false,
+  attributeVerifications = {},
   onSaveProfile,
   onChangePassword,
   onRequestPasswordReset,
   onOpenEligibility,
+  onAttachProof,
 }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
   const completeness = getProfileCompleteness(profile, role);
-  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges };
+  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof };
 
   const openSection = (key) => {
     if (key === activeSection) return;
@@ -79,9 +83,13 @@ export default function ProfileView({
               completeness={completeness}
               onEditSection={openSection}
               onOpenEligibility={onOpenEligibility}
+              attributeVerifications={attributeVerifications}
+              onAttachProof={onAttachProof}
             />
           )}
           {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} roleLabel={roleLabel} />}
+          {activeSection === 'address' && isStudent && <AddressSection {...sectionProps} />}
+          {activeSection === 'family' && isStudent && <FamilySection {...sectionProps} />}
           {activeSection === 'academic' && isStudent && (
             <AcademicSection {...sectionProps} academicPrograms={academicPrograms} academicProgramCategories={academicProgramCategories} />
           )}

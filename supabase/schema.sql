@@ -38,6 +38,12 @@ alter table profiles drop constraint if exists profiles_bio_length_check;
 alter table profiles add constraint profiles_bio_length_check
   check (bio is null or char_length(bio) <= 280);
 
+-- Descriptive My Profile fields that are not eligibility inputs (see
+-- migrations/20261008000000_add_profile_details_json.sql): religion, civil
+-- status, address, country, and family details. The field keys mirror
+-- PROFILE_DETAIL_KEYS in src/lib/profile.js.
+alter table profiles add column if not exists profile_details jsonb not null default '{}'::jsonb;
+
 -- Standard Procedure stage records (endorsement, interview, deliberation,
 -- release) and the event timeline live on applications as JSON payloads.
 alter table applications add column if not exists endorsement jsonb;
@@ -93,6 +99,11 @@ create table if not exists documents (
   shared_with text[] not null default '{}'::text[],
   uploaded_at timestamptz not null default now()
 );
+
+-- Profile-attribute proof links: which profile attribute(s) a vault document
+-- proves (see src/lib/verification.js and VERIFIABLE_ATTRIBUTE_OPTIONS in
+-- src/lib/profile.js). Additive so existing rows keep working.
+alter table documents add column if not exists linked_attributes text[] not null default '{}'::text[];
 
 create table if not exists applications (
   id uuid primary key default gen_random_uuid(),

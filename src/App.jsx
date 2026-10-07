@@ -6,7 +6,8 @@ import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, is
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { hasSupabaseConfig } from './lib/supabaseClient';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { deriveAttributeVerifications } from './lib/verification';
 import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -41,6 +42,23 @@ const getInitials = (fullName = '') => fullName
   .map((part) => part[0].toUpperCase())
   .join('') || 'SP';
 
+// A student profile is complete enough for matching once the core academic
+// fields and the onboarding eligibility essentials are all recorded. `profile`
+// uses the snake_case `profiles` shape; `attributes` is the eligibility mirror.
+const isIncompleteStudentProfile = (profile, attributes = {}) => {
+  const standing = getStandingRequirements(attributes);
+  return (
+    !profile?.degree_program
+    || !standing.yearStanding
+    || (standing.requiresStudentNumber && !profile?.student_number)
+    || profile?.household_income == null
+    // An incoming first-year has no college QPI yet, so it is not required.
+    || (standing.requiresQpi && profile?.qpi == null)
+    || !attributes.academicStanding
+    || !attributes.citizenship
+  );
+};
+
 const dateKey = (value) => {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
     return value.slice(0, 10);
@@ -57,11 +75,14 @@ const reminderDateKey = (deadline, daysBefore) => {
   return dateKey(reminderDate);
 };
 
-const prependInAppNotification = (previous, notification) => (
-  previous.notificationPreferences?.inAppEnabled
-    ? [notification, ...previous.notifications]
-    : previous.notifications
-);
+const prependInAppNotification = (previous, notification) => {
+  if (!previous.notificationPreferences?.inAppEnabled) return previous.notifications;
+  // A notification carrying a stable sourceKey is only added once, so an event
+  // that re-runs (or is replayed) never duplicates the same in-app row.
+  const alreadyPresent = notification.sourceKey
+    && (previous.notifications ?? []).some((entry) => entry?.sourceKey === notification.sourceKey);
+  return alreadyPresent ? previous.notifications : [notification, ...previous.notifications];
+};
 
 // Locally created deadlines live in localStorage while the same rows are also
 // persisted to Supabase (so server-side reminders can email them). Merge by id
@@ -253,6 +274,7 @@ function App() {
         profileDraft: {
           ...previous.profileDraft,
           ...profileDetails.eligibilityAttributes,
+          ...profileDetails.profileDetails,
           ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
         },
       }));
@@ -275,9 +297,10 @@ function App() {
           updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
         }
       }
-      if (userRole === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null)) {
+      if (userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
         if (readStoredState()?.profileSkipped) return;
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        const attributes = profileDetails.eligibilityAttributes || {};
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
     };
 
@@ -335,6 +358,9 @@ function App() {
     () => state.documents.filter((entry) => entry.ownerId === currentProfile.id),
     [state.documents, currentProfile.id],
   );
+  // Each profile attribute's verification state is derived from the proof
+  // documents the student linked in the vault (src/lib/verification.js).
+  const attributeVerifications = useMemo(() => deriveAttributeVerifications(studentDocuments), [studentDocuments]);
   const visibleNotifications = state.notificationPreferences.inAppEnabled ? state.notifications : [];
   const unreadNotifications = useMemo(() => visibleNotifications.filter((entry) => entry.status === 'Unread'), [visibleNotifications]);
   const activeDeadlineCount = useMemo(
@@ -399,6 +425,7 @@ function App() {
         profileDraft: {
           ...previous.profileDraft,
           ...profileDetails.eligibilityAttributes,
+          ...profileDetails.profileDetails,
           ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
         },
       }));
@@ -416,8 +443,9 @@ function App() {
       if (academicProgramsResult.success && academicProgramsResult.academicPrograms?.length) {
         updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
       }
-      if (authResult.user?.id && account.role === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null) && !readStoredState()?.profileSkipped) {
-        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+      if (authResult.user?.id && account.role === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
+        const attributes = profileDetails.eligibilityAttributes || {};
+        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -486,22 +514,48 @@ function App() {
     setIsSupabaseWorkspaceLoaded(false);
   };
 
-  const saveAcademicProfile = async (program, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone) => {
-    if (!program) {
+  const saveAcademicProfile = async (profileValues) => {
+    if (!profileValues?.degreeProgram) {
       updateState({ profileSkipped: true });
       setProfileOnboarding(null);
       setProfileSaveError('');
       return;
     }
 
+    const program = activeAcademicPrograms.find((entry) => entry.value === profileValues.degreeProgram) || getAcademicProgram(profileValues.degreeProgram);
+    if (!program) {
+      setProfileSaveError('Choose a degree program from the list.');
+      return;
+    }
+
     setIsSavingProfile(true);
     setProfileSaveError('');
-    const result = await updateUserProfile(profileOnboarding.id, {
-      degreeProgram: program.value,
-      department: program.department,
+    const {
       studentNumber,
       householdIncome,
       qpi,
+      hasActiveGovernmentGrant,
+      phone,
+      yearStanding,
+      applicantType,
+      yearLevel,
+      academicStanding,
+      citizenship,
+      hsStrand,
+      hsAverage,
+    } = profileValues;
+    const eligibilityAttributes = { yearStanding, applicantType, yearLevel, academicStanding, citizenship, hsStrand, hsAverage };
+    // Incoming first-years have no college QPI or AdDU student number yet, so
+    // store nulls instead of empty strings.
+    const resolvedQpi = qpi === '' || qpi == null ? null : qpi;
+    const resolvedStudentNumber = studentNumber || null;
+
+    const result = await updateUserProfile(profileOnboarding.id, {
+      degreeProgram: program.value,
+      department: program.department,
+      studentNumber: resolvedStudentNumber,
+      householdIncome,
+      qpi: resolvedQpi,
       hasActiveGovernmentGrant,
       phone,
     });
@@ -512,9 +566,16 @@ function App() {
       return;
     }
 
+    // The onboarding essentials also feed the Smart Eligibility Checker, so mirror
+    // them into eligibility_attributes the way My Profile does. A project with the
+    // details migration pending simply keeps them on this device.
+    await updateProfileFields(profileOnboarding.id, {
+      eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes },
+    });
+
     updateState((previous) => ({
-      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone },
-      profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi, hasActiveGovernmentGrant },
+      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber: resolvedStudentNumber, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, phone },
+      profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, ...eligibilityAttributes },
       profileSkipped: false,
     }));
     setProfileOnboarding(null);
@@ -743,7 +804,13 @@ function App() {
     }));
   };
 
+  // The Admissions Office verifies or rejects a vault document here. Because an
+  // attribute's state is derived from its linked proof documents
+  // (src/lib/verification.js), verifying the file also verifies the attributes it
+  // proves. A verified or rejected decision notifies the owner, deduped by a
+  // stable source key.
   const changeDocumentStatus = (documentId, verificationStatus) => {
+    const document = state.documents.find((entry) => entry.id === documentId);
     if (isSupabaseWorkspaceLoaded) updateSupabaseDocumentStatus(documentId, verificationStatus);
     setState((previous) => ({
       ...previous,
@@ -751,6 +818,19 @@ function App() {
         ...entry,
         verificationStatus,
       } : entry),
+      notifications: document && ['Verified', 'Rejected'].includes(verificationStatus)
+        ? prependInAppNotification(previous, {
+            id: `not-${crypto.randomUUID()}`,
+            sourceKey: `document-verification-${documentId}-${verificationStatus}`,
+            title: verificationStatus === 'Verified' ? `${document.title} verified` : `${document.title} needs attention`,
+            channel: 'In-app',
+            body: verificationStatus === 'Verified'
+              ? `The Admissions Office verified “${document.title}”. Any profile attributes it proves are now verified.`
+              : `The Admissions Office could not verify “${document.title}”. Upload a replacement to complete verification.`,
+            status: 'Unread',
+            createdAt: new Date().toISOString().slice(0, 10),
+          })
+        : previous.notifications,
     }));
   };
 
@@ -776,6 +856,9 @@ function App() {
     const fileField = formData.get('documentFile');
     const fileName = fileField instanceof File ? fileField.name.trim() : String(fileField || '').trim();
     const documentType = String(formData.get('documentType') || 'Supporting Document');
+    // Profile attributes this file proves. The Admissions Office review of the
+    // document drives each linked attribute's verification (src/lib/verification.js).
+    const linkedAttributes = formData.getAll('linkedAttributes').map(String).filter(Boolean);
 
     if (!title || !fileName) return;
 
@@ -786,11 +869,12 @@ function App() {
       fileName,
       documentType,
       verificationStatus: 'Pending',
+      linkedAttributes,
       sharedWith: [],
       uploadedAt: new Date().toISOString().slice(0, 10),
     };
 
-    if (isSupabaseWorkspaceLoaded) createSupabaseDocument({ ownerId: currentProfile.id, title, fileName, documentType });
+    if (isSupabaseWorkspaceLoaded) createSupabaseDocument({ ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes });
 
     setState((previous) => ({
       ...previous,
@@ -895,6 +979,11 @@ function App() {
     }
     const eligibilityAttributes = isStudent ? pickEligibilityAttributes(patch) : {};
     const hasEligibilityAttributes = Object.keys(eligibilityAttributes).length > 0;
+    // Descriptive fields (religion, civil status, address, family details) are
+    // stored separately from the eligibility attributes and never feed the
+    // Smart Eligibility Checker.
+    const profileDetails = isStudent ? pickFields(patch, PROFILE_DETAIL_KEYS) : {};
+    const hasProfileDetails = Object.keys(profileDetails).length > 0;
     const userId = state.authUser?.id || currentProfile.id;
 
     const result = await updateProfileFields(userId, {
@@ -902,13 +991,14 @@ function App() {
       ...(hasEligibilityAttributes
         ? { eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes } }
         : {}),
+      ...(hasProfileDetails ? { profileDetails } : {}),
     });
     if (!result.success) return result;
 
     updateState((previous) => ({
       authUser: { ...previous.authUser, ...accountFields },
       profileDraft: isStudent
-        ? { ...previous.profileDraft, ...pickFields(accountFields, PROFILE_DRAFT_KEYS), ...eligibilityAttributes }
+        ? { ...previous.profileDraft, ...pickFields(accountFields, PROFILE_DRAFT_KEYS), ...eligibilityAttributes, ...profileDetails }
         : previous.profileDraft,
       profileEdits: result.fallback
         ? { ...previous.profileEdits, [userId]: { ...previous.profileEdits?.[userId], ...accountFields } }
@@ -934,13 +1024,17 @@ function App() {
     (entry.studentDepartment || '') === currentProfile.department
     && entry.status !== 'Draft'
   ));
+  const studentStanding = getStandingRequirements(studentMatchProfile);
   const hasIncompleteStudentProfile = state.viewerRole === 'student' && (
     !currentIdentity.degreeProgram
-    || !currentIdentity.studentNumber
-    || currentIdentity.qpi == null
-    || currentIdentity.qpi === ''
+    || !studentStanding.yearStanding
+    || (studentStanding.requiresStudentNumber && !currentIdentity.studentNumber)
     || currentIdentity.householdIncome == null
     || currentIdentity.householdIncome === ''
+    // An incoming first-year is matched on senior high school standing, not QPI.
+    || (studentStanding.requiresQpi && (currentIdentity.qpi == null || currentIdentity.qpi === ''))
+    || !studentMatchProfile.academicStanding
+    || !studentMatchProfile.citizenship
   );
 
   const openAcademicProfile = () => {
@@ -950,7 +1044,12 @@ function App() {
       fullName: currentIdentity.fullName,
       initialProgram: currentIdentity.degreeProgram || '',
       initialStudentNumber: currentIdentity.studentNumber || '',
+      initialYearStanding: deriveYearStanding(studentMatchProfile),
+      initialAcademicStanding: studentMatchProfile.academicStanding || '',
+      initialCitizenship: studentMatchProfile.citizenship || '',
       initialQpi: currentIdentity.qpi ?? '',
+      initialHsStrand: studentMatchProfile.hsStrand || '',
+      initialHsAverage: studentMatchProfile.hsAverage ?? '',
       initialHouseholdIncome: currentIdentity.householdIncome ?? '',
       initialPhone: currentIdentity.phone || '',
       initialHasActiveGovernmentGrant: currentIdentity.hasActiveGovernmentGrant ?? false,
@@ -1023,6 +1122,12 @@ function App() {
           fullName={profileOnboarding.fullName}
           initialProgram={profileOnboarding.initialProgram}
           initialStudentNumber={profileOnboarding.initialStudentNumber}
+          initialYearStanding={profileOnboarding.initialYearStanding}
+          initialAcademicStanding={profileOnboarding.initialAcademicStanding}
+          initialCitizenship={profileOnboarding.initialCitizenship}
+          initialHsStrand={profileOnboarding.initialHsStrand}
+          initialHsAverage={profileOnboarding.initialHsAverage}
+          initialPhone={profileOnboarding.initialPhone}
           initialHouseholdIncome={profileOnboarding.initialHouseholdIncome}
           initialQpi={profileOnboarding.initialQpi}
           initialHasActiveGovernmentGrant={profileOnboarding.initialHasActiveGovernmentGrant}
@@ -1230,6 +1335,8 @@ function App() {
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
               onOpenEligibility={() => navigate('explore')}
+              attributeVerifications={attributeVerifications}
+              onAttachProof={() => navigate('vault')}
             />
           )}
 

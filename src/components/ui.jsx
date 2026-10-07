@@ -42,12 +42,15 @@ export function StatusBadge({ tone = 'neutral', children, className = '' }) {
   return <span className={clsx('inline-flex w-fit items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold', statusClasses[tone] || statusClasses.neutral, className)}>{children}</span>;
 }
 
-export function FormField({ label, hint, error, children, className = '' }) {
+export function FormField({ label, hint, error, labelAdornment, children, className = '' }) {
   return (
     // content-start keeps label, control, and hint packed at the top, so a field
     // beside a taller neighbour (longer hint or error) is not stretched out of line.
     <label className={clsx('grid content-start gap-2', className)}>
-      <span className="text-sm font-semibold text-app-text">{label}</span>
+      <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-app-text">
+        <span className="min-w-0">{label}</span>
+        {labelAdornment}
+      </span>
       {children}
       {hint && <small className="field-hint">{hint}</small>}
       {error && <span className="text-sm text-rose-300" role="alert">{error}</span>}

@@ -26,6 +26,7 @@ export const demoUsers = {
     hasActiveGovernmentGrant: false,
     academicStanding: 'good',
     applicantType: 'current',
+    yearStanding: '2nd',
     yearLevel: 2,
     isHonorsGraduate: false,
     honorsRank: '',
@@ -86,6 +87,14 @@ export const normalizeApplication = (entry = {}) => ({
   ...entry,
   timeline: Array.isArray(entry.timeline) ? entry.timeline : [],
   attachedDocuments: Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments : [],
+});
+
+// Older stored demo sessions predate the profile-attribute proof links; default
+// every document to an empty list so the vault and the verification helpers
+// (src/lib/verification.js) can rely on the field existing.
+export const normalizeDocument = (entry = {}) => ({
+  ...entry,
+  linkedAttributes: Array.isArray(entry.linkedAttributes) ? entry.linkedAttributes : [],
 });
 
 export const applications = [
@@ -243,6 +252,7 @@ export const documents = [
     fileName: 'transcript.pdf',
     documentType: 'Transcript',
     verificationStatus: 'Verified',
+    linkedAttributes: ['qpi', 'academicStanding'],
     sharedWith: ['Grant-in-Aid (GIA)', 'DOST-SEI Merit Scholarship Program'],
     uploadedAt: dateFromToday(-8),
   },
@@ -253,6 +263,7 @@ export const documents = [
     fileName: 'itr.pdf',
     documentType: 'Income Proof',
     verificationStatus: 'Pending',
+    linkedAttributes: ['householdIncome'],
     sharedWith: ['Grant-in-Aid (GIA)'],
     uploadedAt: dateFromToday(-4),
   },
@@ -263,6 +274,7 @@ export const documents = [
     fileName: 'coe.pdf',
     documentType: 'Enrollment',
     verificationStatus: 'Verified',
+    linkedAttributes: [],
     sharedWith: ['DOST-SEI Merit Scholarship Program'],
     uploadedAt: dateFromToday(-2),
   },
@@ -468,7 +480,7 @@ export const createInitialState = () => {
       },
     },
     applications: Array.isArray(stored.applications) && stored.applications.length ? stored.applications.map(normalizeApplication) : defaults.applications,
-    documents: Array.isArray(stored.documents) && stored.documents.length ? stored.documents : defaults.documents,
+    documents: Array.isArray(stored.documents) && stored.documents.length ? stored.documents.map(normalizeDocument) : defaults.documents,
     notifications: Array.isArray(stored.notifications) && stored.notifications.length ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) && stored.announcements.length ? stored.announcements : defaults.announcements,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,

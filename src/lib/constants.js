@@ -33,6 +33,12 @@ export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents',
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 
+// Profile-attribute verification states. An attribute is verified when the
+// Admissions Office verifies a Document Vault file that declares it as proof
+// (see src/lib/verification.js). The state is derived per attribute from the
+// linked documents, so it is distinct from a document's own verificationStatus.
+export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected'];
+
 export const documentTypeOptions = [
   { value: 'Application Form', label: 'Application Form' },
   { value: 'Entrance Exam Result', label: 'Entrance Exam Result' },
@@ -65,22 +71,3 @@ export const getDocumentTypeLabel = (value) => (
   documentTypeOptions.find((option) => option.value === value)?.label || value
 );
 
-export const citizenshipOptions = ['Filipino', 'Non-Filipino'];
-
-export const applicantTypeOptions = [
-  { value: 'first-year', label: 'Incoming first-year' },
-  { value: 'transfer', label: 'Transfer student' },
-  { value: 'current', label: 'Current AdDU student' },
-];
-
-export const honorsRankOptions = [
-  { value: '', label: 'Not applicable' },
-  { value: 'valedictorian', label: 'Valedictorian' },
-  { value: 'salutatorian', label: 'Salutatorian' },
-];
-
-export const hsStrandOptions = [
-  { value: '', label: 'Select strand' },
-  { value: 'STEM', label: 'STEM' },
-  { value: 'Non-STEM', label: 'Non-STEM (ABM, HUMSS, GAS, TVL, etc.)' },
-];
