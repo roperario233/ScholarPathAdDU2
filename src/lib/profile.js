@@ -212,6 +212,36 @@ export const validateBackgroundSection = (form = {}) => {
   return result;
 };
 
+// First-login onboarding collects the essentials the Smart Eligibility Checker
+// needs beyond the credentials form. It reuses the same section rules as My
+// Profile so the onboarding modal and the profile editor never disagree.
+export const validateOnboardingEssentials = (form = {}, academicPrograms = []) => {
+  const academic = validateAcademicSection(form, academicPrograms);
+  const financial = validateFinancialSection(form);
+  const phone = validateMobileNumber(form.phone);
+  const citizenship = oneOf(form.citizenship, citizenshipOptions, 'Choose your citizenship.');
+
+  const errors = { ...academic.errors, ...financial.errors };
+  if (phone.error) errors.phone = phone.error;
+  if (citizenship.error) errors.citizenship = citizenship.error;
+
+  return {
+    values: {
+      studentNumber: academic.values.studentNumber,
+      degreeProgram: academic.values.degreeProgram,
+      yearLevel: academic.values.yearLevel,
+      applicantType: academic.values.applicantType,
+      academicStanding: academic.values.academicStanding,
+      qpi: academic.values.qpi,
+      householdIncome: financial.values.householdIncome,
+      hasActiveGovernmentGrant: financial.values.hasActiveGovernmentGrant,
+      phone: phone.value,
+      citizenship: citizenship.value,
+    },
+    errors,
+  };
+};
+
 export const validatePasswordChange = ({ password = '', confirmPassword = '' } = {}) => {
   const errors = {};
   if (password.length < PASSWORD_MIN_LENGTH || !/[A-Za-z]/.test(password) || !/\d/.test(password)) {

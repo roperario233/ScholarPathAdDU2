@@ -41,6 +41,20 @@ const getInitials = (fullName = '') => fullName
   .map((part) => part[0].toUpperCase())
   .join('') || 'SP';
 
+// A student profile is complete enough for matching once the core academic
+// fields and the onboarding eligibility essentials are all recorded. `profile`
+// uses the snake_case `profiles` shape; `attributes` is the eligibility mirror.
+const isIncompleteStudentProfile = (profile, attributes = {}) => (
+  !profile?.degree_program
+  || !profile?.student_number
+  || profile?.qpi == null
+  || profile?.household_income == null
+  || attributes.yearLevel == null
+  || !attributes.applicantType
+  || !attributes.academicStanding
+  || !attributes.citizenship
+);
+
 const dateKey = (value) => {
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}/.test(value)) {
     return value.slice(0, 10);
@@ -275,9 +289,10 @@ function App() {
           updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
         }
       }
-      if (userRole === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null)) {
+      if (userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
         if (readStoredState()?.profileSkipped) return;
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        const attributes = profileDetails.eligibilityAttributes || {};
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearLevel: attributes.yearLevel ?? '', initialApplicantType: attributes.applicantType || '', initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
     };
 
@@ -416,8 +431,9 @@ function App() {
       if (academicProgramsResult.success && academicProgramsResult.academicPrograms?.length) {
         updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
       }
-      if (authResult.user?.id && account.role === 'student' && (!profile?.degree_program || !profile?.student_number || profile?.qpi == null || profile?.household_income == null) && !readStoredState()?.profileSkipped) {
-        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+      if (authResult.user?.id && account.role === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
+        const attributes = profileDetails.eligibilityAttributes || {};
+        setProfileOnboarding({ id: authResult.user.id, fullName: profile?.full_name || authResult.user?.user_metadata?.full_name || account.fullName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearLevel: attributes.yearLevel ?? '', initialApplicantType: attributes.applicantType || '', initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -486,16 +502,35 @@ function App() {
     setIsSupabaseWorkspaceLoaded(false);
   };
 
-  const saveAcademicProfile = async (program, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone) => {
-    if (!program) {
+  const saveAcademicProfile = async (profileValues) => {
+    if (!profileValues?.degreeProgram) {
       updateState({ profileSkipped: true });
       setProfileOnboarding(null);
       setProfileSaveError('');
       return;
     }
 
+    const program = activeAcademicPrograms.find((entry) => entry.value === profileValues.degreeProgram) || getAcademicProgram(profileValues.degreeProgram);
+    if (!program) {
+      setProfileSaveError('Choose a degree program from the list.');
+      return;
+    }
+
     setIsSavingProfile(true);
     setProfileSaveError('');
+    const {
+      studentNumber,
+      householdIncome,
+      qpi,
+      hasActiveGovernmentGrant,
+      phone,
+      yearLevel,
+      applicantType,
+      academicStanding,
+      citizenship,
+    } = profileValues;
+    const eligibilityAttributes = { yearLevel, applicantType, academicStanding, citizenship };
+
     const result = await updateUserProfile(profileOnboarding.id, {
       degreeProgram: program.value,
       department: program.department,
@@ -512,9 +547,16 @@ function App() {
       return;
     }
 
+    // The onboarding essentials also feed the Smart Eligibility Checker, so mirror
+    // them into eligibility_attributes the way My Profile does. A project with the
+    // details migration pending simply keeps them on this device.
+    await updateProfileFields(profileOnboarding.id, {
+      eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes },
+    });
+
     updateState((previous) => ({
       authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber, householdIncome, qpi, hasActiveGovernmentGrant, phone },
-      profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi, hasActiveGovernmentGrant },
+      profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi, hasActiveGovernmentGrant, ...eligibilityAttributes },
       profileSkipped: false,
     }));
     setProfileOnboarding(null);
@@ -941,6 +983,10 @@ function App() {
     || currentIdentity.qpi === ''
     || currentIdentity.householdIncome == null
     || currentIdentity.householdIncome === ''
+    || studentMatchProfile.yearLevel == null
+    || !studentMatchProfile.applicantType
+    || !studentMatchProfile.academicStanding
+    || !studentMatchProfile.citizenship
   );
 
   const openAcademicProfile = () => {
@@ -950,6 +996,10 @@ function App() {
       fullName: currentIdentity.fullName,
       initialProgram: currentIdentity.degreeProgram || '',
       initialStudentNumber: currentIdentity.studentNumber || '',
+      initialYearLevel: studentMatchProfile.yearLevel ?? '',
+      initialApplicantType: studentMatchProfile.applicantType || '',
+      initialAcademicStanding: studentMatchProfile.academicStanding || '',
+      initialCitizenship: studentMatchProfile.citizenship || '',
       initialQpi: currentIdentity.qpi ?? '',
       initialHouseholdIncome: currentIdentity.householdIncome ?? '',
       initialPhone: currentIdentity.phone || '',
@@ -1023,6 +1073,10 @@ function App() {
           fullName={profileOnboarding.fullName}
           initialProgram={profileOnboarding.initialProgram}
           initialStudentNumber={profileOnboarding.initialStudentNumber}
+          initialYearLevel={profileOnboarding.initialYearLevel}
+          initialApplicantType={profileOnboarding.initialApplicantType}
+          initialAcademicStanding={profileOnboarding.initialAcademicStanding}
+          initialCitizenship={profileOnboarding.initialCitizenship}
           initialHouseholdIncome={profileOnboarding.initialHouseholdIncome}
           initialQpi={profileOnboarding.initialQpi}
           initialHasActiveGovernmentGrant={profileOnboarding.initialHasActiveGovernmentGrant}

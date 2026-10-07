@@ -7,6 +7,7 @@ import {
   validateBackgroundSection,
   validateFinancialSection,
   validateMobileNumber,
+  validateOnboardingEssentials,
   validatePasswordChange,
   validatePersonalSection,
   validateQpi,
@@ -113,5 +114,44 @@ describe('getProfileCompleteness', () => {
     const completeness = getProfileCompleteness(demoUsers.chair, 'department_chair');
     expect(completeness.items.map((item) => item.section)).toEqual(['personal', 'personal']);
     expect(completeness.percent).toBe(100);
+  });
+});
+
+describe('validateOnboardingEssentials', () => {
+  const base = {
+    studentNumber: '2023001',
+    degreeProgram: 'BS Information Technology',
+    yearLevel: '2',
+    applicantType: 'current',
+    academicStanding: 'good',
+    qpi: '3.1',
+    householdIncome: '240000',
+    hasActiveGovernmentGrant: false,
+    phone: '09171234567',
+    citizenship: 'Filipino',
+  };
+
+  it('normalizes the first-login essentials into profile-ready values', () => {
+    const result = validateOnboardingEssentials(base, programs);
+    expect(result.errors).toEqual({});
+    expect(result.values).toEqual({
+      studentNumber: '2023001',
+      degreeProgram: 'BS Information Technology',
+      yearLevel: 2,
+      applicantType: 'current',
+      academicStanding: 'good',
+      qpi: 3.1,
+      householdIncome: 240000,
+      hasActiveGovernmentGrant: false,
+      phone: '+63 917 123 4567',
+      citizenship: 'Filipino',
+    });
+  });
+
+  it('reuses the shared section rules for the essentials', () => {
+    expect(validateOnboardingEssentials({ ...base, citizenship: '' }, programs).errors.citizenship).toBeTruthy();
+    expect(validateOnboardingEssentials({ ...base, applicantType: 'first-year', yearLevel: '3' }, programs).errors.yearLevel).toMatch(/first-year/);
+    expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
+    expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toMatch(/Philippine mobile/);
   });
 });

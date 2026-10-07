@@ -708,6 +708,20 @@ main .deadline-item > .deadline-actions {
   overflow-y: auto;
 }
 
+/* The first-login academic profile modal is taller than the viewport once the
+   onboarding essentials are shown. Left-aligned + auto margins let it center
+   when it fits and scroll as one unit (heading included) when it does not,
+   instead of the top being clipped by the vertical centering. */
+.academic-profile-overlay {
+  align-items: flex-start;
+}
+
+.academic-profile-overlay > section {
+  margin: auto;
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
+}
+
 /* Tailwind migration compatibility: retain the rounded glass-card language from
    the previous UI without bringing back the legacy component stylesheet. */
 .login-screen > section,

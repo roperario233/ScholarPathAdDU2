@@ -4,7 +4,7 @@ import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search,
 import bgImage from '../../pictures/picture1.png';
 import logoImage from '../../pictures/logo.png';
 import { signInWithGoogle } from '../lib/auth';
-import { ModalShell } from '../components/ui';
+import { Button, FormField, ModalShell } from '../components/ui';
 
 
 // Supabase Auth reports Google sign-in failures through the return URL instead
@@ -133,7 +133,6 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     password: '',
     confirmPassword: '',
     role: 'student',
-    studentId: '',
   });
   const [createAccountSuccess, setCreateAccountSuccess] = useState(false);
 
@@ -148,21 +147,29 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
 
   const submitLogin = async (event) => {
     event.preventDefault();
+    if (isSubmitting) return;
     setIsSubmitting(true);
     setFeedbackMessage('');
     setFeedbackTone('info');
 
-    const result = await onLogin({ email, password, rememberMe });
+    try {
+      const result = await onLogin({ email, password, rememberMe });
 
-    if (result?.success) {
-      setFeedbackMessage(result.fallback ? 'Signed in using the demo mode fallback.' : 'Signed in successfully.');
-      setFeedbackTone(result.fallback ? 'info' : 'success');
-    } else {
-      setFeedbackMessage(result?.message || 'Unable to sign in. Please check your credentials.');
+      if (result?.success) {
+        setFeedbackMessage(result.fallback ? 'Signed in using the demo mode fallback.' : 'Signed in successfully.');
+        setFeedbackTone(result.fallback ? 'info' : 'success');
+      } else {
+        setFeedbackMessage(result?.message || 'Unable to sign in. Please check your credentials.');
+        setFeedbackTone('error');
+      }
+    } catch (error) {
+      setFeedbackMessage(error?.message || 'Unable to sign in. Please try again.');
       setFeedbackTone('error');
+    } finally {
+      // Always release the button, even if sign-in threw, so it can never get
+      // stuck on the "Signing in…" label.
+      setIsSubmitting(false);
     }
-
-    setIsSubmitting(false);
   };
 
   const handleForgotPassword = async (event) => {
@@ -193,7 +200,6 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       email: createAccountData.email,
       password: createAccountData.password,
       role: createAccountData.role,
-      studentId: createAccountData.studentId,
     });
 
     if (result?.success) {
@@ -209,7 +215,6 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           password: '',
           confirmPassword: '',
           role: 'student',
-          studentId: '',
         });
         setFeedbackMessage('');
         setFeedbackTone('info');
@@ -227,35 +232,43 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
    };
 
    const handleGoogleSignIn = async () => {
+     if (isGoogleLoading) return;
      setIsGoogleLoading(true);
      setFeedbackMessage('');
      setFeedbackTone('info');
 
-     const result = await signInWithGoogle();
+     try {
+       const result = await signInWithGoogle();
 
-     if (result?.success && result?.fallback) {
-       setFeedbackMessage(
-         result?.message?.includes('not configured')
-           ? 'Google Sign-In requires Supabase configuration. Please add your Supabase credentials to enable OAuth. Contact your administrator to set up Google OAuth provider in the Supabase dashboard.'
-           : 'Google Sign-In is currently unavailable. Please try email sign-in instead.'
-       );
-       setFeedbackTone('info');
-     } else if (result?.success) {
-       setFeedbackMessage('Redirecting to Google sign-in...');
-       setFeedbackTone('success');
-     } else {
-       const errorMsg = result?.message || 'Unable to sign in with Google.';
-       if (errorMsg.includes('provider') || errorMsg.includes('enabled')) {
+       if (result?.success && result?.fallback) {
          setFeedbackMessage(
-           'Google Sign-In is not yet configured. Your administrator needs to enable the Google provider in the Supabase Authentication settings. You can still sign in with your email and password.'
+           result?.message?.includes('not configured')
+             ? 'Google Sign-In requires Supabase configuration. Please add your Supabase credentials to enable OAuth. Contact your administrator to set up Google OAuth provider in the Supabase dashboard.'
+             : 'Google Sign-In is currently unavailable. Please try email sign-in instead.'
          );
+         setFeedbackTone('info');
+       } else if (result?.success) {
+         setFeedbackMessage('Redirecting to Google sign-in...');
+         setFeedbackTone('success');
        } else {
-         setFeedbackMessage(errorMsg);
+         const errorMsg = result?.message || 'Unable to sign in with Google.';
+         if (errorMsg.includes('provider') || errorMsg.includes('enabled')) {
+           setFeedbackMessage(
+             'Google Sign-In is not yet configured. Your administrator needs to enable the Google provider in the Supabase Authentication settings. You can still sign in with your email and password.'
+           );
+         } else {
+           setFeedbackMessage(errorMsg);
+         }
+         setFeedbackTone('error');
        }
+     } catch (error) {
+       setFeedbackMessage(error?.message || 'Unable to sign in with Google. Please try again.');
        setFeedbackTone('error');
+     } finally {
+       // Release the button even if the OAuth popup/redirect fails so it never
+       // stays on the "Signing in..." label.
+       setIsGoogleLoading(false);
      }
-
-     setIsGoogleLoading(false);
    };
 
     const togglePasswordVisibility = () => {
@@ -401,14 +414,12 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   password: '',
                   confirmPassword: '',
                   role: 'student',
-                  studentId: '',
                 });
               }}>Back to sign in</button>
             </div>
           ) : (
             <form className="grid gap-4" onSubmit={handleCreateAccount}>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Full Name</span>
+              <FormField label="Full Name">
                 <input
                   type="text"
                   value={createAccountData.fullName}
@@ -416,9 +427,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   placeholder="Your full name"
                   required
                 />
-              </label>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Email</span>
+              </FormField>
+              <FormField label="Email">
                 <input
                   type="email"
                   value={createAccountData.email}
@@ -426,16 +436,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   placeholder="AdDU Email"
                   required
                 />
-              </label>
-              <div className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Account type</span>
-                <div className="rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm text-app-text">
-                  <strong>Student</strong>
-                  <p className="mt-1 text-xs text-app-muted">Admissions Office and Department Chair accounts are provisioned by an administrator.</p>
-                </div>
-              </div>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Password</span>
+              </FormField>
+              <FormField label="Password">
                 <div className="relative">
                   <input
                     className="pr-12"
@@ -455,9 +457,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                     {showCreatePassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
                 </div>
-              </label>
-              <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Confirm Password</span>
+              </FormField>
+              <FormField label="Confirm Password">
                 <div className="relative">
                   <input
                     className="pr-12"
@@ -468,8 +469,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                     required
                   />
                 </div>
-              </label>
-              <button className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit">Create account</button>
+              </FormField>
+              <Button variant="primary" className="w-full" type="submit">Create account</Button>
             </form>
           )}
         </section>
