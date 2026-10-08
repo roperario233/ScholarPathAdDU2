@@ -37,7 +37,6 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
             <h1>Find the right scholarship and take the next step.</h1>
             <div className="flex flex-wrap items-center gap-3">
               <button className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenExplorer}>Explore scholarships</button>
-              <button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Run eligibility check</button>
             </div>
           </div>
           <div className="dashboard-hero-summary grid content-start gap-3">
