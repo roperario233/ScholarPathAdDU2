@@ -1066,27 +1066,6 @@ function App() {
     || !studentMatchProfile.citizenship
   );
 
-  const openAcademicProfile = () => {
-    setProfileSaveError('');
-    setProfileOnboarding({
-      id: state.authUser?.id || currentIdentity.id,
-      fullName: currentIdentity.fullName,
-      initialProgram: currentIdentity.degreeProgram || '',
-      initialProgramChoice2: studentMatchProfile.programChoice2 || '',
-      initialProgramChoice3: studentMatchProfile.programChoice3 || '',
-      initialStudentNumber: currentIdentity.studentNumber || '',
-      initialYearStanding: deriveYearStanding(studentMatchProfile),
-      initialAcademicStanding: studentMatchProfile.academicStanding || '',
-      initialCitizenship: studentMatchProfile.citizenship || '',
-      initialQpi: currentIdentity.qpi ?? '',
-      initialHsStrand: studentMatchProfile.hsStrand || '',
-      initialHsAverage: studentMatchProfile.hsAverage ?? '',
-      initialHouseholdIncome: currentIdentity.householdIncome ?? '',
-      initialPhone: currentIdentity.phone || '',
-      initialHasActiveGovernmentGrant: currentIdentity.hasActiveGovernmentGrant ?? false,
-    });
-  };
-
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: true },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
@@ -1294,7 +1273,7 @@ function App() {
               onOpenAdmin={() => navigate('admin')}
               onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
-              onCompleteProfile={openAcademicProfile}
+              onCompleteProfile={() => navigate('profile')}
             />
           )}
 
