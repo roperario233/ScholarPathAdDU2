@@ -37,7 +37,6 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
             <h1>Find the right scholarship and take the next step.</h1>
             <div className="flex flex-wrap items-center gap-3">
               <button className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenExplorer}>Explore scholarships</button>
-              <button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Run eligibility check</button>
             </div>
           </div>
           <div className="dashboard-hero-summary grid content-start gap-3">
@@ -53,17 +52,6 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
             </div>
           </div>
         </section>
-
-        {hasIncompleteProfile && (
-          <section className="profile-reminder flex flex-col gap-4 rounded-app border border-amber-300/40 bg-gradient-to-r from-amber-400/15 via-orange-400/10 to-blue-500/10 p-5 shadow-app sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <span className="eyebrow text-amber-700 dark:text-amber-200">Profile reminder</span>
-              <h2 className="mt-1 text-xl font-bold text-app-text">Complete your academic profile</h2>
-              <p className="mb-0 mt-1 max-w-2xl text-sm text-app-muted">Add your program, student number, household income, and QPI to improve Smart Eligibility Checker matches.</p>
-            </div>
-            <button type="button" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-amber-500/25" onClick={onCompleteProfile}>Complete profile</button>
-          </section>
-        )}
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,0.45fr)]">
           <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app">

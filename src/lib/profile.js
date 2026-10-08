@@ -554,6 +554,11 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
       qpi: academic.values.qpi,
       hsStrand: academic.values.hsStrand,
       hsAverage: academic.values.hsAverage,
+      // An incoming first-year ranks a 2nd and 3rd program choice alongside the
+      // degree program (its 1st choice); they ride along so the onboarding modal
+      // and My Profile store the same ranked list.
+      programChoice2: academic.values.programChoice2,
+      programChoice3: academic.values.programChoice3,
       householdIncome: financial.values.householdIncome,
       hasActiveGovernmentGrant: financial.values.hasActiveGovernmentGrant,
       phone: phone.value,

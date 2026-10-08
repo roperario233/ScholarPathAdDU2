@@ -212,7 +212,7 @@ export function ProfileOverview({ completeness, onEditSection, attributeVerifica
                 </span>
                 <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   {showAttachProof && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>Attach proof</button>
+                    <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : 'Attach proof'}</button>
                   )}
                   {showAdd && (
                     <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>

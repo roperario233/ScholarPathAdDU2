@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import logoImage from '../../pictures/logo.png';
-import { Button, FormField, ModalShell } from './ui';
+import { Button, FormField, ModalShell, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
 import {
   academicStandingOptions,
@@ -10,14 +10,25 @@ import {
   validateOnboardingEssentials,
   yearStandingOptions,
 } from '../lib/profile';
+import { getAttributeVerificationTone } from '../lib/verification';
 
 // Text boxes and selects share one fixed height (matching the SelectPicker
 // trigger) so side-by-side controls line up.
 const controlClass = 'h-12 py-0';
 
-function NativeSelect({ label, hint, error, value, onChange, options, placeholder }) {
+// A profile attribute the Admissions Office can verify against a Document Vault
+// proof document. The state is derived from the student's linked documents
+// (src/lib/verification.js) and is informational: it never blocks eligibility
+// matching or applying. An answer with no proof uploaded yet reads as
+// "Unverified", which renders as a neutral badge rather than an error.
+function AttributeVerificationBadge({ attributeKey, attributeVerifications = {} }) {
+  const status = attributeVerifications[attributeKey] || 'Unverified';
+  return <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>;
+}
+
+function NativeSelect({ label, hint, error, labelAdornment, value, onChange, options, placeholder }) {
   return (
-    <FormField label={label} hint={hint} error={error}>
+    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment}>
       <select className={controlClass} value={value} onChange={(event) => onChange(event.target.value)} aria-invalid={Boolean(error)}>
         <option value="" disabled>{placeholder}</option>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -29,6 +40,8 @@ function NativeSelect({ label, hint, error, value, onChange, options, placeholde
 export default function AcademicProfileModal({
   fullName,
   initialProgram,
+  initialProgramChoice2,
+  initialProgramChoice3,
   initialStudentNumber,
   initialYearStanding,
   initialAcademicStanding,
@@ -41,11 +54,14 @@ export default function AcademicProfileModal({
   initialHasActiveGovernmentGrant,
   academicPrograms = [],
   academicProgramCategories = [],
+  attributeVerifications = {},
   onSave,
   isSaving,
   errorMessage,
 }) {
   const [program, setProgram] = useState(initialProgram || '');
+  const [programChoice2, setProgramChoice2] = useState(initialProgramChoice2 || '');
+  const [programChoice3, setProgramChoice3] = useState(initialProgramChoice3 || '');
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber || '');
   const [yearStanding, setYearStanding] = useState(initialYearStanding || '');
   const [academicStanding, setAcademicStanding] = useState(initialAcademicStanding || '');
@@ -66,6 +82,8 @@ export default function AcademicProfileModal({
 
   useEffect(() => {
     setProgram(initialProgram || '');
+    setProgramChoice2(initialProgramChoice2 || '');
+    setProgramChoice3(initialProgramChoice3 || '');
     setStudentNumber(initialStudentNumber || '');
     setYearStanding(initialYearStanding || '');
     setAcademicStanding(initialAcademicStanding || '');
@@ -76,7 +94,7 @@ export default function AcademicProfileModal({
     setHsStrand(initialHsStrand || '');
     setHsAverage(initialHsAverage ?? '');
     setHasActiveGovernmentGrant(Boolean(initialHasActiveGovernmentGrant));
-  }, [initialProgram, initialStudentNumber, initialYearStanding, initialAcademicStanding, initialCitizenship, initialPhone, initialHouseholdIncome, initialQpi, initialHsStrand, initialHsAverage, initialHasActiveGovernmentGrant]);
+  }, [initialProgram, initialProgramChoice2, initialProgramChoice3, initialStudentNumber, initialYearStanding, initialAcademicStanding, initialCitizenship, initialPhone, initialHouseholdIncome, initialQpi, initialHsStrand, initialHsAverage, initialHasActiveGovernmentGrant]);
 
   const clearError = () => setValidationError('');
   // An incoming first-year is matched on senior high school standing instead of
@@ -92,6 +110,8 @@ export default function AcademicProfileModal({
     const result = validateOnboardingEssentials({
       studentNumber,
       degreeProgram: program,
+      programChoice2,
+      programChoice3,
       yearStanding,
       academicStanding,
       qpi,
@@ -134,28 +154,40 @@ export default function AcademicProfileModal({
             )}
           </div>
           <SelectPicker label={standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program" />
+          {standing.requiresProgramChoices && (
+            <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
+              <div>
+                <p className="m-0 text-sm font-semibold text-app-text">Program choices</p>
+                <small className="field-hint mt-1 block">Your 1st choice is the program above. Add a 2nd and 3rd choice when you are applying to more than one program.</small>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <SelectPicker label="2nd choice program" value={programChoice2} onChange={(value) => { setProgramChoice2(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program-choice-2" />
+                <SelectPicker label="3rd choice program" value={programChoice3} onChange={(value) => { setProgramChoice3(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program-choice-3" />
+              </div>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError(); }} options={academicStandingOptions} placeholder="Choose standing" />
-            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError(); }} options={citizenshipOptions} placeholder="Choose citizenship" />
+            <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError(); }} options={academicStandingOptions} placeholder="Choose standing" labelAdornment={<AttributeVerificationBadge attributeKey="academicStanding" attributeVerifications={attributeVerifications} />} />
+            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError(); }} options={citizenshipOptions} placeholder="Choose citizenship" labelAdornment={<AttributeVerificationBadge attributeKey="citizenship" attributeVerifications={attributeVerifications} />} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Mobile number" hint="Optional. Deadline reminder texts use this Philippine mobile number.">
               <input className={controlClass} value={phone} onChange={(event) => { setPhone(event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20)); clearError(); }} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" />
             </FormField>
-            <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos.">
+            <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." labelAdornment={<AttributeVerificationBadge attributeKey="householdIncome" attributeVerifications={attributeVerifications} />}>
               <input className={controlClass} value={householdIncome} onChange={(event) => { setHouseholdIncome(event.target.value.replace(/[^\d]/g, '')); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" required />
             </FormField>
           </div>
           {standing.requiresHsStanding && (
             <div className="grid gap-4 sm:grid-cols-2">
               <NativeSelect label="Senior high school strand" value={hsStrand} onChange={(value) => { setHsStrand(value); clearError(); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" />
-              <FormField label="Senior high school general average" hint="Whole number from 60 to 100.">
+              <FormField label="Senior high school general average" hint="Whole number from 60 to 100." labelAdornment={<AttributeVerificationBadge attributeKey="hsAverage" attributeVerifications={attributeVerifications} />}>
                 <input className={controlClass} value={hsAverage} onChange={(event) => { setHsAverage(event.target.value.replace(/\D/g, '').slice(0, 3)); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" required />
               </FormField>
             </div>
           )}
           {standing.requiresQpi && (
-            <FormField label="Annual QPI" hint="Self-reported on the AdDU 0.00–4.00 scale. The prototype does not verify QPI with the Registrar.">
+            <FormField label="Annual QPI" hint="Self-reported on the AdDU 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={attributeVerifications} />}>
               <input className={controlClass} value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); clearError(); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" required />
             </FormField>
           )}
@@ -170,6 +202,9 @@ export default function AcademicProfileModal({
               <strong className="text-app-primary">{selectedProgram.department}</strong>
             </div>
           )}
+          <div className="rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm leading-relaxed text-app-muted">
+            These answers are self-reported. They are verified once you submit an application after uploading the necessary proof in the Document Vault.
+          </div>
           {(validationError || errorMessage) && <div className="w-full rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-3 text-sm text-rose-200" role="alert">{validationError || errorMessage}</div>}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <Button variant="primary" className="flex-1" type="submit" disabled={!isComplete || isSaving}>
