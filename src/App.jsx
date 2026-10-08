@@ -303,7 +303,7 @@ function App() {
       if (userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
         if (readStoredState()?.profileSkipped) return;
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
     };
 
@@ -452,7 +452,7 @@ function App() {
       }
       if (authResult.user?.id && resolvedRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -550,8 +550,12 @@ function App() {
       citizenship,
       hsStrand,
       hsAverage,
+      programChoice2,
+      programChoice3,
     } = profileValues;
-    const eligibilityAttributes = { yearStanding, applicantType, yearLevel, academicStanding, citizenship, hsStrand, hsAverage };
+    // An incoming first-year ranks a 2nd and 3rd program choice; they are
+    // eligibility attributes, so the local draft and the server mirror agree.
+    const eligibilityAttributes = { yearStanding, applicantType, yearLevel, academicStanding, citizenship, hsStrand, hsAverage, programChoice2, programChoice3 };
     // Incoming first-years have no college QPI or AdDU student number yet, so
     // store nulls instead of empty strings.
     const resolvedQpi = qpi === '' || qpi == null ? null : qpi;
@@ -1068,6 +1072,8 @@ function App() {
       id: state.authUser?.id || currentIdentity.id,
       fullName: currentIdentity.fullName,
       initialProgram: currentIdentity.degreeProgram || '',
+      initialProgramChoice2: studentMatchProfile.programChoice2 || '',
+      initialProgramChoice3: studentMatchProfile.programChoice3 || '',
       initialStudentNumber: currentIdentity.studentNumber || '',
       initialYearStanding: deriveYearStanding(studentMatchProfile),
       initialAcademicStanding: studentMatchProfile.academicStanding || '',
@@ -1146,6 +1152,8 @@ function App() {
         <AcademicProfileModal
           fullName={profileOnboarding.fullName}
           initialProgram={profileOnboarding.initialProgram}
+          initialProgramChoice2={profileOnboarding.initialProgramChoice2}
+          initialProgramChoice3={profileOnboarding.initialProgramChoice3}
           initialStudentNumber={profileOnboarding.initialStudentNumber}
           initialYearStanding={profileOnboarding.initialYearStanding}
           initialAcademicStanding={profileOnboarding.initialAcademicStanding}
@@ -1158,6 +1166,7 @@ function App() {
           initialHasActiveGovernmentGrant={profileOnboarding.initialHasActiveGovernmentGrant}
           academicPrograms={activeAcademicPrograms}
           academicProgramCategories={activeAcademicProgramCategories}
+          attributeVerifications={attributeVerifications}
           onSave={saveAcademicProfile}
           isSaving={isSavingProfile}
           errorMessage={profileSaveError}

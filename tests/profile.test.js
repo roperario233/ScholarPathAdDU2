@@ -261,11 +261,40 @@ describe('validateOnboardingEssentials', () => {
       qpi: 3.1,
       hsStrand: '',
       hsAverage: '',
+      programChoice2: '',
+      programChoice3: '',
       householdIncome: 240000,
       hasActiveGovernmentGrant: false,
       phone: '+63 917 123 4567',
       citizenship: 'Filipino',
     });
+  });
+
+  it('carries the ranked program choices for an incoming first-year', () => {
+    const incoming = {
+      degreeProgram: 'BS Information Technology',
+      yearStanding: 'incoming-1st',
+      academicStanding: 'good',
+      qpi: '',
+      hsStrand: 'STEM',
+      hsAverage: '94',
+      householdIncome: '240000',
+      hasActiveGovernmentGrant: false,
+      phone: '',
+      citizenship: 'Filipino',
+    };
+
+    // A continuing student keeps both choices empty.
+    expect(validateOnboardingEssentials(base, programs).values).toMatchObject({ programChoice2: '', programChoice3: '' });
+
+    // An incoming first-year's ranked choices round-trip through onboarding.
+    const ranked = validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Information Technology', programChoice3: '' }, programs);
+    // The 1st choice cannot repeat as the 2nd choice.
+    expect(ranked.errors.programChoice2).toBeTruthy();
+
+    const clean = validateOnboardingEssentials({ ...incoming, programChoice2: '', programChoice3: '' }, programs);
+    expect(clean.errors).toEqual({});
+    expect(clean.values).toMatchObject({ programChoice2: '', programChoice3: '' });
   });
 
   it('reuses the shared section rules for the essentials', () => {
