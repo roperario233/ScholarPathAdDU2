@@ -5,13 +5,22 @@ import { AnnouncementItem, NotificationItem, StatCard } from '../components/page
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import { fmtDate } from '../lib/formatters';
+import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const stageTone = (status) => {
   if (status === 'Rejected') return 'danger';
   if (['Released', 'Approved'].includes(status)) return 'success';
   if (['For Verification', 'Endorsed'].includes(status)) return 'warning';
   return 'info';
+};
+
+// Renders the student's declared value for the profile attributes the admin
+// workspace loads (QPI and household income). Other verifiable attributes are
+// not carried here, so those chips show only the attribute label.
+const formatDeclaredValue = (key, value) => {
+  if (key === 'qpi') return Number(value).toFixed(2);
+  if (key === 'householdIncome') return fmtCurrency(Number(value));
+  return String(value);
 };
 
 // Standard Procedure stage track rendered above each queue entry.
@@ -25,7 +34,7 @@ function SopStageTrack({ status }) {
       {sopStages.map((stage, index) => (
         <li
           key={stage}
-          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-blue-400/50 bg-blue-500/15 text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-ateneo-strong/50 bg-ateneo/15 text-ateneo-strong dark:border-blue-400/50 dark:bg-blue-500/15 dark:text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
         >{stage}</li>
       ))}
     </ol>
@@ -34,6 +43,7 @@ function SopStageTrack({ status }) {
 
 export default function AdminConsole({
   applications,
+  students = {},
   documents,
   announcements,
   notifications,
@@ -108,26 +118,50 @@ export default function AdminConsole({
         <Card title="Document verification" action={<StatusBadge tone={pendingDocuments.length ? 'warning' : 'success'}>{pendingDocuments.length} pending</StatusBadge>}>
           <div className="grid max-h-[540px] gap-3 overflow-y-auto pr-1">
             {pendingDocuments.length ? pendingDocuments.map((doc) => {
-              const owner = applications.find((entry) => entry.attachedDocuments?.includes(doc.id));
+              const owner = students[doc.ownerId] || null;
+              const attached = applications.find((entry) => entry.attachedDocuments?.includes(doc.id));
+              const ownerName = owner?.fullName || attached?.studentName || '';
+              const ownerSchool = owner?.department || attached?.studentDepartment || '';
+              // The declared value a staff member can compare the file against,
+              // read from the profiles directory first and the attached
+              // application second.
+              const declaredFor = (key) => {
+                if (key === 'qpi') return owner?.qpi ?? attached?.studentQpi ?? null;
+                if (key === 'householdIncome') return owner?.householdIncome ?? attached?.studentHouseholdIncome ?? null;
+                return null;
+              };
               return (
                 <article key={doc.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4">
                   <div className="flex min-w-0 items-start justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <h3>{doc.title}</h3>
                       <p className="mt-1 text-sm text-app-muted">{doc.fileName} · {getDocumentTypeLabel(doc.documentType)}</p>
-                      {owner && <p className="mt-1 text-xs text-app-muted">Owner {owner.studentName} · {owner.studentDepartment}</p>}
+                      {ownerName && <p className="mt-1 text-xs text-app-muted">Owner {ownerName}{ownerSchool ? ` · ${ownerSchool}` : ''}</p>}
                     </div>
                     <StatusBadge tone="warning">Pending</StatusBadge>
                   </div>
                   {Array.isArray(doc.linkedAttributes) && doc.linkedAttributes.length ? (
                     <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
                       <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
-                      {doc.linkedAttributes.map((key) => <StatusBadge key={key} tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>)}
+                      {doc.linkedAttributes.map((key) => {
+                        const declared = declaredFor(key);
+                        return (
+                          <span key={key} className="inline-flex flex-wrap items-center gap-1">
+                            <StatusBadge tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>
+                            {declared != null && declared !== ''
+                              ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span>
+                              : null}
+                          </span>
+                        );
+                      })}
+                      {!doc.linkedAttributes.some((key) => declaredFor(key) != null) && (
+                        <span className="text-xs text-app-muted">Declared values are in the student’s My Profile.</span>
+                      )}
                     </div>
                   ) : null}
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
                     <Button type="button" onClick={() => setPreviewDoc(doc)}>View</Button>
-                    {verificationStatuses.map((status) => (
+                    {verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
                       <Button key={status} type="button" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
                     ))}
                   </div>

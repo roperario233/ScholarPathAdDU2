@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
+import ReasonModal from './ReasonModal';
 import { getNextApplicationStatuses, getDocumentTypeLabel, sopRequiredDocuments, verificationStatuses } from '../lib/constants';
 import { getApplicationProgress } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
@@ -42,6 +43,7 @@ export default function ApplicationReviewModal({
   const [interviewPanel, setInterviewPanel] = useState(application.interview?.panel || '');
   const [deliberationNote, setDeliberationNote] = useState('');
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const nextStatuses = getNextApplicationStatuses(application.status);
   const linkedDocuments = (application.attachedDocuments || [])
     .map((id) => documents.find((doc) => doc.id === id))
@@ -183,9 +185,12 @@ export default function ApplicationReviewModal({
                   variant={status === 'Rejected' ? 'danger' : 'primary'}
                   onClick={() => {
                     if (status === 'Rejected') {
-                      const note = window.prompt('Record the reason for rejection:') || '';
-                      onStatusChange(application.id, status, note ? { note } : {});
-                    } else if (status === 'Endorsed') {
+                      // A rejection must carry a recorded reason, so it opens the
+                      // reason dialog instead of a window.prompt.
+                      setRejectReasonOpen(true);
+                      return;
+                    }
+                    if (status === 'Endorsed') {
                       onEndorse?.(application.id);
                     } else if (status === 'Interview') {
                       onScheduleInterview(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
@@ -221,6 +226,20 @@ export default function ApplicationReviewModal({
       </div>
       </div>
     </ModalShell>
+    {rejectReasonOpen ? (
+      <ReasonModal
+        title="Reject application"
+        label="Reason for rejection"
+        hint="Record why this application is being rejected. The applicant sees this reason."
+        confirmLabel="Reject application"
+        onConfirm={(note) => {
+          onStatusChange(application.id, 'Rejected', { note });
+          setRejectReasonOpen(false);
+          onClose();
+        }}
+        onClose={() => setRejectReasonOpen(false)}
+      />
+    ) : null}
     {previewDoc ? <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
     </>
   );

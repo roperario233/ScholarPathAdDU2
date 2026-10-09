@@ -29,6 +29,31 @@ const roleLabels = {
   department_chair: 'Department Chair',
 };
 
+// The identity rows (sidebar panel and mobile header) should not repeat a staff
+// member's name as its own role label, or echo a department whose words are
+// already in the name. The central office's seeded name is literally
+// "Admissions Office Administrator" and its department is "Office of
+// Admissions", which otherwise prints the same phrase three times. Parts whose
+// significant words are all covered by the name are dropped.
+const identityStopwords = new Set(['of', 'the', 'and', 'for']);
+const identityWords = (value) => String(value || '')
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]/g, ' ')
+  .split(/\s+/)
+  .filter((word) => word && !identityStopwords.has(word));
+
+const identitySubtitle = (name, ...parts) => {
+  const nameWords = new Set(identityWords(name));
+  const covered = (value) => {
+    const words = identityWords(value);
+    return words.length > 0 && words.every((word) => nameWords.has(word));
+  };
+  return parts
+    .map((part) => String(part || '').trim())
+    .filter((part) => part && !covered(part))
+    .join(' · ');
+};
+
 const normalizeRole = (role) => role === 'osa_admin' || role === 'admissions_office'
   ? 'admissions_office'
   : role === 'department_chair' ? 'department_chair' : 'student';
@@ -343,6 +368,10 @@ function App() {
   const currentIdentity = state.viewerRole === 'student'
     ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}) }
     : currentProfile;
+  // De-duplicated identity lines (see identitySubtitle): the role only, and the
+  // role plus department, with anything already covered by the name removed.
+  const identityRoleLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole]);
+  const identityDetailLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole], currentIdentity.department);
   const activeAcademicPrograms = state.academicPrograms?.length ? state.academicPrograms : academicPrograms;
   const activeAcademicProgramCategories = [...new Set(activeAcademicPrograms.map((program) => program.category))];
   const scholarshipCatalog = isSupabaseWorkspaceLoaded && state.scholarships?.length
@@ -693,14 +722,40 @@ function App() {
         ...stageFields,
         timeline: [...(entry.timeline || []), stageEvent],
       } : entry),
-      notifications: prependInAppNotification(previous, {
-        id: `not-${crypto.randomUUID()}`,
-        title: `Application moved to ${status}`,
-        channel: 'In-app',
-        body: `${actor} updated the application status to ${status} in the application workspace.`,
-        status: 'Unread',
-        createdAt: new Date().toISOString().slice(0, 10),
-      }),
+      // Staff status changes are captured in the application timeline, not in the
+      // staff member's own notification center. Student-facing notifications are
+      // delivered by the notify-application-status Edge Function instead.
+      notifications: state.viewerRole === 'student'
+        ? prependInAppNotification(previous, {
+            id: `not-${crypto.randomUUID()}`,
+            title: `Application moved to ${status}`,
+            channel: 'In-app',
+            body: `Your application status was updated to ${status}.`,
+            status: 'Unread',
+            createdAt: new Date().toISOString().slice(0, 10),
+          })
+        : previous.notifications,
+    }));
+  };
+
+  // A Department Chair can flag an application for central document validation
+  // without moving it. This records a note-only timeline entry, so it never
+  // changes the status and never triggers a status notification.
+  const flagApplicationForValidation = (applicationId, note = '') => {
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => entry.id === applicationId ? {
+        ...entry,
+        updatedAt: new Date().toISOString().slice(0, 10),
+        timeline: [...(entry.timeline || []), {
+          id: `ev-${crypto.randomUUID()}`,
+          stage: entry.status,
+          note: note || 'Flagged for central document validation.',
+          actor: currentProfile.fullName || 'Department Chair',
+          kind: 'note',
+          at: new Date().toISOString().slice(0, 10),
+        }],
+      } : entry),
     }));
   };
 
@@ -1171,7 +1226,7 @@ function App() {
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ateneo to-sky-400 text-xs font-extrabold text-white" aria-hidden="true">{getInitials(state.authUser.fullName)}</span>
               <span className="hidden min-w-0 max-w-[12rem] leading-tight sm:grid">
                 <strong className="truncate">{state.authUser.fullName}</strong>
-                <span className="text-xs text-app-muted">{roleLabels[state.viewerRole]}</span>
+                {identityRoleLine && <span className="text-xs text-app-muted">{identityRoleLine}</span>}
               </span>
             </button>
           )}
@@ -1230,7 +1285,7 @@ function App() {
             <div className="grid h-[50px] w-[50px] shrink-0 place-items-center rounded-[18px] bg-gradient-to-br from-blue-500/90 to-sky-500/50 text-lg font-extrabold text-white">{currentIdentity.fullName.slice(0, 1)}</div>
             <div className="min-w-0">
               <h2 className="m-0 text-base font-semibold text-app-text">{currentIdentity.fullName}</h2>
-              <p className="mt-1 text-sm text-app-muted">{roleLabels[state.viewerRole]} · {currentIdentity.department}</p>
+              {identityDetailLine && <p className="mt-1 text-sm text-app-muted">{identityDetailLine}</p>}
             </div>
           </div>
 
@@ -1310,6 +1365,7 @@ function App() {
           {state.activeView === 'admin' && state.viewerRole === 'admissions_office' && (
             <AdminConsolePage
               applications={state.applications}
+              students={state.students}
               documents={state.documents}
               announcements={state.announcements}
               notifications={visibleNotifications}
@@ -1334,6 +1390,7 @@ function App() {
               onScheduleInterview={scheduleInterview}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
+              onFlagForValidation={flagApplicationForValidation}
             />
           )}
 

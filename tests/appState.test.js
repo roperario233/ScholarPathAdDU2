@@ -50,6 +50,17 @@ describe('createInitialState', () => {
     });
   });
 
+  it('defaults the staff student directory to an empty object', () => {
+    installStorage(undefined);
+    expect(createInitialState().students).toEqual({});
+  });
+
+  it('preserves a stored student directory for staff document ownership', () => {
+    installStorage({ students: { 'user-1': { fullName: 'Ada', department: 'College of Computer Studies (CCS)' } } });
+    const state = createInitialState();
+    expect(state.students['user-1'].fullName).toBe('Ada');
+  });
+
   it('returns defaults when window is unavailable', () => {
     delete globalThis.window;
     const state = createInitialState();

@@ -109,6 +109,7 @@ const createDefaultState = () => ({
   // loadSupabaseWorkspace fills these once a session is hydrated.
   applications: [],
   documents: [],
+  students: {},
   notifications: [],
   announcements: [],
   customDeadlines: [],
@@ -163,6 +164,7 @@ export const createInitialState = () => {
     },
     applications: Array.isArray(stored.applications) ? stored.applications.map(normalizeApplication) : defaults.applications,
     documents: Array.isArray(stored.documents) ? stored.documents.map(normalizeDocument) : defaults.documents,
+    students: stored.students && typeof stored.students === 'object' && !Array.isArray(stored.students) ? stored.students : defaults.students,
     notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,

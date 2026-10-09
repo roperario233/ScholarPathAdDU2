@@ -114,6 +114,16 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   // profile by RLS, so this select is safe for every role.
   const profilesResult = await supabase.from('profiles').select('user_id, full_name, department, degree_program, qpi, household_income');
   const studentById = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, entry]));
+  // Compact directory for staff views: enough to resolve a Document Vault
+  // owner's name and school, and the declared values staff compare a proof file
+  // against, without shipping the whole profile row.
+  const students = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, {
+    fullName: entry.full_name || 'Student applicant',
+    department: entry.department || '',
+    degreeProgram: entry.degree_program || '',
+    qpi: entry.qpi ?? null,
+    householdIncome: entry.household_income ?? null,
+  }]));
   const documentIdsByApplication = {};
   const applicationIds = (applicationsResult.data || []).map((entry) => entry.id);
   if (applicationIds.length) {
@@ -130,6 +140,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     scholarships,
     applications: (applicationsResult.data || []).map((entry) => toApplication(entry, scholarshipById, documentIdsByApplication, studentById)),
     documents,
+    students,
     announcements: (announcementsResult.data || []).map(toAnnouncement),
     notifications: (notificationsResult.data || []).map(toNotification),
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
