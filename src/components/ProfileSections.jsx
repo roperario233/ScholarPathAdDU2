@@ -264,8 +264,8 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
       </FormField>
       {isStudent && (
-        <FormField label="Scholarship essay" hint={`${values.essay.length}/${ESSAY_MAX_LENGTH} characters. Paragraph breaks are kept.`} error={errors.essay}>
-          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances for your scholarship applications." aria-invalid={Boolean(errors.essay)} />
+        <FormField label="Default scholarship statement" hint={`Optional. Prefills the statement of each new application, where you can tailor it per scholarship. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
+          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances. This becomes the starting statement for your applications." aria-invalid={Boolean(errors.essay)} />
         </FormField>
       )}
       <div className="grid gap-3 md:grid-cols-2">

@@ -70,7 +70,7 @@ describe('section validators', () => {
     expect(kept.errors).toEqual({});
     expect(kept.values.essay).toBe('First paragraph.\n\nSecond paragraph.');
 
-    expect(validatePersonalSection({ fullName: 'Ana Cruz', essay: 'x'.repeat(5001) }).errors.essay).toMatch(/essay/);
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', essay: 'x'.repeat(5001) }).errors.essay).toMatch(/default statement/);
   });
 
   it('resolves the residing address from the same-as-complete-address toggle', () => {
@@ -223,9 +223,9 @@ describe('getProfileCompleteness', () => {
     const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic' })]);
-    // The essay is a tracked personal-information item.
-    expect(completeness.items).toContainEqual(expect.objectContaining({ key: 'essay', section: 'personal', done: true }));
-    expect(completeness.percent).toBe(Math.round((13 / 14) * 100));
+    // The default scholarship statement is an optional template, not a tracked item.
+    expect(completeness.items.map((item) => item.key)).not.toContain('essay');
+    expect(completeness.percent).toBe(Math.round((12 / 13) * 100));
   });
 
   it('only asks staff for personal information', () => {
