@@ -24,10 +24,11 @@ import { getOutdatedProofAttributes } from '../lib/verification';
 // that pair, so there is no free-text title and no attribute checklist.
 const documentPickerOptions = buildDocumentPickerOptions();
 
-// The preselected picker value: the attribute's first accepted type, or the
-// first general document type when the vault opens without an attribute preset.
-const initialSelection = (attributeKey = '') => {
-  const firstType = attributeKey ? getAcceptedDocumentTypes(attributeKey)[0]?.value : generalDocumentTypeOptions[0]?.value;
+// The preselected picker value: a preset document type when one is given (My
+// Profile's document checklist), else the attribute's first accepted type, or the
+// first general document type when the vault opens without a preset.
+const initialSelection = (attributeKey = '', documentType = '') => {
+  const firstType = documentType || (attributeKey ? getAcceptedDocumentTypes(attributeKey)[0]?.value : generalDocumentTypeOptions[0]?.value);
   return encodeDocumentSelection(attributeKey, firstType || '');
 };
 
@@ -39,8 +40,8 @@ const outdatedProofMessage = ({ key, reason }) => {
     : `Your ${label} in My Profile changed after this upload. Upload a new proof.`;
 };
 
-export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, presetAttribute = '' }) {
-  const [selection, setSelection] = useState(() => initialSelection(presetAttribute));
+export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, presetAttribute = '', presetDocumentType = '' }) {
+  const [selection, setSelection] = useState(() => initialSelection(presetAttribute, presetDocumentType));
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [formError, setFormError] = useState('');
@@ -72,12 +73,12 @@ export default function DocumentVaultView({ documents, applications = [], profil
     return (!query.trim() || text.includes(query.trim().toLowerCase())) && matchesStatus;
   }), [documents, query, status, outdatedByDocument]);
 
-  // Opening the vault from My Profile's "Attach proof" link preselects the
-  // attribute so its accepted document types are offered straight away.
+  // Opening the vault from My Profile's "Attach proof" or document checklist
+  // link preselects the attribute and document type so the upload is one step.
   useEffect(() => {
-    if (!presetAttribute) return;
-    setSelection(initialSelection(presetAttribute));
-  }, [presetAttribute]);
+    if (!presetAttribute && !presetDocumentType) return;
+    setSelection(initialSelection(presetAttribute, presetDocumentType));
+  }, [presetAttribute, presetDocumentType]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();

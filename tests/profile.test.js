@@ -211,28 +211,57 @@ describe('profile field picking', () => {
 });
 
 describe('getProfileCompleteness', () => {
+  const completeStudent = {
+    ...studentProfile,
+    academicStanding: 'good',
+    civilStatus: 'Single',
+    essay: 'My scholarship essay.',
+    studentNumber: '2023001',
+    completeAddress: '123 Rizal St, Davao City',
+    ipCommunity: 'No',
+    pwd: 'No',
+    employed: 'Not employed',
+  };
+  const keysOf = (completeness, group) => completeness.items.filter((item) => item.group === group).map((item) => item.key);
+
   it('scores a complete student profile and points missing items to their section', () => {
-    const completeStudent = {
-      ...studentProfile,
-      civilStatus: 'Single',
-      essay: 'My scholarship essay.',
-      studentNumber: '2023001',
-      completeAddress: '123 Rizal St, Davao City',
-      ipCommunity: 'No',
-      pwd: 'No',
-      employed: 'Not employed',
-    };
     const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
-    expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic' })]);
+    expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
     // The default scholarship statement is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
-    expect(completeness.percent).toBe(Math.round((12 / 13) * 100));
+    expect(completeness.percent).toBe(Math.round((13 / 14) * 100));
+  });
+
+  it('separates what an application needs from the descriptive details', () => {
+    const completeness = getProfileCompleteness(completeStudent, 'student');
+    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship']);
+    expect(keysOf(completeness, 'details')).toEqual(['phone', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed']);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 8, 8], ['details', 6, 6]]);
+    expect(completeness.percent).toBe(100);
+  });
+
+  it('asks an incoming first-year for senior high school standing instead of a student number and QPI', () => {
+    const incoming = { ...completeStudent, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsStrand: '', hsAverage: '' };
+    const completeness = getProfileCompleteness(incoming, 'student');
+    const keys = completeness.items.map((item) => item.key);
+    // Items that do not apply are left out, not counted as done.
+    expect(keys).not.toContain('studentNumber');
+    expect(keys).not.toContain('qpi');
+    expect(keysOf(completeness, 'application')).toContain('hsAverage');
+    expect(keysOf(completeness, 'details')).toContain('hsStrand');
+    expect(completeness.items.find((item) => item.key === 'degreeProgram').label).toBe('Program to be enrolled');
+    expect(completeness.items.filter((item) => !item.done).map((item) => item.key)).toEqual(['hsAverage', 'hsStrand']);
+
+    const filled = getProfileCompleteness({ ...incoming, hsStrand: 'STEM', hsAverage: 92 }, 'student');
+    expect(filled.percent).toBe(100);
+    expect(getProfileCompleteness({ ...incoming, hsStrand: 'STEM', hsAverage: 59 }, 'student').percent).toBeLessThan(100);
   });
 
   it('only asks staff for personal information', () => {
     const completeness = getProfileCompleteness(chairProfile, 'department_chair');
     expect(completeness.items.map((item) => item.section)).toEqual(['personal', 'personal']);
+    expect(completeness.groups).toHaveLength(1);
     expect(completeness.percent).toBe(100);
   });
 });

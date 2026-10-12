@@ -1,6 +1,6 @@
-import { getDocumentTypeLabel } from './constants';
+import { generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isInternalScholarship } from './eligibility';
-import { deriveYearStanding, getStandingRequirements, yearStandingOptions } from './profile';
+import { VERIFIABLE_ATTRIBUTE_OPTIONS, deriveYearStanding, getStandingRequirements, yearStandingOptions } from './profile';
 import { UNSET_ATTRIBUTE_STATUS } from './verification';
 
 // Application requirements: the documents a scholarship asks for before a
@@ -135,6 +135,70 @@ export const REQUIREMENT_STATE_LABELS = {
   attached: { label: 'Attached · Pending review', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
   rejected: { label: 'Rejected · Replace file', tone: 'danger' },
+};
+
+// The same states read against the whole Document Vault rather than one
+// application's attachments, for the My Profile document checklist.
+export const VAULT_REQUIREMENT_STATE_LABELS = {
+  missing: { label: 'Missing', tone: 'neutral' },
+  attached: { label: 'Pending', tone: 'warning' },
+  verified: { label: 'Verified', tone: 'success' },
+  rejected: { label: 'Rejected', tone: 'danger' },
+};
+
+const isOpenForApplications = (scholarship, today) => (
+  isInternalScholarship(scholarship)
+  && Boolean(scholarship.isActive)
+  && getDeadlineStatus(scholarship.deadline, today).label !== 'Closed'
+);
+
+// The documents the open AdDU internal scholarships ask of this student's
+// standing, so My Profile can show what to keep in the Document Vault before an
+// application starts. Requirements that accept the same document types merge
+// into one item, because one vault file satisfies all of them; each item names
+// the scholarships that ask for it. `ready` counts items with a non-rejected
+// file, the same bar getApplicationReadiness() sets for submitting.
+export const getDocumentChecklist = ({ scholarships = [], profile = {}, documents = [], today = new Date() } = {}) => {
+  const open = scholarships.filter((scholarship) => isOpenForApplications(scholarship, today));
+  const byTypes = new Map();
+  open.forEach((scholarship) => {
+    getScholarshipRequirements(scholarship, profile).forEach((requirement) => {
+      const key = [...requirement.documentTypes].sort().join('|');
+      const entry = byTypes.get(key) || { ...requirement, key, scholarships: [] };
+      if (!entry.scholarships.some((item) => item.id === scholarship.id)) {
+        entry.scholarships.push({ id: scholarship.id, title: scholarship.title });
+      }
+      byTypes.set(key, entry);
+    });
+  });
+  const items = [...byTypes.values()].map((entry) => {
+    const files = getMatchingVaultDocuments(entry, documents);
+    const notAskedBy = open
+      .filter((scholarship) => !entry.scholarships.some((item) => item.id === scholarship.id))
+      .map((scholarship) => ({ id: scholarship.id, title: scholarship.title }));
+    return { ...entry, notAskedBy, files, state: requirementState(files), askedByAll: notAskedBy.length === 0 };
+  });
+  return {
+    scholarships: open,
+    items,
+    ready: items.filter((item) => item.state === 'attached' || item.state === 'verified').length,
+    total: items.length,
+  };
+};
+
+// The Document Vault picker entry to preselect when the student uploads a file
+// for a requirement: its first type offered as a general document (as the
+// application workspace uploads it), otherwise the profile attribute whose proof
+// types include it, since the vault only offers proof-only types under an attribute.
+export const getRequirementUploadPreset = (requirement) => {
+  const types = requirement?.documentTypes || [];
+  const general = types.find((type) => generalDocumentTypeOptions.some((option) => option.value === type));
+  if (general) return { attribute: '', documentType: general };
+  for (const type of types) {
+    const attribute = VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.acceptedDocumentTypes.includes(type));
+    if (attribute) return { attribute: attribute.key, documentType: type };
+  }
+  return { attribute: '', documentType: '' };
 };
 
 // Everything the workspace, the submit handler, and the reviewers need to know

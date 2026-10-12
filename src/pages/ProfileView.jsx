@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Award, GraduationCap, LayoutDashboard, MapPin, ShieldCheck, UserRound, Users, Wallet } from 'lucide-react';
 import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancialSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
+import { getDocumentChecklist } from '../lib/applicationRequirements';
 import { getProfileCompleteness } from '../lib/profile';
 
 const sections = [
@@ -21,11 +22,14 @@ export default function ProfileView({
   academicPrograms = [],
   academicProgramCategories = [],
   attributeVerifications = {},
+  scholarships = [],
+  documents = [],
   initialSection = '',
   onSaveProfile,
   onChangePassword,
   onRequestPasswordReset,
   onAttachProof,
+  onUploadDocument,
   previewProofImpact,
 }) {
   const isStudent = role === 'student';
@@ -48,6 +52,9 @@ export default function ProfileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const completeness = getProfileCompleteness(profile, role);
+  // What the open AdDU internal scholarships ask this student to keep in the
+  // Document Vault; staff have no applications, so they get no checklist.
+  const documentChecklist = isStudent ? getDocumentChecklist({ scholarships, profile, documents }) : null;
   const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof, previewProofImpact };
 
   const openSection = (key) => {
@@ -95,9 +102,11 @@ export default function ProfileView({
               profile={profile}
               roleLabel={roleLabel}
               completeness={completeness}
+              documentChecklist={documentChecklist}
               onEditSection={openSection}
               attributeVerifications={attributeVerifications}
               onAttachProof={onAttachProof}
+              onUploadDocument={onUploadDocument}
             />
           )}
           {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} roleLabel={roleLabel} />}

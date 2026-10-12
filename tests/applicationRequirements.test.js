@@ -4,6 +4,8 @@ import {
   buildProfileSnapshot,
   getApplicationReadiness,
   getCatalogRequirements,
+  getDocumentChecklist,
+  getRequirementUploadPreset,
   getScholarshipRequirements,
   normalizeRequirements,
   pickDefaultAttachments,
@@ -174,5 +176,59 @@ describe('profile snapshot', () => {
     const snapshot = buildProfileSnapshot(incomingProfile, {});
     expect(snapshot.academic).toMatchObject({ credential: 'hsAverage', label: 'Senior high school general average', value: 92 });
     expect(snapshot.yearStandingLabel).toBe('Incoming 1st year');
+  });
+});
+
+describe('My Profile document checklist', () => {
+  const today = new Date('2026-10-12T00:00:00');
+  const jubilee = { id: 'jubilee', title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors', category: 'Internal Endowment', isActive: true, deadline: '2999-12-31' };
+  const sa = { id: 'sa', title: 'Student Assistant (SA) Program', ruleFamily: 'work-study', category: 'Internal Endowment', isActive: true, deadline: '2999-12-31' };
+  const closed = { ...gia, id: 'gia-closed', deadline: '2000-01-01' };
+  const inactive = { ...gia, id: 'gia-inactive', isActive: false };
+  const keyOf = (items, id) => items.find((item) => item.id === id);
+
+  it('merges the open internal scholarships into one list per document', () => {
+    const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa, closed, inactive, external], profile: continuingProfile, today });
+    expect(checklist.scholarships.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
+    expect(ids(checklist.items)).toEqual(['application-form', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
+    expect(keyOf(checklist.items, 'application-form').askedByAll).toBe(true);
+    expect(keyOf(checklist.items, 'income-proof').scholarships.map((item) => item.id)).toEqual(['gia', 'sa']);
+    expect(keyOf(checklist.items, 'income-proof').notAskedBy).toEqual([{ id: 'jubilee', title: jubilee.title }]);
+    expect(keyOf(checklist.items, 'application-form').notAskedBy).toEqual([]);
+    expect(keyOf(checklist.items, 'certificate-of-award')).toMatchObject({ askedByAll: false, scholarships: [{ id: 'jubilee', title: jubilee.title }] });
+  });
+
+  it('follows the year standing', () => {
+    const incoming = ids(getDocumentChecklist({ scholarships: [gia], profile: incomingProfile, today }).items);
+    expect(incoming).toEqual(expect.arrayContaining(['entrance-exam', 'hs-report-card', 'recommendation']));
+    expect(incoming).not.toContain('college-grades');
+    const continuing = ids(getDocumentChecklist({ scholarships: [gia], profile: continuingProfile, today }).items);
+    expect(continuing).toContain('college-grades');
+    expect(continuing).not.toContain('hs-report-card');
+  });
+
+  it('reads each document against the whole vault', () => {
+    const documents = [doc('a', 'Application Form', 'Verified'), doc('t', 'Transcript'), doc('i', 'Income Proof', 'Rejected')];
+    const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa], profile: continuingProfile, documents, today });
+    expect(Object.fromEntries(checklist.items.map((item) => [item.id, item.state]))).toEqual({
+      'application-form': 'verified',
+      'college-grades': 'attached',
+      'income-proof': 'rejected',
+      'residence-photos': 'missing',
+      'good-moral': 'missing',
+      'certificate-of-award': 'missing',
+    });
+    // A pending file counts, a rejected one does not: the same bar as submitting.
+    expect([checklist.ready, checklist.total]).toEqual([2, 6]);
+  });
+
+  it('is empty when no internal scholarship is open', () => {
+    expect(getDocumentChecklist({ scholarships: [closed, external], profile: continuingProfile, today })).toMatchObject({ scholarships: [], items: [], ready: 0, total: 0 });
+  });
+
+  it('preselects a general vault type, falling back to the attribute that accepts a proof-only type', () => {
+    expect(getRequirementUploadPreset({ documentTypes: ['Grade Report', 'Transcript'] })).toEqual({ attribute: '', documentType: 'Transcript' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Grade Report'] })).toEqual({ attribute: 'qpi', documentType: 'Grade Report' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Unknown Type'] })).toEqual({ attribute: '', documentType: '' });
   });
 });

@@ -3,6 +3,7 @@ import { Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
 import { getAttributeVerificationTone } from '../lib/verification';
+import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
 import {
   ADDRESS_MAX_LENGTH,
   BIO_MAX_LENGTH,
@@ -197,7 +198,115 @@ const assignmentNote = {
   admissions_office: 'Central Admissions Office operations role.',
 };
 
-export function ProfileOverview({ completeness, onEditSection, attributeVerifications = {}, onAttachProof }) {
+// The year standing decides which answers an application reads, so the
+// overview says which credential the student is matched on.
+const standingNote = (standing) => {
+  if (standing.isIncomingFirstYear) return 'As an incoming first-year, you are matched on your senior high school general average. An AdDU student number and QPI are not asked until you enroll.';
+  if (standing.isContinuing) return 'As an enrolled student, you are matched on your annual QPI and identified by your AdDU student number.';
+  return 'Choose your year standing in Academic profile to see the items that apply to you.';
+};
+
+const completenessGroupNotes = {
+  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them as your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
+  details: 'Not required to apply. They complete your record for the Admissions Office, and a mobile number enables SMS reminders.',
+};
+
+function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
+  // A verification badge only means something once the answer is filled in.
+  const showStatus = item.done && status !== undefined;
+  const showAttachProof = showStatus && status !== 'Verified' && onAttachProof;
+  return (
+    <li className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
+      <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
+        {item.done
+          ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
+          : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
+        <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
+        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>}
+      </span>
+      <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {showAttachProof && (
+          <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+        )}
+        {!item.done && (
+          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
+        )}
+      </span>
+    </li>
+  );
+}
+
+// Which scholarships a document applies to, kept to one short line however large
+// the catalog is: it names at most two, from whichever list is shorter (those
+// that ask for it or those that do not), and otherwise gives a count.
+const describeDocumentScope = (item, openCount) => {
+  if (item.askedByAll) return '';
+  const titles = (list) => list.map((scholarship) => scholarship.title);
+  if (item.notAskedBy.length <= 2 && item.notAskedBy.length < item.scholarships.length) {
+    return `Not needed for ${titles(item.notAskedBy).join(' or ')}`;
+  }
+  if (item.scholarships.length <= 2) return `Only for ${titles(item.scholarships).join(' and ')}`;
+  return `For ${item.scholarships.length} of ${openCount} open scholarships`;
+};
+
+// The documents the open AdDU internal scholarships ask for at the student's
+// standing, read against the whole Document Vault, plus the application
+// statement that every submission needs.
+function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUploadDocument, onEditSection }) {
+  const { items, scholarships, ready, total } = checklist;
+  const audience = standing.isIncomingFirstYear ? ' for incoming first-years' : standing.isContinuing ? ' for enrolled students' : '';
+  const intro = total
+    ? `Required by open AdDU scholarships${audience}. Upload each once and reuse it.`
+    : scholarships.length
+      ? 'The open scholarships list no required documents.'
+      : 'No AdDU internal scholarship is open right now.';
+  return (
+    <Card
+      title="Documents for applications"
+      action={total ? <span className="text-sm text-app-muted"><strong className="text-app-text">{ready}</strong> of {total} ready</span> : null}
+    >
+      <p className="-mt-1 mb-4 text-sm text-app-muted">{intro}</p>
+      {total > 0 && (
+        <ul className="m-0 grid list-none gap-2 p-0">
+          {items.map((item) => {
+            const state = VAULT_REQUIREMENT_STATE_LABELS[item.state] || VAULT_REQUIREMENT_STATE_LABELS.missing;
+            const scope = describeDocumentScope(item, scholarships.length);
+            return (
+              <li key={item.key} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
+                <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+                  <span className="text-sm font-semibold text-app-text">{item.label}</span>
+                  {scope && <span className="text-xs text-app-muted">{scope}</span>}
+                </span>
+                <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
+                  {onUploadDocument && (
+                    <button type="button" className="link-btn shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item))}>
+                      {item.state === 'missing' ? 'Upload' : item.state === 'rejected' ? 'Upload again' : 'View'}
+                    </button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
+        <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+          <span className="text-sm font-semibold text-app-text">Default statement</span>
+          <span className="text-xs text-app-muted">Optional. Prefills each application statement.</span>
+        </span>
+        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <StatusBadge tone={hasDefaultStatement ? 'success' : 'neutral'}>{hasDefaultStatement ? 'Saved' : 'Not set'}</StatusBadge>
+          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection('personal')}>{hasDefaultStatement ? 'Edit' : 'Write'}</button>
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+export function ProfileOverview({ profile = {}, completeness, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
+  // Staff have a single group of personal details, so headings would only add noise.
+  const showGroups = completeness.groups.length > 1;
   return (
     <div className="grid gap-4">
       <Card title="Profile completeness">
@@ -214,36 +323,37 @@ export function ProfileOverview({ completeness, onEditSection, attributeVerifica
           </div>
           <strong className="w-12 text-right text-app-text">{completeness.percent}%</strong>
         </div>
-        <p className="-mt-1 mb-4 text-sm text-app-muted">Complete your profile and upload proof documents in the Document Vault for each attribute in order for it to be verified by the Admissions Office.</p>
-        <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
-          {completeness.items.map((item) => {
-            const status = attributeVerifications[item.key];
-            const showAttachProof = status !== undefined && status !== 'Verified';
-            const showAdd = !item.done && !showAttachProof;
-            return (
-              <li key={item.key} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
-                <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
-                  {item.done
-                    ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
-                    : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
-                  <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
-                  {status !== undefined && (
-                    <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
-                  )}
-                </span>
-                <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                  {showAttachProof && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
-                  )}
-                  {showAdd && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
-                  )}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        {showGroups && <p className="mb-0 mt-3 text-sm text-app-muted">{standingNote(completeness.standing)}</p>}
+        <div className="mt-4 grid gap-5">
+          {completeness.groups.map((group) => (
+            <section key={group.key} className="grid gap-2" aria-label={showGroups ? group.label : undefined}>
+              {showGroups && (
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <h4 className="m-0 text-sm font-bold text-app-text">{group.label}</h4>
+                    <span className="text-xs font-semibold text-app-muted">{group.completed} of {group.total} complete</span>
+                  </div>
+                  <p className="m-0 text-xs text-app-muted">{completenessGroupNotes[group.key]}</p>
+                </div>
+              )}
+              <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
+                {group.items.map((item) => (
+                  <CompletenessItem key={item.key} item={item} status={attributeVerifications[item.key]} onEditSection={onEditSection} onAttachProof={onAttachProof} />
+                ))}
+              </ul>
+            </section>
+          ))}
+        </div>
       </Card>
+      {documentChecklist && (
+        <DocumentChecklistCard
+          checklist={documentChecklist}
+          standing={completeness.standing}
+          hasDefaultStatement={Boolean(String(profile.essay || '').trim())}
+          onUploadDocument={onUploadDocument}
+          onEditSection={onEditSection}
+        />
+      )}
     </div>
   );
 }

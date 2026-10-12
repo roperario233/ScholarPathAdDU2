@@ -168,9 +168,10 @@ function App() {
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupabaseWorkspaceLoaded, setIsSupabaseWorkspaceLoaded] = useState(false);
-  // When the My Profile "Attach proof" link opens the vault it carries the
-  // profile attribute so the upload form opens on the accepted document types.
-  const [vaultPresetAttribute, setVaultPresetAttribute] = useState('');
+  // When a My Profile link ("Attach proof" or the document checklist) opens the
+  // vault it carries the profile attribute and/or document type so the upload
+  // form opens on them.
+  const [vaultPreset, setVaultPreset] = useState({ attribute: '', documentType: '' });
   // The My Profile section to open on, set when the Smart Eligibility Checker
   // links a failed reason to the section that edits it.
   const [profilePresetSection, setProfilePresetSection] = useState('');
@@ -459,10 +460,12 @@ function App() {
     unreadNotifications: unreadNotifications.length,
   }), [eligibleScholarships.length, scholarshipCatalog.length, studentApplications, unreadNotifications.length]);
 
-  // Navigating to the vault clears any attribute preset; the My Profile
-  // "Attach proof" link passes the attribute so the upload form opens on it.
+  // Navigating to the vault clears any upload preset; the My Profile links pass
+  // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
-    setVaultPresetAttribute(view === 'vault' ? (options.attribute || '') : '');
+    setVaultPreset(view === 'vault'
+      ? { attribute: options.attribute || '', documentType: options.documentType || '' }
+      : { attribute: '', documentType: '' });
     setProfilePresetSection(view === 'profile' ? (options.section || '') : '');
     setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
     updateState({ activeView: view });
@@ -1577,7 +1580,8 @@ function App() {
               profile={studentMatchProfile}
               onUpload={addDocument}
               onDelete={deleteDocument}
-              presetAttribute={vaultPresetAttribute}
+              presetAttribute={vaultPreset.attribute}
+              presetDocumentType={vaultPreset.documentType}
             />
           )}
 
@@ -1623,7 +1627,10 @@ function App() {
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
               attributeVerifications={attributeVerifications}
+              scholarships={scholarshipCatalog}
+              documents={studentDocuments}
               onAttachProof={(attributeKey) => navigate('vault', { attribute: attributeKey })}
+              onUploadDocument={(preset) => navigate('vault', preset)}
               previewProofImpact={state.viewerRole === 'student'
                 ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
                 : undefined}
