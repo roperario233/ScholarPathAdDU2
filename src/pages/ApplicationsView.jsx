@@ -26,6 +26,7 @@ export default function ApplicationsView({
   onUploadAndAttach,
   onSaveDraft,
   onSubmit,
+  onSaveProfile,
   onOpenProfile,
 }) {
   const [query, setQuery] = useState('');
@@ -145,6 +146,7 @@ export default function ApplicationsView({
         onUploadAndAttach={onUploadAndAttach}
         onSaveDraft={onSaveDraft}
         onSubmit={onSubmit}
+        onSaveProfile={onSaveProfile}
         onOpenProfile={onOpenProfile}
         onClose={() => onOpenApplication(null)}
       />

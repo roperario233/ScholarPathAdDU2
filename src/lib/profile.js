@@ -423,7 +423,7 @@ export const validatePersonalSection = (form = {}) => {
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
     essay: essay.length > ESSAY_MAX_LENGTH
-      ? { value: essay, error: `Keep your essay within ${ESSAY_MAX_LENGTH} characters.` }
+      ? { value: essay, error: `Keep your default statement within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
 };
@@ -611,7 +611,6 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   if (role === 'student') {
     items.push(
       { key: 'civilStatus', label: 'Civil status', section: 'personal', done: !isBlank(profile.civilStatus) },
-      { key: 'essay', label: 'Scholarship essay', section: 'personal', done: !isBlank(profile.essay) },
       { key: 'studentNumber', label: 'AdDU student number', section: 'academic', done: !requiresStudentNumber || !validateStudentNumber(profile.studentNumber).error },
       { key: 'degreeProgram', label: 'Degree program', section: 'academic', done: !isBlank(profile.degreeProgram) },
       { key: 'yearStanding', label: 'Year standing', section: 'academic', done: Boolean(yearStanding) },

@@ -106,6 +106,7 @@ export default function ApplicationWorkspaceModal({
   onUploadAndAttach,
   onSaveDraft,
   onSubmit,
+  onSaveProfile,
   onOpenProfile,
   onClose,
 }) {
@@ -161,6 +162,22 @@ export default function ApplicationWorkspaceModal({
     const result = await onSaveDraft(application.id, { statement });
     if (!result?.error) setSavedStatement(statement);
     setStatementMessage(result?.error || 'Draft saved.');
+  };
+
+  // The profile's default statement is a reusable template: it can replace this
+  // draft's text, or this text can become the default for future applications.
+  const defaultStatement = String(profile?.essay || '');
+
+  const applyDefaultStatement = () => {
+    if (statement.trim() && !window.confirm('Replace this statement with your default scholarship statement from My Profile?')) return;
+    setStatement(defaultStatement);
+    setStatementMessage('');
+  };
+
+  const saveAsDefault = async () => {
+    setStatementMessage('');
+    const result = await onSaveProfile({ essay: statement.trim() });
+    setStatementMessage(result?.success ? 'Saved as your default scholarship statement.' : result?.message || 'Unable to save your default statement.');
   };
 
   const handleClose = () => {
@@ -255,10 +272,12 @@ export default function ApplicationWorkspaceModal({
                   onChange={(event) => { setStatement(event.target.value); setStatementMessage(''); }}
                   placeholder="Describe your circumstances, goals, and how this scholarship would support your studies."
                 />
-                <small className="field-hint">Prefilled from the scholarship essay in My Profile. Changes here apply only to this application. {statement.length}/{ESSAY_MAX_LENGTH}</small>
+                <small className="field-hint">Starts from the default scholarship statement in My Profile. Changes here apply only to this application unless you save them as your default. {statement.length}/{ESSAY_MAX_LENGTH}</small>
               </label>
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="button" onClick={saveStatement} disabled={statement === (application.statement || '')}>Save draft</Button>
+                <Button type="button" variant="ghost" onClick={applyDefaultStatement} disabled={!defaultStatement || statement === defaultStatement}>Use my default statement</Button>
+                <Button type="button" variant="ghost" onClick={saveAsDefault} disabled={!statement.trim() || statement.trim() === defaultStatement.trim()}>Save as my default</Button>
                 {statementMessage ? <span className="text-sm text-app-muted" role="status">{statementMessage}</span> : null}
               </div>
             </section>

@@ -665,7 +665,7 @@ function App() {
       notes: isInternal
         ? 'Created from the scholarship explorer.'
         : 'Tracked from the scholarship explorer. Apply through the provider.',
-      // The scholarship essay from My Profile is the starting statement.
+      // The default scholarship statement from My Profile is the starting statement.
       statement: isInternal ? String(state.profileDraft?.essay || '') : '',
       profileSnapshot: null,
       certifiedAt: null,
@@ -1519,6 +1519,7 @@ function App() {
               onUploadAndAttach={uploadAndAttachDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
+              onSaveProfile={saveProfile}
               onOpenProfile={() => navigate('profile')}
             />
           )}
