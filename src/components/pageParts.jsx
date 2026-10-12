@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X } from 'lucide-react';
-import { getApplicationProgress, getScholarshipAcademicDisplay } from '../lib/eligibility';
+import { getApplicationProgress, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 import { Button, EmptyState, StatusBadge } from './ui';
 
@@ -37,7 +37,7 @@ export function ScholarshipRow({ scholarship, onApply, profile, compact = false 
         <span><strong>Income</strong> ≤ {fmtCurrency(scholarship.maximumIncome)}</span>
       </div>
       <p className="mt-3 text-sm text-app-muted">{scholarship.coverage}</p>
-      <Button className="mt-2" type="button" onClick={() => onApply(scholarship)}>Track in dashboard</Button>
+      <Button className="mt-2" type="button" onClick={() => onApply(scholarship)}>{isInternalScholarship(scholarship) ? 'Start application' : 'Track this program'}</Button>
     </article>
   );
 }

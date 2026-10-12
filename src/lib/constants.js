@@ -79,8 +79,8 @@ export const generalDocumentTypeOptions = [
 
 // Additional document types that only serve as proof for a profile attribute
 // (see `acceptedDocumentTypes` in src/lib/profile.js). Kept separate from the
-// Standard Procedure submission types so the SOP document check in
-// ApplicationReviewModal keeps matching its own values.
+// Standard Procedure submission types; a scholarship's required documents
+// (src/lib/applicationRequirements.js) may accept either kind.
 export const attributeProofDocumentTypeOptions = [
   { value: 'Grade Report', label: 'Grade Report' },
   { value: 'PSA Birth Certificate', label: 'PSA Birth Certificate' },
@@ -98,18 +98,6 @@ export const attributeProofDocumentTypeOptions = [
 // Every document type the vault can store, so `getDocumentTypeLabel` can resolve
 // any stored value (including a proof type) to its display label.
 export const documentTypeOptions = [...generalDocumentTypeOptions, ...attributeProofDocumentTypeOptions];
-
-// Standard Procedure for Scholarship Applications, step 2 — required submissions.
-export const sopRequiredDocuments = [
-  { type: 'Application Form', label: 'Application Form' },
-  { type: 'Entrance Exam Result', label: 'Entrance exam result with ACCEPTED remark' },
-  { type: 'HS Report Card', label: 'HS report card with at least 85% average' },
-  { type: 'Recommendation Letter', label: 'Recommendation from Homeroom Moderator' },
-  { type: 'Income Proof', label: 'Financial income documents of parents / legal guardians' },
-  { type: 'Photos of Residence', label: 'Photos of residence' },
-  { type: 'Good Moral Character', label: 'Certificate of Good Moral Character' },
-  { type: 'Certificate of Award', label: 'For academic grant, Certificate of Award as Rank 1 or 2' },
-];
 
 export const getDocumentTypeLabel = (value) => (
   documentTypeOptions.find((option) => option.value === value)?.label || value

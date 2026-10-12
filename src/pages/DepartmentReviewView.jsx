@@ -15,6 +15,7 @@ export default function DepartmentReviewView({
   profile,
   queue,
   documents,
+  scholarships = [],
   onChangeApplication,
   onEndorseApplication,
   onFlagForValidation,
@@ -101,6 +102,7 @@ export default function DepartmentReviewView({
       {selected && (
         <ApplicationReviewModal
           application={selected}
+          scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
           role="department_chair"
           onClose={() => setSelectedId(null)}

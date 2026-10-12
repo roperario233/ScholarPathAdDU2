@@ -19,6 +19,7 @@ const toScholarship = (row) => ({
   applicationRoute: row.application_route,
   isExternal: row.is_external,
   appendixNumber: row.appendix_number,
+  requiredDocuments: Array.isArray(row.required_documents) ? row.required_documents : [],
 });
 
 const toDocument = (row) => ({
@@ -54,6 +55,9 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
     deliberation: row.deliberation ?? null,
     release: row.release ?? null,
     timeline: Array.isArray(row.timeline) ? row.timeline : [],
+    statement: row.statement ?? '',
+    profileSnapshot: row.profile_snapshot ?? null,
+    certifiedAt: row.certified_at ?? null,
   };
 };
 
@@ -203,6 +207,7 @@ const scholarshipToRow = (scholarship) => ({
   application_route: scholarship.applicationRoute || null,
   is_external: false,
   appendix_number: scholarship.appendixNumber ?? null,
+  required_documents: Array.isArray(scholarship.requiredDocuments) ? scholarship.requiredDocuments : [],
 });
 
 export const updateSupabaseApplicationStatus = (applicationId, status, timeline, stagePatch = {}) => (
@@ -244,24 +249,59 @@ const recommendationNote = (status) => (
     : 'Returned for central document validation.'
 );
 
-export const createSupabaseApplication = async ({ studentId, scholarshipId, documentStatus, attachedDocuments, notes }) => {
-  if (!ensureReady()) return { data: null, error: null };
-  const result = await supabase.from('applications').insert({ student_id: studentId, scholarship_id: scholarshipId, document_status: documentStatus, notes }).select().single();
+// The client generates the application id (a real uuid, like vault documents)
+// so the local row, the Supabase row, and its document links share it from the
+// start and a submit right after creation targets the right row.
+export const createSupabaseApplication = async ({ id, studentId, scholarshipId, documentStatus, attachedDocuments, notes, statement }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.from('applications').insert({
+    id,
+    student_id: studentId,
+    scholarship_id: scholarshipId,
+    document_status: documentStatus,
+    notes,
+    statement: statement || null,
+  }).select().single();
   if (result.error || !result.data || !attachedDocuments?.length) return result;
   const links = await supabase.from('application_documents').insert(attachedDocuments.map((documentId) => ({ application_id: result.data.id, document_id: documentId })));
-  return links.error ? { data: null, error: links.error } : result;
+  return links.error ? { data: result.data, error: links.error } : result;
 };
 
-export const submitSupabaseApplication = (applicationId, timeline) => (
+// Draft-only document links; RLS refuses them once the application is submitted.
+export const attachSupabaseApplicationDocument = (applicationId, documentId) => (
+  ensureReady()
+    ? supabase.from('application_documents').upsert({ application_id: applicationId, document_id: documentId }, { onConflict: 'application_id,document_id', ignoreDuplicates: true }).then(({ error }) => ({ error }))
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
+);
+
+export const detachSupabaseApplicationDocument = (applicationId, documentId) => (
+  ensureReady()
+    ? supabase.from('application_documents').delete().eq('application_id', applicationId).eq('document_id', documentId).then(({ error }) => ({ error }))
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
+);
+
+export const updateSupabaseApplicationDraft = (applicationId, { statement }) => (
+  ensureReady()
+    ? supabase.from('applications').update({ statement, updated_at: new Date().toISOString() }).eq('id', applicationId).then(({ error }) => ({ error }))
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
+);
+
+// Submission writes the status, timeline, statement, frozen profile snapshot,
+// and certification in one update so the server-side submit gate
+// (enforce_student_application_update) evaluates the complete row.
+export const submitSupabaseApplication = (applicationId, { timeline, statement, profileSnapshot, certifiedAt } = {}) => (
   ensureReady()
     ? supabase.from('applications').update({
         status: 'Submitted',
         submitted_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        statement,
+        profile_snapshot: profileSnapshot,
+        certified_at: certifiedAt,
         ...(Array.isArray(timeline) ? { timeline } : {}),
       }).eq('id', applicationId)
         .then(({ error }) => ({ error }))
-    : Promise.resolve({ error: null })
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
 );
 
 export const createSupabaseDocument = async ({ id, ownerId, title, fileName, documentType, linkedAttributes, file }) => {
@@ -290,10 +330,14 @@ export const getSupabaseDocumentUrl = async (storagePath, expiresIn = 3600) => {
   return { url: data?.signedUrl || null, error };
 };
 
+// Delete the row first: the server refuses to delete a file a submitted
+// application relies on, and the stored object must survive that refusal.
 export const deleteSupabaseDocument = async (documentId, storagePath) => {
   if (!ensureReady()) return { error: null };
+  const result = await supabase.from('documents').delete().eq('id', documentId);
+  if (result.error) return { error: result.error };
   if (storagePath) await supabase.storage.from(DOCUMENT_BUCKET).remove([storagePath]);
-  return supabase.from('documents').delete().eq('id', documentId);
+  return { error: null };
 };
 
 export const updateSupabaseDocumentStatus = (documentId, verificationStatus) => (

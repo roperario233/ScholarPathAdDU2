@@ -77,6 +77,11 @@ alter table scholarships add column if not exists appendix_number integer;
 -- their senior high school general average instead (see getAcademicRequirement
 -- in src/lib/eligibility.js). NULL falls back to GENERAL_POOL_SHS_AVERAGE_FLOOR.
 alter table scholarships add column if not exists minimum_shs_average numeric(5, 2);
+-- Documents a student must attach before submitting (see
+-- migrations/20261012000000_add_application_requirements.sql for the default
+-- lists and src/lib/applicationRequirements.js for the client mirror). Each item:
+-- { id, label, documentTypes: [vault document types], standing: 'all' | 'incoming' | 'continuing' }.
+alter table scholarships add column if not exists required_documents jsonb not null default '[]'::jsonb;
 
 create table if not exists documents (
   id uuid primary key default gen_random_uuid(),
@@ -114,6 +119,11 @@ alter table applications add column if not exists interview jsonb;
 alter table applications add column if not exists deliberation jsonb;
 alter table applications add column if not exists release jsonb;
 alter table applications add column if not exists timeline jsonb not null default '[]'::jsonb;
+-- The application statement, the self-reported profile values frozen at submit,
+-- and the student's certification (see the submit gate trigger below).
+alter table applications add column if not exists statement text;
+alter table applications add column if not exists profile_snapshot jsonb;
+alter table applications add column if not exists certified_at timestamptz;
 
 -- Widen the application status check to cover the SOP stage sequence
 -- (Endorsed, Interview, Recommended, Released) additively.
@@ -249,6 +259,9 @@ drop policy if exists "chair_applications_status" on applications;
 drop policy if exists "chair_applications_flag_for_validation" on applications;
 drop policy if exists "chair_applications_endorse" on applications;
 drop policy if exists "application_documents_self_access" on application_documents;
+drop policy if exists "application_documents_self_read" on application_documents;
+drop policy if exists "application_documents_self_draft_insert" on application_documents;
+drop policy if exists "application_documents_self_draft_delete" on application_documents;
 drop policy if exists "staff_application_documents_access" on application_documents;
 drop policy if exists "announcements_read_all" on announcements;
 drop policy if exists "osa_announcements_manage" on announcements;
@@ -317,15 +330,20 @@ for update using (
   and status = 'Endorsed'
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 );
-create policy "application_documents_self_access" on application_documents
-for all using (
-  exists (
-    select 1 from applications a where a.id = application_id and a.student_id = auth.uid()
-  )
-) with check (
-  exists (
-    select 1 from applications a where a.id = application_id and a.student_id = auth.uid()
-  )
+-- Students attach or detach only their own vault files, and only while the
+-- application is still a Draft.
+create policy "application_documents_self_read" on application_documents
+for select using (
+  exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid())
+);
+create policy "application_documents_self_draft_insert" on application_documents
+for insert with check (
+  exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft')
+  and exists (select 1 from documents d where d.id = document_id and d.owner_id = auth.uid())
+);
+create policy "application_documents_self_draft_delete" on application_documents
+for delete using (
+  exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft')
 );
 create policy "staff_application_documents_access" on application_documents
 for all using (public.current_profile_role() in ('admissions_office', 'department_chair'))
@@ -345,6 +363,123 @@ create policy "academic_programs_read_all" on academic_programs
 for select using (true);
 create policy "admissions_office_academic_programs_manage" on academic_programs
 for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
+
+-- ---------------------------------------------------------------------------
+-- Student submit gate. Staff transitions keep their own RLS policies; this
+-- trigger only constrains the student, whose self-access policy otherwise
+-- allows any column change on their own rows:
+--   * a student creates applications only as Draft;
+--   * a student edits only Draft rows, and may move them only to Submitted;
+--   * submission needs an AdDU internal scholarship that is still open, a
+--     certification, a statement, and a non-rejected vault file attached for
+--     every required document that applies to the student's year standing.
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_student_application_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_scholarship public.scholarships%rowtype;
+  v_is_incoming boolean;
+  v_item jsonb;
+begin
+  if public.current_profile_role() is distinct from 'student' then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.status <> 'Draft' then
+      raise exception 'New applications start as drafts.' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if new.student_id <> old.student_id or new.scholarship_id <> old.scholarship_id then
+    raise exception 'An application cannot be moved to another student or scholarship.' using errcode = '42501';
+  end if;
+  if old.status <> 'Draft' then
+    raise exception 'A submitted application can no longer be changed by the student.' using errcode = '42501';
+  end if;
+  if new.status = 'Draft' then
+    return new;
+  end if;
+  if new.status <> 'Submitted' then
+    raise exception 'Students can only submit a draft application.' using errcode = '42501';
+  end if;
+
+  select * into v_scholarship from public.scholarships where id = new.scholarship_id;
+  if not found
+    or v_scholarship.is_external
+    or coalesce(v_scholarship.rule_family, '') not in ('general-pool', 'honors', 'work-study') then
+    raise exception 'External programs are tracked only. Apply through the provider.' using errcode = '23514';
+  end if;
+  if not v_scholarship.is_active
+    or (v_scholarship.deadline is not null and v_scholarship.deadline < (now() at time zone 'Asia/Manila')::date) then
+    raise exception 'This scholarship is no longer accepting applications.' using errcode = '23514';
+  end if;
+  if new.certified_at is null then
+    raise exception 'Certify that your information and documents are true and complete.' using errcode = '23514';
+  end if;
+  if coalesce(btrim(new.statement), '') = '' then
+    raise exception 'Write your application statement.' using errcode = '23514';
+  end if;
+
+  select coalesce(p.eligibility_attributes ->> 'yearStanding', '') = 'incoming-1st'
+    into v_is_incoming
+    from public.profiles p
+    where p.user_id = new.student_id;
+
+  for v_item in select value from jsonb_array_elements(coalesce(v_scholarship.required_documents, '[]'::jsonb)) loop
+    if (v_item ->> 'standing') = 'incoming' and not coalesce(v_is_incoming, false) then continue; end if;
+    if (v_item ->> 'standing') = 'continuing' and coalesce(v_is_incoming, false) then continue; end if;
+    if not exists (
+      select 1
+      from public.application_documents ad
+      join public.documents d on d.id = ad.document_id
+      where ad.application_id = new.id
+        and d.verification_status <> 'Rejected'
+        and d.document_type in (select jsonb_array_elements_text(v_item -> 'documentTypes'))
+    ) then
+      raise exception 'Attach the required document: %.', v_item ->> 'label' using errcode = '23514';
+    end if;
+  end loop;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_student_application_update on public.applications;
+create trigger enforce_student_application_update
+  before insert or update on public.applications
+  for each row execute function public.enforce_student_application_update();
+
+-- A student may not delete a vault file that a submitted application relies on;
+-- the foreign-key cascade would otherwise silently unlink it from the review.
+create or replace function public.protect_submitted_application_documents()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.current_profile_role() = 'student' and exists (
+    select 1
+    from public.application_documents ad
+    join public.applications a on a.id = ad.application_id
+    where ad.document_id = old.id and a.status <> 'Draft'
+  ) then
+    raise exception 'This document is attached to a submitted application and cannot be deleted.' using errcode = '42501';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists protect_submitted_application_documents on public.documents;
+create trigger protect_submitted_application_documents
+  before delete on public.documents
+  for each row execute function public.protect_submitted_application_documents();
 
 -- ---------------------------------------------------------------------------
 -- Document Vault storage.

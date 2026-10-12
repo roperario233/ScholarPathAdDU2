@@ -4,9 +4,16 @@ import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { coverageTypes } from '../lib/constants';
 import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
+import { getScholarshipRequirements } from '../lib/applicationRequirements';
 
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply }) {
   const [expandedEligibilityId, setExpandedEligibilityId] = useState(null);
+  const [applyErrors, setApplyErrors] = useState({});
+  const handleApply = async (scholarship) => {
+    setApplyErrors((previous) => ({ ...previous, [scholarship.id]: '' }));
+    const result = await onApply(scholarship);
+    if (result && !result.allowed && result.reasons?.length) setApplyErrors((previous) => ({ ...previous, [scholarship.id]: result.reasons[0] }));
+  };
   const activeFilterCount = [filters.category, filters.coverage, filters.deadline].filter((value) => value !== 'all').length + (filters.activeOnly ? 1 : 0);
 
   return (
@@ -80,6 +87,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
           const eligibilityResult = isInternal
             ? evaluateScholarship(profile, scholarship)
             : null;
+          const requirements = isInternal ? getScholarshipRequirements(scholarship, profile) : [];
           return (
             <article key={scholarship.id} className="rounded-app border bg-app-card p-5 shadow-app backdrop-blur scholarship-card">
                 <div className="flex min-w-0 items-start justify-between gap-4">
@@ -152,6 +160,15 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                       {eligibilityResult?.infoNotes?.map((note) => (
                         <p key={note} className="m-0 text-xs text-app-muted">{note}</p>
                       ))}
+                      {requirements.length > 0 && (
+                        <div className="grid gap-1 border-t border-app-border/60 pt-3">
+                          <strong className="text-xs text-app-text">Required documents ({requirements.length})</strong>
+                          <ul className="m-0 grid gap-0.5 pl-5 text-xs text-app-muted">
+                            {requirements.map((item) => <li key={item.id}>{item.label}</li>)}
+                          </ul>
+                          <span className="text-xs text-app-muted">You attach these from your Document Vault before submitting.</span>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <p className="m-0 text-sm text-app-muted">
@@ -163,9 +180,9 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                     <button
                       type="button"
                       className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-                      onClick={() => onApply(scholarship)}
+                      onClick={() => handleApply(scholarship)}
                     >
-                      Add to applications
+                      Start application
                     </button>
                   )}
                 </section>
@@ -175,11 +192,12 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                 <button
                   type="button"
                   className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-                  onClick={() => onApply(scholarship)}
+                  onClick={() => handleApply(scholarship)}
                 >
-                  Add to applications
+                  Track this program
                 </button>
               )}
+              {applyErrors[scholarship.id] ? <p className="form-error m-0 mt-2" role="alert">{applyErrors[scholarship.id]}</p> : null}
             </article>
           );
         }) : <EmptyState title="No scholarships match your filters" description="Relax the filters or use a broader search term to surface more programs." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Reset filters</button>} />}
