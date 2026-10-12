@@ -4,6 +4,10 @@ import {
   deriveAttributeVerifications,
   getAttributeProofDocuments,
   getAttributeVerificationTone,
+  getNewlyOutdatedAttributes,
+  getOutdatedAttributeAlerts,
+  getOutdatedProofAttributes,
+  getProofStaleReason,
 } from '../src/lib/verification';
 import { VERIFIABLE_ATTRIBUTE_KEYS } from '../src/lib/profile';
 import { normalizeDocument } from '../src/lib/appState';
@@ -75,6 +79,81 @@ describe('getAttributeVerificationTone', () => {
     expect(getAttributeVerificationTone('Rejected')).toBe('danger');
     expect(getAttributeVerificationTone('Pending')).toBe('warning');
     expect(getAttributeVerificationTone('Unverified')).toBe('neutral');
+    expect(getAttributeVerificationTone('Outdated')).toBe('danger');
+  });
+});
+
+describe('outdated proofs', () => {
+  const now = new Date(2026, 9, 12);
+  const qpiProof = (overrides) => doc({ linkedAttributes: ['qpi'], attestedValues: { qpi: 3.2 }, uploadedAt: '2026-08-01', ...overrides });
+
+  it('marks a verified proof Outdated once the declared value changes, and restores it when changed back', () => {
+    const documents = [qpiProof({ verificationStatus: 'Verified' })];
+    expect(deriveAttributeStatus(documents, 'qpi', { profile: { qpi: 3.8 }, now })).toBe('Outdated');
+    expect(deriveAttributeStatus(documents, 'qpi', { profile: { qpi: '3.20' }, now })).toBe('Verified');
+  });
+
+  it('marks a pending proof Outdated when the value changes before review', () => {
+    expect(deriveAttributeStatus([qpiProof()], 'qpi', { profile: { qpi: 3.5 }, now })).toBe('Outdated');
+  });
+
+  it('counts only current proofs, so a newer pending proof outranks an outdated verified one', () => {
+    const documents = [
+      qpiProof({ id: 'old', verificationStatus: 'Verified' }),
+      qpiProof({ id: 'new', attestedValues: { qpi: 3.8 }, verificationStatus: 'Pending' }),
+    ];
+    expect(deriveAttributeStatus(documents, 'qpi', { profile: { qpi: 3.8 }, now })).toBe('Pending');
+  });
+
+  it('expires annual proofs at the June academic-year cut-over but not other attributes', () => {
+    const qpi = qpiProof({ verificationStatus: 'Verified', uploadedAt: '2026-05-31' });
+    const citizenship = doc({ linkedAttributes: ['citizenship'], attestedValues: { citizenship: 'Filipino' }, verificationStatus: 'Verified', uploadedAt: '2025-01-10' });
+    const profile = { qpi: 3.2, citizenship: 'Filipino' };
+    expect(deriveAttributeStatus([qpi], 'qpi', { profile, now: new Date(2026, 4, 31) })).toBe('Verified');
+    expect(deriveAttributeStatus([qpi], 'qpi', { profile, now: new Date(2026, 5, 1) })).toBe('Outdated');
+    expect(getProofStaleReason(qpi, 'qpi', { profile, now: new Date(2026, 5, 1) })).toBe('year');
+    expect(deriveAttributeStatus([citizenship], 'citizenship', { profile, now })).toBe('Verified');
+  });
+
+  it('treats a legacy proof with no attested value as current', () => {
+    const legacy = doc({ linkedAttributes: ['citizenship'], verificationStatus: 'Verified' });
+    expect(deriveAttributeStatus([legacy], 'citizenship', { profile: { citizenship: 'Dual citizen' }, now })).toBe('Verified');
+  });
+
+  it('skips the value check when no profile is supplied', () => {
+    expect(deriveAttributeStatus([qpiProof({ verificationStatus: 'Verified' })], 'qpi', { now })).toBe('Verified');
+  });
+
+  it('lists the stale attributes of a document with their reason', () => {
+    const proof = qpiProof({ linkedAttributes: ['qpi', 'citizenship'], attestedValues: { qpi: 3.2, citizenship: 'Filipino' } });
+    expect(getOutdatedProofAttributes(proof, { profile: { qpi: 3.5, citizenship: 'Filipino' }, now })).toEqual([{ key: 'qpi', reason: 'value' }]);
+    expect(getOutdatedProofAttributes(doc({}), { now })).toEqual([]);
+  });
+
+  it('previews which attributes a profile edit would turn Outdated', () => {
+    const documents = [
+      qpiProof({ verificationStatus: 'Verified' }),
+      doc({ id: 'cit', linkedAttributes: ['citizenship'], attestedValues: { citizenship: 'Filipino' }, verificationStatus: 'Pending' }),
+    ];
+    const profile = { qpi: 3.2, citizenship: 'Filipino' };
+    expect(getNewlyOutdatedAttributes(documents, profile, { qpi: '3.80' }, { now })).toEqual([{ key: 'qpi', previousStatus: 'Verified' }]);
+    expect(getNewlyOutdatedAttributes(documents, profile, { qpi: '3.20', citizenship: 'Dual citizen' }, { now })).toEqual([{ key: 'citizenship', previousStatus: 'Pending' }]);
+    // An attribute with no proof, or one already Outdated, is not a new warning.
+    expect(getNewlyOutdatedAttributes(documents, profile, { householdIncome: '100000' }, { now })).toEqual([]);
+    expect(getNewlyOutdatedAttributes(documents, { ...profile, qpi: 3.8 }, { qpi: 3.9 }, { now })).toEqual([]);
+  });
+
+  it('builds one alert per Outdated attribute with a stable source key', () => {
+    const documents = [qpiProof({ verificationStatus: 'Verified' })];
+    expect(getOutdatedAttributeAlerts(documents, { qpi: 3.2 }, { now })).toEqual([]);
+    expect(getOutdatedAttributeAlerts(documents, { qpi: 3.8 }, { now })).toEqual([{ key: 'qpi', reason: 'value', sourceKey: 'outdated-proof-qpi-value-3.8' }]);
+    expect(getOutdatedAttributeAlerts(documents, { qpi: 3.2 }, { now: new Date(2027, 5, 1) })).toEqual([{ key: 'qpi', reason: 'year', sourceKey: 'outdated-proof-qpi-2027-2028' }]);
+  });
+
+  it('passes the options through deriveAttributeVerifications', () => {
+    const verifications = deriveAttributeVerifications([qpiProof({ verificationStatus: 'Verified' })], VERIFIABLE_ATTRIBUTE_KEYS, { profile: { qpi: 3.9 }, now });
+    expect(verifications.qpi).toBe('Outdated');
+    expect(verifications.householdIncome).toBe('Unverified');
   });
 });
 

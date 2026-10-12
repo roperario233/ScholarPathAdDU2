@@ -26,6 +26,7 @@ export default function ProfileView({
   onChangePassword,
   onRequestPasswordReset,
   onAttachProof,
+  previewProofImpact,
 }) {
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
@@ -47,7 +48,7 @@ export default function ProfileView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const completeness = getProfileCompleteness(profile, role);
-  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof };
+  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof, previewProofImpact };
 
   const openSection = (key) => {
     if (key === activeSection) return;

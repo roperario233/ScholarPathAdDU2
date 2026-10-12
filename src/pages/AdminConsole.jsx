@@ -7,6 +7,7 @@ import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import RequiredDocumentsEditor from '../components/RequiredDocumentsEditor';
 import { normalizeRequirements } from '../lib/applicationRequirements';
+import { getProofStaleReason } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const stageTone = (status) => {
@@ -16,14 +17,17 @@ const stageTone = (status) => {
   return 'info';
 };
 
-// Renders the student's declared value for the profile attributes the admin
-// workspace loads (QPI and household income). Other verifiable attributes are
-// not carried here, so those chips show only the attribute label.
+// Renders a declared attribute value: the value a proof was uploaded to attest
+// (any verifiable attribute) or the student's current QPI and household income
+// from the staff directory.
 const formatDeclaredValue = (key, value) => {
+  if (value == null || value === '') return 'not provided';
   if (key === 'qpi') return Number(value).toFixed(2);
   if (key === 'householdIncome') return fmtCurrency(Number(value));
   return String(value);
 };
+
+const hasAttestedValue = (doc, key) => Boolean(doc.attestedValues) && Object.prototype.hasOwnProperty.call(doc.attestedValues, key);
 
 // Standard Procedure stage track rendered above each queue entry.
 function SopStageTrack({ status }) {
@@ -214,16 +218,25 @@ export default function AdminConsole({
                       <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
                       {doc.linkedAttributes.map((key) => {
                         const declared = declaredFor(key);
+                        const hasDeclared = declared != null && declared !== '';
+                        const attested = hasAttestedValue(doc, key);
+                        // The directory only carries QPI and household income, so the
+                        // value check runs for those; the academic-year check runs for all.
+                        const staleReason = getProofStaleReason(doc, key, {
+                          profile: hasDeclared && ['qpi', 'householdIncome'].includes(key) ? { [key]: declared } : null,
+                        });
                         return (
                           <span key={key} className="inline-flex flex-wrap items-center gap-1">
                             <StatusBadge tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>
-                            {declared != null && declared !== ''
-                              ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span>
-                              : null}
+                            {attested
+                              ? <span className="text-xs text-app-muted">Declared at upload: {formatDeclaredValue(key, doc.attestedValues[key])}</span>
+                              : hasDeclared ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span> : null}
+                            {staleReason === 'value' && <span className="text-xs text-app-muted">Profile now: {formatDeclaredValue(key, declared)}</span>}
+                            {staleReason && <StatusBadge tone="danger">{staleReason === 'year' ? 'Outdated · earlier academic year' : 'Outdated · profile changed'}</StatusBadge>}
                           </span>
                         );
                       })}
-                      {!doc.linkedAttributes.some((key) => declaredFor(key) != null) && (
+                      {!doc.linkedAttributes.some((key) => hasAttestedValue(doc, key) || declaredFor(key) != null) && (
                         <span className="text-xs text-app-muted">Declared values are in the student’s My Profile.</span>
                       )}
                     </div>

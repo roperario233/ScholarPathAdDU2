@@ -162,4 +162,10 @@ describe('normalizeDocument', () => {
     expect(normalizeDocument({ id: 'a' }).linkedAttributes).toEqual([]);
     expect(normalizeDocument({ id: 'b', linkedAttributes: ['qpi'] }).linkedAttributes).toEqual(['qpi']);
   });
+
+  it('defaults missing or malformed attestedValues to an empty object', () => {
+    expect(normalizeDocument({ id: 'a' }).attestedValues).toEqual({});
+    expect(normalizeDocument({ id: 'b', attestedValues: ['qpi'] }).attestedValues).toEqual({});
+    expect(normalizeDocument({ id: 'c', attestedValues: { qpi: 3.2 } }).attestedValues).toEqual({ qpi: 3.2 });
+  });
 });

@@ -5,8 +5,8 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
-import { deriveAttributeVerifications } from './lib/verification';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import { buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, pickDefaultAttachments } from './lib/applicationRequirements';
@@ -108,6 +108,23 @@ const prependInAppNotification = (previous, notification) => {
   const alreadyPresent = notification.sourceKey
     && (previous.notifications ?? []).some((entry) => entry?.sourceKey === notification.sourceKey);
   return alreadyPresent ? previous.notifications : [notification, ...previous.notifications];
+};
+
+// The in-app alert for a profile attribute whose Document Vault proof went
+// stale, from getOutdatedAttributeAlerts() in src/lib/verification.js.
+const buildOutdatedProofNotification = ({ key, reason, sourceKey }) => {
+  const label = getVerifiableAttributeOption(key)?.label || key;
+  return {
+    id: `not-${crypto.randomUUID()}`,
+    sourceKey,
+    title: `${label} proof is outdated`,
+    channel: 'In-app',
+    body: reason === 'year'
+      ? `A new academic year has started, so your ${label} proof from the previous year no longer verifies this attribute. Upload a current proof in the Document Vault.`
+      : `Your ${label} in My Profile changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault.`,
+    status: 'Unread',
+    createdAt: new Date().toISOString().slice(0, 10),
+  };
 };
 
 // Locally created deadlines live in localStorage while the same rows are also
@@ -401,8 +418,33 @@ function App() {
     [state.documents, currentProfile.id],
   );
   // Each profile attribute's verification state is derived from the proof
-  // documents the student linked in the vault (src/lib/verification.js).
-  const attributeVerifications = useMemo(() => deriveAttributeVerifications(studentDocuments), [studentDocuments]);
+  // documents the student linked in the vault (src/lib/verification.js). The
+  // profile is passed so a proof whose attested value no longer matches the
+  // declared one reads as Outdated.
+  const attributeVerifications = useMemo(
+    () => deriveAttributeVerifications(studentDocuments, VERIFIABLE_ATTRIBUTE_KEYS, { profile: studentMatchProfile }),
+    // studentMatchProfile is rebuilt every render from these two slices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [studentDocuments, state.profileDraft, state.authUser],
+  );
+  // Announce each attribute that turns Outdated in the notification center. It
+  // waits for the workspace, which loads after the profile, so a half-hydrated
+  // profile never reads as a changed value; the stable source key keeps one row
+  // per stale state (prependInAppNotification also honors inAppEnabled).
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || state.viewerRole !== 'student') return;
+    const alerts = getOutdatedAttributeAlerts(studentDocuments, studentMatchProfile);
+    if (!alerts.length) return;
+    setState((previous) => {
+      const notifications = alerts.reduce(
+        (current, alert) => prependInAppNotification({ ...previous, notifications: current }, buildOutdatedProofNotification(alert)),
+        previous.notifications,
+      );
+      return notifications === previous.notifications ? previous : { ...previous, notifications };
+    });
+    // attributeVerifications changes exactly when the documents or profile do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSupabaseWorkspaceLoaded, state.viewerRole, attributeVerifications]);
   const visibleNotifications = state.notificationPreferences.inAppEnabled ? state.notifications : [];
   const unreadNotifications = useMemo(() => visibleNotifications.filter((entry) => entry.status === 'Unread'), [visibleNotifications]);
   const activeDeadlineCount = useMemo(
@@ -1055,6 +1097,9 @@ function App() {
     // general application document with no profile-attribute link.
     const attributeKey = String(rawAttributeKey || '').trim();
     const linkedAttributes = attributeKey ? [attributeKey] : [];
+    // The declared value each linked attribute had at upload, so the proof reads
+    // as Outdated once the student changes that value (src/lib/verification.js).
+    const attestedValues = Object.fromEntries(linkedAttributes.map((key) => [key, normalizeAttestedValue(key, studentMatchProfile[key])]));
     // A real uuid so the row, the storage path, and application_documents links
     // all share the same identifier.
     const id = crypto.randomUUID();
@@ -1074,13 +1119,14 @@ function App() {
       documentType,
       verificationStatus: 'Pending',
       linkedAttributes,
+      attestedValues,
       sharedWith: [],
       uploadedAt,
       storagePath: null,
     };
     let result;
     try {
-      result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, file });
+      result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, attestedValues, file });
     } catch (error) {
       return { error: error?.message || 'The document could not be uploaded.' };
     }
@@ -1528,6 +1574,7 @@ function App() {
             <DocumentVaultViewPage
               documents={studentDocuments}
               applications={studentApplications}
+              profile={studentMatchProfile}
               onUpload={addDocument}
               onDelete={deleteDocument}
               presetAttribute={vaultPresetAttribute}
@@ -1577,6 +1624,9 @@ function App() {
               onRequestPasswordReset={requestOwnPasswordReset}
               attributeVerifications={attributeVerifications}
               onAttachProof={(attributeKey) => navigate('vault', { attribute: attributeKey })}
+              previewProofImpact={state.viewerRole === 'student'
+                ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
+                : undefined}
             />
           )}
 

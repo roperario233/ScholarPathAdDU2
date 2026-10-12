@@ -99,6 +99,10 @@ create table if not exists documents (
 -- proves (see src/lib/verification.js and VERIFIABLE_ATTRIBUTE_OPTIONS in
 -- src/lib/profile.js). Additive so existing rows keep working.
 alter table documents add column if not exists linked_attributes text[] not null default '{}'::text[];
+-- The normalized declared value each linked attribute had at upload (e.g.
+-- `{"qpi": 3.2}`); a proof whose value no longer matches the profile, or an
+-- annual proof from an earlier academic year, reads as Outdated.
+alter table documents add column if not exists attested_values jsonb not null default '{}'::jsonb;
 
 create table if not exists applications (
   id uuid primary key default gen_random_uuid(),
@@ -480,6 +484,42 @@ drop trigger if exists protect_submitted_application_documents on public.documen
 create trigger protect_submitted_application_documents
   before delete on public.documents
   for each row execute function public.protect_submitted_application_documents();
+
+-- Students own their vault rows (documents_self_access is FOR ALL), but the
+-- review fields belong to the Admissions Office: a student cannot mark a file
+-- Verified, relink it, rewrite the value it attests, or backdate it into the
+-- current academic year (see 20261013000000_add_document_attested_values.sql).
+create or replace function public.protect_document_review_fields()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  -- Staff and the service role (no profile, so a null role) pass through.
+  if public.current_profile_role() is distinct from 'student' then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.verification_status := 'Pending';
+    new.uploaded_at := now();
+    return new;
+  end if;
+  if new.verification_status is distinct from old.verification_status
+    or new.linked_attributes is distinct from old.linked_attributes
+    or new.attested_values is distinct from old.attested_values
+    or new.uploaded_at is distinct from old.uploaded_at
+    or new.owner_id is distinct from old.owner_id then
+    raise exception 'Document review fields can only be changed by the Admissions Office.' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_document_review_fields on public.documents;
+create trigger protect_document_review_fields
+  before insert or update on public.documents
+  for each row execute function public.protect_document_review_fields();
 
 -- ---------------------------------------------------------------------------
 -- Document Vault storage.

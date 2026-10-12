@@ -23,12 +23,13 @@ export const normalizeApplication = (entry = {}) => ({
   attachedDocuments: Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments : [],
 });
 
-// Older stored sessions predate the profile-attribute proof links; default
-// every document to an empty list so the vault and the verification helpers
-// (src/lib/verification.js) can rely on the field existing.
+// Older stored sessions predate the profile-attribute proof links and the
+// attested values; default every document to empty ones so the vault and the
+// verification helpers (src/lib/verification.js) can rely on the fields.
 export const normalizeDocument = (entry = {}) => ({
   ...entry,
   linkedAttributes: Array.isArray(entry.linkedAttributes) ? entry.linkedAttributes : [],
+  attestedValues: entry.attestedValues && typeof entry.attestedValues === 'object' && !Array.isArray(entry.attestedValues) ? entry.attestedValues : {},
 });
 
 // Only the user-owned, backend-independent slices are migrated from the legacy

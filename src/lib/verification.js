@@ -1,8 +1,18 @@
 import { attributeVerificationStatuses } from './constants';
-import { VERIFIABLE_ATTRIBUTE_KEYS, VERIFIABLE_ATTRIBUTE_OPTIONS } from './profile';
+import {
+  getCurrentAcademicYear,
+  getVerifiableAttributeOption,
+  normalizeAttestedValue,
+  VERIFIABLE_ATTRIBUTE_KEYS,
+  VERIFIABLE_ATTRIBUTE_OPTIONS,
+} from './profile';
 
 // The state of a profile attribute that has no proof document in the vault yet.
 export const UNSET_ATTRIBUTE_STATUS = 'Unverified';
+// The state of a profile attribute whose every proof document is outdated: the
+// declared value changed after the upload, or an annual proof is from an earlier
+// academic year. The student needs to upload a new proof.
+export const OUTDATED_ATTRIBUTE_STATUS = 'Outdated';
 
 // Every vault document that declares itself as proof for the given attribute.
 export const getAttributeProofDocuments = (documents = [], key) => (
@@ -11,27 +21,99 @@ export const getAttributeProofDocuments = (documents = [], key) => (
   )
 );
 
+// A local upload date is a bare `YYYY-MM-DD`, which `new Date()` would read as
+// UTC midnight; read it as a local date so the June cut-over lands on June 1.
+const parseUploadDate = (value) => {
+  if (!value) return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value));
+  const date = match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+// Why a proof document no longer covers an attribute: 'value' when the profile
+// value differs from the value the file was uploaded to prove, 'year' when an
+// annual proof is from an earlier academic year, or null while it is current.
+// A document without a recorded value (uploaded before `attestedValues`
+// existed) or without an upload date is treated as current, and the value check
+// only runs when the owner's profile is supplied.
+export const getProofStaleReason = (doc, key, { profile = null, now = new Date() } = {}) => {
+  const attested = doc?.attestedValues && typeof doc.attestedValues === 'object' ? doc.attestedValues : {};
+  if (profile && Object.prototype.hasOwnProperty.call(attested, key)
+    && normalizeAttestedValue(key, profile[key]) !== attested[key]) {
+    return 'value';
+  }
+  if (getVerifiableAttributeOption(key)?.annual) {
+    const uploaded = parseUploadDate(doc?.uploadedAt);
+    if (uploaded && getCurrentAcademicYear(uploaded) !== getCurrentAcademicYear(now)) return 'year';
+  }
+  return null;
+};
+
+export const isProofCurrent = (doc, key, options) => getProofStaleReason(doc, key, options) == null;
+
+// The attributes a document no longer proves, each with its stale reason, so
+// the Document Vault can flag the file and say why.
+export const getOutdatedProofAttributes = (doc, options) => (
+  (Array.isArray(doc?.linkedAttributes) ? doc.linkedAttributes : [])
+    .map((key) => ({ key, reason: getProofStaleReason(doc, key, options) }))
+    .filter((entry) => entry.reason)
+);
+
 // Derives one attribute's verification state from its linked proof documents.
-// `Verified` outranks `Rejected`, which outranks `Pending`, so the owner needs
-// only one verified file to satisfy an attribute even if an older attempt was
-// rejected or a newer one is still awaiting review.
-export const deriveAttributeStatus = (documents = [], key) => {
+// Only current proofs count: when every linked proof is outdated the attribute
+// is `Outdated`. Among current proofs `Verified` outranks `Rejected`, which
+// outranks `Pending`, so the owner needs only one verified file to satisfy an
+// attribute even if an older attempt was rejected or a newer one is still
+// awaiting review. `options` carries the owner's `profile` (for the value check)
+// and `now` (for the academic-year check).
+export const deriveAttributeStatus = (documents = [], key, options = {}) => {
   const proofs = getAttributeProofDocuments(documents, key);
   if (!proofs.length) return UNSET_ATTRIBUTE_STATUS;
-  if (proofs.some((doc) => doc.verificationStatus === 'Verified')) return 'Verified';
-  if (proofs.some((doc) => doc.verificationStatus === 'Rejected')) return 'Rejected';
+  const current = proofs.filter((doc) => isProofCurrent(doc, key, options));
+  if (!current.length) return OUTDATED_ATTRIBUTE_STATUS;
+  if (current.some((doc) => doc.verificationStatus === 'Verified')) return 'Verified';
+  if (current.some((doc) => doc.verificationStatus === 'Rejected')) return 'Rejected';
   return 'Pending';
 };
 
 // Maps every verifiable attribute key to its derived state so the profile
 // surfaces render a badge per field without re-deriving the rules themselves.
-export const deriveAttributeVerifications = (documents = [], keys = VERIFIABLE_ATTRIBUTE_KEYS) => (
-  keys.reduce((accumulator, key) => ({ ...accumulator, [key]: deriveAttributeStatus(documents, key) }), {})
+export const deriveAttributeVerifications = (documents = [], keys = VERIFIABLE_ATTRIBUTE_KEYS, options = {}) => (
+  keys.reduce((accumulator, key) => ({ ...accumulator, [key]: deriveAttributeStatus(documents, key, options) }), {})
+);
+
+// The attributes a pending profile edit would turn Outdated, with the state each
+// had before, so My Profile can warn the student before they save. An attribute
+// that is already Outdated, or that has no proof, is not listed.
+export const getNewlyOutdatedAttributes = (documents = [], profile = {}, patch = {}, { keys = VERIFIABLE_ATTRIBUTE_KEYS, now = new Date() } = {}) => {
+  const before = deriveAttributeVerifications(documents, keys, { profile, now });
+  const after = deriveAttributeVerifications(documents, keys, { profile: { ...profile, ...patch }, now });
+  return keys
+    .filter((key) => after[key] === OUTDATED_ATTRIBUTE_STATUS && before[key] !== OUTDATED_ATTRIBUTE_STATUS)
+    .map((key) => ({ key, previousStatus: before[key] }));
+};
+
+// One alert per Outdated attribute for the notification center. The reason is
+// 'value' when any proof attests a different value (the student's own edit),
+// otherwise 'year' (a new academic year started). The stable source key carries
+// the declared value or the academic year, so the same stale state is announced
+// once, while a further edit or the next academic year announces again.
+export const getOutdatedAttributeAlerts = (documents = [], profile = {}, { keys = VERIFIABLE_ATTRIBUTE_KEYS, now = new Date() } = {}) => (
+  keys
+    .filter((key) => deriveAttributeStatus(documents, key, { profile, now }) === OUTDATED_ATTRIBUTE_STATUS)
+    .map((key) => {
+      const reasons = getAttributeProofDocuments(documents, key).map((doc) => getProofStaleReason(doc, key, { profile, now }));
+      const reason = reasons.includes('value') ? 'value' : 'year';
+      const fingerprint = reason === 'year'
+        ? getCurrentAcademicYear(now)
+        : `value-${normalizeAttestedValue(key, profile?.[key]) ?? 'blank'}`;
+      return { key, reason, sourceKey: `outdated-proof-${key}-${fingerprint}` };
+    })
 );
 
 export const getAttributeVerificationTone = (status) => {
   if (status === 'Verified') return 'success';
-  if (status === 'Rejected') return 'danger';
+  if (status === 'Rejected' || status === OUTDATED_ATTRIBUTE_STATUS) return 'danger';
   if (status === 'Pending') return 'warning';
   return 'neutral';
 };

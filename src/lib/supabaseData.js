@@ -29,6 +29,7 @@ const toDocument = (row) => ({
   documentType: row.document_type,
   verificationStatus: row.verification_status,
   linkedAttributes: row.linked_attributes || [],
+  attestedValues: row.attested_values || {},
   storagePath: row.storage_path,
   sharedWith: row.shared_with || [],
   uploadedAt: row.uploaded_at,
@@ -304,20 +305,28 @@ export const submitSupabaseApplication = (applicationId, { timeline, statement, 
     : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
 );
 
-export const createSupabaseDocument = async ({ id, ownerId, title, fileName, documentType, linkedAttributes, file }) => {
+export const createSupabaseDocument = async ({ id, ownerId, title, fileName, documentType, linkedAttributes, attestedValues, file }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const storagePath = buildDocumentStoragePath({ ownerId, documentId: id, fileName });
   const upload = await supabase.storage.from(DOCUMENT_BUCKET).upload(storagePath, file, { contentType: file?.type || undefined, upsert: false });
   if (upload.error) return { data: null, error: upload.error };
-  const result = await supabase.from('documents').insert({
+  const row = {
     id,
     owner_id: ownerId,
     title,
     file_name: fileName,
     document_type: documentType,
     linked_attributes: Array.isArray(linkedAttributes) ? linkedAttributes : [],
+    attested_values: attestedValues && typeof attestedValues === 'object' ? attestedValues : {},
     storage_path: storagePath,
-  }).select().single();
+  };
+  let result = await supabase.from('documents').insert(row).select().single();
+  // A project with the attested-values migration pending has no such column;
+  // keep the upload working without it (the proof then counts as current).
+  if (result.error && (result.error.code === 'PGRST204' || /attested_values/.test(result.error.message || ''))) {
+    const { attested_values: _omitted, ...legacyRow } = row;
+    result = await supabase.from('documents').insert(legacyRow).select().single();
+  }
   // Roll back the orphaned object if the metadata row could not be written.
   if (result.error) await supabase.storage.from(DOCUMENT_BUCKET).remove([storagePath]);
   return result;

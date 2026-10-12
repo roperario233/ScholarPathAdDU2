@@ -98,11 +98,15 @@ export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_
 // evidenced elsewhere (AdDU student number, degree program, year standing, active
 // government grant, and senior high school strand) are trusted as entered and are
 // intentionally excluded here.
+//
+// `annual` marks an attribute whose proof only covers one academic year (the
+// annual QPI and household income), so a file uploaded in an earlier academic
+// year is outdated even when the declared value has not changed.
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
-  { key: 'qpi', label: 'Annual QPI', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Grade Report'], hint: 'Upload your grade report or transcript showing your annual QPI.' },
+  { key: 'qpi', label: 'Annual QPI', section: 'academic', annual: true, acceptedDocumentTypes: ['Transcript', 'Grade Report'], hint: 'Upload your grade report or transcript showing your annual QPI.' },
   { key: 'academicStanding', label: 'Academic standing', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Good Moral Character'], hint: 'Upload a transcript or a certificate of good moral character reflecting your academic standing.' },
   { key: 'hsAverage', label: 'Senior high school general average', section: 'academic', acceptedDocumentTypes: ['HS Report Card'], hint: 'Upload your senior high school report card showing your general average.' },
-  { key: 'householdIncome', label: 'Annual household income', section: 'financial', acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
+  { key: 'householdIncome', label: 'Annual household income', section: 'financial', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
   { key: 'employed', label: 'Employment status', section: 'financial', acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'], hint: 'Upload a certificate of employment or your latest payslip.' },
   { key: 'honorsRank', label: 'Graduation honors', section: 'background', acceptedDocumentTypes: ['Certificate of Award'], hint: 'Upload your Certificate of Award for your honors standing.' },
   { key: 'citizenship', label: 'Citizenship', section: 'background', acceptedDocumentTypes: ['PSA Birth Certificate', 'Philippine National ID', "Driver's License", 'Passport'], hint: 'Upload a PSA birth certificate, national ID, driver’s license, or passport showing your citizenship.' },
@@ -112,6 +116,32 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
 
 export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
 export const getVerifiableAttributeOption = (key) => VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.key === key);
+
+// AdDU academic years start in June, so May 2027 belongs to 2026-2027. Shared by
+// the annual QPI records and the annual-proof expiry in src/lib/verification.js.
+export const getCurrentAcademicYear = (date = new Date()) => {
+  const year = date.getFullYear();
+  const startYear = date.getMonth() >= 5 ? year : year - 1;
+  return `${startYear}-${startYear + 1}`;
+};
+
+const NUMERIC_VERIFIABLE_ATTRIBUTE_KEYS = ['qpi', 'hsAverage', 'householdIncome'];
+
+// The comparable form of a declared attribute value. A vault document stores
+// the value it was uploaded to prove in this form (`attestedValues`), and the
+// verification helpers compare it with the current profile value the same way,
+// so "3.20" and 3.2 count as the same QPI. A blank value is null.
+export const normalizeAttestedValue = (key, value) => {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (NUMERIC_VERIFIABLE_ATTRIBUTE_KEYS.includes(key)) {
+    const number = Number(text);
+    if (!Number.isFinite(number)) return null;
+    return key === 'householdIncome' ? number : Math.round(number * 100) / 100;
+  }
+  return text;
+};
 
 // The document types a profile attribute accepts as proof, shaped as picker
 // options (`{ value, label }`). An unknown attribute yields an empty list.

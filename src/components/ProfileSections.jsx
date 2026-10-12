@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Circle, CircleCheck } from 'lucide-react';
+import { Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
 import { getAttributeVerificationTone } from '../lib/verification';
@@ -15,6 +15,7 @@ import {
   employmentOptions,
   familyPositionOptions,
   getStandingRequirements,
+  getVerifiableAttributeOption,
   honorsRankOptions,
   hsStrandOptions,
   ipCommunityOptions,
@@ -40,7 +41,7 @@ const asText = (value) => (value === undefined || value === null ? '' : String(v
 // re-syncs whenever the saved profile changes, so a successful save (or a
 // change made elsewhere, such as the Smart Eligibility Checker) never leaves a
 // stale form behind.
-function useSectionForm({ initialValues, validate, onSave, onDirtyChange }) {
+function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previewProofImpact }) {
   const initialKey = JSON.stringify(initialValues);
   // The saved values the draft was last synced to; null forces a re-sync.
   const [syncedKey, setSyncedKey] = useState(initialKey);
@@ -56,6 +57,9 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange }) {
   }
 
   const isDirty = JSON.stringify(values) !== initialKey;
+  // Attributes whose Document Vault proof this draft would make Outdated, so the
+  // form can warn before the student saves.
+  const proofWarnings = isDirty && previewProofImpact ? previewProofImpact(values) : [];
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -99,7 +103,7 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange }) {
     setStatus({ tone: 'success', message: saved.message || 'Changes saved.' });
   };
 
-  return { values, errors, status, isSaving, isDirty, update, reset, submit };
+  return { values, errors, status, isSaving, isDirty, proofWarnings, update, reset, submit };
 }
 
 function FormStatus({ status }) {
@@ -119,6 +123,7 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
       {description && <p className="-mt-1 mb-5 text-sm text-app-muted">{description}</p>}
       <form className="grid gap-5" onSubmit={form.submit} noValidate>
         {children}
+        <ProofImpactWarning warnings={form.proofWarnings} />
         <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-4">
           <Button variant="primary" type="submit" disabled={!form.isDirty || form.isSaving}>
             {form.isSaving ? 'Saving…' : submitLabel}
@@ -130,6 +135,22 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
         </div>
       </form>
     </Card>
+  );
+}
+
+// Shown while a draft would change a value that a Document Vault proof attests.
+// Saving still works: verification is informational, so this only tells the
+// student which proof will need replacing.
+function ProofImpactWarning({ warnings = [] }) {
+  if (!warnings.length) return null;
+  const labels = warnings.map(({ key, previousStatus }) => `${getVerifiableAttributeOption(key)?.label || key} (${previousStatus.toLowerCase()})`);
+  return (
+    <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-app-text">
+      <TriangleAlert size={18} className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
+      <p className="m-0">
+        Your proof for <strong>{labels.join(', ')}</strong> was uploaded for the current value. If you save this change, that proof will be marked Outdated and you will need to upload a new one in the Document Vault.
+      </p>
+    </div>
   );
 }
 
@@ -153,7 +174,7 @@ function AttributeVerification({ attributeKey, attributeVerifications = {}, onAt
     <span className="inline-flex flex-wrap items-center gap-2">
       <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
       {status !== 'Verified' && onAttachProof && (
-        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>Attach proof</button>
+        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>{status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
       )}
     </span>
   );
@@ -212,7 +233,7 @@ export function ProfileOverview({ completeness, onEditSection, attributeVerifica
                 </span>
                 <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   {showAttachProof && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : 'Attach proof'}</button>
+                    <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
                   )}
                   {showAdd && (
                     <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
@@ -368,7 +389,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function AcademicSection({ profile, academicPrograms, academicProgramCategories, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
+export function AcademicSection({ profile, academicPrograms, academicProgramCategories, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       studentNumber: asText(profile.studentNumber),
@@ -384,6 +405,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
     validate: (values) => validateAcademicSection(values, academicPrograms),
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
   // The standing decides which fields apply: an incoming first-year reports
@@ -443,7 +465,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   );
 }
 
-export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
+export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       householdIncome: asText(profile.householdIncome),
@@ -455,6 +477,7 @@ export function FinancialSection({ profile, onSave, onDirtyChange, attributeVeri
     validate: validateFinancialSection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
 
@@ -475,7 +498,7 @@ export function FinancialSection({ profile, onSave, onDirtyChange, attributeVeri
   );
 }
 
-export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
+export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       citizenship: asText(profile.citizenship),
@@ -493,6 +516,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
     validate: validateBackgroundSection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });

@@ -1,5 +1,5 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
-import { pickEligibilityAttributes } from './profile';
+import { getCurrentAcademicYear, pickEligibilityAttributes } from './profile';
 
 const getAuthErrorMessage = (error, fallbackMessage) => {
   if (!error) return fallbackMessage;
@@ -195,12 +195,6 @@ export const getUserProfile = async (userId) => {
   } catch (error) {
     return { profile: null, fallback: false, message: getAuthErrorMessage(error, 'Unable to load your profile.') };
   }
-};
-
-const getCurrentAcademicYear = (date = new Date()) => {
-  const year = date.getFullYear();
-  const startYear = date.getMonth() >= 5 ? year : year - 1;
-  return `${startYear}-${startYear + 1}`;
 };
 
 export const updateUserProfile = async (userId, { degreeProgram, department, studentNumber, qpi, householdIncome, hasActiveGovernmentGrant, phone }) => {

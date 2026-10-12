@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveYearStanding,
+  getCurrentAcademicYear,
   getProfileCompleteness,
+  normalizeAttestedValue,
   getStandingRequirements,
   pickEligibilityAttributes,
   pickFields,
@@ -304,5 +306,30 @@ describe('validateOnboardingEssentials', () => {
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, programs).errors).toEqual({});
     expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
     expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toMatch(/Philippine mobile/);
+  });
+});
+
+describe('getCurrentAcademicYear', () => {
+  it('starts the academic year in June', () => {
+    expect(getCurrentAcademicYear(new Date(2026, 4, 31))).toBe('2025-2026');
+    expect(getCurrentAcademicYear(new Date(2026, 5, 1))).toBe('2026-2027');
+  });
+});
+
+describe('normalizeAttestedValue', () => {
+  it('compares numeric attributes by value', () => {
+    expect(normalizeAttestedValue('qpi', '3.20')).toBe(3.2);
+    expect(normalizeAttestedValue('qpi', 3.456)).toBe(3.46);
+    expect(normalizeAttestedValue('hsAverage', '92')).toBe(92);
+    expect(normalizeAttestedValue('householdIncome', '250000')).toBe(250000);
+    expect(normalizeAttestedValue('qpi', 'abc')).toBeNull();
+  });
+
+  it('trims option answers and maps blanks to null', () => {
+    expect(normalizeAttestedValue('citizenship', ' Filipino ')).toBe('Filipino');
+    expect(normalizeAttestedValue('pwd', 'No')).toBe('No');
+    expect(normalizeAttestedValue('employed', '')).toBeNull();
+    expect(normalizeAttestedValue('qpi', null)).toBeNull();
+    expect(normalizeAttestedValue('honorsRank', undefined)).toBeNull();
   });
 });
