@@ -9,6 +9,7 @@ import {
   getScholarshipAcademicDisplay,
   isInternalScholarship,
 } from '../src/lib/eligibility';
+import { getProfileSectionForField } from '../src/lib/profile';
 
 const eligibleProfile = {
   qpi: 3.2,
@@ -157,5 +158,36 @@ describe('academic requirements by year standing', () => {
     // Honors and work-study gate on other criteria, so they show no academic chip.
     expect(getScholarshipAcademicDisplay({ yearStanding: '2nd' }, { ruleFamily: 'honors' })).toBeNull();
     expect(getScholarshipAcademicDisplay({ yearStanding: '2nd' }, { ruleFamily: 'work-study' })).toBeNull();
+  });
+});
+
+// Each failed check carries the profile field that resolves it, so the Smart
+// Eligibility Checker can link the reason to its My Profile section.
+describe('eligibility issues link to My Profile sections', () => {
+  const fieldsOf = (result) => result.issues.map((item) => item.field);
+
+  it('keeps reasons identical to the issue messages', () => {
+    const result = evaluateApplicationGate({ ...eligibleProfile, qpi: 2.2, householdIncome: 400000 }, scholarship);
+    expect(result.reasons).toEqual(result.issues.map((item) => item.message));
+  });
+
+  it('tags the academic and income reasons with their profile fields', () => {
+    expect(fieldsOf(evaluateApplicationGate({ ...eligibleProfile, qpi: 2.2 }, scholarship))).toContain('qpi');
+    expect(fieldsOf(evaluateApplicationGate({ ...eligibleProfile, householdIncome: null }, scholarship))).toContain('householdIncome');
+    expect(fieldsOf(evaluateApplicationGate({ ...incomingFirstYear, hsAverage: 80 }, scholarship))).toContain('hsAverage');
+  });
+
+  it('tags the Jubilee honors criteria and maps them to Eligibility background', () => {
+    const fields = fieldsOf(evaluateApplicationGate(eligibleProfile, { title: 'Jubilee Scholarship', isActive: true }));
+    expect(fields).toEqual(expect.arrayContaining(['honorsRank', 'graduatingClassSize']));
+    expect(getProfileSectionForField('honorsRank')).toMatchObject({ key: 'background' });
+    expect(getProfileSectionForField('householdIncome')).toMatchObject({ key: 'financial' });
+    expect(getProfileSectionForField('qpi')).toMatchObject({ key: 'academic' });
+  });
+
+  it('leaves a closed deadline without a profile link', () => {
+    const result = evaluateApplicationGate(eligibleProfile, { ...scholarship, isActive: false });
+    expect(result.issues).toContainEqual({ message: 'Inactive or past deadline.', field: null });
+    expect(getProfileSectionForField(null)).toBeNull();
   });
 });

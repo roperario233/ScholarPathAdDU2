@@ -154,6 +154,9 @@ function App() {
   // When the My Profile "Attach proof" link opens the vault it carries the
   // profile attribute so the upload form opens on the accepted document types.
   const [vaultPresetAttribute, setVaultPresetAttribute] = useState('');
+  // The My Profile section to open on, set when the Smart Eligibility Checker
+  // links a failed reason to the section that edits it.
+  const [profilePresetSection, setProfilePresetSection] = useState('');
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
   const [openApplicationId, setOpenApplicationId] = useState(null);
@@ -418,6 +421,7 @@ function App() {
   // "Attach proof" link passes the attribute so the upload form opens on it.
   const navigate = (view, options = {}) => {
     setVaultPresetAttribute(view === 'vault' ? (options.attribute || '') : '');
+    setProfilePresetSection(view === 'profile' ? (options.section || '') : '');
     setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
     updateState({ activeView: view });
     setIsMobileNavOpen(false);
@@ -1497,6 +1501,7 @@ function App() {
               onSearchChange={(value) => updateState({ searchQuery: value })}
               onFilterChange={(patch) => updateState((previous) => ({ filters: { ...previous.filters, ...patch } }))}
               onApply={applyToScholarship}
+              onOpenProfileSection={(section) => navigate('profile', { section })}
             />
           )}
 
@@ -1565,6 +1570,7 @@ function App() {
               roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
               academicProgramCategories={activeAcademicProgramCategories}
+              initialSection={profilePresetSection}
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Award, GraduationCap, LayoutDashboard, MapPin, ShieldCheck, UserRound, Users, Wallet } from 'lucide-react';
 import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancialSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
 import { getProfileCompleteness } from '../lib/profile';
@@ -21,15 +21,31 @@ export default function ProfileView({
   academicPrograms = [],
   academicProgramCategories = [],
   attributeVerifications = {},
+  initialSection = '',
   onSaveProfile,
   onChangePassword,
   onRequestPasswordReset,
   onAttachProof,
 }) {
-  const [activeSection, setActiveSection] = useState('overview');
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
+  // A Smart Eligibility Checker link opens the section that edits the failed
+  // answer; any other entry, or a section this role cannot see, opens Overview.
+  const [activeSection, setActiveSection] = useState(() => (
+    visibleSections.some((section) => section.key === initialSection) ? initialSection : 'overview'
+  ));
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const sectionContentRef = useRef(null);
+
+  // Below `xl` the section menu sits above the form, so bring the linked
+  // section's fields into view instead of leaving the student on the menu.
+  useEffect(() => {
+    if (activeSection !== 'overview' && activeSection === initialSection) {
+      sectionContentRef.current?.scrollIntoView({ block: 'start' });
+    }
+    // Runs once on mount: the view remounts on every navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const completeness = getProfileCompleteness(profile, role);
   const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof };
 
@@ -72,7 +88,7 @@ export default function ProfileView({
           })}
         </nav>
 
-        <div className="min-w-0">
+        <div ref={sectionContentRef} className="min-w-0 scroll-mt-4">
           {activeSection === 'overview' && (
             <ProfileOverview
               profile={profile}

@@ -59,6 +59,31 @@ export const STAFF_EDITABLE_FIELD_KEYS = ['fullName', 'phone', 'bio'];
 // Core profile fields mirrored into `profileDraft` for eligibility matching.
 export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'hasActiveGovernmentGrant'];
 
+// The My Profile section that edits each eligibility field, so a failed Smart
+// Eligibility Checker reason can link straight to where the student fixes it.
+// The keys match the `issues[].field` tags in src/lib/eligibility.js and the
+// section keys in src/pages/ProfileView.jsx.
+const ACADEMIC_PROFILE_SECTION = { key: 'academic', label: 'Academic profile' };
+const FINANCIAL_PROFILE_SECTION = { key: 'financial', label: 'Household and financial aid' };
+const BACKGROUND_PROFILE_SECTION = { key: 'background', label: 'Eligibility background' };
+export const ELIGIBILITY_FIELD_PROFILE_SECTIONS = {
+  yearStanding: ACADEMIC_PROFILE_SECTION,
+  degreeProgram: ACADEMIC_PROFILE_SECTION,
+  academicStanding: ACADEMIC_PROFILE_SECTION,
+  qpi: ACADEMIC_PROFILE_SECTION,
+  hsAverage: ACADEMIC_PROFILE_SECTION,
+  hsStrand: ACADEMIC_PROFILE_SECTION,
+  householdIncome: FINANCIAL_PROFILE_SECTION,
+  hasOtherActiveScholarship: FINANCIAL_PROFILE_SECTION,
+  hasSiblingOnAid: FINANCIAL_PROFILE_SECTION,
+  isOnPrepaidPlan: FINANCIAL_PROFILE_SECTION,
+  citizenship: BACKGROUND_PROFILE_SECTION,
+  honorsRank: BACKGROUND_PROFILE_SECTION,
+  graduatingClassSize: BACKGROUND_PROFILE_SECTION,
+  sponsorTies: BACKGROUND_PROFILE_SECTION,
+};
+export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_PROFILE_SECTIONS[field]) || null;
+
 // Profile attributes that support verification through the Document Vault. A
 // student uploads one proof document for an attribute and the Admissions Office
 // verifies it; the attribute state is then derived from the linked documents
