@@ -8,7 +8,8 @@ import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordFor
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -153,6 +154,9 @@ function App() {
   // When the My Profile "Attach proof" link opens the vault it carries the
   // profile attribute so the upload form opens on the accepted document types.
   const [vaultPresetAttribute, setVaultPresetAttribute] = useState('');
+  // The draft the application workspace opens on, set when a student starts an
+  // application from the explorer or continues one from the dashboard.
+  const [openApplicationId, setOpenApplicationId] = useState(null);
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -414,6 +418,7 @@ function App() {
   // "Attach proof" link passes the attribute so the upload form opens on it.
   const navigate = (view, options = {}) => {
     setVaultPresetAttribute(view === 'vault' ? (options.attribute || '') : '');
+    setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
     updateState({ activeView: view });
     setIsMobileNavOpen(false);
   };
@@ -622,83 +627,186 @@ function App() {
     setIsSavingProfile(false);
   };
 
-  const applyToScholarship = (scholarship, qualificationProfile = studentMatchProfile) => {
-    if (isInternalScholarship(scholarship)) {
+  // Starting an application creates a Draft and opens the application
+  // workspace on it. An AdDU internal entry asks for its required documents
+  // (src/lib/applicationRequirements.js) and pre-attaches matching vault files the
+  // student already uploaded; an external or government-linked entry is tracked
+  // only, because the student applies through the provider.
+  const applyToScholarship = async (scholarship, qualificationProfile = studentMatchProfile) => {
+    const isInternal = isInternalScholarship(scholarship);
+    if (isInternal) {
       const gateResult = evaluateApplicationGate(qualificationProfile, scholarship);
       if (!gateResult.allowed) return gateResult;
     }
 
-    const alreadyExists = state.applications.some((entry) => entry.scholarshipId === scholarship.id && entry.studentId === currentProfile.id);
-    if (alreadyExists) return { allowed: false, reasons: ['You already have an application for this scholarship.'] };
+    const existing = state.applications.find((entry) => entry.scholarshipId === scholarship.id && entry.studentId === currentProfile.id);
+    if (existing) {
+      navigate('applications', { applicationId: existing.status === 'Draft' && isInternal ? existing.id : null });
+      return { allowed: false, reasons: ['You already have an application for this scholarship.'] };
+    }
+    if (!isSupabaseWorkspaceLoaded) return { allowed: false, reasons: ['Supabase is not configured, so the application could not be created.'] };
 
-    const eligibleDocs = studentDocuments.filter((doc) => doc.verificationStatus === 'Verified').map((doc) => doc.id);
+    const requirements = getScholarshipRequirements(scholarship, qualificationProfile);
+    const attachedDocuments = isInternal ? pickDefaultAttachments(requirements, studentDocuments) : [];
     const nextApplication = {
-      id: `app-${crypto.randomUUID()}`,
+      id: crypto.randomUUID(),
       studentId: currentProfile.id,
       scholarshipId: scholarship.id,
       scholarshipTitle: scholarship.title,
       status: 'Draft',
-      documentStatus: eligibleDocs.length ? 'Verified' : 'Pending',
+      documentStatus: 'Pending',
       submittedAt: null,
       updatedAt: new Date().toISOString().slice(0, 10),
-      attachedDocuments: eligibleDocs,
-      notes: 'Created from the scholarship explorer.',
+      attachedDocuments,
+      notes: isInternal
+        ? 'Created from the scholarship explorer.'
+        : 'Tracked from the scholarship explorer. Apply through the provider.',
+      // The scholarship essay from My Profile is the starting statement.
+      statement: isInternal ? String(state.profileDraft?.essay || '') : '',
+      profileSnapshot: null,
+      certifiedAt: null,
+      timeline: [],
     };
 
-    if (isSupabaseWorkspaceLoaded) createSupabaseApplication({
+    const result = await createSupabaseApplication({
+      id: nextApplication.id,
       studentId: currentProfile.id,
       scholarshipId: scholarship.id,
       documentStatus: nextApplication.documentStatus,
-      attachedDocuments: eligibleDocs,
+      attachedDocuments,
       notes: nextApplication.notes,
+      statement: nextApplication.statement,
     });
+    if (result.error && !result.data) {
+      return { allowed: false, reasons: [result.error.message || 'The application could not be created.'] };
+    }
+    // The row exists but a document link failed; keep the draft and let the
+    // student attach the files again from the workspace.
+    if (result.error) nextApplication.attachedDocuments = [];
 
     setState((previous) => ({
       ...previous,
       applications: [nextApplication, ...previous.applications],
       notifications: prependInAppNotification(previous, {
         id: `not-${crypto.randomUUID()}`,
-        title: `${scholarship.title} added to your tracker`,
+        title: isInternal ? `${scholarship.title} application started` : `${scholarship.title} added to your tracker`,
         channel: 'In-app',
-        body: `A new draft application was created and linked to your document vault.`,
+        body: isInternal
+          ? `Attach the ${requirements.length} required documents from your Document Vault, then review and submit your application.`
+          : 'This program is tracked only. Apply through the provider and keep its deadline on your calendar.',
         status: 'Unread',
         createdAt: new Date().toISOString().slice(0, 10),
       }),
-      activeView: 'applications',
     }));
+    navigate('applications', { applicationId: isInternal ? nextApplication.id : null });
     return { allowed: true, reasons: [] };
   };
 
-  const submitApplication = (applicationId) => {
+  const findOwnDraft = (applicationId) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Draft') return;
+    if (!application || application.studentId !== currentProfile.id || application.status !== 'Draft') return null;
+    return application;
+  };
+
+  const setApplicationAttachments = (applicationId, update) => setState((previous) => ({
+    ...previous,
+    applications: previous.applications.map((entry) => entry.id === applicationId ? {
+      ...entry,
+      attachedDocuments: update(entry.attachedDocuments || []),
+      updatedAt: new Date().toISOString().slice(0, 10),
+    } : entry),
+  }));
+
+  // Attaching links an existing vault file; the same file can back several
+  // applications (Document Vault reuse). Links are Draft-only on the server.
+  const attachDocumentToApplication = async (applicationId, documentId) => {
+    const application = findOwnDraft(applicationId);
+    if (!application || !studentDocuments.some((doc) => doc.id === documentId)) return { error: 'This document cannot be attached.' };
+    if ((application.attachedDocuments || []).includes(documentId)) return { ok: true };
+    const result = await attachSupabaseApplicationDocument(applicationId, documentId);
+    if (result.error) return { error: result.error.message || 'The document could not be attached.' };
+    setApplicationAttachments(applicationId, (ids) => (ids.includes(documentId) ? ids : [...ids, documentId]));
+    return { ok: true };
+  };
+
+  const detachDocumentFromApplication = async (applicationId, documentId) => {
+    if (!findOwnDraft(applicationId)) return { error: 'Only a draft application can change its documents.' };
+    const result = await detachSupabaseApplicationDocument(applicationId, documentId);
+    if (result.error) return { error: result.error.message || 'The document could not be removed.' };
+    setApplicationAttachments(applicationId, (ids) => ids.filter((id) => id !== documentId));
+    return { ok: true };
+  };
+
+  // Uploading from the application workspace still lands the file in the
+  // Document Vault first, so it stays reusable for later applications.
+  const uploadAndAttachDocument = async (applicationId, { file, documentType }) => {
+    if (!findOwnDraft(applicationId)) return { error: 'Only a draft application can change its documents.' };
+    const upload = await uploadVaultDocument({ file, documentType });
+    if (upload.error) return upload;
+    const result = await attachSupabaseApplicationDocument(applicationId, upload.document.id);
+    if (result.error) return { error: `${upload.document.title} was saved to your Document Vault but could not be attached. Choose it from the vault to try again.` };
+    setApplicationAttachments(applicationId, (ids) => [...ids, upload.document.id]);
+    return { ok: true };
+  };
+
+  const saveApplicationDraft = async (applicationId, { statement }) => {
+    if (!findOwnDraft(applicationId)) return { error: 'Only a draft application can be edited.' };
+    const result = await updateSupabaseApplicationDraft(applicationId, { statement });
+    if (result.error) return { error: result.error.message || 'The draft could not be saved.' };
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => entry.id === applicationId ? { ...entry, statement, updatedAt: new Date().toISOString().slice(0, 10) } : entry),
+    }));
+    return { ok: true };
+  };
+
+  // Submission is gated on the same readiness check the workspace shows, then
+  // persisted together with the frozen profile snapshot and certification. The
+  // server repeats the gate (enforce_student_application_update), so the local
+  // row changes only after the write succeeds.
+  const submitApplication = async (applicationId, { statement, certified } = {}) => {
+    const draft = findOwnDraft(applicationId);
+    if (!draft) return { error: 'Only a draft application can be submitted.' };
+    const application = { ...draft, statement: statement ?? draft.statement };
+    const scholarship = scholarshipCatalog.find((entry) => entry.id === application.scholarshipId);
+    const readiness = getApplicationReadiness({ application, scholarship, documents: studentDocuments, profile: studentMatchProfile, certified });
+    if (readiness.route !== 'internal') return { error: 'This program is tracked only. Apply through the provider.' };
+    if (!readiness.ready) return { error: readiness.blockers[0], blockers: readiness.blockers };
+
     const submittedAt = new Date().toISOString();
     const submitEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: 'Submitted',
-      note: 'Student submitted the draft application to the Admissions Office for review.',
+      note: `Student certified and submitted the application with ${readiness.attachedCount} of ${readiness.requiredCount} required documents attached.`,
       actor: 'Student',
       at: submittedAt.slice(0, 10),
     };
-    if (isSupabaseWorkspaceLoaded) {
-      // Persist the submission event and status before sending the status alert.
-      Promise.resolve(submitSupabaseApplication(applicationId, [...(application.timeline || []), submitEvent]))
-        .then((result) => {
-          if (!result?.error) return notifySupabaseApplicationStatus(applicationId);
-          return undefined;
-        })
-        .catch(() => undefined);
-    }
+    const profileSnapshot = buildProfileSnapshot(studentMatchProfile, attributeVerifications, submittedAt);
+    const timeline = [...(application.timeline || []), submitEvent];
+    const result = await submitSupabaseApplication(applicationId, {
+      timeline,
+      statement: application.statement,
+      profileSnapshot,
+      certifiedAt: submittedAt,
+    });
+    if (result?.error) return { error: result.error.message || 'The application could not be submitted.' };
+    // Send the status alert only after the submission is persisted.
+    notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+
     setState((previous) => ({
       ...previous,
       applications: previous.applications.map((entry) => entry.id === applicationId ? {
         ...entry,
         status: 'Submitted',
+        statement: application.statement,
+        profileSnapshot,
+        certifiedAt: submittedAt,
         submittedAt: entry.submittedAt ?? submittedAt.slice(0, 10),
-        updatedAt: new Date().toISOString().slice(0, 10),
-        timeline: [...(entry.timeline || []), submitEvent],
+        updatedAt: submittedAt.slice(0, 10),
+        timeline,
       } : entry),
     }));
+    return { ok: true };
   };
 
   const changeApplicationStatus = (applicationId, status, options = {}) => {
@@ -900,10 +1008,24 @@ function App() {
     }));
   };
 
-  const deleteDocument = (documentId) => {
+  const deleteDocument = async (documentId) => {
     const documentToDelete = state.documents.find((entry) => entry.id === documentId);
-    if (!documentToDelete || !window.confirm(`Delete “${documentToDelete.title}” from your vault?`)) return;
-    if (isSupabaseWorkspaceLoaded) deleteSupabaseDocument(documentId, documentToDelete.storagePath);
+    if (!documentToDelete) return;
+    // A submitted application's reviewers rely on its attached files, so only
+    // files used by drafts (or by nothing) can be deleted.
+    const lockedBy = state.applications.find((entry) => entry.status !== 'Draft' && (entry.attachedDocuments || []).includes(documentId));
+    if (lockedBy) {
+      window.alert(`“${documentToDelete.title}” is attached to your submitted ${lockedBy.scholarshipTitle} application, so it cannot be deleted.`);
+      return;
+    }
+    if (!window.confirm(`Delete “${documentToDelete.title}” from your vault?`)) return;
+    if (isSupabaseWorkspaceLoaded) {
+      const result = await deleteSupabaseDocument(documentId, documentToDelete.storagePath);
+      if (result?.error) {
+        window.alert(result.error.message || 'The document could not be deleted.');
+        return;
+      }
+    }
     setState((previous) => ({
       ...previous,
       documents: previous.documents.filter((entry) => entry.id !== documentId),
@@ -915,21 +1037,19 @@ function App() {
     }));
   };
 
-  const addDocument = async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const file = formData.get('documentFile');
+  // Uploads one file into the Document Vault. Used by the vault's own form and
+  // by the application workspace, which attaches the new file afterwards.
+  const uploadVaultDocument = async ({ file, documentType: rawDocumentType, attributeKey: rawAttributeKey = '' }) => {
     if (!(file instanceof File) || !file.name.trim()) return { error: 'Choose a file to upload.' };
     if (file.size > DOCUMENT_MAX_BYTES) return { error: 'Files must be 10 MB or smaller.' };
     if (!isSupabaseWorkspaceLoaded) return { error: 'Supabase is not configured, so the document could not be uploaded.' };
 
     const fileName = file.name.trim();
-    const documentType = String(formData.get('documentType') || 'Supporting Document');
+    const documentType = String(rawDocumentType || 'Supporting Document');
     // The vault derives the title from the attribute the file proves and its
     // document type, so there is no free-text title. A blank attribute means a
     // general application document with no profile-attribute link.
-    const attributeKey = String(formData.get('documentAttribute') || '').trim();
+    const attributeKey = String(rawAttributeKey || '').trim();
     const linkedAttributes = attributeKey ? [attributeKey] : [];
     // A real uuid so the row, the storage path, and application_documents links
     // all share the same identifier.
@@ -975,6 +1095,19 @@ function App() {
       }),
     }));
 
+    return { ok: true, document: { ...nextDocument, storagePath: result.data?.storage_path ?? null } };
+  };
+
+  const addDocument = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const formData = new FormData(form);
+    const result = await uploadVaultDocument({
+      file: formData.get('documentFile'),
+      documentType: formData.get('documentType'),
+      attributeKey: formData.get('documentAttribute'),
+    });
+    if (result.error) return result;
     form.reset();
     return { ok: true };
   };
@@ -1346,6 +1479,7 @@ function App() {
               onTrackScholarship={applyToScholarship}
               onMarkRead={markNotificationRead}
               onShowApplications={() => navigate('applications')}
+              onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
               onOpenCalendar={() => navigate('calendar')}
               onOpenAdmin={() => navigate('admin')}
               onOpenReview={() => navigate('review')}
@@ -1367,17 +1501,27 @@ function App() {
           )}
 
           {state.activeView === 'applications' && (
-              <ApplicationsViewPage
+            <ApplicationsViewPage
               applications={studentApplications}
               documents={studentDocuments}
-              scholarships={scholarshipCatalog}
+              scholarships={state.scholarships || []}
+              profile={studentMatchProfile}
+              attributeVerifications={attributeVerifications}
+              openApplicationId={openApplicationId}
+              onOpenApplication={setOpenApplicationId}
+              onAttach={attachDocumentToApplication}
+              onDetach={detachDocumentFromApplication}
+              onUploadAndAttach={uploadAndAttachDocument}
+              onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
+              onOpenProfile={() => navigate('profile')}
             />
           )}
 
           {state.activeView === 'vault' && state.viewerRole === 'student' && (
             <DocumentVaultViewPage
               documents={studentDocuments}
+              applications={studentApplications}
               onUpload={addDocument}
               onDelete={deleteDocument}
               presetAttribute={vaultPresetAttribute}
@@ -1407,6 +1551,7 @@ function App() {
               profile={currentProfile}
               queue={departmentQueue}
               documents={state.documents}
+              scholarships={state.scholarships || []}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onFlagForValidation={flagApplicationForValidation}

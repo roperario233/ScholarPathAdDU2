@@ -2,86 +2,79 @@ import { useState } from 'react';
 import { EmptyState } from '../components/pageParts';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { coverageTypes } from '../lib/constants';
-import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, isInternalScholarship } from '../lib/eligibility';
+import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
+import { getScholarshipRequirements } from '../lib/applicationRequirements';
 
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply }) {
   const [expandedEligibilityId, setExpandedEligibilityId] = useState(null);
+  const [applyErrors, setApplyErrors] = useState({});
+  const handleApply = async (scholarship) => {
+    setApplyErrors((previous) => ({ ...previous, [scholarship.id]: '' }));
+    const result = await onApply(scholarship);
+    if (result && !result.allowed && result.reasons?.length) setApplyErrors((previous) => ({ ...previous, [scholarship.id]: result.reasons[0] }));
+  };
   const activeFilterCount = [filters.category, filters.coverage, filters.deadline].filter((value) => value !== 'all').length + (filters.activeOnly ? 1 : 0);
 
   return (
     <div className="grid gap-4">
-      <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row">
-        <div className="page-title-copy">
+      <section className="explorer-filters grid gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
+        <div className="explorer-filter-head">
           <span className="page-section-label">Scholarship explorer</span>
-          <h2>Find scholarships that fit your goals</h2>
-        </div>
-        <div className="grid w-full gap-3 sm:grid-cols-3 md:w-auto text-center">
-          <div className="page-metric">
-            <strong>{scholarships.length}</strong>
-            <span>Visible programs</span>
-          </div>
-          <div className="page-metric">
-            <strong>{profile.hasActiveGovernmentGrant ? 'Gov grant active' : 'No gov grant'}</strong>
-            <span>Exclusion logic status</span>
-          </div>
-          <div className="page-metric">
-            <strong>{activeFilterCount}</strong>
-            <span>Active filters</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="explorer-filters rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
-        <div className="explorer-search-row">
           <label className="explorer-search-field">
-            <span className="text-sm font-semibold text-app-text">Search scholarships</span>
-            <input value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search by name, category, coverage, or origin" />
+            <span className="sr-only">Search scholarships</span>
+            <input value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search by name, category, coverage, or origin" aria-label="Search scholarships" />
           </label>
-          <div className="explorer-filter-summary" aria-live="polite">
-            <strong>{activeFilterCount ? `${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} applied` : 'Browse all programs'}</strong>
-            <span>{scholarships.length} matching program{scholarships.length === 1 ? '' : 's'}</span>
+        </div>
+        <div className="explorer-filter-toolbar">
+          <div className="explorer-filter-slot">
+            <SelectPicker
+              label="Category"
+              value={filters.category}
+              onChange={(value) => onFilterChange({ category: value })}
+              options={[
+                { value: 'all', label: 'All categories' },
+                { value: 'Internal Endowment', label: 'Internal Endowment' },
+                { value: 'Corporate & External', label: 'Corporate & External' },
+                { value: 'State-Sponsored', label: 'State-Sponsored' },
+                { value: 'Specialized Service', label: 'Specialized Service' },
+              ]}
+              idPrefix="explorer-category"
+            />
           </div>
+          <div className="explorer-filter-slot">
+            <SelectPicker
+              label="Coverage"
+              value={filters.coverage}
+              onChange={(value) => onFilterChange({ coverage: value })}
+              options={coverageTypes.map((item) => ({ value: item, label: item === 'all' ? 'All coverage' : item }))}
+              idPrefix="explorer-coverage"
+            />
+          </div>
+          <div className="explorer-filter-slot">
+            <SelectPicker
+              label="Deadline"
+              value={filters.deadline}
+              onChange={(value) => onFilterChange({ deadline: value })}
+              options={[
+                { value: 'all', label: 'Any deadline' },
+                { value: 'open', label: 'Open only' },
+                { value: 'urgent', label: 'Urgent only' },
+                { value: 'closed', label: 'Closed only' },
+              ]}
+              idPrefix="explorer-deadline"
+            />
+          </div>
+          <label className="explorer-active-only">
+            <input type="checkbox" checked={filters.activeOnly} onChange={(event) => onFilterChange({ activeOnly: event.target.checked })} />
+            Active only
+          </label>
+          {(activeFilterCount > 0 || searchQuery) && <button type="button" className="explorer-reset-button" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Clear filters</button>}
         </div>
-        <div className="explorer-filter-grid">
-        <SelectPicker
-          label="Category"
-          value={filters.category}
-          onChange={(value) => onFilterChange({ category: value })}
-          options={[
-            { value: 'all', label: 'All categories' },
-            { value: 'Internal Endowment', label: 'Internal Endowment' },
-            { value: 'Corporate & External', label: 'Corporate & External' },
-            { value: 'State-Sponsored', label: 'State-Sponsored' },
-            { value: 'Specialized Service', label: 'Specialized Service' },
-          ]}
-          idPrefix="explorer-category"
-        />
-        <SelectPicker
-          label="Coverage"
-          value={filters.coverage}
-          onChange={(value) => onFilterChange({ coverage: value })}
-          options={coverageTypes.map((item) => ({ value: item, label: item === 'all' ? 'All coverage' : item }))}
-          idPrefix="explorer-coverage"
-        />
-        <SelectPicker
-          label="Deadline"
-          value={filters.deadline}
-          onChange={(value) => onFilterChange({ deadline: value })}
-          options={[
-            { value: 'all', label: 'Any deadline' },
-            { value: 'open', label: 'Open only' },
-            { value: 'urgent', label: 'Urgent only' },
-            { value: 'closed', label: 'Closed only' },
-          ]}
-          idPrefix="explorer-deadline"
-        />
-        <label className="inline-flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-semibold text-app-text">
-          <input type="checkbox" checked={filters.activeOnly} onChange={(event) => onFilterChange({ activeOnly: event.target.checked })} />
-          Active only
-        </label>
-        {(activeFilterCount > 0 || searchQuery) && <button type="button" className="explorer-reset-button" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Clear filters</button>}
-        </div>
+        <p className="explorer-filter-caption" aria-live="polite">
+          <span><strong>{scholarships.length}</strong> matching program{scholarships.length === 1 ? '' : 's'}{activeFilterCount ? ` · ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'} applied` : ' · Browse all programs'}</span>
+          <span className="explorer-govgrant-chip">{profile.hasActiveGovernmentGrant ? 'Gov grant active' : 'No active gov grant'}</span>
+        </p>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -89,10 +82,12 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
           const deadline = getDeadlineStatus(scholarship.deadline);
           const isInternal = isInternalScholarship(scholarship);
           const gateResult = isInternal ? evaluateApplicationGate(profile, scholarship) : null;
+          const academicDisplay = getScholarshipAcademicDisplay(profile, scholarship);
           const isEligibilityExpanded = String(expandedEligibilityId) === String(scholarship.id);
           const eligibilityResult = isInternal
             ? evaluateScholarship(profile, scholarship)
             : null;
+          const requirements = isInternal ? getScholarshipRequirements(scholarship, profile) : [];
           return (
             <article key={scholarship.id} className="rounded-app border bg-app-card p-5 shadow-app backdrop-blur scholarship-card">
                 <div className="flex min-w-0 items-start justify-between gap-4">
@@ -106,7 +101,11 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
               <p className="scholarship-card-coverage">{scholarship.coverage}</p>
 
               <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted">
-                <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
+                {academicDisplay
+                  ? <span><strong>{academicDisplay.label}</strong> {academicDisplay.floorLabel}+</span>
+                  : scholarship.minimumQpi != null
+                    ? <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
+                    : null}
                 <span><strong>Income</strong> ≤ {fmtCurrency(scholarship.maximumIncome)}</span>
                 <span><strong>Deadline</strong> {fmtDate(scholarship.deadline)}</span>
                 <span><strong>Degrees</strong> {scholarship.ruleFamily === 'work-study' || scholarship.eligibleDegrees.includes('ALL') ? 'All programs' : scholarship.eligibleDegrees.length}</span>
@@ -149,7 +148,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                           : DENIAL_MESSAGE}
                       </p>
                       <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-app-muted">
-                        <span><strong>Minimum QPI:</strong> {scholarship.minimumQpi ?? 'See program rules'}</span>
+                        <span><strong>{academicDisplay ? academicDisplay.detailLabel : 'Minimum QPI'}:</strong> {academicDisplay ? academicDisplay.floorLabel : (scholarship.minimumQpi ?? 'See program rules')}</span>
                         <span><strong>Maximum household income:</strong> {scholarship.maximumIncome == null ? 'See program rules' : fmtCurrency(scholarship.maximumIncome)}</span>
                         <span><strong>Degree scope:</strong> {scholarship.ruleFamily === 'work-study' || scholarship.eligibleDegrees?.includes('ALL') ? 'All programs' : scholarship.eligibleDegrees?.length ? `${scholarship.eligibleDegrees.length} eligible program(s)` : 'See program rules'}</span>
                       </div>
@@ -161,6 +160,15 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                       {eligibilityResult?.infoNotes?.map((note) => (
                         <p key={note} className="m-0 text-xs text-app-muted">{note}</p>
                       ))}
+                      {requirements.length > 0 && (
+                        <div className="grid gap-1 border-t border-app-border/60 pt-3">
+                          <strong className="text-xs text-app-text">Required documents ({requirements.length})</strong>
+                          <ul className="m-0 grid gap-0.5 pl-5 text-xs text-app-muted">
+                            {requirements.map((item) => <li key={item.id}>{item.label}</li>)}
+                          </ul>
+                          <span className="text-xs text-app-muted">You attach these from your Document Vault before submitting.</span>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <p className="m-0 text-sm text-app-muted">
@@ -172,9 +180,9 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                     <button
                       type="button"
                       className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-                      onClick={() => onApply(scholarship)}
+                      onClick={() => handleApply(scholarship)}
                     >
-                      Add to applications
+                      Start application
                     </button>
                   )}
                 </section>
@@ -184,11 +192,12 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                 <button
                   type="button"
                   className="mt-2 inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-                  onClick={() => onApply(scholarship)}
+                  onClick={() => handleApply(scholarship)}
                 >
-                  Add to applications
+                  Track this program
                 </button>
               )}
+              {applyErrors[scholarship.id] ? <p className="form-error m-0 mt-2" role="alert">{applyErrors[scholarship.id]}</p> : null}
             </article>
           );
         }) : <EmptyState title="No scholarships match your filters" description="Relax the filters or use a broader search term to surface more programs." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Reset filters</button>} />}

@@ -2,20 +2,11 @@ import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
-import { getNextApplicationStatuses, getDocumentTypeLabel, sopRequiredDocuments, verificationStatuses } from '../lib/constants';
+import { ProfileSnapshotList, RequirementChecklist } from './ApplicationParts';
+import { getNextApplicationStatuses, getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
+import { getApplicationReadiness } from '../lib/applicationRequirements';
 import { getApplicationProgress } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
-
-const sopCheckState = (application, documents, required) => {
-  const linked = (application.attachedDocuments || [])
-    .map((id) => documents.find((doc) => doc.id === id))
-    .filter(Boolean);
-  const matched = linked.filter((doc) => doc.documentType === required.type);
-  if (!matched.length) return { label: 'Not submitted', tone: 'neutral' };
-  if (matched.some((doc) => doc.verificationStatus === 'Verified')) return { label: 'Verified', tone: 'success' };
-  if (matched.some((doc) => doc.verificationStatus === 'Rejected')) return { label: 'Rejected', tone: 'danger' };
-  return { label: 'Pending review', tone: 'warning' };
-};
 
 const DetailRow = ({ label, value }) => (
   <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 py-2 last:border-b-0">
@@ -24,11 +15,10 @@ const DetailRow = ({ label, value }) => (
   </div>
 );
 
-const sopTones = { success: 'success', danger: 'danger', warning: 'warning', neutral: 'neutral' };
-
 // Shared SOP review surface for the Admissions Office and Department Chairs.
 export default function ApplicationReviewModal({
   application,
+  scholarship,
   documents,
   role,
   onClose,
@@ -49,6 +39,14 @@ export default function ApplicationReviewModal({
     .map((id) => documents.find((doc) => doc.id === id))
     .filter(Boolean);
   const isAdmissionsOffice = role === 'admissions_office';
+  // The scholarship's own requirement list, scoped to the standing the student
+  // declared at submit time (the frozen profile snapshot).
+  const { requirements } = getApplicationReadiness({
+    application,
+    scholarship,
+    documents,
+    profile: { yearStanding: application.profileSnapshot?.yearStanding || '' },
+  });
 
   return (
     <>
@@ -74,23 +72,24 @@ export default function ApplicationReviewModal({
             <DetailRow label="QPI" value={application.studentQpi != null && application.studentQpi !== '' ? Number(application.studentQpi).toFixed(2) : 'Not encoded'} />
             <DetailRow label="Household income" value={application.studentHouseholdIncome != null && application.studentHouseholdIncome !== '' ? fmtCurrency(Number(application.studentHouseholdIncome)) : 'Not encoded'} />
             <DetailRow label="Submitted" value={application.submittedAt ? fmtDate(application.submittedAt) : 'Not yet'} />
+            <DetailRow label="Certified" value={application.certifiedAt ? fmtDate(application.certifiedAt) : 'Not yet'} />
             <DetailRow label="Document status" value={application.documentStatus} />
+          </Panel>
+
+          <Panel className="grid gap-1">
+            <h4 className="mb-1 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Profile at submission</h4>
+            <ProfileSnapshotList snapshot={application.profileSnapshot} />
+            <p className="m-0 text-xs text-app-muted">The applicant profile above shows the current values; compare them when a value changed after submission.</p>
           </Panel>
 
           <Panel className="grid gap-2">
             <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Required submissions</h4>
-            <ul className="grid gap-2">
-              {sopRequiredDocuments.map((required) => {
-                const check = sopCheckState(application, documents, required);
-                return (
-                  <li key={required.type} className="flex min-w-0 items-start justify-between gap-3">
-                    <span className="min-w-0 text-sm text-app-muted">{required.label}</span>
-                    <StatusBadge tone={sopTones[check.tone]}>{check.label}</StatusBadge>
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="text-xs text-app-muted">Academic grant applicants add the Certificate of Award as Rank 1 or 2.</p>
+            <RequirementChecklist requirements={requirements} onPreview={setPreviewDoc} />
+          </Panel>
+
+          <Panel className="grid gap-2">
+            <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Application statement</h4>
+            <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
           </Panel>
 
           <Panel className="grid gap-2">

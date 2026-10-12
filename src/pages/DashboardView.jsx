@@ -2,7 +2,7 @@ import { AnnouncementItem, Card, EmptyState, NotificationItem, ScholarshipRow, S
 import { ArrowRight, CalendarDays, CircleAlert } from 'lucide-react';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
-export default function DashboardView({ profile, isFirstLogin, stats, applications, scholarships, customDeadlines = [], eligibleScholarships, notifications, announcements, onOpenExplorer, onOpenEligibility, onTrackScholarship, onMarkRead, onShowApplications, onOpenCalendar, onOpenAdmin, onOpenReview, hasIncompleteProfile, onCompleteProfile }) {
+export default function DashboardView({ profile, isFirstLogin, stats, applications, scholarships, customDeadlines = [], eligibleScholarships, notifications, announcements, onOpenExplorer, onOpenEligibility, onTrackScholarship, onMarkRead, onShowApplications, onContinueApplication, onOpenCalendar, onOpenAdmin, onOpenReview, hasIncompleteProfile, onCompleteProfile }) {
   // Student Dashboard
   if (profile.role === 'student') {
     const draftApplication = applications.find((entry) => entry.status === 'Draft');
@@ -10,7 +10,7 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
     const nextAction = hasIncompleteProfile
       ? { label: 'Complete your academic profile', detail: 'Add your program, QPI, income, and student number to improve match accuracy.', action: onCompleteProfile, actionLabel: 'Complete profile', icon: CircleAlert }
       : draftApplication
-          ? { label: 'Finish a saved application', detail: `${draftApplication.scholarshipTitle} is saved as a draft and ready for your review.`, action: onShowApplications, actionLabel: 'Open applications', icon: ArrowRight }
+          ? { label: 'Finish a saved application', detail: `${draftApplication.scholarshipTitle} is a draft. Attach its required documents, then certify and submit.`, action: () => (onContinueApplication ? onContinueApplication(draftApplication.id) : onShowApplications()), actionLabel: 'Continue application', icon: ArrowRight }
           : reviewApplication
             ? { label: 'Check your application status', detail: `${reviewApplication.scholarshipTitle} is currently ${reviewApplication.status.toLowerCase()}.`, action: onShowApplications, actionLabel: 'View application', icon: ArrowRight }
             : { label: 'Explore your scholarship matches', detail: 'Review ranked opportunities and track the scholarships that fit your profile.', action: onOpenExplorer, actionLabel: 'Explore scholarships', icon: ArrowRight };
@@ -83,7 +83,7 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
           <Card title="Top matches" action={<button className="link-btn" type="button" onClick={onOpenExplorer}>View all matches</button>}>
             <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-2">
               {eligibleScholarships.length ? eligibleScholarships.map((scholarship) => (
-                <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} />
+                <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} profile={profile} />
               )) : <EmptyState title="No eligible matches yet" description="Review the Smart Eligibility Checker on the Scholarships page and confirm your saved profile details." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Check eligibility</button>} />}
             </div>
           </Card>

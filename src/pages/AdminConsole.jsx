@@ -5,6 +5,8 @@ import { AnnouncementItem, StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
+import RequiredDocumentsEditor from '../components/RequiredDocumentsEditor';
+import { normalizeRequirements } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const stageTone = (status) => {
@@ -58,6 +60,7 @@ export default function AdminConsole({
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [previewDoc, setPreviewDoc] = useState(null);
+  const [catalogError, setCatalogError] = useState('');
   const [editingScholarship, setEditingScholarship] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
   const pendingDocuments = documents.filter((entry) => entry.verificationStatus === 'Pending');
@@ -87,6 +90,17 @@ export default function AdminConsole({
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const ruleFamily = String(data.get('ruleFamily') || 'general-pool');
+    let requiredDocuments = [];
+    try {
+      requiredDocuments = normalizeRequirements(JSON.parse(String(data.get('requiredDocuments') || '[]')));
+    } catch {
+      requiredDocuments = [];
+    }
+    if (!requiredDocuments.length) {
+      setCatalogError('Add at least one required document with a label and an accepted document type.');
+      return;
+    }
+    setCatalogError('');
     const scholarship = {
       ...(editingScholarship || {}),
       title: String(data.get('scholarshipTitle') || '').trim(),
@@ -95,6 +109,7 @@ export default function AdminConsole({
       coverageType: String(data.get('coverageType') || 'Full Tuition'),
       coverage: String(data.get('scholarshipCoverage') || '').trim(),
       minimumQpi: data.get('minimumQpi') || null,
+      minimumShsAverage: data.get('minimumShsAverage') || null,
       maximumIncome: data.get('maximumIncome') || null,
       eligibleDegrees: ruleFamily === 'work-study' ? ['ALL'] : [],
       allowsMultipleGrants: false,
@@ -107,6 +122,7 @@ export default function AdminConsole({
       isMatchable: true,
       applicationRoute: null,
       isExternal: false,
+      requiredDocuments,
     };
     const saved = await onSaveScholarship(scholarship);
     if (saved) setEditingScholarship(null);
@@ -251,13 +267,16 @@ export default function AdminConsole({
               <textarea name="scholarshipCoverage" rows="2" required defaultValue={editingScholarship?.coverage || ''} placeholder="Describe the covered fees or support." />
             </FormField>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Minimum QPI" hint="Leave blank to use the internal rule default.">
+              <FormField label="Minimum QPI (enrolled students)" hint="Applies to 1st–5th year students. Leave blank to use the internal rule default (2.50).">
                 <input type="number" name="minimumQpi" min="0" max="4" step="0.01" defaultValue={editingScholarship?.minimumQpi ?? ''} />
               </FormField>
-              <FormField label="Maximum household income" hint="Leave blank to use the internal rule default.">
-                <input type="number" name="maximumIncome" min="0" step="1000" defaultValue={editingScholarship?.maximumIncome ?? ''} />
+              <FormField label="Minimum SHS general average (incoming first-years)" hint="Applies to incoming 1st years, who have no collegiate QPI yet. Leave blank to use the internal rule default (85).">
+                <input type="number" name="minimumShsAverage" min="60" max="100" step="1" defaultValue={editingScholarship?.minimumShsAverage ?? ''} />
               </FormField>
             </div>
+            <FormField label="Maximum household income" hint="Leave blank to use the internal rule default.">
+              <input type="number" name="maximumIncome" min="0" step="1000" defaultValue={editingScholarship?.maximumIncome ?? ''} />
+            </FormField>
             <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
               <FormField label="Application deadline">
                 <input type="date" name="deadline" defaultValue={editingScholarship?.deadline?.slice(0, 10) || ''} />
@@ -269,6 +288,8 @@ export default function AdminConsole({
                 </select>
               </FormField>
             </div>
+            <RequiredDocumentsEditor scholarship={editingScholarship} />
+            {catalogError ? <p className="form-error m-0" role="alert">{catalogError}</p> : null}
             <p className="m-0 text-xs text-app-muted">This form publishes AdDU-administered programs only. Government-linked and external programs remain managed through their established catalog source; eligibility verification does not make an award or disbursement decision.</p>
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" type="submit">{editingScholarship ? 'Save scholarship changes' : 'Publish scholarship'}</Button>
@@ -362,6 +383,7 @@ export default function AdminConsole({
       {selected && (
         <ApplicationReviewModal
           application={selected}
+          scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
           role="admissions_office"
           onClose={() => setSelectedId(null)}

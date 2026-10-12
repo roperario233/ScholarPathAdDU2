@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X } from 'lucide-react';
-import { getApplicationProgress } from '../lib/eligibility';
+import { getApplicationProgress, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 import { Button, EmptyState, StatusBadge } from './ui';
 
@@ -17,7 +17,8 @@ export function StatCard({ label, value, note }) {
   );
 }
 
-export function ScholarshipRow({ scholarship, onApply, compact = false }) {
+export function ScholarshipRow({ scholarship, onApply, profile, compact = false }) {
+  const academicDisplay = getScholarshipAcademicDisplay(profile || {}, scholarship);
   return (
     <article className={`rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur ${compact ? 'py-4' : ''}`}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -28,11 +29,15 @@ export function ScholarshipRow({ scholarship, onApply, compact = false }) {
         <StatusBadge className="max-w-full shrink-0">{scholarship.fitScore ?? 'Match'}</StatusBadge>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted mt-4">
-        <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
+        {academicDisplay
+          ? <span><strong>{academicDisplay.label}</strong> {academicDisplay.floorLabel}+</span>
+          : scholarship.minimumQpi != null
+            ? <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
+            : null}
         <span><strong>Income</strong> ≤ {fmtCurrency(scholarship.maximumIncome)}</span>
       </div>
       <p className="mt-3 text-sm text-app-muted">{scholarship.coverage}</p>
-      <Button className="mt-2" type="button" onClick={() => onApply(scholarship)}>Track in dashboard</Button>
+      <Button className="mt-2" type="button" onClick={() => onApply(scholarship)}>{isInternalScholarship(scholarship) ? 'Start application' : 'Track this program'}</Button>
     </article>
   );
 }

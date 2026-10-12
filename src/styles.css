@@ -1095,56 +1095,65 @@ main .deadline-item > .deadline-actions {
   gap: 0.9rem;
 }
 
+/* Scholarship Explorer bar: the section label, a full-width search field,
+   facet filters, and a one-line result caption share one surface instead of a
+   separate hero card plus a filter card. */
 .explorer-filters {
   position: relative;
   z-index: 10;
 }
 
-.explorer-search-row {
+.explorer-filter-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  min-width: 0;
+  gap: 0.75rem;
 }
 
 .explorer-search-field {
   display: grid;
   min-width: 0;
-  gap: 0.5rem;
 }
 
-.explorer-filter-summary {
-  display: grid;
-  gap: 0.2rem;
-  min-width: 10rem;
-  padding: 0.65rem 0.85rem;
-  border: 1px solid var(--card-border);
-  border-radius: 0.9rem;
-  background: var(--surface-2);
-  color: var(--muted);
-  font-size: 0.8rem;
+/* The search replaces the old tagline, so it runs the full width of the bar
+   and is sized up to read as the primary control. */
+.explorer-search-field input {
+  min-height: 3.5rem;
+  padding: 1rem 1.15rem;
+  font-size: 1.05rem;
+  border-radius: 16px;
 }
 
-.explorer-filter-summary strong {
-  color: var(--text);
-  font-size: 0.85rem;
-}
-
-.explorer-filter-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.explorer-filter-toolbar {
+  display: flex;
+  flex-wrap: wrap;
   align-items: end;
-  gap: 0.85rem;
+  gap: 1rem;
 }
 
-.explorer-filter-grid > label:not(.explorer-search-field),
-.explorer-reset-button {
+.explorer-filter-slot {
+  flex: 1 1 11rem;
   min-width: 0;
+}
+
+.explorer-active-only {
+  display: inline-flex;
+  min-height: 3rem;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 1rem;
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .explorer-reset-button {
   min-height: 3rem;
+  flex: 0 0 auto;
   padding: 0.75rem 1rem;
   border: 1px solid rgba(248, 113, 113, 0.3);
   border-radius: 0.75rem;
@@ -1156,6 +1165,33 @@ main .deadline-item > .deadline-actions {
 
 .explorer-reset-button:hover {
   background: rgba(248, 113, 113, 0.15);
+}
+
+.explorer-filter-caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.explorer-filter-caption strong {
+  color: var(--text);
+}
+
+.explorer-govgrant-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
 }
 
 .scholarship-card-title {
@@ -1194,13 +1230,8 @@ a:focus-visible {
 
 @media (max-width: 720px) {
 
-  .explorer-search-row,
-  .explorer-filter-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .explorer-filter-summary {
-    min-width: 0;
+  .explorer-filter-slot {
+    flex-basis: 100%;
   }
 
   .select-picker-menu {

@@ -1,0 +1,178 @@
+import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_REQUIRED_DOCUMENTS,
+  buildProfileSnapshot,
+  getApplicationReadiness,
+  getCatalogRequirements,
+  getScholarshipRequirements,
+  normalizeRequirements,
+  pickDefaultAttachments,
+} from '../src/lib/applicationRequirements';
+import { documentTypeOptions } from '../src/lib/constants';
+
+const continuingProfile = {
+  fullName: 'Ana Reyes',
+  studentNumber: '2023-00001',
+  degreeProgram: 'BS Information Technology',
+  department: 'School of Engineering and Architecture',
+  yearStanding: '2nd',
+  qpi: 3.2,
+  householdIncome: 180000,
+  citizenship: 'Filipino',
+  academicStanding: 'good',
+};
+
+const incomingProfile = {
+  ...continuingProfile,
+  yearStanding: 'incoming-1st',
+  studentNumber: '',
+  qpi: null,
+  hsStrand: 'STEM',
+  hsAverage: 92,
+};
+
+const gia = {
+  id: 'gia',
+  title: 'Grant-in-Aid (GIA)',
+  ruleFamily: 'general-pool',
+  category: 'Internal Endowment',
+  isActive: true,
+  minimumQpi: 2.5,
+  maximumIncome: 250000,
+  deadline: '2999-12-31',
+};
+
+const external = { id: 'dost', title: 'DOST-SEI Merit Scholarship', ruleFamily: 'government-linked', isExternal: true, isActive: true };
+
+const doc = (id, documentType, verificationStatus = 'Pending', uploadedAt = '2026-10-01') => ({ id, documentType, verificationStatus, uploadedAt });
+
+const ids = (items) => items.map((item) => item.id);
+
+describe('scholarship requirements', () => {
+  it('uses only vault document types the vault knows about', () => {
+    const known = new Set(documentTypeOptions.map((option) => option.value));
+    Object.values(DEFAULT_REQUIRED_DOCUMENTS).flat().forEach((item) => {
+      item.documentTypes.forEach((type) => expect(known.has(type)).toBe(true));
+    });
+  });
+
+  it('filters the defaults by year standing', () => {
+    const continuing = ids(getScholarshipRequirements(gia, continuingProfile));
+    const incoming = ids(getScholarshipRequirements(gia, incomingProfile));
+    expect(continuing).toContain('college-grades');
+    expect(continuing).not.toContain('entrance-exam');
+    expect(continuing).not.toContain('hs-report-card');
+    expect(incoming).toEqual(expect.arrayContaining(['entrance-exam', 'hs-report-card', 'recommendation']));
+    expect(incoming).not.toContain('college-grades');
+    expect(incoming).toContain('application-form');
+  });
+
+  it('falls back to the rule family resolved from the title', () => {
+    expect(ids(getCatalogRequirements({ title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)' }))).toContain('certificate-of-award');
+  });
+
+  it('prefers the catalog list when the Admissions Office set one', () => {
+    const custom = { ...gia, requiredDocuments: [{ id: 'only', label: 'Application Form', documentTypes: ['Application Form'], standing: 'all' }] };
+    expect(ids(getScholarshipRequirements(custom, continuingProfile))).toEqual(['only']);
+  });
+
+  it('drops malformed catalog items and defaults the standing', () => {
+    expect(normalizeRequirements([{ label: 'x' }, null, { label: 'Form', documentTypes: ['Application Form'], standing: 'nope' }]))
+      .toEqual([{ id: 'requirement-1', label: 'Form', documentTypes: ['Application Form'], standing: 'all' }]);
+  });
+
+  it('asks nothing of external and government-linked entries', () => {
+    expect(getScholarshipRequirements(external, continuingProfile)).toEqual([]);
+  });
+});
+
+describe('default attachments', () => {
+  it('picks the newest non-rejected file per requirement', () => {
+    const requirements = getScholarshipRequirements(gia, continuingProfile);
+    const documents = [
+      doc('old-form', 'Application Form', 'Verified', '2026-01-01'),
+      doc('new-form', 'Application Form', 'Pending', '2026-09-01'),
+      doc('bad-income', 'Income Proof', 'Rejected', '2026-09-02'),
+    ];
+    expect(pickDefaultAttachments(requirements, documents)).toEqual(['new-form']);
+  });
+});
+
+describe('application readiness', () => {
+  const requirements = getScholarshipRequirements(gia, continuingProfile);
+  const allDocs = requirements.map((item, index) => doc(`d${index}`, item.documentTypes[0]));
+  const complete = { attachedDocuments: allDocs.map((entry) => entry.id), statement: 'I need support to continue my studies.' };
+
+  it('is ready once every requirement is attached, the statement is written, and the student certifies', () => {
+    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
+    expect(result.route).toBe('internal');
+    expect(result.blockers).toEqual([]);
+    expect(result.ready).toBe(true);
+    expect(result.attachedCount).toBe(result.requiredCount);
+  });
+
+  it('blocks submission until certification', () => {
+    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile });
+    expect(result.ready).toBe(false);
+    expect(result.blockers).toEqual(['Certify that your information and documents are true and complete.']);
+  });
+
+  it('reports missing documents and a blank statement', () => {
+    const result = getApplicationReadiness({ application: { attachedDocuments: [], statement: '  ' }, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
+    expect(result.requirements.every((item) => item.state === 'missing')).toBe(true);
+    expect(result.blockers[0]).toMatch(/^Attach \d+ required documents/);
+    expect(result.blockers).toContain('Write your application statement.');
+  });
+
+  it('treats a requirement whose only file was rejected as needing replacement', () => {
+    const documents = allDocs.map((entry, index) => (index === 0 ? { ...entry, verificationStatus: 'Rejected' } : entry));
+    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
+    expect(result.requirements[0].state).toBe('rejected');
+    expect(result.blockers.some((blocker) => blocker.startsWith('Replace the rejected file'))).toBe(true);
+  });
+
+  it('marks verified files and allows pending ones', () => {
+    const documents = allDocs.map((entry, index) => (index === 0 ? { ...entry, verificationStatus: 'Verified' } : entry));
+    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
+    expect(result.requirements[0].state).toBe('verified');
+    expect(result.requirements[1].state).toBe('attached');
+    expect(result.ready).toBe(true);
+  });
+
+  it('blocks a closed scholarship', () => {
+    const result = getApplicationReadiness({ application: complete, scholarship: { ...gia, deadline: '2020-01-01' }, documents: allDocs, profile: continuingProfile, certified: true });
+    expect(result.blockers).toContain('This scholarship is no longer accepting applications.');
+  });
+
+  it('re-runs the eligibility gate on the current profile', () => {
+    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: { ...continuingProfile, householdIncome: 900000 }, certified: true });
+    expect(result.ready).toBe(false);
+    expect(result.blockers.some((blocker) => blocker.startsWith('Eligibility:'))).toBe(true);
+  });
+
+  it('tracks external entries without a submit route', () => {
+    const result = getApplicationReadiness({ application: {}, scholarship: external, documents: [], profile: continuingProfile, certified: true });
+    expect(result).toMatchObject({ route: 'external', ready: false, requirements: [] });
+  });
+});
+
+describe('profile snapshot', () => {
+  it('captures the QPI for an enrolled student with its verification badge', () => {
+    const snapshot = buildProfileSnapshot(continuingProfile, { qpi: 'Verified' }, '2026-10-12T00:00:00.000Z');
+    expect(snapshot).toMatchObject({
+      capturedAt: '2026-10-12T00:00:00.000Z',
+      fullName: 'Ana Reyes',
+      yearStanding: '2nd',
+      yearStandingLabel: '2nd year',
+      academic: { credential: 'qpi', value: 3.2, verification: 'Verified' },
+      householdIncome: { value: 180000, verification: 'Unverified' },
+      citizenship: { value: 'Filipino', verification: 'Unverified' },
+    });
+  });
+
+  it('captures the senior high school average for an incoming first-year', () => {
+    const snapshot = buildProfileSnapshot(incomingProfile, {});
+    expect(snapshot.academic).toMatchObject({ credential: 'hsAverage', label: 'Senior high school general average', value: 92 });
+    expect(snapshot.yearStandingLabel).toBe('Incoming 1st year');
+  });
+});

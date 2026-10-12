@@ -30,7 +30,7 @@ const initialSelection = (attributeKey = '') => {
   return encodeDocumentSelection(attributeKey, firstType || '');
 };
 
-export default function DocumentVaultView({ documents, onUpload, onDelete, presetAttribute = '' }) {
+export default function DocumentVaultView({ documents, applications = [], onUpload, onDelete, presetAttribute = '' }) {
   const [selection, setSelection] = useState(() => initialSelection(presetAttribute));
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -39,6 +39,18 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
   const [preview, setPreview] = useState(null);
   const { attributeKey, documentType } = decodeDocumentSelection(selection);
   const derivedTitle = getDocumentTitle({ attributeKey, documentType });
+  // Usage is derived from the applications that attach each file, so the count
+  // always matches the application workspace. A file a submitted application
+  // relies on is locked until that review ends.
+  const usageByDocument = useMemo(() => {
+    const usage = {};
+    applications.forEach((entry) => (entry.attachedDocuments || []).forEach((id) => {
+      usage[id] = usage[id] || { count: 0, lockedBy: null };
+      usage[id].count += 1;
+      if (entry.status !== 'Draft' && !usage[id].lockedBy) usage[id].lockedBy = entry.scholarshipTitle;
+    }));
+    return usage;
+  }, [applications]);
   const filtered = useMemo(() => documents.filter((doc) => {
     const text = `${doc.title} ${doc.fileName} ${doc.documentType}`.toLowerCase();
     return (!query.trim() || text.includes(query.trim().toLowerCase())) && (status === 'all' || doc.verificationStatus === status);
@@ -108,7 +120,9 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
           <span className="text-xs text-app-muted">Reusable across applications</span>
         </div>
         <div className="mt-4 grid max-h-[560px] gap-4 overflow-y-auto pr-2">
-          {filtered.length ? filtered.map((doc) => (
+          {filtered.length ? filtered.map((doc) => {
+            const usage = usageByDocument[doc.id] || { count: 0, lockedBy: null };
+            return (
             <article key={doc.id} className="document-result-card group grid gap-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-app">
               <div className="flex min-w-0 items-start justify-between gap-4">
                 <div className="min-w-0">
@@ -119,17 +133,20 @@ export default function DocumentVaultView({ documents, onUpload, onDelete, prese
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-app-border/60 pt-3 text-sm text-app-muted">
                 <span><strong>Uploaded</strong> {fmtDate(doc.uploadedAt)}</span>
-                <span><strong>Used in</strong> {doc.sharedWith?.length || 0} {doc.sharedWith?.length === 1 ? 'application' : 'applications'}</span>
+                <span><strong>Used in</strong> {usage.count} {usage.count === 1 ? 'application' : 'applications'}</span>
                 {Array.isArray(doc.linkedAttributes) && doc.linkedAttributes.length ? (
                   <span><strong>Proof for</strong> {doc.linkedAttributes.map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
                 ) : null}
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/60 pt-3">
                 <Button variant="secondary" type="button" onClick={() => setPreview(doc)}>View</Button>
-                <button className="inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:-translate-y-px hover:bg-rose-500/15 focus:outline-none focus:ring-4 focus:ring-rose-500/20 dark:text-rose-300" type="button" onClick={() => onDelete(doc.id)}>Delete</button>
+                {usage.lockedBy
+                  ? <span className="text-xs text-app-muted">Locked: attached to your submitted {usage.lockedBy} application</span>
+                  : <button className="inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:-translate-y-px hover:bg-rose-500/15 focus:outline-none focus:ring-4 focus:ring-rose-500/20 dark:text-rose-300" type="button" onClick={() => onDelete(doc.id)}>Delete</button>}
               </div>
             </article>
-          )) : <EmptyState title={documents.length ? 'No matching documents' : 'Document vault is empty'} description={documents.length ? 'Try a different search or status filter.' : 'Upload transcripts, IDs, and income proofs once to reuse them.'} />}
+            );
+          }) : <EmptyState title={documents.length ? 'No matching documents' : 'Document vault is empty'} description={documents.length ? 'Try a different search or status filter.' : 'Upload transcripts, IDs, and income proofs once to reuse them.'} />}
         </div>
       </Card>
 
