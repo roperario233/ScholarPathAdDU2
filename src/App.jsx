@@ -1063,8 +1063,9 @@ function App() {
     // Two general documents can share a type, so disambiguate with the date.
     const title = studentDocuments.some((doc) => doc.title === baseTitle) ? `${baseTitle} (${uploadedAt})` : baseTitle;
 
-    // Show the document immediately; the file uploads to Supabase Storage and the
-    // row records its storage_path on success.
+    // The file uploads to Supabase Storage first; the document joins the vault
+    // list only once the row records its storage_path, so the list never shows a
+    // file that is still uploading or failed.
     const nextDocument = {
       id,
       ownerId: currentProfile.id,
@@ -1077,18 +1078,17 @@ function App() {
       uploadedAt,
       storagePath: null,
     };
-    setState((previous) => ({ ...previous, documents: [nextDocument, ...previous.documents] }));
-
-    const result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, file });
-    if (result.error) {
-      // Drop the optimistic row so the vault never shows a document with no file.
-      setState((previous) => ({ ...previous, documents: previous.documents.filter((doc) => doc.id !== id) }));
-      return { error: result.error.message || 'The document could not be uploaded.' };
+    let result;
+    try {
+      result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, file });
+    } catch (error) {
+      return { error: error?.message || 'The document could not be uploaded.' };
     }
+    if (result.error) return { error: result.error.message || 'The document could not be uploaded.' };
 
     setState((previous) => ({
       ...previous,
-      documents: previous.documents.map((doc) => (doc.id === id ? { ...doc, storagePath: result.data?.storage_path ?? null } : doc)),
+      documents: [{ ...nextDocument, storagePath: result.data?.storage_path ?? null }, ...previous.documents],
       notifications: prependInAppNotification(previous, {
         id: `not-${crypto.randomUUID()}`,
         title: `${title} uploaded to Document Vault`,

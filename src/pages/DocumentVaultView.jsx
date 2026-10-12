@@ -70,8 +70,15 @@ export default function DocumentVaultView({ documents, applications = [], onUplo
     if (file.size > DOCUMENT_MAX_BYTES) { setFormError('Files must be 10 MB or smaller.'); return; }
     setFormError('');
     setIsUploading(true);
-    const result = await onUpload(event);
-    setIsUploading(false);
+    let result;
+    try {
+      result = await onUpload(event);
+    } catch {
+      setFormError('The document could not be uploaded.');
+      return;
+    } finally {
+      setIsUploading(false);
+    }
     if (result?.error) { setFormError(result.error); return; }
     setSelection(initialSelection(''));
   };
