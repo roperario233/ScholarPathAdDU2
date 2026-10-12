@@ -1,9 +1,83 @@
+import { getStandingRequirements } from './profile';
+
 const toDate = (value) => new Date(value);
 const daysBetween = (dateA, dateB) => Math.round((dateB.getTime() - dateA.getTime()) / 86400000);
 
 export const GENERAL_POOL_INCOME_CEILING = 250000;
 export const GENERAL_POOL_QPI_FLOOR = 2.5;
+// Incoming first-years have no collegiate QPI yet, so the general pool gates
+// them on their senior high school general average instead. This mirrors the
+// QPI floor for the standing where a collegiate QPI does not apply; a
+// scholarship can override it with its own `minimumShsAverage` catalog value.
+export const GENERAL_POOL_SHS_AVERAGE_FLOOR = 85;
 export const GENERAL_POOL_EXCLUDED_DEGREES = ['BS Nursing', 'BS Architecture'];
+
+const toFiniteNumber = (value) => {
+  if (value == null || value === '') return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+// The academic credential the engine reads for a standing. This is the
+// eligibility half of the profile layer's single standing control
+// (getStandingRequirements in src/lib/profile.js): an incoming first-year is
+// matched on their senior high school general average, and every enrolled year
+// (1st–5th) is matched on the collegiate QPI. The credential keys are the
+// profile field names (`hsAverage` and `qpi`).
+export const getAcademicCredential = (profile) => (
+  getStandingRequirements(profile).isIncomingFirstYear ? 'hsAverage' : 'qpi'
+);
+
+// Resolves the exact academic requirement a scholarship applies to this student:
+// which credential, which floor, and the messages the application gate and the
+// general-pool evaluator surface. The Admissions Office catalog stores a
+// collegiate QPI floor (`minimumQpi`) and an incoming first-year floor
+// (`minimumShsAverage`); a blank entry falls back to the internal rule default.
+export const getAcademicRequirement = (profile, scholarship = {}) => {
+  const credential = getAcademicCredential(profile);
+  const rawValue = profile?.[credential];
+  if (credential === 'hsAverage') {
+    const min = toFiniteNumber(scholarship?.minimumShsAverage) ?? GENERAL_POOL_SHS_AVERAGE_FLOOR;
+    return {
+      credential,
+      label: 'Senior high school general average',
+      shortLabel: 'SHS GWA',
+      detailLabel: 'Minimum SHS general average',
+      unit: '/100',
+      rawValue,
+      value: toFiniteNumber(rawValue),
+      min,
+      hardMin: 60,
+      max: 100,
+      // Normalizes the SHS 60–100 span onto the QPI margin scale for fit scoring.
+      scale: 20,
+      catalogFloor: toFiniteNumber(scholarship?.minimumShsAverage),
+      floorLabel: String(min),
+      floorReason: `Needs a senior high school general average of ${min}+.`,
+      unsetReason: 'Enter your senior high school general average before checking qualifications.',
+      rangeReason: 'Your senior high school general average must be between 60 and 100.',
+    };
+  }
+  const min = toFiniteNumber(scholarship?.minimumQpi) ?? GENERAL_POOL_QPI_FLOOR;
+  return {
+    credential,
+    label: 'Annual QPI',
+    shortLabel: 'QPI',
+    detailLabel: 'Minimum QPI',
+    unit: '',
+    rawValue,
+    value: toFiniteNumber(rawValue),
+    min,
+    hardMin: 0,
+    max: 4,
+    scale: 1,
+    catalogFloor: toFiniteNumber(scholarship?.minimumQpi),
+    floorLabel: min.toFixed(2),
+    floorReason: `Needs QPI ${min.toFixed(2)}+.`,
+    unsetReason: 'Enter a valid QPI before checking qualifications.',
+    rangeReason: 'QPI must be between 0.00 and 4.00.',
+  };
+};
 
 export const ADDU_INTERNAL_RULE_FAMILIES = ['general-pool', 'honors', 'work-study'];
 export const DENIAL_MESSAGE = "You don't have any qualifications for this scholarship.";
@@ -44,6 +118,22 @@ const getInternalRuleFamily = (scholarship) => {
   return null;
 };
 
+// The academic requirement chip a catalog entry shows for a student's standing,
+// resolved from the same model the gate and evaluator use. Returns null when the
+// entry has no academic gate (honors and work-study gate on other criteria).
+export const getScholarshipAcademicDisplay = (profile, scholarship = {}) => {
+  const ruleFamily = getInternalRuleFamily(scholarship) || scholarship.ruleFamily;
+  const requirement = getAcademicRequirement(profile, scholarship);
+  const hasFloor = requirement.catalogFloor != null || ruleFamily === 'general-pool';
+  if (!hasFloor) return null;
+  return {
+    credential: requirement.credential,
+    label: requirement.shortLabel,
+    detailLabel: requirement.detailLabel,
+    floorLabel: requirement.floorLabel,
+  };
+};
+
 export const getDeadlineStatus = (deadline, today = new Date()) => {
   if (!deadline) return { label: 'Rolling / TBA', tone: 'neutral', remainingDays: null };
   const due = toDate(deadline);
@@ -73,19 +163,27 @@ export const checkAdduInternalGate = (profile) => {
 };
 
 export const getScholarshipFit = (profile, scholarship) => {
-  if (scholarship.minimumQpi == null || scholarship.maximumIncome == null) return null;
-  const qpiMargin = Number(profile.qpi) - Number(scholarship.minimumQpi);
+  if (scholarship.maximumIncome == null) return null;
+  const academic = getAcademicRequirement(profile, scholarship);
+  // Only a scholarship that declares a floor for the student's standing has a
+  // measurable academic margin; honors and work-study declare none.
+  if (academic.catalogFloor == null || academic.value == null) return null;
+  // Normalize the academic margin so QPI (0.00–4.00) and SHS GWA (60–100)
+  // profiles rank on the same footing.
+  const academicMargin = (academic.value - academic.min) / academic.scale;
   const incomeMargin = Number(scholarship.maximumIncome) - Number(profile.householdIncome);
-  return Number(((qpiMargin * 0.5) + ((incomeMargin / 10000) * 0.5)).toFixed(2));
+  return Number(((academicMargin * 0.5) + ((incomeMargin / 10000) * 0.5)).toFixed(2));
 };
 
 const evaluateGeneralPool = (profile, scholarship) => {
   const reasons = [];
-  const qpi = Number(profile.qpi);
   const income = Number(profile.householdIncome);
-  const minQpi = scholarship.minimumQpi ?? GENERAL_POOL_QPI_FLOOR;
   const maxIncome = scholarship.maximumIncome ?? GENERAL_POOL_INCOME_CEILING;
-  if (qpi < minQpi) reasons.push(`Needs QPI ${minQpi.toFixed(2)}+.`);
+  // The academic gate follows the standing: a collegiate QPI for enrolled
+  // students, a senior high school general average for incoming first-years.
+  const academic = getAcademicRequirement(profile, scholarship);
+  const academicValue = Number(academic.rawValue);
+  if (!(academicValue >= academic.min)) reasons.push(academic.floorReason);
   if (income > maxIncome) reasons.push(`Household income must be at or below \u20b1${maxIncome.toLocaleString()}.`);
   if (GENERAL_POOL_EXCLUDED_DEGREES.includes(profile.degreeProgram)) {
     reasons.push(`${profile.degreeProgram} is excluded from the general scholarship pool.`);
@@ -111,14 +209,14 @@ const GOV_EVALUATORS = {
   },
   DOST_FRESHMAN: (profile) => {
     const reasons = [];
-    const isIncomingFreshman = profile.applicantType === 'first-year' && Number(profile.yearLevel) <= 1;
+    const isIncomingFreshman = getStandingRequirements(profile).isIncomingFirstYear;
     if (!isIncomingFreshman) reasons.push('Only open to incoming first-year students with no prior college units.');
     if (profile.hsStrand !== 'STEM' && Number(profile.hsAverage || 0) < 95) reasons.push('Non-STEM strand applicants must be in the top 5% of their graduating class.');
     return reasons;
   },
   DOST_JLAP: (profile) => {
     const reasons = [];
-    if (profile.applicantType === 'first-year') reasons.push('JLAP/JLSS targets continuing (2nd year+) students, not incoming freshmen.');
+    if (getStandingRequirements(profile).isIncomingFirstYear) reasons.push('JLAP/JLSS targets continuing (2nd year+) students, not incoming freshmen.');
     reasons.push('__INFO__Opens periodically \u2014 confirm current availability with DOST-SEI.');
     return reasons;
   },
@@ -191,13 +289,16 @@ export const evaluateScholarship = (profile, scholarship) => {
 
 export const evaluateApplicationGate = (profile, scholarship) => {
   const reasons = [];
-  const qpi = Number(profile?.qpi);
   const householdIncome = Number(profile?.householdIncome);
 
-  if (profile?.qpi == null || profile.qpi === '' || !Number.isFinite(qpi)) {
-    reasons.push('Enter a valid QPI before checking qualifications.');
-  } else if (qpi < 0 || qpi > 4) {
-    reasons.push('QPI must be between 0.00 and 4.00.');
+  // The required academic credential follows the standing: a collegiate QPI for
+  // enrolled students, a senior high school general average for incoming
+  // first-years. Both are self-reported.
+  const academic = getAcademicRequirement(profile, scholarship);
+  if (academic.value == null) {
+    reasons.push(academic.unsetReason);
+  } else if (academic.value < academic.hardMin || academic.value > academic.max) {
+    reasons.push(academic.rangeReason);
   }
 
   if (profile?.householdIncome == null || profile.householdIncome === '' || !Number.isFinite(householdIncome)) {

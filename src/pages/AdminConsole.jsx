@@ -95,6 +95,7 @@ export default function AdminConsole({
       coverageType: String(data.get('coverageType') || 'Full Tuition'),
       coverage: String(data.get('scholarshipCoverage') || '').trim(),
       minimumQpi: data.get('minimumQpi') || null,
+      minimumShsAverage: data.get('minimumShsAverage') || null,
       maximumIncome: data.get('maximumIncome') || null,
       eligibleDegrees: ruleFamily === 'work-study' ? ['ALL'] : [],
       allowsMultipleGrants: false,
@@ -251,13 +252,16 @@ export default function AdminConsole({
               <textarea name="scholarshipCoverage" rows="2" required defaultValue={editingScholarship?.coverage || ''} placeholder="Describe the covered fees or support." />
             </FormField>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Minimum QPI" hint="Leave blank to use the internal rule default.">
+              <FormField label="Minimum QPI (enrolled students)" hint="Applies to 1st–5th year students. Leave blank to use the internal rule default (2.50).">
                 <input type="number" name="minimumQpi" min="0" max="4" step="0.01" defaultValue={editingScholarship?.minimumQpi ?? ''} />
               </FormField>
-              <FormField label="Maximum household income" hint="Leave blank to use the internal rule default.">
-                <input type="number" name="maximumIncome" min="0" step="1000" defaultValue={editingScholarship?.maximumIncome ?? ''} />
+              <FormField label="Minimum SHS general average (incoming first-years)" hint="Applies to incoming 1st years, who have no collegiate QPI yet. Leave blank to use the internal rule default (85).">
+                <input type="number" name="minimumShsAverage" min="60" max="100" step="1" defaultValue={editingScholarship?.minimumShsAverage ?? ''} />
               </FormField>
             </div>
+            <FormField label="Maximum household income" hint="Leave blank to use the internal rule default.">
+              <input type="number" name="maximumIncome" min="0" step="1000" defaultValue={editingScholarship?.maximumIncome ?? ''} />
+            </FormField>
             <div className="grid gap-4 sm:grid-cols-2 sm:items-end">
               <FormField label="Application deadline">
                 <input type="date" name="deadline" defaultValue={editingScholarship?.deadline?.slice(0, 10) || ''} />

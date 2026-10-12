@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DENIAL_MESSAGE,
   evaluateApplicationGate,
+  getAcademicCredential,
+  getAcademicRequirement,
   getAdduInternalPrograms,
   getInternalScholarships,
+  getScholarshipAcademicDisplay,
   isInternalScholarship,
 } from '../src/lib/eligibility';
 
@@ -99,5 +102,60 @@ describe('internal scholarship eligibility gate', () => {
     });
     expect(workingScholarsResult.allowed).toBe(true);
     expect(workingScholarsResult.reasons).toEqual([]);
+  });
+});
+
+// An incoming first-year has no collegiate QPI, so the general pool matches them
+// on their senior high school general average instead. This is the eligibility
+// half of the standing branch the profile layer already owns
+// (getStandingRequirements in src/lib/profile.js).
+const incomingFirstYear = {
+  ...eligibleProfile,
+  applicantType: 'first-year',
+  yearLevel: 1,
+  yearStanding: 'incoming-1st',
+  qpi: '',
+  hsStrand: 'STEM',
+  hsAverage: 90,
+};
+
+describe('academic requirements by year standing', () => {
+  it('resolves the academic credential from the standing', () => {
+    expect(getAcademicCredential({ yearStanding: 'incoming-1st' })).toBe('hsAverage');
+    expect(getAcademicCredential({ yearStanding: '3rd' })).toBe('qpi');
+    expect(getAcademicCredential({ applicantType: 'current', yearLevel: 4 })).toBe('qpi');
+  });
+
+  it('resolves the per-standing requirement and honors a catalog override', () => {
+    expect(getAcademicRequirement({ yearStanding: 'incoming-1st' }, {})).toMatchObject({ credential: 'hsAverage', shortLabel: 'SHS GWA', min: 85, floorLabel: '85' });
+    // A scholarship can override the incoming first-year floor.
+    expect(getAcademicRequirement({ yearStanding: 'incoming-1st' }, { minimumShsAverage: 92 }).min).toBe(92);
+    expect(getAcademicRequirement({ yearStanding: '2nd' }, { minimumQpi: 3 })).toMatchObject({ credential: 'qpi', shortLabel: 'QPI', min: 3, floorLabel: '3.00' });
+  });
+
+  it('gates an incoming first-year on the senior high school general average', () => {
+    expect(evaluateApplicationGate(incomingFirstYear, scholarship)).toMatchObject({ allowed: true, reasons: [] });
+  });
+
+  it('denies an incoming first-year below the senior high school floor with the SHS reason', () => {
+    const result = evaluateApplicationGate({ ...incomingFirstYear, hsAverage: 80 }, scholarship);
+    expect(result.allowed).toBe(false);
+    expect(result.reasons).toContain('Needs a senior high school general average of 85+.');
+    expect(result.reasons).not.toContain('Needs QPI 2.50+.');
+  });
+
+  it('asks an incoming first-year for the SHS average and never for a QPI', () => {
+    const result = evaluateApplicationGate({ ...incomingFirstYear, hsAverage: '' }, scholarship);
+    expect(result.allowed).toBe(false);
+    expect(result.reasons).toContain('Enter your senior high school general average before checking qualifications.');
+    expect(result.reasons).not.toContain('Enter a valid QPI before checking qualifications.');
+  });
+
+  it('shows the standing-appropriate requirement chip and hides it when there is no academic gate', () => {
+    expect(getScholarshipAcademicDisplay(incomingFirstYear, { ruleFamily: 'general-pool' })).toMatchObject({ label: 'SHS GWA', floorLabel: '85', credential: 'hsAverage' });
+    expect(getScholarshipAcademicDisplay({ yearStanding: '2nd' }, { ruleFamily: 'general-pool' })).toMatchObject({ label: 'QPI', floorLabel: '2.50', credential: 'qpi' });
+    // Honors and work-study gate on other criteria, so they show no academic chip.
+    expect(getScholarshipAcademicDisplay({ yearStanding: '2nd' }, { ruleFamily: 'honors' })).toBeNull();
+    expect(getScholarshipAcademicDisplay({ yearStanding: '2nd' }, { ruleFamily: 'work-study' })).toBeNull();
   });
 });

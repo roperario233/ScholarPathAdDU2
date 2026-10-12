@@ -4,6 +4,7 @@ import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
 const toScholarship = (row) => ({
   ...row,
   minimumQpi: row.minimum_qpi,
+  minimumShsAverage: row.minimum_shs_average,
   maximumIncome: row.maximum_income,
   eligibleDegrees: row.eligible_degrees || [],
   allowsMultipleGrants: row.allows_multiple_grants,
@@ -188,6 +189,7 @@ const scholarshipToRow = (scholarship) => ({
   coverage_type: scholarship.coverageType,
   coverage: scholarship.coverage,
   minimum_qpi: scholarship.minimumQpi == null || scholarship.minimumQpi === '' ? null : Number(scholarship.minimumQpi),
+  minimum_shs_average: scholarship.minimumShsAverage == null || scholarship.minimumShsAverage === '' ? null : Number(scholarship.minimumShsAverage),
   maximum_income: scholarship.maximumIncome == null || scholarship.maximumIncome === '' ? null : Number(scholarship.maximumIncome),
   eligible_degrees: Array.isArray(scholarship.eligibleDegrees) ? scholarship.eligibleDegrees : [],
   allows_multiple_grants: scholarship.allowsMultipleGrants !== false,

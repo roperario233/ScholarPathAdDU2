@@ -73,6 +73,10 @@ alter table scholarships add column if not exists is_matchable boolean not null 
 alter table scholarships add column if not exists application_route text;
 alter table scholarships add column if not exists is_external boolean not null default false;
 alter table scholarships add column if not exists appendix_number integer;
+-- Incoming first-years have no collegiate QPI, so the general pool gates them on
+-- their senior high school general average instead (see getAcademicRequirement
+-- in src/lib/eligibility.js). NULL falls back to GENERAL_POOL_SHS_AVERAGE_FLOOR.
+alter table scholarships add column if not exists minimum_shs_average numeric(5, 2);
 
 create table if not exists documents (
   id uuid primary key default gen_random_uuid(),

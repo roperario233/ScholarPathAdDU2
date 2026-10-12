@@ -124,6 +124,7 @@ These rules come from the manuscript and should guide implementation details:
 
 
 - Eligibility matching should honor QPI, income, degree program, active status, deadline state, and exclusion logic.
+- The academic requirement branches on year standing, mirroring `getStandingRequirements()` in `src/lib/profile.js`: enrolled students (1st–5th year) are matched on the collegiate QPI, while incoming first-years are matched on their senior high school general average. The Admissions Office internal catalog stores both floors (`minimum_qpi` and `minimum_shs_average`), and `getAcademicRequirement()` in `src/lib/eligibility.js` is the single source the application gate, the general-pool evaluator, the fit score, and the requirement chips read. Honors (Jubilee) and work-study (Student Assistant) declare no academic floor, so they show no academic requirement chip.
 - Specific exclusions must override broad inclusions.
 - Jubilee Scholarship eligibility is not restricted to incoming first-year students; retain its official Valedictorian/Salutatorian standing and graduating-class size criteria.
 - Student Assistant (SA) / Working Scholar eligibility is open to students across all academic programs and must not be blocked by degree-specific catalog metadata.

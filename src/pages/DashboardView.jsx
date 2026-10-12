@@ -83,7 +83,7 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
           <Card title="Top matches" action={<button className="link-btn" type="button" onClick={onOpenExplorer}>View all matches</button>}>
             <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-2">
               {eligibleScholarships.length ? eligibleScholarships.map((scholarship) => (
-                <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} />
+                <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} profile={profile} />
               )) : <EmptyState title="No eligible matches yet" description="Review the Smart Eligibility Checker on the Scholarships page and confirm your saved profile details." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Check eligibility</button>} />}
             </div>
           </Card>
