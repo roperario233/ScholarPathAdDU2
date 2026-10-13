@@ -25,6 +25,7 @@ export default function ProfileView({
   onChangePassword,
   onRequestPasswordReset,
   onAttachProof,
+  onOpenEligibility,
 }) {
   const [activeSection, setActiveSection] = useState('overview');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -76,9 +77,11 @@ export default function ProfileView({
           {activeSection === 'overview' && (
             <ProfileOverview
               profile={profile}
+              role={role}
               roleLabel={roleLabel}
               completeness={completeness}
               onEditSection={openSection}
+              onOpenEligibility={onOpenEligibility}
               attributeVerifications={attributeVerifications}
               onAttachProof={onAttachProof}
             />

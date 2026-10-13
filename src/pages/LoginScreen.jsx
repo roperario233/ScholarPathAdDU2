@@ -433,7 +433,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   type="email"
                   value={createAccountData.email}
                   onChange={(e) => updateCreateAccountData('email', e.target.value)}
-                  placeholder="AdDU Email"
+                  placeholder="Email address"
                   required
                 />
               </FormField>
@@ -499,7 +499,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                     type="email"
                     value={forgotEmail}
                     onChange={(event) => setForgotEmail(event.target.value)}
-                    placeholder="AdDU Email"
+                    placeholder="Email address"
                     required
                   />
                 </label>
