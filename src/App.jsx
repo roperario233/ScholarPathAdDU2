@@ -1696,7 +1696,6 @@ function App() {
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
-              onOpenEligibility={() => navigate('explore')}
               attributeVerifications={attributeVerifications}
               scholarships={scholarshipCatalog}
               documents={studentDocuments}

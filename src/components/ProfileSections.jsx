@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
-import { checkAdduInternalGate, checkUniversalGate } from '../lib/eligibility';
-import { fmtCurrency } from '../lib/formatters';
 import { getAttributeVerificationTone } from '../lib/verification';
 import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
 import {
@@ -36,7 +34,6 @@ import {
 
 const controlClass = 'h-12 py-0';
 const asText = (value) => (value === undefined || value === null ? '' : String(value));
-const optionLabel = (options, value) => options.find((option) => String(option.value) === String(value))?.label || '';
 
 // Shared draft/validate/save lifecycle for one My Profile section. The draft
 // re-syncs whenever the saved profile changes, so a successful save (or a
@@ -304,34 +301,11 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
   );
 }
 
-export function ProfileOverview({ profile = {}, role, roleLabel, completeness, documentChecklist = null, onEditSection, onOpenEligibility, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
+export function ProfileOverview({ profile = {}, completeness, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
   // Staff have a single group of personal details, so headings would only add noise.
   const showGroups = completeness.groups.length > 1;
-  const isStudent = role === 'student';
-  const exclusionFlags = isStudent
-    ? [...checkUniversalGate(profile).reasons, ...checkAdduInternalGate(profile).reasons]
-    : [];
-  const initials = (profile.fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join('') || 'SP';
   return (
     <div className="grid gap-4">
-      <Card title="Account identity">
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
-          <span className="grid h-16 w-16 shrink-0 place-items-center rounded-[20px] bg-gradient-to-br from-ateneo to-sky-400 text-xl font-extrabold text-white" aria-hidden="true">{initials}</span>
-          <div className="min-w-0 flex-1">
-            <strong className="block break-words text-lg text-app-text">{profile.fullName}</strong>
-            <span className="mt-1 block text-sm text-app-muted">{roleLabel}{profile.department ? ` · ${profile.department}` : ''}</span>
-            <span className="mt-1 block break-all text-sm text-app-muted">{profile.email}</span>
-          </div>
-          <Button type="button" onClick={() => onEditSection('personal')}>Edit personal information</Button>
-        </div>
-        {profile.bio && <p className="mb-0 mt-4 border-t border-app-border pt-4 text-sm text-app-muted">{profile.bio}</p>}
-      </Card>
-
       <Card title="Profile completeness">
         <div className="flex items-center gap-3">
           <div
@@ -376,31 +350,6 @@ export function ProfileOverview({ profile = {}, role, roleLabel, completeness, d
           onUploadDocument={onUploadDocument}
           onEditSection={onEditSection}
         />
-      )}
-      {isStudent && (
-        <Card title="Eligibility snapshot">
-          <p className="-mt-1 mb-4 text-sm text-app-muted">The Smart Eligibility Checker matches scholarships using these saved values.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ReadOnlyField label="Degree program" value={profile.degreeProgram} />
-            <ReadOnlyField label="Annual QPI" value={asText(profile.qpi) === '' ? '' : Number(profile.qpi).toFixed(2)} />
-            <ReadOnlyField label="Household income" value={asText(profile.householdIncome) === '' ? '' : fmtCurrency(profile.householdIncome)} />
-            <ReadOnlyField label="Year standing" value={optionLabel(yearStandingOptions, deriveYearStanding(profile))} />
-          </div>
-          <div className={`mt-4 rounded-xl border p-4 text-sm ${exclusionFlags.length ? 'border-amber-400/40 bg-amber-500/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
-            <strong className="block text-app-text">
-              {exclusionFlags.length ? `Exclusion Flag Hierarchy: ${exclusionFlags.length} flag${exclusionFlags.length === 1 ? '' : 's'} recorded` : 'Exclusion Flag Hierarchy: no flags recorded'}
-            </strong>
-            {exclusionFlags.length > 0 && (
-              <ul className="m-0 mt-2 grid gap-1 pl-5 text-app-muted">
-                {exclusionFlags.map((reason) => <li key={reason}>{reason}</li>)}
-              </ul>
-            )}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button variant="primary" type="button" onClick={onOpenEligibility}>Check scholarships and eligibility</Button>
-            <Button type="button" onClick={() => onEditSection('financial')}>Review exclusion answers</Button>
-          </div>
-        </Card>
       )}
     </div>
   );
