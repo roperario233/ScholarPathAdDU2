@@ -230,3 +230,19 @@ skips the SMS when `smsEnabled` is false, the timing is off, or the student has
 no usable mobile number. Every delivery is recorded in `notification_email_log`,
 keyed by a stable per-user source key, so a reminder is never sent twice on
 either channel.
+
+### Deploying so reminders actually email
+
+Email reminders are computed server-side from the `custom_deadlines` table, so a
+reminder must exist in Supabase before it can ever be emailed. The Calendar
+saves to Supabase only when the app holds a live Supabase session, which means a
+build running in demo mode saves reminders to localStorage only.
+
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` (or
+`VITE_SUPABASE_ANON_KEY`) in the hosting environment as well as locally.
+Otherwise the deployed site silently falls back to demo mode and its calendar
+reminders never reach the reminder function.
+
+The Calendar now reports the outcome each time a reminder is added or removed,
+and any reminder that exists only in a browser is pushed to Supabase on the next
+successful sign-in.

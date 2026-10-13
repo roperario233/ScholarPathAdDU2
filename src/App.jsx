@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
+import { findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
@@ -121,6 +122,30 @@ const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
   return [...local, ...server.filter((entry) => !localIds.has(entry.id))];
 };
 
+// After a successful workspace load, push reminders that exist only in this
+// browser: ones created before server persistence existed, while offline, or in
+// demo mode. Only ids missing from the server are sent, so this becomes a no-op
+// once everything is synced, and the server can then email those reminders.
+const backfillLocalDeadlines = async ({ localDeadlines, serverDeadlines, ownerId, today, onError }) => {
+  if (!isRealUserId(ownerId)) return;
+
+  const missing = findDeadlinesMissingFromServer(localDeadlines, serverDeadlines)
+    .filter((entry) => isFutureDeadline(entry.deadline, today));
+  if (!missing.length) return;
+
+  const results = await Promise.all(missing.map((entry) => createSupabaseCustomDeadline({
+    id: entry.id,
+    ownerId,
+    title: entry.title,
+    deadline: entry.deadline,
+  })));
+
+  const failed = results.filter((result) => result?.error);
+  if (failed.length && typeof onError === 'function') {
+    onError(`Could not sync ${failed.length} saved reminder${failed.length === 1 ? '' : 's'} to the server, so email reminders will not send for them.`);
+  }
+};
+
 // Persists one student-created deadline so the scheduled reminder function can
 // email the same 7-day / 3-day / 1-day reminders the client generates locally.
 // The write is awaited and any failure is logged rather than thrown, so the
@@ -151,6 +176,7 @@ function App() {
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupabaseWorkspaceLoaded, setIsSupabaseWorkspaceLoaded] = useState(false);
+  const [deadlineSync, setDeadlineSync] = useState(null);
   // When the My Profile "Attach proof" link opens the vault it carries the
   // profile attribute so the upload form opens on the accepted document types.
   const [vaultPresetAttribute, setVaultPresetAttribute] = useState('');
@@ -322,6 +348,14 @@ function App() {
           customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
         }));
         setIsSupabaseWorkspaceLoaded(true);
+        // Push any reminder that only exists in this browser so it can be emailed.
+        backfillLocalDeadlines({
+          localDeadlines: readStoredState()?.customDeadlines,
+          serverDeadlines: workspace.customDeadlines,
+          ownerId: user.id,
+          today: dateKey(new Date()),
+          onError: (message) => setDeadlineSync({ tone: 'error', message }),
+        });
       }
       if (active) {
         const academicProgramsResult = await loadSupabaseAcademicPrograms();
@@ -479,6 +513,14 @@ function App() {
           customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
         }));
         setIsSupabaseWorkspaceLoaded(true);
+        // Push any reminder that only exists in this browser so it can be emailed.
+        backfillLocalDeadlines({
+          localDeadlines: readStoredState()?.customDeadlines,
+          serverDeadlines: workspace.customDeadlines,
+          ownerId: authResult.user?.id,
+          today: dateKey(new Date()),
+          onError: (message) => setDeadlineSync({ tone: 'error', message }),
+        });
       }
       const academicProgramsResult = await loadSupabaseAcademicPrograms();
       if (academicProgramsResult.success && academicProgramsResult.academicPrograms?.length) {
@@ -1168,7 +1210,7 @@ function App() {
     }));
   };
 
-  const addCustomDeadline = (title, deadline) => {
+  const addCustomDeadline = async (title, deadline) => {
     const deadlineDate = new Date(deadline);
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -1184,29 +1226,57 @@ function App() {
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
-    if (isSupabaseWorkspaceLoaded && currentProfile.id) {
-      // Persisting the deadline lets the scheduled reminder function email the
-      // same 7-day / 3-day / 1-day reminders the client generates locally. A
-      // failure is logged and retried by the reconciliation effect below.
-      persistCustomDeadline(newDeadline, currentProfile.id);
+    // The calendar updates immediately. The server save is reported separately,
+    // because only a row in `custom_deadlines` can be emailed by the scheduled
+    // reminder function.
+    setState((previous) => ({
+      ...previous,
+      customDeadlines: [newDeadline, ...previous.customDeadlines],
+    }));
+
+    const ownerId = state.authUser?.id || currentProfile.id;
+
+    if (!isSupabaseWorkspaceLoaded || !isRealUserId(ownerId)) {
+      setDeadlineSync({
+        tone: 'warning',
+        message: 'Reminder saved on this device only. Sign in with Supabase to enable email reminders.',
+      });
+      return;
     }
 
-    setState((previous) => {
-      const updatedState = {
-        ...previous,
-        customDeadlines: [newDeadline, ...previous.customDeadlines],
-      };
-
-      return updatedState;
+    const { error } = await createSupabaseCustomDeadline({
+      id: newDeadline.id,
+      ownerId,
+      title: newDeadline.title,
+      deadline: newDeadline.deadline,
     });
+
+    setDeadlineSync(error
+      ? {
+        tone: 'error',
+        message: `Reminder added here, but the server rejected it (${error.message || 'unknown error'}). Email reminders will not send for this deadline.`,
+      }
+      : {
+        tone: 'success',
+        message: 'Reminder saved. Email reminders are enabled for this deadline.',
+      });
   };
 
-  const deleteCustomDeadline = (deadlineId) => {
-    if (isSupabaseWorkspaceLoaded) deleteSupabaseCustomDeadline(deadlineId);
+  const deleteCustomDeadline = async (deadlineId) => {
     setState((previous) => ({
       ...previous,
       customDeadlines: previous.customDeadlines.filter((d) => d.id !== deadlineId),
     }));
+
+    if (!isSupabaseWorkspaceLoaded) return;
+
+    const { error } = await deleteSupabaseCustomDeadline(deadlineId);
+    if (error) {
+      setDeadlineSync({
+        tone: 'error',
+        message: `Reminder removed here, but the server could not delete it (${error.message || 'unknown error'}), so it may still send reminders.`,
+      });
+    }
   };
 
   // Saves one My Profile section. Students may edit academic and eligibility
@@ -1598,6 +1668,8 @@ function App() {
               customDeadlines={state.customDeadlines}
               onAddCustomDeadline={addCustomDeadline}
               onDeleteCustomDeadline={deleteCustomDeadline}
+              syncFeedback={deadlineSync}
+              onDismissSyncFeedback={() => setDeadlineSync(null)}
             />
           )}
         </section>
