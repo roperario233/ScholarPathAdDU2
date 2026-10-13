@@ -204,8 +204,8 @@ const standingNote = (standing) => {
 };
 
 const completenessGroupNotes = {
-  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them as your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
-  details: 'Not required to apply. They complete your record for the Admissions Office, and a mobile number enables SMS reminders.',
+  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them in your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
+  details: 'Not required to apply, but every answer except your mobile number is included in the profile snapshot of each application you submit, which the Admissions Office and your Department Chair review. A mobile number enables SMS reminders.',
 };
 
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
@@ -373,7 +373,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   const { values, errors, update } = form;
 
   return (
-    <SectionForm title="Personal information" description="How your name and contact details appear across ScholarPath." form={form}>
+    <SectionForm title="Personal information" description={isStudent ? 'How your name and contact details appear across ScholarPath. Your name, religion, and civil status are included in each application you submit.' : 'How your name and contact details appear across ScholarPath.'} form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Full name" error={errors.fullName}>
           <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
@@ -381,7 +381,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField label="Mobile number" hint="Optional. SMS deadline reminders use this Philippine mobile number when SMS notifications are on in Settings." error={errors.phone}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
-        {isStudent && <SelectField label="Religion" value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
+        {isStudent && <SelectField label="Religion" hint="Optional. Included in each application you submit; choose “Prefer not to say” to leave it out." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
         {isStudent && <SelectField label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} />}
       </div>
       <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
@@ -415,7 +415,7 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
   });
   const { values, errors, update } = form;
   return (
-    <SectionForm title="Address" description="Where ScholarPath can reach you for scholarship correspondence." form={form}>
+    <SectionForm title="Address" description="Where ScholarPath can reach you for scholarship correspondence. Your addresses are included in each application you submit." form={form}>
       <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
       </FormField>
@@ -448,7 +448,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   const family = values.familyDetails;
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } });
   return (
-    <SectionForm title="Family details" description="Family composition supports household-income and dependent-based financial aid review." form={form}>
+    <SectionForm title="Family details" description="Family composition supports household-income and dependent-based financial aid review, and is included in each application you submit." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Father's name" error={errors.fatherName}><input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} /></FormField>
         <FormField label="Father's occupation" error={errors.fatherOccupation}><input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} /></FormField>

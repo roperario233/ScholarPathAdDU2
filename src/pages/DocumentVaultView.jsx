@@ -126,6 +126,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
             <input name="documentFile" required type="file" accept={DOCUMENT_ACCEPT} />
             <small className="field-hint">PDF, JPG, or PNG · up to 10 MB</small>
           </label>
+          <p className="field-hint m-0">The Admissions Office and your Department Chair can view the files in your vault to verify them and review your applications. Each application also lists the files you attach to it.</p>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p>
             <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>

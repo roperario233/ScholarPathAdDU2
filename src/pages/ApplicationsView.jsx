@@ -3,15 +3,29 @@ import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import { ProfileSnapshotList, RequirementChecklist } from '../components/ApplicationParts';
-import { getApplicationReadiness } from '../lib/applicationRequirements';
+import { ProfileSnapshotList, RequirementChecklist, SupportingDocumentList } from '../components/ApplicationParts';
+import { getApplicationReadiness, getProfileSnapshotSections } from '../lib/applicationRequirements';
+import { applicationStatuses, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isInternalScholarship } from '../lib/eligibility';
-import { applicationStatuses } from '../lib/constants';
 import { fmtDate, toPercent } from '../lib/formatters';
 
 const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
+
+// The frozen profile snapshot as report lines, grouped like the on-screen list.
+const snapshotLines = (snapshot, isOpenDraft) => {
+  if (!snapshot) return [isOpenDraft ? '(Recorded when you submit the application.)' : '(No profile snapshot was recorded.)'];
+  const { legacy, sections } = getProfileSnapshotSections(snapshot);
+  return [
+    ...sections.flatMap((section) => [
+      `${section.title}:`,
+      ...section.rows.map((row) => `- ${row.label}: ${row.value || 'Not encoded'}${row.verification ? ` [${row.verification}]` : ''}`),
+    ]),
+    ...(legacy ? ['(Submitted before the extended profile details were recorded.)'] : []),
+    ...(snapshot.capturedAt ? [`Self-reported values as of ${fmtDate(snapshot.capturedAt)}.`] : []),
+  ];
+};
 
 export default function ApplicationsView({
   applications,
@@ -66,6 +80,14 @@ export default function ApplicationsView({
         ? readiness.requirements.map((item) => `- ${item.label}: ${item.attached.length ? item.attached.map((doc) => `${doc.title} (${doc.verificationStatus})`).join(', ') : 'Not attached'}`)
         : ['- None listed']),
       '',
+      'SUPPORTING DOCUMENTS',
+      ...(readiness.supportingDocuments.length
+        ? readiness.supportingDocuments.map((doc) => `- ${doc.title} (${getDocumentTypeLabel(doc.documentType)}, ${doc.verificationStatus})`)
+        : ['- None attached']),
+      '',
+      'PROFILE SNAPSHOT',
+      ...snapshotLines(entry.profileSnapshot, entry.status === 'Draft' && readiness.route === 'internal'),
+      '',
       'STATEMENT',
       entry.statement || '(none)',
       '',
@@ -117,6 +139,7 @@ export default function ApplicationsView({
           {selectedReadiness.route === 'external' ? <p className="m-0 text-sm text-app-muted">{selected.notes}</p> : (
             <>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} /></Panel>
+              <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
               <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} /></Panel>
               <Panel className="grid gap-2">

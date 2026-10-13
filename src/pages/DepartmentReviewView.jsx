@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
+import { describeApplicantAcademic } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const queueTone = (status) => {
@@ -56,7 +57,7 @@ export default function DepartmentReviewView({
                     <div className="min-w-0">
                       <h3 className="truncate">{entry.studentName}</h3>
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram}</p>
-                      <p className="mt-1 text-xs text-app-muted">QPI {entry.studentQpi ?? '—'} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
+                      <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
                     </div>
                     <StatusBadge tone={queueTone(entry.status)}>{entry.status}</StatusBadge>
                   </div>

@@ -1,6 +1,21 @@
 import { generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isInternalScholarship } from './eligibility';
-import { VERIFIABLE_ATTRIBUTE_OPTIONS, deriveYearStanding, getStandingRequirements, yearStandingOptions } from './profile';
+import { fmtCurrency } from './formatters';
+import {
+  VERIFIABLE_ATTRIBUTE_OPTIONS,
+  academicStandingOptions,
+  civilStatusOptions,
+  deriveYearStanding,
+  employmentOptions,
+  familyPositionOptions,
+  getStandingRequirements,
+  getVerifiableAttributeOption,
+  honorsRankOptions,
+  ipCommunityOptions,
+  pwdOptions,
+  religionOptions,
+  yearStandingOptions,
+} from './profile';
 import { UNSET_ATTRIBUTE_STATUS } from './verification';
 
 // Application requirements: the documents a scholarship asks for before a
@@ -216,8 +231,13 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
     : [];
 
   if (!isInternal) {
-    return { route: 'external', requirements, attachedCount: 0, requiredCount: 0, blockers: [], ready: false };
+    return { route: 'external', requirements, supportingDocuments: [], attachedCount: 0, requiredCount: 0, blockers: [], ready: false };
   }
+  // Optional files the student attached beyond the requirements for their
+  // standing. They travel with the application but never gate submitting.
+  const supportingDocuments = attachedDocuments.filter((doc) => (
+    !requirements.some((requirement) => requirement.documentTypes.includes(doc.documentType))
+  ));
 
   const blockers = [];
   const missing = requirements.filter((item) => item.state === 'missing');
@@ -236,6 +256,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   return {
     route: 'internal',
     requirements,
+    supportingDocuments,
     attachedCount,
     requiredCount: requirements.length,
     blockers,
@@ -243,14 +264,28 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   };
 };
 
+// Version 2 adds the eligibility answers, background, personal, address, and
+// family groups to the original nine fields. A snapshot without a version was
+// submitted before those groups were recorded.
+export const PROFILE_SNAPSHOT_VERSION = 2;
+
+const asText = (value) => (value == null ? '' : String(value).trim());
+const asNumberOrNull = (value) => (value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value));
+
 // The self-reported profile values sent with a submission, frozen on the
-// application so reviewers see what the student declared at submit time. Values
-// are self-reported; the badges reflect Document Vault proof only.
+// application so the student and the reviewers see what was declared at submit
+// time. Values are self-reported; the badges reflect Document Vault proof only.
+// The default scholarship statement (`essay`) is left out because the
+// application stores its own statement.
 export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, capturedAt = new Date().toISOString()) => {
   const academic = getAcademicRequirement(profile);
   const yearStanding = deriveYearStanding(profile);
+  const { isIncomingFirstYear } = getStandingRequirements(profile);
   const status = (key) => attributeVerifications[key] || UNSET_ATTRIBUTE_STATUS;
+  const proven = (key) => ({ value: asText(profile[key]), verification: status(key) });
+  const family = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
   return {
+    version: PROFILE_SNAPSHOT_VERSION,
     capturedAt,
     fullName: profile.fullName || '',
     studentNumber: profile.studentNumber || '',
@@ -266,5 +301,139 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
     },
     householdIncome: { value: profile.householdIncome === '' || profile.householdIncome == null ? null : Number(profile.householdIncome), verification: status('householdIncome') },
     citizenship: { value: profile.citizenship || '', verification: status('citizenship') },
+    // The answers the application gate and the Exclusion Flag Hierarchy read.
+    eligibility: {
+      academicStanding: proven('academicStanding'),
+      honorsRank: proven('honorsRank'),
+      graduatingClassSize: asNumberOrNull(profile.graduatingClassSize),
+      isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
+      hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
+      hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
+      ...(isIncomingFirstYear ? {
+        hsStrand: asText(profile.hsStrand),
+        programChoices: [asText(profile.programChoice2), asText(profile.programChoice3)],
+      } : {}),
+    },
+    background: {
+      ipCommunity: proven('ipCommunity'),
+      pwd: proven('pwd'),
+      employed: proven('employed'),
+    },
+    personal: {
+      civilStatus: asText(profile.civilStatus),
+      religion: asText(profile.religion),
+    },
+    address: {
+      completeAddress: asText(profile.completeAddress),
+      residingAddress: asText(profile.sameAsCompleteAddress ? profile.completeAddress : profile.residingAddress),
+      country: asText(profile.country),
+    },
+    family: {
+      fatherName: asText(family.fatherName),
+      fatherOccupation: asText(family.fatherOccupation),
+      fatherDeceased: Boolean(family.fatherDeceased),
+      motherName: asText(family.motherName),
+      motherOccupation: asText(family.motherOccupation),
+      motherDeceased: Boolean(family.motherDeceased),
+      familyPosition: asText(family.familyPosition),
+      numberOfSiblings: asNumberOrNull(family.numberOfSiblings),
+    },
   };
+};
+
+// The academic figure a staff queue row shows. An incoming first-year was
+// matched on the senior high school general average frozen at submit, so it
+// shows that instead of an empty QPI; everyone else keeps the current QPI.
+export const describeApplicantAcademic = (application = {}) => {
+  const academic = application.profileSnapshot?.academic;
+  if (academic?.credential === 'hsAverage') return `SHS average ${academic.value ?? '—'}`;
+  return `QPI ${application.studentQpi ?? '—'}`;
+};
+
+const optionLabel = (options, value) => options.find((option) => option.value === (value || ''))?.label || value || '';
+const yesNo = (value) => (value ? 'Yes' : 'No');
+const attributeLabel = (key) => getVerifiableAttributeOption(key)?.label || key;
+const formatParent = (name, occupation, deceased) => [name, occupation, deceased ? 'Deceased' : ''].filter(Boolean).join(' · ');
+
+// The snapshot as labelled, display-ready rows, grouped the way My Profile
+// groups them. The application workspace, the student's application view, the
+// staff review modal, and the exported report all read this one list, so the
+// student and the reviewers see the same values. `legacy` marks a snapshot
+// submitted before the extended groups were recorded.
+export const getProfileSnapshotSections = (snapshot) => {
+  if (!snapshot) return { legacy: false, sections: [] };
+  const row = (label, value, verification) => ({ label, value: value == null ? '' : String(value), ...(verification ? { verification } : {}) });
+  const academic = snapshot.academic || {};
+  const academicValue = academic.value == null ? '' : (academic.credential === 'qpi' ? Number(academic.value).toFixed(2) : String(academic.value));
+  const sections = [{
+    key: 'application',
+    title: 'Needed to apply',
+    rows: [
+      row('Name', snapshot.fullName),
+      ...(snapshot.studentNumber ? [row('Student number', snapshot.studentNumber)] : []),
+      row('Program', snapshot.degreeProgram),
+      row('Year standing', snapshot.yearStandingLabel),
+      row(academic.label || 'Academic record', academicValue, academic.verification),
+      row('Household income', snapshot.householdIncome?.value == null ? '' : fmtCurrency(snapshot.householdIncome.value), snapshot.householdIncome?.verification),
+      row('Citizenship', snapshot.citizenship?.value, snapshot.citizenship?.verification),
+    ],
+  }];
+  if (!snapshot.version) return { legacy: true, sections };
+
+  const eligibility = snapshot.eligibility || {};
+  const background = snapshot.background || {};
+  const personal = snapshot.personal || {};
+  const address = snapshot.address || {};
+  const family = snapshot.family || {};
+  const proven = (key, entry, options) => row(attributeLabel(key), optionLabel(options, entry?.value), entry?.verification);
+  sections.push(
+    {
+      key: 'eligibility',
+      title: 'Eligibility answers',
+      rows: [
+        proven('academicStanding', eligibility.academicStanding, academicStandingOptions),
+        ...(Object.prototype.hasOwnProperty.call(eligibility, 'hsStrand') ? [row('Senior high school strand', eligibility.hsStrand)] : []),
+        ...(Array.isArray(eligibility.programChoices) ? [
+          row('2nd choice program', eligibility.programChoices[0]),
+          row('3rd choice program', eligibility.programChoices[1]),
+        ] : []),
+        proven('honorsRank', eligibility.honorsRank, honorsRankOptions),
+        row('Graduating class size', eligibility.graduatingClassSize),
+        row('Prepaid tuition plan', yesNo(eligibility.isOnPrepaidPlan)),
+        row('Sibling on AdDU financial aid', yesNo(eligibility.hasSiblingOnAid)),
+        row('Another active scholarship', yesNo(eligibility.hasOtherActiveScholarship)),
+      ],
+    },
+    {
+      key: 'background',
+      title: 'Background',
+      rows: [
+        proven('ipCommunity', background.ipCommunity, ipCommunityOptions),
+        proven('pwd', background.pwd, pwdOptions),
+        proven('employed', background.employed, employmentOptions),
+      ],
+    },
+    {
+      key: 'personal',
+      title: 'Personal and address',
+      rows: [
+        row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
+        row('Religion', optionLabel(religionOptions, personal.religion)),
+        row('Complete address', address.completeAddress),
+        row('Residing address', address.residingAddress),
+        row('Country', address.country),
+      ],
+    },
+    {
+      key: 'family',
+      title: 'Family',
+      rows: [
+        row('Father', formatParent(family.fatherName, family.fatherOccupation, family.fatherDeceased)),
+        row('Mother', formatParent(family.motherName, family.motherOccupation, family.motherDeceased)),
+        row('Family position', optionLabel(familyPositionOptions, family.familyPosition)),
+        row('Number of siblings', family.numberOfSiblings),
+      ],
+    },
+  );
+  return { legacy: false, sections };
 };

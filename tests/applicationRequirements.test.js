@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REQUIRED_DOCUMENTS,
   buildProfileSnapshot,
+  describeApplicantAcademic,
   getApplicationReadiness,
   getCatalogRequirements,
   getDocumentChecklist,
+  getProfileSnapshotSections,
   getRequirementUploadPreset,
   getScholarshipRequirements,
   normalizeRequirements,
@@ -176,6 +178,107 @@ describe('profile snapshot', () => {
     const snapshot = buildProfileSnapshot(incomingProfile, {});
     expect(snapshot.academic).toMatchObject({ credential: 'hsAverage', label: 'Senior high school general average', value: 92 });
     expect(snapshot.yearStandingLabel).toBe('Incoming 1st year');
+  });
+
+  const fullProfile = {
+    ...continuingProfile,
+    honorsRank: 'Valedictorian',
+    graduatingClassSize: '120',
+    hasSiblingOnAid: true,
+    ipCommunity: 'Yes',
+    pwd: 'No',
+    employed: 'Part-time',
+    civilStatus: 'Single',
+    religion: 'Roman Catholic',
+    completeAddress: 'Roxas Ave, Davao City',
+    sameAsCompleteAddress: true,
+    residingAddress: '',
+    country: 'Philippines',
+    familyDetails: { fatherName: 'Jose Reyes', fatherOccupation: 'Driver', fatherDeceased: false, motherName: 'Maria Reyes', motherDeceased: true, familyPosition: 'Eldest', numberOfSiblings: '2' },
+    essay: 'My default statement.',
+  };
+
+  it('freezes the eligibility answers, background, personal, address, and family groups', () => {
+    const snapshot = buildProfileSnapshot(fullProfile, { honorsRank: 'Verified', pwd: 'Pending' });
+    expect(snapshot.version).toBe(2);
+    expect(snapshot.eligibility).toEqual({
+      academicStanding: { value: 'good', verification: 'Unverified' },
+      honorsRank: { value: 'Valedictorian', verification: 'Verified' },
+      graduatingClassSize: 120,
+      isOnPrepaidPlan: false,
+      hasSiblingOnAid: true,
+      hasOtherActiveScholarship: false,
+    });
+    expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
+    expect(snapshot.personal).toEqual({ civilStatus: 'Single', religion: 'Roman Catholic' });
+    expect(snapshot.address).toEqual({ completeAddress: 'Roxas Ave, Davao City', residingAddress: 'Roxas Ave, Davao City', country: 'Philippines' });
+    expect(snapshot.family).toMatchObject({ fatherName: 'Jose Reyes', motherDeceased: true, numberOfSiblings: 2 });
+    expect(JSON.stringify(snapshot)).not.toContain('My default statement.');
+  });
+
+  it('adds the strand and ranked program choices only for an incoming first-year', () => {
+    expect(buildProfileSnapshot(fullProfile).eligibility).not.toHaveProperty('programChoices');
+    const incoming = buildProfileSnapshot({ ...incomingProfile, programChoice2: 'BS Accountancy' });
+    expect(incoming.eligibility).toMatchObject({ hsStrand: 'STEM', programChoices: ['BS Accountancy', ''] });
+  });
+});
+
+describe('profile snapshot sections', () => {
+  it('labels every group the student and reviewers see', () => {
+    const { legacy, sections } = getProfileSnapshotSections(buildProfileSnapshot({
+      ...continuingProfile,
+      employed: 'Part-time',
+      familyDetails: { motherName: 'Maria Reyes', motherOccupation: 'Vendor', motherDeceased: true },
+    }, { qpi: 'Verified' }));
+    expect(legacy).toBe(false);
+    expect(sections.map((section) => section.key)).toEqual(['application', 'eligibility', 'background', 'personal', 'family']);
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row]));
+    expect(rows['Annual QPI']).toEqual({ label: 'Annual QPI', value: '3.20', verification: 'Verified' });
+    expect(rows['Household income'].value).toBe('₱180,000');
+    expect(rows['Academic standing'].value).toBe('Good academic standing');
+    expect(rows['Employment status'].value).toBe('Part-time employed');
+    expect(rows['Sibling on AdDU financial aid'].value).toBe('No');
+    expect(rows.Mother.value).toBe('Maria Reyes · Vendor · Deceased');
+  });
+
+  it('shows only the original fields for a snapshot submitted before the extended groups', () => {
+    const current = buildProfileSnapshot(continuingProfile);
+    const legacyKeys = ['capturedAt', 'fullName', 'studentNumber', 'degreeProgram', 'department', 'yearStanding', 'yearStandingLabel', 'academic', 'householdIncome', 'citizenship'];
+    const { legacy, sections } = getProfileSnapshotSections(Object.fromEntries(legacyKeys.map((key) => [key, current[key]])));
+    expect(legacy).toBe(true);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].rows.map((row) => row.label)).toEqual(['Name', 'Student number', 'Program', 'Year standing', 'Annual QPI', 'Household income', 'Citizenship']);
+  });
+
+  it('is empty without a snapshot', () => {
+    expect(getProfileSnapshotSections(null)).toEqual({ legacy: false, sections: [] });
+  });
+});
+
+describe('supporting documents', () => {
+  const requirements = getScholarshipRequirements(gia, continuingProfile);
+  const required = requirements.map((item, index) => doc(`d${index}`, item.documentTypes[0]));
+  const pwdId = doc('pwd-id', 'PWD ID');
+  const extraTranscript = doc('extra-transcript', 'Transcript');
+  const application = { attachedDocuments: [...required, pwdId, extraTranscript].map((entry) => entry.id), statement: 'Statement.' };
+
+  it('lists attached files that match no requirement without changing readiness', () => {
+    const result = getApplicationReadiness({ application, scholarship: gia, documents: [...required, pwdId, extraTranscript], profile: continuingProfile, certified: true });
+    expect(ids(result.supportingDocuments)).toEqual(['pwd-id']);
+    expect(result.ready).toBe(true);
+    expect(result.attachedCount).toBe(result.requiredCount);
+  });
+
+  it('is empty for tracked external entries', () => {
+    expect(getApplicationReadiness({ application, scholarship: external, documents: [pwdId], profile: continuingProfile }).supportingDocuments).toEqual([]);
+  });
+});
+
+describe('applicant academic summary', () => {
+  it('shows the frozen senior high school average for an incoming first-year and the QPI otherwise', () => {
+    expect(describeApplicantAcademic({ studentQpi: null, profileSnapshot: buildProfileSnapshot(incomingProfile) })).toBe('SHS average 92');
+    expect(describeApplicantAcademic({ studentQpi: 3.2, profileSnapshot: buildProfileSnapshot(continuingProfile) })).toBe('QPI 3.2');
+    expect(describeApplicantAcademic({ studentQpi: null })).toBe('QPI —');
   });
 });
 

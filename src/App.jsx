@@ -865,10 +865,11 @@ function App() {
     if (!readiness.ready) return { error: readiness.blockers[0], blockers: readiness.blockers };
 
     const submittedAt = new Date().toISOString();
+    const supportingCount = readiness.supportingDocuments.length;
     const submitEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: 'Submitted',
-      note: `Student certified and submitted the application with ${readiness.attachedCount} of ${readiness.requiredCount} required documents attached.`,
+      note: `Student certified and submitted the application with ${readiness.attachedCount} of ${readiness.requiredCount} required documents attached${supportingCount ? ` and ${supportingCount} supporting ${supportingCount === 1 ? 'document' : 'documents'}` : ''}.`,
       actor: 'Student',
       at: submittedAt.slice(0, 10),
     };

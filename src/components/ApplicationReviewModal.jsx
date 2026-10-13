@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
-import { ProfileSnapshotList, RequirementChecklist } from './ApplicationParts';
+import { ProfileSnapshotList, RequirementChecklist, SupportingDocumentList } from './ApplicationParts';
 import { getNextApplicationStatuses, getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
 import { getApplicationReadiness } from '../lib/applicationRequirements';
 import { getApplicationProgress } from '../lib/eligibility';
@@ -41,7 +41,7 @@ export default function ApplicationReviewModal({
   const isAdmissionsOffice = role === 'admissions_office';
   // The scholarship's own requirement list, scoped to the standing the student
   // declared at submit time (the frozen profile snapshot).
-  const { requirements } = getApplicationReadiness({
+  const { requirements, supportingDocuments = [] } = getApplicationReadiness({
     application,
     scholarship,
     documents,
@@ -85,6 +85,11 @@ export default function ApplicationReviewModal({
           <Panel className="grid gap-2">
             <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Required submissions</h4>
             <RequirementChecklist requirements={requirements} onPreview={setPreviewDoc} />
+          </Panel>
+
+          <Panel className="grid gap-2">
+            <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Supporting documents</h4>
+            <SupportingDocumentList documents={supportingDocuments} onPreview={setPreviewDoc} />
           </Panel>
 
           <Panel className="grid gap-2">

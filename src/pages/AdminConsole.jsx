@@ -6,7 +6,7 @@ import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import RequiredDocumentsEditor from '../components/RequiredDocumentsEditor';
-import { normalizeRequirements } from '../lib/applicationRequirements';
+import { describeApplicantAcademic, normalizeRequirements } from '../lib/applicationRequirements';
 import { getProofStaleReason } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -175,7 +175,7 @@ export default function AdminConsole({
                   <div className="min-w-0 flex-1">
                     <h3>{entry.studentName}</h3>
                     <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
-                    <p className="mt-1 text-xs text-app-muted">QPI {entry.studentQpi ?? '—'} · Income ₱{Number(entry.studentHouseholdIncome || 0).toLocaleString()} · Updated {fmtDate(entry.updatedAt)}</p>
+                    <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · Income ₱{Number(entry.studentHouseholdIncome || 0).toLocaleString()} · Updated {fmtDate(entry.updatedAt)}</p>
                   </div>
                   <StatusBadge tone={stageTone(entry.status)}>{entry.status}</StatusBadge>
                 </div>
