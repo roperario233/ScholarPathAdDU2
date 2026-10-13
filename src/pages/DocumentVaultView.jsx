@@ -14,6 +14,7 @@ import {
   getDocumentTitle,
   getVerifiableAttributeOption,
 } from '../lib/profile';
+import { getOutdatedProofAttributes } from '../lib/verification';
 
 // The upload form uses one grouped picker, mirroring the program/course picker
 // in My Profile: each profile attribute is a group header with the document
@@ -23,15 +24,24 @@ import {
 // that pair, so there is no free-text title and no attribute checklist.
 const documentPickerOptions = buildDocumentPickerOptions();
 
-// The preselected picker value: the attribute's first accepted type, or the
-// first general document type when the vault opens without an attribute preset.
-const initialSelection = (attributeKey = '') => {
-  const firstType = attributeKey ? getAcceptedDocumentTypes(attributeKey)[0]?.value : generalDocumentTypeOptions[0]?.value;
+// The preselected picker value: a preset document type when one is given (My
+// Profile's document checklist), else the attribute's first accepted type, or the
+// first general document type when the vault opens without a preset.
+const initialSelection = (attributeKey = '', documentType = '') => {
+  const firstType = documentType || (attributeKey ? getAcceptedDocumentTypes(attributeKey)[0]?.value : generalDocumentTypeOptions[0]?.value);
   return encodeDocumentSelection(attributeKey, firstType || '');
 };
 
-export default function DocumentVaultView({ documents, applications = [], onUpload, onDelete, presetAttribute = '' }) {
-  const [selection, setSelection] = useState(() => initialSelection(presetAttribute));
+// Why a proof no longer covers its attribute, phrased for the student.
+const outdatedProofMessage = ({ key, reason }) => {
+  const label = getVerifiableAttributeOption(key)?.label || key;
+  return reason === 'year'
+    ? `This ${label} proof is from an earlier academic year. Upload a current one.`
+    : `Your ${label} in My Profile changed after this upload. Upload a new proof.`;
+};
+
+export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, presetAttribute = '', presetDocumentType = '' }) {
+  const [selection, setSelection] = useState(() => initialSelection(presetAttribute, presetDocumentType));
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [formError, setFormError] = useState('');
@@ -51,17 +61,24 @@ export default function DocumentVaultView({ documents, applications = [], onUplo
     }));
     return usage;
   }, [applications]);
+  // A proof goes stale when the student changes the value it attests or, for
+  // annual attributes, when a new academic year starts (src/lib/verification.js).
+  const outdatedByDocument = useMemo(() => Object.fromEntries(
+    documents.map((doc) => [doc.id, getOutdatedProofAttributes(doc, { profile })]),
+  ), [documents, profile]);
   const filtered = useMemo(() => documents.filter((doc) => {
     const text = `${doc.title} ${doc.fileName} ${doc.documentType}`.toLowerCase();
-    return (!query.trim() || text.includes(query.trim().toLowerCase())) && (status === 'all' || doc.verificationStatus === status);
-  }), [documents, query, status]);
+    const matchesStatus = status === 'all'
+      || (status === 'outdated' ? outdatedByDocument[doc.id]?.length > 0 : doc.verificationStatus === status);
+    return (!query.trim() || text.includes(query.trim().toLowerCase())) && matchesStatus;
+  }), [documents, query, status, outdatedByDocument]);
 
-  // Opening the vault from My Profile's "Attach proof" link preselects the
-  // attribute so its accepted document types are offered straight away.
+  // Opening the vault from My Profile's "Attach proof" or document checklist
+  // link preselects the attribute and document type so the upload is one step.
   useEffect(() => {
-    if (!presetAttribute) return;
-    setSelection(initialSelection(presetAttribute));
-  }, [presetAttribute]);
+    if (!presetAttribute && !presetDocumentType) return;
+    setSelection(initialSelection(presetAttribute, presetDocumentType));
+  }, [presetAttribute, presetDocumentType]);
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -70,8 +87,15 @@ export default function DocumentVaultView({ documents, applications = [], onUplo
     if (file.size > DOCUMENT_MAX_BYTES) { setFormError('Files must be 10 MB or smaller.'); return; }
     setFormError('');
     setIsUploading(true);
-    const result = await onUpload(event);
-    setIsUploading(false);
+    let result;
+    try {
+      result = await onUpload(event);
+    } catch {
+      setFormError('The document could not be uploaded.');
+      return;
+    } finally {
+      setIsUploading(false);
+    }
     if (result?.error) { setFormError(result.error); return; }
     setSelection(initialSelection(''));
   };
@@ -113,7 +137,7 @@ export default function DocumentVaultView({ documents, applications = [], onUplo
       <Card title="Your documents" className="document-list-card">
         <div className="document-filter-toolbar grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4">
           <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find a file</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents" aria-label="Search documents" /></label>
-          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Verification status</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter documents"><option value="all">All statuses</option><option>Verified</option><option>Pending</option><option>Rejected</option></select></label>
+          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Verification status</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter documents"><option value="all">All statuses</option><option>Verified</option><option>Pending</option><option>Rejected</option><option value="outdated">Outdated proof</option></select></label>
         </div>
         <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3">
           <p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'document' : 'documents'} found</p>
@@ -122,6 +146,7 @@ export default function DocumentVaultView({ documents, applications = [], onUplo
         <div className="mt-4 grid max-h-[560px] gap-4 overflow-y-auto pr-2">
           {filtered.length ? filtered.map((doc) => {
             const usage = usageByDocument[doc.id] || { count: 0, lockedBy: null };
+            const outdated = outdatedByDocument[doc.id] || [];
             return (
             <article key={doc.id} className="document-result-card group grid gap-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-app">
               <div className="flex min-w-0 items-start justify-between gap-4">
@@ -138,6 +163,16 @@ export default function DocumentVaultView({ documents, applications = [], onUplo
                   <span><strong>Proof for</strong> {doc.linkedAttributes.map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
                 ) : null}
               </div>
+              {outdated.length ? (
+                <div className="grid gap-2 rounded-xl border border-rose-400/30 bg-rose-500/5 p-3">
+                  {outdated.map((entry) => (
+                    <p key={entry.key} className="m-0 flex flex-wrap items-center gap-2 text-sm text-app-muted">
+                      <StatusBadge tone="danger">Outdated proof</StatusBadge>
+                      <span>{outdatedProofMessage(entry)}</span>
+                    </p>
+                  ))}
+                </div>
+              ) : null}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/60 pt-3">
                 <Button variant="secondary" type="button" onClick={() => setPreview(doc)}>View</Button>
                 {usage.lockedBy

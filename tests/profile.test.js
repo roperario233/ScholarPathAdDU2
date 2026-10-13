@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveYearStanding,
+  getCurrentAcademicYear,
   getProfileCompleteness,
+  normalizeAttestedValue,
   getStandingRequirements,
   pickEligibilityAttributes,
   pickFields,
@@ -70,7 +72,7 @@ describe('section validators', () => {
     expect(kept.errors).toEqual({});
     expect(kept.values.essay).toBe('First paragraph.\n\nSecond paragraph.');
 
-    expect(validatePersonalSection({ fullName: 'Ana Cruz', essay: 'x'.repeat(5001) }).errors.essay).toMatch(/essay/);
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', essay: 'x'.repeat(5001) }).errors.essay).toMatch(/default statement/);
   });
 
   it('resolves the residing address from the same-as-complete-address toggle', () => {
@@ -209,28 +211,57 @@ describe('profile field picking', () => {
 });
 
 describe('getProfileCompleteness', () => {
+  const completeStudent = {
+    ...studentProfile,
+    academicStanding: 'good',
+    civilStatus: 'Single',
+    essay: 'My scholarship essay.',
+    studentNumber: '2023001',
+    completeAddress: '123 Rizal St, Davao City',
+    ipCommunity: 'No',
+    pwd: 'No',
+    employed: 'Not employed',
+  };
+  const keysOf = (completeness, group) => completeness.items.filter((item) => item.group === group).map((item) => item.key);
+
   it('scores a complete student profile and points missing items to their section', () => {
-    const completeStudent = {
-      ...studentProfile,
-      civilStatus: 'Single',
-      essay: 'My scholarship essay.',
-      studentNumber: '2023001',
-      completeAddress: '123 Rizal St, Davao City',
-      ipCommunity: 'No',
-      pwd: 'No',
-      employed: 'Not employed',
-    };
     const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
-    expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic' })]);
-    // The essay is a tracked personal-information item.
-    expect(completeness.items).toContainEqual(expect.objectContaining({ key: 'essay', section: 'personal', done: true }));
+    expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
+    // The default scholarship statement is an optional template, not a tracked item.
+    expect(completeness.items.map((item) => item.key)).not.toContain('essay');
     expect(completeness.percent).toBe(Math.round((13 / 14) * 100));
+  });
+
+  it('separates what an application needs from the descriptive details', () => {
+    const completeness = getProfileCompleteness(completeStudent, 'student');
+    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship']);
+    expect(keysOf(completeness, 'details')).toEqual(['phone', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed']);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 8, 8], ['details', 6, 6]]);
+    expect(completeness.percent).toBe(100);
+  });
+
+  it('asks an incoming first-year for senior high school standing instead of a student number and QPI', () => {
+    const incoming = { ...completeStudent, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsStrand: '', hsAverage: '' };
+    const completeness = getProfileCompleteness(incoming, 'student');
+    const keys = completeness.items.map((item) => item.key);
+    // Items that do not apply are left out, not counted as done.
+    expect(keys).not.toContain('studentNumber');
+    expect(keys).not.toContain('qpi');
+    expect(keysOf(completeness, 'application')).toContain('hsAverage');
+    expect(keysOf(completeness, 'details')).toContain('hsStrand');
+    expect(completeness.items.find((item) => item.key === 'degreeProgram').label).toBe('Program to be enrolled');
+    expect(completeness.items.filter((item) => !item.done).map((item) => item.key)).toEqual(['hsAverage', 'hsStrand']);
+
+    const filled = getProfileCompleteness({ ...incoming, hsStrand: 'STEM', hsAverage: 92 }, 'student');
+    expect(filled.percent).toBe(100);
+    expect(getProfileCompleteness({ ...incoming, hsStrand: 'STEM', hsAverage: 59 }, 'student').percent).toBeLessThan(100);
   });
 
   it('only asks staff for personal information', () => {
     const completeness = getProfileCompleteness(chairProfile, 'department_chair');
     expect(completeness.items.map((item) => item.section)).toEqual(['personal', 'personal']);
+    expect(completeness.groups).toHaveLength(1);
     expect(completeness.percent).toBe(100);
   });
 });
@@ -304,5 +335,30 @@ describe('validateOnboardingEssentials', () => {
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, programs).errors).toEqual({});
     expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
     expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toMatch(/Philippine mobile/);
+  });
+});
+
+describe('getCurrentAcademicYear', () => {
+  it('starts the academic year in June', () => {
+    expect(getCurrentAcademicYear(new Date(2026, 4, 31))).toBe('2025-2026');
+    expect(getCurrentAcademicYear(new Date(2026, 5, 1))).toBe('2026-2027');
+  });
+});
+
+describe('normalizeAttestedValue', () => {
+  it('compares numeric attributes by value', () => {
+    expect(normalizeAttestedValue('qpi', '3.20')).toBe(3.2);
+    expect(normalizeAttestedValue('qpi', 3.456)).toBe(3.46);
+    expect(normalizeAttestedValue('hsAverage', '92')).toBe(92);
+    expect(normalizeAttestedValue('householdIncome', '250000')).toBe(250000);
+    expect(normalizeAttestedValue('qpi', 'abc')).toBeNull();
+  });
+
+  it('trims option answers and maps blanks to null', () => {
+    expect(normalizeAttestedValue('citizenship', ' Filipino ')).toBe('Filipino');
+    expect(normalizeAttestedValue('pwd', 'No')).toBe('No');
+    expect(normalizeAttestedValue('employed', '')).toBeNull();
+    expect(normalizeAttestedValue('qpi', null)).toBeNull();
+    expect(normalizeAttestedValue('honorsRank', undefined)).toBeNull();
   });
 });

@@ -1,12 +1,14 @@
 import { useState } from 'react';
+import { ArrowRight } from 'lucide-react';
 import { EmptyState } from '../components/pageParts';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { coverageTypes } from '../lib/constants';
 import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
 import { getScholarshipRequirements } from '../lib/applicationRequirements';
+import { getProfileSectionForField } from '../lib/profile';
 
-export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply }) {
+export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply, onOpenProfileSection }) {
   const [expandedEligibilityId, setExpandedEligibilityId] = useState(null);
   const [applyErrors, setApplyErrors] = useState({});
   const handleApply = async (scholarship) => {
@@ -88,6 +90,14 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
             ? evaluateScholarship(profile, scholarship)
             : null;
           const requirements = isInternal ? getScholarshipRequirements(scholarship, profile) : [];
+          // One My Profile shortcut per section behind the failed checks, so two
+          // Eligibility background reasons share a single action.
+          const profileFixSections = isInternal && !gateResult.allowed && onOpenProfileSection
+            ? [...new Map(gateResult.issues
+              .map((item) => getProfileSectionForField(item.field))
+              .filter(Boolean)
+              .map((section) => [section.key, section])).values()]
+            : [];
           return (
             <article key={scholarship.id} className="rounded-app border bg-app-card p-5 shadow-app backdrop-blur scholarship-card">
                 <div className="flex min-w-0 items-start justify-between gap-4">
@@ -157,6 +167,24 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                           {gateResult.reasons.map((reason) => <li key={reason}>{reason}</li>)}
                         </ul>
                       )}
+                      {profileFixSections.length > 0 && (
+                        <div className="grid gap-2">
+                          <span className="text-xs text-app-muted">Update in My Profile:</span>
+                          <div className="flex flex-wrap gap-2">
+                            {profileFixSections.map((section) => (
+                              <button
+                                key={section.key}
+                                type="button"
+                                className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                                onClick={() => onOpenProfileSection(section.key)}
+                              >
+                                {section.label}
+                                <ArrowRight size={15} className="shrink-0" aria-hidden="true" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                       {eligibilityResult?.infoNotes?.map((note) => (
                         <p key={note} className="m-0 text-xs text-app-muted">{note}</p>
                       ))}
@@ -166,7 +194,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                           <ul className="m-0 grid gap-0.5 pl-5 text-xs text-app-muted">
                             {requirements.map((item) => <li key={item.id}>{item.label}</li>)}
                           </ul>
-                          <span className="text-xs text-app-muted">You attach these from your Document Vault before submitting.</span>
+                          <span className="text-xs text-app-muted">Upload them to your Document Vault now, or add them when you apply.</span>
                         </div>
                       )}
                     </>

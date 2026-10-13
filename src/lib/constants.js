@@ -56,7 +56,7 @@ export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 // Admissions Office verifies a Document Vault file that declares it as proof
 // (see src/lib/verification.js). The state is derived per attribute from the
 // linked documents, so it is distinct from a document's own verificationStatus.
-export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected'];
+export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected', 'Outdated'];
 
 // Standard Procedure submission types (step 2 required documents) plus the
 // generic fallbacks. These are the types offered when a vault file is a general

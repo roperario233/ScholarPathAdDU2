@@ -143,21 +143,28 @@ export const getDeadlineStatus = (deadline, today = new Date()) => {
   return { label: 'Upcoming', tone: 'info', remainingDays };
 };
 
+// A failed check, tagged with the profile field the student can change to
+// resolve it (null when no profile answer is involved, such as a closed
+// deadline). `reasons` stays the plain message list; `issues` lets the Smart
+// Eligibility Checker link each message to its My Profile section.
+const issue = (message, field = null) => ({ message, field });
+const toReasons = (issues) => issues.map((item) => item.message);
+
 export const checkUniversalGate = (profile) => {
-  const reasons = [];
+  const issues = [];
   if (profile.citizenship && profile.citizenship !== 'Filipino') {
-    reasons.push('Non-Filipino citizenship — every program requires Filipino citizenship.');
+    issues.push(issue('Non-Filipino citizenship — every program requires Filipino citizenship.', 'citizenship'));
   }
-  return { passed: reasons.length === 0, reasons };
+  return { passed: issues.length === 0, reasons: toReasons(issues), issues };
 };
 
 export const checkAdduInternalGate = (profile) => {
-  const reasons = [];
-  if (profile.isOnPrepaidPlan) reasons.push('On a prepaid tuition-and-fee plan — excluded from AdDU financial aid.');
-  if (profile.hasSiblingOnAid) reasons.push('A sibling is currently on AdDU financial aid — automatically waitlisted.');
-  if (profile.hasOtherActiveScholarship) reasons.push('Holds another scholarship without College Scholarship Committee approval.');
-  if (profile.academicStanding === 'disqualified') reasons.push('Academically disqualified students are ineligible for AdDU-administered aid.');
-  return { passed: reasons.length === 0, reasons };
+  const issues = [];
+  if (profile.isOnPrepaidPlan) issues.push(issue('On a prepaid tuition-and-fee plan — excluded from AdDU financial aid.', 'isOnPrepaidPlan'));
+  if (profile.hasSiblingOnAid) issues.push(issue('A sibling is currently on AdDU financial aid — automatically waitlisted.', 'hasSiblingOnAid'));
+  if (profile.hasOtherActiveScholarship) issues.push(issue('Holds another scholarship without College Scholarship Committee approval.', 'hasOtherActiveScholarship'));
+  if (profile.academicStanding === 'disqualified') issues.push(issue('Academically disqualified students are ineligible for AdDU-administered aid.', 'academicStanding'));
+  return { passed: issues.length === 0, reasons: toReasons(issues), issues };
 };
 
 export const getScholarshipFit = (profile, scholarship) => {
@@ -174,60 +181,60 @@ export const getScholarshipFit = (profile, scholarship) => {
 };
 
 const evaluateGeneralPool = (profile, scholarship) => {
-  const reasons = [];
+  const issues = [];
   const income = Number(profile.householdIncome);
   const maxIncome = scholarship.maximumIncome ?? GENERAL_POOL_INCOME_CEILING;
   // The academic gate follows the standing: a collegiate QPI for enrolled
   // students, a senior high school general average for incoming first-years.
   const academic = getAcademicRequirement(profile, scholarship);
   const academicValue = Number(academic.rawValue);
-  if (!(academicValue >= academic.min)) reasons.push(academic.floorReason);
-  if (income > maxIncome) reasons.push(`Household income must be at or below \u20b1${maxIncome.toLocaleString()}.`);
+  if (!(academicValue >= academic.min)) issues.push(issue(academic.floorReason, academic.credential));
+  if (income > maxIncome) issues.push(issue(`Household income must be at or below \u20b1${maxIncome.toLocaleString()}.`, 'householdIncome'));
   if (GENERAL_POOL_EXCLUDED_DEGREES.includes(profile.degreeProgram)) {
-    reasons.push(`${profile.degreeProgram} is excluded from the general scholarship pool.`);
+    issues.push(issue(`${profile.degreeProgram} is excluded from the general scholarship pool.`, 'degreeProgram'));
   }
-  return reasons;
+  return issues;
 };
 
 const evaluateHonorsTrack = (profile) => {
-  const reasons = [];
-  if (!profile.isHonorsGraduate) reasons.push('Requires official Valedictorian or Salutatorian standing.');
-  if (!profile.graduatingClassSize || Number(profile.graduatingClassSize) < 80) reasons.push('Graduating class must have at least 80 students.');
-  return reasons;
+  const issues = [];
+  if (!profile.isHonorsGraduate) issues.push(issue('Requires official Valedictorian or Salutatorian standing.', 'honorsRank'));
+  if (!profile.graduatingClassSize || Number(profile.graduatingClassSize) < 80) issues.push(issue('Graduating class must have at least 80 students.', 'graduatingClassSize'));
+  return issues;
 };
 
 const evaluateWorkStudy = () => [];
 
 const GOV_EVALUATORS = {
-  CHED_SSP: () => ['SSP is reserved for SUC/LUC students \u2014 AdDU is a private HEI, so this program does not apply.'],
+  CHED_SSP: () => [issue('SSP is reserved for SUC/LUC students \u2014 AdDU is a private HEI, so this program does not apply.')],
   CHED_DEFAULT: (profile) => {
-    const reasons = [];
-    if (Number(profile.householdIncome) > 500000) reasons.push('Exceeds the CHED income ceiling (confirm with CHEDRO XI for the current cycle).');
-    return reasons;
+    const issues = [];
+    if (Number(profile.householdIncome) > 500000) issues.push(issue('Exceeds the CHED income ceiling (confirm with CHEDRO XI for the current cycle).', 'householdIncome'));
+    return issues;
   },
   DOST_FRESHMAN: (profile) => {
-    const reasons = [];
+    const issues = [];
     const isIncomingFreshman = getStandingRequirements(profile).isIncomingFirstYear;
-    if (!isIncomingFreshman) reasons.push('Only open to incoming first-year students with no prior college units.');
-    if (profile.hsStrand !== 'STEM' && Number(profile.hsAverage || 0) < 95) reasons.push('Non-STEM strand applicants must be in the top 5% of their graduating class.');
-    return reasons;
+    if (!isIncomingFreshman) issues.push(issue('Only open to incoming first-year students with no prior college units.', 'yearStanding'));
+    if (profile.hsStrand !== 'STEM' && Number(profile.hsAverage || 0) < 95) issues.push(issue('Non-STEM strand applicants must be in the top 5% of their graduating class.', 'hsStrand'));
+    return issues;
   },
   DOST_JLAP: (profile) => {
-    const reasons = [];
-    if (getStandingRequirements(profile).isIncomingFirstYear) reasons.push('JLAP/JLSS targets continuing (2nd year+) students, not incoming freshmen.');
-    reasons.push('__INFO__Opens periodically \u2014 confirm current availability with DOST-SEI.');
-    return reasons;
+    const issues = [];
+    if (getStandingRequirements(profile).isIncomingFirstYear) issues.push(issue('JLAP/JLSS targets continuing (2nd year+) students, not incoming freshmen.', 'yearStanding'));
+    issues.push(issue('__INFO__Opens periodically \u2014 confirm current availability with DOST-SEI.'));
+    return issues;
   },
   GSIS: (profile) => {
-    if (!profile.sponsorTies?.gsisMemberDependent) return ['Requires a parent/guardian who is an active GSIS member.'];
+    if (!profile.sponsorTies?.gsisMemberDependent) return [issue('Requires a parent/guardian who is an active GSIS member.', 'sponsorTies')];
     return [];
   },
   AFPEBSO: (profile) => {
-    if (!profile.sponsorTies?.afpDependent) return ['Requires the applicant to be a dependent of AFP/CAA personnel.'];
+    if (!profile.sponsorTies?.afpDependent) return [issue('Requires the applicant to be a dependent of AFP/CAA personnel.', 'sponsorTies')];
     return [];
   },
   US_VA: (profile) => {
-    if (!profile.sponsorTies?.usVeteranDependent) return ['Requires qualifying US veteran dependent status.'];
+    if (!profile.sponsorTies?.usVeteranDependent) return [issue('Requires qualifying US veteran dependent status.', 'sponsorTies')];
     return [];
   },
 };
@@ -247,21 +254,23 @@ export const evaluateScholarship = (profile, scholarship) => {
   const deadlineStatus = getDeadlineStatus(scholarship.deadline);
 
   if (scholarship.isMatchable === false) {
+    const issues = [issue('Not a student-facing application \u2014 this is a donor/giving program.')];
     return {
       eligible: false,
-      reasons: ['Not a student-facing application \u2014 this is a donor/giving program.'],
+      reasons: toReasons(issues),
+      issues,
       infoNotes: [],
       fitScore: null,
       deadlineStatus,
     };
   }
 
-  const reasons = [];
-  if (!scholarship.isActive || deadlineStatus.label === 'Closed') reasons.push('Inactive or past deadline.');
-  reasons.push(...checkUniversalGate(profile).reasons);
+  const issues = [];
+  if (!scholarship.isActive || deadlineStatus.label === 'Closed') issues.push(issue('Inactive or past deadline.'));
+  issues.push(...checkUniversalGate(profile).issues);
 
   const isAdduAdministered = ['general-pool', 'honors', 'work-study'].includes(scholarship.ruleFamily);
-  if (isAdduAdministered) reasons.push(...checkAdduInternalGate(profile).reasons);
+  if (isAdduAdministered) issues.push(...checkAdduInternalGate(profile).issues);
 
   let branchOutput = [];
   switch (scholarship.ruleFamily) {
@@ -269,16 +278,18 @@ export const evaluateScholarship = (profile, scholarship) => {
     case 'honors': branchOutput = evaluateHonorsTrack(profile); break;
     case 'work-study': branchOutput = evaluateWorkStudy(profile, scholarship); break;
     case 'government-linked': branchOutput = resolveGovEvaluator(scholarship.govProgram)(profile); break;
-    default: branchOutput = ['Unrecognized rule family.'];
+    default: branchOutput = [issue('Unrecognized rule family.')];
   }
 
-  const infoNotes = branchOutput.filter((e) => e.startsWith('__INFO__')).map((e) => e.replace('__INFO__', ''));
-  reasons.push(...branchOutput.filter((e) => !e.startsWith('__INFO__')));
+  const isInfo = (item) => item.message.startsWith('__INFO__');
+  const infoNotes = branchOutput.filter(isInfo).map((item) => item.message.replace('__INFO__', ''));
+  issues.push(...branchOutput.filter((item) => !isInfo(item)));
 
-  const eligible = reasons.length === 0;
+  const eligible = issues.length === 0;
   return {
     eligible,
-    reasons,
+    reasons: toReasons(issues),
+    issues,
     infoNotes,
     fitScore: eligible ? getScholarshipFit(profile, scholarship) : null,
     deadlineStatus,
@@ -286,7 +297,7 @@ export const evaluateScholarship = (profile, scholarship) => {
 };
 
 export const evaluateApplicationGate = (profile, scholarship) => {
-  const reasons = [];
+  const issues = [];
   const householdIncome = Number(profile?.householdIncome);
 
   // The required academic credential follows the standing: a collegiate QPI for
@@ -294,35 +305,36 @@ export const evaluateApplicationGate = (profile, scholarship) => {
   // first-years. Both are self-reported.
   const academic = getAcademicRequirement(profile, scholarship);
   if (academic.value == null) {
-    reasons.push(academic.unsetReason);
+    issues.push(issue(academic.unsetReason, academic.credential));
   } else if (academic.value < academic.hardMin || academic.value > academic.max) {
-    reasons.push(academic.rangeReason);
+    issues.push(issue(academic.rangeReason, academic.credential));
   }
 
   if (profile?.householdIncome == null || profile.householdIncome === '' || !Number.isFinite(householdIncome)) {
-    reasons.push('Enter your household income before checking qualifications.');
+    issues.push(issue('Enter your household income before checking qualifications.', 'householdIncome'));
   } else if (householdIncome < 0) {
-    reasons.push('Household income cannot be negative.');
+    issues.push(issue('Household income cannot be negative.', 'householdIncome'));
   }
 
-  if (!scholarship) reasons.push('Select an internal scholarship to check.');
+  if (!scholarship) issues.push(issue('Select an internal scholarship to check.'));
   if (scholarship && !isInternalScholarship(scholarship)) {
-    reasons.push('The Smart Eligibility Checker only evaluates AdDU internal scholarships.');
+    issues.push(issue('The Smart Eligibility Checker only evaluates AdDU internal scholarships.'));
   }
 
-  if (scholarship && isInternalScholarship(scholarship) && reasons.length === 0) {
+  if (scholarship && isInternalScholarship(scholarship) && issues.length === 0) {
     const ruleFamily = getInternalRuleFamily(scholarship);
     if (!ruleFamily) {
-      reasons.push('Scholarship qualification rules are not configured. Please contact the Admissions Office.');
+      issues.push(issue('Scholarship qualification rules are not configured. Please contact the Admissions Office.'));
     } else {
-      reasons.push(...evaluateScholarship(profile, { ...scholarship, ruleFamily }).reasons);
+      issues.push(...evaluateScholarship(profile, { ...scholarship, ruleFamily }).issues);
     }
   }
 
-  const allowed = reasons.length === 0;
+  const allowed = issues.length === 0;
   return {
     allowed,
-    reasons,
+    reasons: toReasons(issues),
+    issues,
     message: allowed ? 'You meet the qualifications to proceed with this scholarship application.' : DENIAL_MESSAGE,
   };
 };

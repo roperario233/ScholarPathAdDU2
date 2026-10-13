@@ -59,6 +59,31 @@ export const STAFF_EDITABLE_FIELD_KEYS = ['fullName', 'phone', 'bio'];
 // Core profile fields mirrored into `profileDraft` for eligibility matching.
 export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'hasActiveGovernmentGrant'];
 
+// The My Profile section that edits each eligibility field, so a failed Smart
+// Eligibility Checker reason can link straight to where the student fixes it.
+// The keys match the `issues[].field` tags in src/lib/eligibility.js and the
+// section keys in src/pages/ProfileView.jsx.
+const ACADEMIC_PROFILE_SECTION = { key: 'academic', label: 'Academic profile' };
+const FINANCIAL_PROFILE_SECTION = { key: 'financial', label: 'Household and financial aid' };
+const BACKGROUND_PROFILE_SECTION = { key: 'background', label: 'Eligibility background' };
+export const ELIGIBILITY_FIELD_PROFILE_SECTIONS = {
+  yearStanding: ACADEMIC_PROFILE_SECTION,
+  degreeProgram: ACADEMIC_PROFILE_SECTION,
+  academicStanding: ACADEMIC_PROFILE_SECTION,
+  qpi: ACADEMIC_PROFILE_SECTION,
+  hsAverage: ACADEMIC_PROFILE_SECTION,
+  hsStrand: ACADEMIC_PROFILE_SECTION,
+  householdIncome: FINANCIAL_PROFILE_SECTION,
+  hasOtherActiveScholarship: FINANCIAL_PROFILE_SECTION,
+  hasSiblingOnAid: FINANCIAL_PROFILE_SECTION,
+  isOnPrepaidPlan: FINANCIAL_PROFILE_SECTION,
+  citizenship: BACKGROUND_PROFILE_SECTION,
+  honorsRank: BACKGROUND_PROFILE_SECTION,
+  graduatingClassSize: BACKGROUND_PROFILE_SECTION,
+  sponsorTies: BACKGROUND_PROFILE_SECTION,
+};
+export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_PROFILE_SECTIONS[field]) || null;
+
 // Profile attributes that support verification through the Document Vault. A
 // student uploads one proof document for an attribute and the Admissions Office
 // verifies it; the attribute state is then derived from the linked documents
@@ -73,11 +98,15 @@ export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'h
 // evidenced elsewhere (AdDU student number, degree program, year standing, active
 // government grant, and senior high school strand) are trusted as entered and are
 // intentionally excluded here.
+//
+// `annual` marks an attribute whose proof only covers one academic year (the
+// annual QPI and household income), so a file uploaded in an earlier academic
+// year is outdated even when the declared value has not changed.
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
-  { key: 'qpi', label: 'Annual QPI', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Grade Report'], hint: 'Upload your grade report or transcript showing your annual QPI.' },
+  { key: 'qpi', label: 'Annual QPI', section: 'academic', annual: true, acceptedDocumentTypes: ['Transcript', 'Grade Report'], hint: 'Upload your grade report or transcript showing your annual QPI.' },
   { key: 'academicStanding', label: 'Academic standing', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Good Moral Character'], hint: 'Upload a transcript or a certificate of good moral character reflecting your academic standing.' },
   { key: 'hsAverage', label: 'Senior high school general average', section: 'academic', acceptedDocumentTypes: ['HS Report Card'], hint: 'Upload your senior high school report card showing your general average.' },
-  { key: 'householdIncome', label: 'Annual household income', section: 'financial', acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
+  { key: 'householdIncome', label: 'Annual household income', section: 'financial', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
   { key: 'employed', label: 'Employment status', section: 'financial', acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'], hint: 'Upload a certificate of employment or your latest payslip.' },
   { key: 'honorsRank', label: 'Graduation honors', section: 'background', acceptedDocumentTypes: ['Certificate of Award'], hint: 'Upload your Certificate of Award for your honors standing.' },
   { key: 'citizenship', label: 'Citizenship', section: 'background', acceptedDocumentTypes: ['PSA Birth Certificate', 'Philippine National ID', "Driver's License", 'Passport'], hint: 'Upload a PSA birth certificate, national ID, driver’s license, or passport showing your citizenship.' },
@@ -87,6 +116,32 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
 
 export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
 export const getVerifiableAttributeOption = (key) => VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.key === key);
+
+// AdDU academic years start in June, so May 2027 belongs to 2026-2027. Shared by
+// the annual QPI records and the annual-proof expiry in src/lib/verification.js.
+export const getCurrentAcademicYear = (date = new Date()) => {
+  const year = date.getFullYear();
+  const startYear = date.getMonth() >= 5 ? year : year - 1;
+  return `${startYear}-${startYear + 1}`;
+};
+
+const NUMERIC_VERIFIABLE_ATTRIBUTE_KEYS = ['qpi', 'hsAverage', 'householdIncome'];
+
+// The comparable form of a declared attribute value. A vault document stores
+// the value it was uploaded to prove in this form (`attestedValues`), and the
+// verification helpers compare it with the current profile value the same way,
+// so "3.20" and 3.2 count as the same QPI. A blank value is null.
+export const normalizeAttestedValue = (key, value) => {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  if (NUMERIC_VERIFIABLE_ATTRIBUTE_KEYS.includes(key)) {
+    const number = Number(text);
+    if (!Number.isFinite(number)) return null;
+    return key === 'householdIncome' ? number : Math.round(number * 100) / 100;
+  }
+  return text;
+};
 
 // The document types a profile attribute accepts as proof, shaped as picker
 // options (`{ value, label }`). An unknown attribute yields an empty list.
@@ -353,6 +408,8 @@ const validateOptionalInteger = (raw, { min, max, message }) => {
     : { value: raw, error: message };
 };
 
+const HS_AVERAGE_RULE = { min: 60, max: 100, message: 'Enter a general average from 60 to 100.' };
+
 const collect = (entries) => {
   const values = {};
   const errors = {};
@@ -398,7 +455,7 @@ export const validatePersonalSection = (form = {}) => {
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
     essay: essay.length > ESSAY_MAX_LENGTH
-      ? { value: essay, error: `Keep your essay within ${ESSAY_MAX_LENGTH} characters.` }
+      ? { value: essay, error: `Keep your default statement within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
 };
@@ -475,7 +532,7 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     // Senior high school standing lives with the academic profile (see My
     // Profile); incoming first-years are matched on it instead of a QPI.
     hsStrand: oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.'),
-    hsAverage: validateOptionalInteger(form.hsAverage, { min: 60, max: 100, message: 'Enter a general average from 60 to 100.' }),
+    hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
     // Ranked program choices for an incoming first-year. Choice 1 is the degree
     // program above; choices 2 and 3 are optional and must differ from each other.
     programChoice2: validateOptionalProgramChoice(form.programChoice2, academicPrograms),
@@ -580,33 +637,59 @@ export const validatePasswordChange = ({ password = '', confirmPassword = '' } =
   return { values: { password }, errors };
 };
 
-export const getProfileCompleteness = (profile = {}, role = 'student') => {
-  const { yearStanding, requiresStudentNumber, requiresQpi } = getStandingRequirements(profile);
-  const items = [
-    { key: 'fullName', label: 'Full name', section: 'personal', done: !validateFullName(profile.fullName).error },
-    { key: 'phone', label: 'Philippine mobile number', section: 'personal', done: Boolean(formatPhilippineMobile(profile.phone || '')) },
-  ];
+// The My Profile completeness checklist, split into the answers an application
+// needs (`application`: read by the Smart Eligibility Checker's application gate
+// and frozen in the submitted profile snapshot) and the descriptive answers no
+// application requires (`details`). Items follow getStandingRequirements(): an
+// incoming first-year is asked for a senior high school general average and
+// strand instead of an AdDU student number and QPI, and an item that does not
+// apply to the standing is left out rather than counted as done.
+export const PROFILE_COMPLETENESS_GROUPS = [
+  { key: 'application', label: 'Needed to apply' },
+  { key: 'details', label: 'Additional details' },
+];
 
-  if (role === 'student') {
-    items.push(
-      { key: 'civilStatus', label: 'Civil status', section: 'personal', done: !isBlank(profile.civilStatus) },
-      { key: 'essay', label: 'Scholarship essay', section: 'personal', done: !isBlank(profile.essay) },
-      { key: 'studentNumber', label: 'AdDU student number', section: 'academic', done: !requiresStudentNumber || !validateStudentNumber(profile.studentNumber).error },
-      { key: 'degreeProgram', label: 'Degree program', section: 'academic', done: !isBlank(profile.degreeProgram) },
-      { key: 'yearStanding', label: 'Year standing', section: 'academic', done: Boolean(yearStanding) },
-      { key: 'qpi', label: 'Annual QPI', section: 'academic', done: !requiresQpi || !validateQpi(profile.qpi).error },
-      { key: 'householdIncome', label: 'Annual household income', section: 'financial', done: !validateHouseholdIncome(profile.householdIncome).error },
-      { key: 'completeAddress', label: 'Complete address', section: 'address', done: !isBlank(profile.completeAddress) },
-      { key: 'citizenship', label: 'Citizenship', section: 'background', done: !isBlank(profile.citizenship) },
-      { key: 'ipCommunity', label: 'IP community', section: 'background', done: !isBlank(profile.ipCommunity) },
-      { key: 'pwd', label: 'Person with Disability (PWD)', section: 'background', done: !isBlank(profile.pwd) },
-      { key: 'employed', label: 'Employment status', section: 'background', done: !isBlank(profile.employed) },
-    );
+const countDone = (items) => items.filter((item) => item.done).length;
+
+export const getProfileCompleteness = (profile = {}, role = 'student') => {
+  const standing = getStandingRequirements(profile);
+  const isStudent = role === 'student';
+  const items = [];
+  const add = (group, key, label, section, done) => items.push({ group, key, label, section, done: Boolean(done) });
+
+  // Staff have no applications, so their two items are plain details.
+  add(isStudent ? 'application' : 'details', 'fullName', 'Full name', 'personal', !validateFullName(profile.fullName).error);
+  if (isStudent) {
+    add('application', 'yearStanding', 'Year standing', 'academic', standing.yearStanding);
+    if (standing.requiresStudentNumber) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
+    add('application', 'degreeProgram', standing.isIncomingFirstYear ? 'Program to be enrolled' : 'Degree program', 'academic', !isBlank(profile.degreeProgram));
+    add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
+    if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);
+    if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);
+    add('application', 'householdIncome', 'Annual household income', 'financial', !validateHouseholdIncome(profile.householdIncome).error);
+    add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
+  }
+  add('details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
+  if (isStudent) {
+    add('details', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
+    if (standing.requiresHsStanding) add('details', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
+    add('details', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    add('details', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
+    add('details', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
+    add('details', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
   }
 
-  const completed = items.filter((item) => item.done).length;
+  const groups = PROFILE_COMPLETENESS_GROUPS
+    .map((group) => {
+      const groupItems = items.filter((item) => item.group === group.key);
+      return { ...group, items: groupItems, completed: countDone(groupItems), total: groupItems.length };
+    })
+    .filter((group) => group.total > 0);
+  const completed = countDone(items);
   return {
+    standing,
     items,
+    groups,
     completed,
     total: items.length,
     percent: Math.round((completed / items.length) * 100),

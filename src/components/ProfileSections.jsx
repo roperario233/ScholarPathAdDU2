@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Circle, CircleCheck } from 'lucide-react';
+import { Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
 import { checkAdduInternalGate, checkUniversalGate } from '../lib/eligibility';
 import { fmtCurrency } from '../lib/formatters';
 import { getAttributeVerificationTone } from '../lib/verification';
+import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
 import {
   ADDRESS_MAX_LENGTH,
   BIO_MAX_LENGTH,
@@ -17,6 +18,7 @@ import {
   employmentOptions,
   familyPositionOptions,
   getStandingRequirements,
+  getVerifiableAttributeOption,
   honorsRankOptions,
   hsStrandOptions,
   ipCommunityOptions,
@@ -40,7 +42,7 @@ const optionLabel = (options, value) => options.find((option) => String(option.v
 // re-syncs whenever the saved profile changes, so a successful save (or a
 // change made elsewhere, such as the Smart Eligibility Checker) never leaves a
 // stale form behind.
-function useSectionForm({ initialValues, validate, onSave, onDirtyChange }) {
+function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previewProofImpact }) {
   const initialKey = JSON.stringify(initialValues);
   // The saved values the draft was last synced to; null forces a re-sync.
   const [syncedKey, setSyncedKey] = useState(initialKey);
@@ -56,6 +58,9 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange }) {
   }
 
   const isDirty = JSON.stringify(values) !== initialKey;
+  // Attributes whose Document Vault proof this draft would make Outdated, so the
+  // form can warn before the student saves.
+  const proofWarnings = isDirty && previewProofImpact ? previewProofImpact(values) : [];
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -99,7 +104,7 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange }) {
     setStatus({ tone: 'success', message: saved.message || 'Changes saved.' });
   };
 
-  return { values, errors, status, isSaving, isDirty, update, reset, submit };
+  return { values, errors, status, isSaving, isDirty, proofWarnings, update, reset, submit };
 }
 
 function FormStatus({ status }) {
@@ -119,6 +124,7 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
       {description && <p className="-mt-1 mb-5 text-sm text-app-muted">{description}</p>}
       <form className="grid gap-5" onSubmit={form.submit} noValidate>
         {children}
+        <ProofImpactWarning warnings={form.proofWarnings} />
         <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-4">
           <Button variant="primary" type="submit" disabled={!form.isDirty || form.isSaving}>
             {form.isSaving ? 'Saving…' : submitLabel}
@@ -133,6 +139,22 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
   );
 }
 
+// Shown while a draft would change a value that a Document Vault proof attests.
+// Saving still works: verification is informational, so this only tells the
+// student which proof will need replacing.
+function ProofImpactWarning({ warnings = [] }) {
+  if (!warnings.length) return null;
+  const labels = warnings.map(({ key, previousStatus }) => `${getVerifiableAttributeOption(key)?.label || key} (${previousStatus.toLowerCase()})`);
+  return (
+    <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-app-text">
+      <TriangleAlert size={18} className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
+      <p className="m-0">
+        Your proof for <strong>{labels.join(', ')}</strong> was uploaded for the current value. If you save this change, that proof will be marked Outdated and you will need to upload a new one in the Document Vault.
+      </p>
+    </div>
+  );
+}
+
 function ReadOnlyField({ label, value, note, className = '' }) {
   return (
     <div className={`grid min-w-0 content-start gap-1 rounded-xl border border-app-border bg-app-surface px-4 py-3 ${className}`}>
@@ -140,6 +162,22 @@ function ReadOnlyField({ label, value, note, className = '' }) {
       <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{value || 'Not set'}</strong>
       {note && <small className="field-hint">{note}</small>}
     </div>
+  );
+}
+
+// A verification badge for one profile attribute, with a link to attach its
+// proof document in the Document Vault when it is not verified yet. The state is
+// derived from the student's linked proof documents (src/lib/verification.js) and
+// is informational: it never blocks eligibility matching or applying.
+function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
+  const status = attributeVerifications[attributeKey] || 'Unverified';
+  return (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
+      {status !== 'Verified' && onAttachProof && (
+        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>{status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+      )}
+    </span>
   );
 }
 
@@ -154,27 +192,121 @@ function SelectField({ label, hint, error, value, onChange, options, placeholder
   );
 }
 
-function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
-  const status = attributeVerifications[attributeKey] || 'Unverified';
-  return (
-    <span className="inline-flex flex-wrap items-center gap-2">
-      <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
-      {status !== 'Verified' && onAttachProof && (
-        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>
-          {status === 'Pending' ? 'View proof' : 'Attach proof'}
-        </button>
-      )}
-    </span>
-  );
-}
-
 const assignmentNote = {
   student: 'Set automatically from your degree program in Academic profile.',
   department_chair: 'Your assigned department scopes the Department Review queue and is managed by the Admissions Office.',
   admissions_office: 'Central Admissions Office operations role.',
 };
 
-export function ProfileOverview({ profile, role, roleLabel, completeness, onEditSection, onOpenEligibility, attributeVerifications = {}, onAttachProof }) {
+// The year standing decides which answers an application reads, so the
+// overview says which credential the student is matched on.
+const standingNote = (standing) => {
+  if (standing.isIncomingFirstYear) return 'As an incoming first-year, you are matched on your senior high school general average. An AdDU student number and QPI are not asked until you enroll.';
+  if (standing.isContinuing) return 'As an enrolled student, you are matched on your annual QPI and identified by your AdDU student number.';
+  return 'Choose your year standing in Academic profile to see the items that apply to you.';
+};
+
+const completenessGroupNotes = {
+  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them as your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
+  details: 'Not required to apply. They complete your record for the Admissions Office, and a mobile number enables SMS reminders.',
+};
+
+function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
+  // A verification badge only means something once the answer is filled in.
+  const showStatus = item.done && status !== undefined;
+  const showAttachProof = showStatus && status !== 'Verified' && onAttachProof;
+  return (
+    <li className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
+      <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
+        {item.done
+          ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
+          : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
+        <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
+        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>}
+      </span>
+      <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+        {showAttachProof && (
+          <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+        )}
+        {!item.done && (
+          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
+        )}
+      </span>
+    </li>
+  );
+}
+
+// Which scholarships a document applies to, kept to one short line however large
+// the catalog is: it names at most two, from whichever list is shorter (those
+// that ask for it or those that do not), and otherwise gives a count.
+const describeDocumentScope = (item, openCount) => {
+  if (item.askedByAll) return '';
+  const titles = (list) => list.map((scholarship) => scholarship.title);
+  if (item.notAskedBy.length <= 2 && item.notAskedBy.length < item.scholarships.length) {
+    return `Not needed for ${titles(item.notAskedBy).join(' or ')}`;
+  }
+  if (item.scholarships.length <= 2) return `Only for ${titles(item.scholarships).join(' and ')}`;
+  return `For ${item.scholarships.length} of ${openCount} open scholarships`;
+};
+
+// The documents the open AdDU internal scholarships ask for at the student's
+// standing, read against the whole Document Vault, plus the application
+// statement that every submission needs.
+function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUploadDocument, onEditSection }) {
+  const { items, scholarships, ready, total } = checklist;
+  const audience = standing.isIncomingFirstYear ? ' for incoming first-years' : standing.isContinuing ? ' for enrolled students' : '';
+  const intro = total
+    ? `Required by open AdDU scholarships${audience}. Upload each once and reuse it.`
+    : scholarships.length
+      ? 'The open scholarships list no required documents.'
+      : 'No AdDU internal scholarship is open right now.';
+  return (
+    <Card
+      title="Documents for applications"
+      action={total ? <span className="text-sm text-app-muted"><strong className="text-app-text">{ready}</strong> of {total} ready</span> : null}
+    >
+      <p className="-mt-1 mb-4 text-sm text-app-muted">{intro}</p>
+      {total > 0 && (
+        <ul className="m-0 grid list-none gap-2 p-0">
+          {items.map((item) => {
+            const state = VAULT_REQUIREMENT_STATE_LABELS[item.state] || VAULT_REQUIREMENT_STATE_LABELS.missing;
+            const scope = describeDocumentScope(item, scholarships.length);
+            return (
+              <li key={item.key} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
+                <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+                  <span className="text-sm font-semibold text-app-text">{item.label}</span>
+                  {scope && <span className="text-xs text-app-muted">{scope}</span>}
+                </span>
+                <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
+                  {onUploadDocument && (
+                    <button type="button" className="link-btn shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item))}>
+                      {item.state === 'missing' ? 'Upload' : item.state === 'rejected' ? 'Upload again' : 'View'}
+                    </button>
+                  )}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
+        <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+          <span className="text-sm font-semibold text-app-text">Default statement</span>
+          <span className="text-xs text-app-muted">Optional. Prefills each application statement.</span>
+        </span>
+        <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <StatusBadge tone={hasDefaultStatement ? 'success' : 'neutral'}>{hasDefaultStatement ? 'Saved' : 'Not set'}</StatusBadge>
+          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection('personal')}>{hasDefaultStatement ? 'Edit' : 'Write'}</button>
+        </span>
+      </div>
+    </Card>
+  );
+}
+
+export function ProfileOverview({ profile = {}, role, roleLabel, completeness, documentChecklist = null, onEditSection, onOpenEligibility, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
+  // Staff have a single group of personal details, so headings would only add noise.
+  const showGroups = completeness.groups.length > 1;
   const isStudent = role === 'student';
   const exclusionFlags = isStudent
     ? [...checkUniversalGate(profile).reasons, ...checkAdduInternalGate(profile).reasons]
@@ -185,7 +317,6 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
     .slice(0, 2)
     .map((part) => part[0].toUpperCase())
     .join('') || 'SP';
-
   return (
     <div className="grid gap-4">
       <Card title="Account identity">
@@ -215,26 +346,37 @@ export function ProfileOverview({ profile, role, roleLabel, completeness, onEdit
           </div>
           <strong className="w-12 text-right text-app-text">{completeness.percent}%</strong>
         </div>
-        <ul className="m-0 mt-4 grid list-none gap-2 p-0 md:grid-cols-2">
-          {completeness.items.map((item) => (
-            <li key={item.key} className="flex min-h-11 items-center justify-between gap-3 rounded-xl bg-app-surface px-3 py-2">
-              <span className="flex min-w-0 items-center gap-2 text-sm text-app-text">
-                {item.done
-                  ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
-                  : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
-                <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
-              </span>
-              {attributeVerifications[item.key] && (
-                <AttributeVerification attributeKey={item.key} attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
+        {showGroups && <p className="mb-0 mt-3 text-sm text-app-muted">{standingNote(completeness.standing)}</p>}
+        <div className="mt-4 grid gap-5">
+          {completeness.groups.map((group) => (
+            <section key={group.key} className="grid gap-2" aria-label={showGroups ? group.label : undefined}>
+              {showGroups && (
+                <div className="grid gap-1">
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                    <h4 className="m-0 text-sm font-bold text-app-text">{group.label}</h4>
+                    <span className="text-xs font-semibold text-app-muted">{group.completed} of {group.total} complete</span>
+                  </div>
+                  <p className="m-0 text-xs text-app-muted">{completenessGroupNotes[group.key]}</p>
+                </div>
               )}
-              {!item.done && !attributeVerifications[item.key] && (
-                <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
-              )}
-            </li>
+              <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
+                {group.items.map((item) => (
+                  <CompletenessItem key={item.key} item={item} status={attributeVerifications[item.key]} onEditSection={onEditSection} onAttachProof={onAttachProof} />
+                ))}
+              </ul>
+            </section>
           ))}
-        </ul>
+        </div>
       </Card>
-
+      {documentChecklist && (
+        <DocumentChecklistCard
+          checklist={documentChecklist}
+          standing={completeness.standing}
+          hasDefaultStatement={Boolean(String(profile.essay || '').trim())}
+          onUploadDocument={onUploadDocument}
+          onEditSection={onEditSection}
+        />
+      )}
       {isStudent && (
         <Card title="Eligibility snapshot">
           <p className="-mt-1 mb-4 text-sm text-app-muted">The Smart Eligibility Checker matches scholarships using these saved values.</p>
@@ -297,8 +439,8 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
       </FormField>
       {isStudent && (
-        <FormField label="Scholarship essay" hint={`${values.essay.length}/${ESSAY_MAX_LENGTH} characters. Paragraph breaks are kept.`} error={errors.essay}>
-          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances for your scholarship applications." aria-invalid={Boolean(errors.essay)} />
+        <FormField label="Default scholarship statement" hint={`Optional. Prefills the statement of each new application, where you can tailor it per scholarship. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
+          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances. This becomes the starting statement for your applications." aria-invalid={Boolean(errors.essay)} />
         </FormField>
       )}
       <div className="grid gap-3 md:grid-cols-2">
@@ -372,7 +514,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function AcademicSection({ profile, academicPrograms, academicProgramCategories, attributeVerifications = {}, onAttachProof, onSave, onDirtyChange }) {
+export function AcademicSection({ profile, academicPrograms, academicProgramCategories, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       studentNumber: asText(profile.studentNumber),
@@ -388,6 +530,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
     validate: (values) => validateAcademicSection(values, academicPrograms),
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
   const standing = getStandingRequirements(values.yearStanding);
@@ -418,7 +561,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   );
 }
 
-export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
+export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       householdIncome: asText(profile.householdIncome),
@@ -430,6 +573,7 @@ export function FinancialSection({ profile, onSave, onDirtyChange, attributeVeri
     validate: validateFinancialSection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
 
@@ -450,7 +594,7 @@ export function FinancialSection({ profile, onSave, onDirtyChange, attributeVeri
   );
 }
 
-export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof }) {
+export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       citizenship: asText(profile.citizenship),
@@ -470,6 +614,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
     validate: validateBackgroundSection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });

@@ -6,8 +6,8 @@ import { findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from '
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, pickEligibilityAttributes, pickFields } from './lib/profile';
-import { deriveAttributeVerifications } from './lib/verification';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import { buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, pickDefaultAttachments } from './lib/applicationRequirements';
@@ -111,6 +111,23 @@ const prependInAppNotification = (previous, notification) => {
   return alreadyPresent ? previous.notifications : [notification, ...previous.notifications];
 };
 
+// The in-app alert for a profile attribute whose Document Vault proof went
+// stale, from getOutdatedAttributeAlerts() in src/lib/verification.js.
+const buildOutdatedProofNotification = ({ key, reason, sourceKey }) => {
+  const label = getVerifiableAttributeOption(key)?.label || key;
+  return {
+    id: `not-${crypto.randomUUID()}`,
+    sourceKey,
+    title: `${label} proof is outdated`,
+    channel: 'In-app',
+    body: reason === 'year'
+      ? `A new academic year has started, so your ${label} proof from the previous year no longer verifies this attribute. Upload a current proof in the Document Vault.`
+      : `Your ${label} in My Profile changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault.`,
+    status: 'Unread',
+    createdAt: new Date().toISOString().slice(0, 10),
+  };
+};
+
 // Locally created deadlines live in localStorage while the same rows are also
 // persisted to Supabase (so server-side reminders can email them). Merge by id
 // so a hydrated session neither drops an unsynced local deadline nor duplicates
@@ -176,10 +193,14 @@ function App() {
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupabaseWorkspaceLoaded, setIsSupabaseWorkspaceLoaded] = useState(false);
+  // When a My Profile link ("Attach proof" or the document checklist) opens the
+  // vault it carries the profile attribute and/or document type so the upload
+  // form opens on them.
+  const [vaultPreset, setVaultPreset] = useState({ attribute: '', documentType: '' });
+  // The My Profile section to open on, set when the Smart Eligibility Checker
+  // links a failed reason to the section that edits it.
+  const [profilePresetSection, setProfilePresetSection] = useState('');
   const [deadlineSync, setDeadlineSync] = useState(null);
-  // When the My Profile "Attach proof" link opens the vault it carries the
-  // profile attribute so the upload form opens on the accepted document types.
-  const [vaultPresetAttribute, setVaultPresetAttribute] = useState('');
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
   const [openApplicationId, setOpenApplicationId] = useState(null);
@@ -432,8 +453,33 @@ function App() {
     [state.documents, currentProfile.id],
   );
   // Each profile attribute's verification state is derived from the proof
-  // documents the student linked in the vault (src/lib/verification.js).
-  const attributeVerifications = useMemo(() => deriveAttributeVerifications(studentDocuments), [studentDocuments]);
+  // documents the student linked in the vault (src/lib/verification.js). The
+  // profile is passed so a proof whose attested value no longer matches the
+  // declared one reads as Outdated.
+  const attributeVerifications = useMemo(
+    () => deriveAttributeVerifications(studentDocuments, VERIFIABLE_ATTRIBUTE_KEYS, { profile: studentMatchProfile }),
+    // studentMatchProfile is rebuilt every render from these two slices.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [studentDocuments, state.profileDraft, state.authUser],
+  );
+  // Announce each attribute that turns Outdated in the notification center. It
+  // waits for the workspace, which loads after the profile, so a half-hydrated
+  // profile never reads as a changed value; the stable source key keeps one row
+  // per stale state (prependInAppNotification also honors inAppEnabled).
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || state.viewerRole !== 'student') return;
+    const alerts = getOutdatedAttributeAlerts(studentDocuments, studentMatchProfile);
+    if (!alerts.length) return;
+    setState((previous) => {
+      const notifications = alerts.reduce(
+        (current, alert) => prependInAppNotification({ ...previous, notifications: current }, buildOutdatedProofNotification(alert)),
+        previous.notifications,
+      );
+      return notifications === previous.notifications ? previous : { ...previous, notifications };
+    });
+    // attributeVerifications changes exactly when the documents or profile do.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSupabaseWorkspaceLoaded, state.viewerRole, attributeVerifications]);
   const visibleNotifications = state.notificationPreferences.inAppEnabled ? state.notifications : [];
   const unreadNotifications = useMemo(() => visibleNotifications.filter((entry) => entry.status === 'Unread'), [visibleNotifications]);
   const activeDeadlineCount = useMemo(
@@ -448,10 +494,13 @@ function App() {
     unreadNotifications: unreadNotifications.length,
   }), [eligibleScholarships.length, scholarshipCatalog.length, studentApplications, unreadNotifications.length]);
 
-  // Navigating to the vault clears any attribute preset; the My Profile
-  // "Attach proof" link passes the attribute so the upload form opens on it.
+  // Navigating to the vault clears any upload preset; the My Profile links pass
+  // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
-    setVaultPresetAttribute(view === 'vault' ? (options.attribute || '') : '');
+    setVaultPreset(view === 'vault'
+      ? { attribute: options.attribute || '', documentType: options.documentType || '' }
+      : { attribute: '', documentType: '' });
+    setProfilePresetSection(view === 'profile' ? (options.section || '') : '');
     setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
     updateState({ activeView: view });
     setIsMobileNavOpen(false);
@@ -703,7 +752,7 @@ function App() {
       notes: isInternal
         ? 'Created from the scholarship explorer.'
         : 'Tracked from the scholarship explorer. Apply through the provider.',
-      // The scholarship essay from My Profile is the starting statement.
+      // The default scholarship statement from My Profile is the starting statement.
       statement: isInternal ? String(state.profileDraft?.essay || '') : '',
       profileSnapshot: null,
       certifiedAt: null,
@@ -1093,6 +1142,9 @@ function App() {
     // general application document with no profile-attribute link.
     const attributeKey = String(rawAttributeKey || '').trim();
     const linkedAttributes = attributeKey ? [attributeKey] : [];
+    // The declared value each linked attribute had at upload, so the proof reads
+    // as Outdated once the student changes that value (src/lib/verification.js).
+    const attestedValues = Object.fromEntries(linkedAttributes.map((key) => [key, normalizeAttestedValue(key, studentMatchProfile[key])]));
     // A real uuid so the row, the storage path, and application_documents links
     // all share the same identifier.
     const id = crypto.randomUUID();
@@ -1101,8 +1153,9 @@ function App() {
     // Two general documents can share a type, so disambiguate with the date.
     const title = studentDocuments.some((doc) => doc.title === baseTitle) ? `${baseTitle} (${uploadedAt})` : baseTitle;
 
-    // Show the document immediately; the file uploads to Supabase Storage and the
-    // row records its storage_path on success.
+    // The file uploads to Supabase Storage first; the document joins the vault
+    // list only once the row records its storage_path, so the list never shows a
+    // file that is still uploading or failed.
     const nextDocument = {
       id,
       ownerId: currentProfile.id,
@@ -1111,22 +1164,22 @@ function App() {
       documentType,
       verificationStatus: 'Pending',
       linkedAttributes,
+      attestedValues,
       sharedWith: [],
       uploadedAt,
       storagePath: null,
     };
-    setState((previous) => ({ ...previous, documents: [nextDocument, ...previous.documents] }));
-
-    const result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, file });
-    if (result.error) {
-      // Drop the optimistic row so the vault never shows a document with no file.
-      setState((previous) => ({ ...previous, documents: previous.documents.filter((doc) => doc.id !== id) }));
-      return { error: result.error.message || 'The document could not be uploaded.' };
+    let result;
+    try {
+      result = await createSupabaseDocument({ id, ownerId: currentProfile.id, title, fileName, documentType, linkedAttributes, attestedValues, file });
+    } catch (error) {
+      return { error: error?.message || 'The document could not be uploaded.' };
     }
+    if (result.error) return { error: result.error.message || 'The document could not be uploaded.' };
 
     setState((previous) => ({
       ...previous,
-      documents: previous.documents.map((doc) => (doc.id === id ? { ...doc, storagePath: result.data?.storage_path ?? null } : doc)),
+      documents: [{ ...nextDocument, storagePath: result.data?.storage_path ?? null }, ...previous.documents],
       notifications: prependInAppNotification(previous, {
         id: `not-${crypto.randomUUID()}`,
         title: `${title} uploaded to Document Vault`,
@@ -1567,6 +1620,7 @@ function App() {
               onSearchChange={(value) => updateState({ searchQuery: value })}
               onFilterChange={(patch) => updateState((previous) => ({ filters: { ...previous.filters, ...patch } }))}
               onApply={applyToScholarship}
+              onOpenProfileSection={(section) => navigate('profile', { section })}
             />
           )}
 
@@ -1584,6 +1638,7 @@ function App() {
               onUploadAndAttach={uploadAndAttachDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
+              onSaveProfile={saveProfile}
               onOpenProfile={() => navigate('profile')}
             />
           )}
@@ -1592,9 +1647,11 @@ function App() {
             <DocumentVaultViewPage
               documents={studentDocuments}
               applications={studentApplications}
+              profile={studentMatchProfile}
               onUpload={addDocument}
               onDelete={deleteDocument}
-              presetAttribute={vaultPresetAttribute}
+              presetAttribute={vaultPreset.attribute}
+              presetDocumentType={vaultPreset.documentType}
             />
           )}
 
@@ -1635,12 +1692,19 @@ function App() {
               roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
               academicProgramCategories={activeAcademicProgramCategories}
+              initialSection={profilePresetSection}
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
               onOpenEligibility={() => navigate('explore')}
               attributeVerifications={attributeVerifications}
+              scholarships={scholarshipCatalog}
+              documents={studentDocuments}
               onAttachProof={(attributeKey) => navigate('vault', { attribute: attributeKey })}
+              onUploadDocument={(preset) => navigate('vault', preset)}
+              previewProofImpact={state.viewerRole === 'student'
+                ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
+                : undefined}
             />
           )}
 
