@@ -1,19 +1,12 @@
 import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
-import { getNextApplicationStatuses, getDocumentTypeLabel, sopRequiredDocuments, verificationStatuses } from '../lib/constants';
+import DocumentPreviewModal from './DocumentPreviewModal';
+import ReasonModal from './ReasonModal';
+import { ProfileSnapshotList, RequirementChecklist } from './ApplicationParts';
+import { getNextApplicationStatuses, getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
+import { getApplicationReadiness } from '../lib/applicationRequirements';
 import { getApplicationProgress } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
-
-const sopCheckState = (application, documents, required) => {
-  const linked = (application.attachedDocuments || [])
-    .map((id) => documents.find((doc) => doc.id === id))
-    .filter(Boolean);
-  const matched = linked.filter((doc) => doc.documentType === required.type);
-  if (!matched.length) return { label: 'Not submitted', tone: 'neutral' };
-  if (matched.some((doc) => doc.verificationStatus === 'Verified')) return { label: 'Verified', tone: 'success' };
-  if (matched.some((doc) => doc.verificationStatus === 'Rejected')) return { label: 'Rejected', tone: 'danger' };
-  return { label: 'Pending review', tone: 'warning' };
-};
 
 const DetailRow = ({ label, value }) => (
   <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 py-2 last:border-b-0">
@@ -22,11 +15,10 @@ const DetailRow = ({ label, value }) => (
   </div>
 );
 
-const sopTones = { success: 'success', danger: 'danger', warning: 'warning', neutral: 'neutral' };
-
-// Shared SOP review surface for OSA administrators and Department Chairs.
+// Shared SOP review surface for the Admissions Office and Department Chairs.
 export default function ApplicationReviewModal({
   application,
+  scholarship,
   documents,
   role,
   onClose,
@@ -40,14 +32,26 @@ export default function ApplicationReviewModal({
   const [interviewDate, setInterviewDate] = useState(application.interview?.scheduledAt || '');
   const [interviewPanel, setInterviewPanel] = useState(application.interview?.panel || '');
   const [deliberationNote, setDeliberationNote] = useState('');
-  const nextStatuses = getNextApplicationStatuses(application.status);
+  const [previewDoc, setPreviewDoc] = useState(null);
+  const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
+  const nextStatuses = getNextApplicationStatuses(application.status, role);
   const linkedDocuments = (application.attachedDocuments || [])
     .map((id) => documents.find((doc) => doc.id === id))
     .filter(Boolean);
-  const isOsa = role === 'osa_admin';
+  const isAdmissionsOffice = role === 'admissions_office';
+  // The scholarship's own requirement list, scoped to the standing the student
+  // declared at submit time (the frozen profile snapshot).
+  const { requirements } = getApplicationReadiness({
+    application,
+    scholarship,
+    documents,
+    profile: { yearStanding: application.profileSnapshot?.yearStanding || '' },
+  });
 
   return (
+    <>
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-detail-modal">
+      <div className="application-detail-modal-body">
       <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
@@ -68,23 +72,24 @@ export default function ApplicationReviewModal({
             <DetailRow label="QPI" value={application.studentQpi != null && application.studentQpi !== '' ? Number(application.studentQpi).toFixed(2) : 'Not encoded'} />
             <DetailRow label="Household income" value={application.studentHouseholdIncome != null && application.studentHouseholdIncome !== '' ? fmtCurrency(Number(application.studentHouseholdIncome)) : 'Not encoded'} />
             <DetailRow label="Submitted" value={application.submittedAt ? fmtDate(application.submittedAt) : 'Not yet'} />
+            <DetailRow label="Certified" value={application.certifiedAt ? fmtDate(application.certifiedAt) : 'Not yet'} />
             <DetailRow label="Document status" value={application.documentStatus} />
+          </Panel>
+
+          <Panel className="grid gap-1">
+            <h4 className="mb-1 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Profile at submission</h4>
+            <ProfileSnapshotList snapshot={application.profileSnapshot} />
+            <p className="m-0 text-xs text-app-muted">The applicant profile above shows the current values; compare them when a value changed after submission.</p>
           </Panel>
 
           <Panel className="grid gap-2">
             <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Required submissions</h4>
-            <ul className="grid gap-2">
-              {sopRequiredDocuments.map((required) => {
-                const check = sopCheckState(application, documents, required);
-                return (
-                  <li key={required.type} className="flex min-w-0 items-start justify-between gap-3">
-                    <span className="min-w-0 text-sm text-app-muted">{required.label}</span>
-                    <StatusBadge tone={sopTones[check.tone]}>{check.label}</StatusBadge>
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="text-xs text-app-muted">Academic grant applicants add the Certificate of Award as Rank 1 or 2.</p>
+            <RequirementChecklist requirements={requirements} onPreview={setPreviewDoc} />
+          </Panel>
+
+          <Panel className="grid gap-2">
+            <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Application statement</h4>
+            <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
           </Panel>
 
           <Panel className="grid gap-2">
@@ -95,8 +100,9 @@ export default function ApplicationReviewModal({
                   <li key={doc.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                     <span className="min-w-0 text-sm text-app-text">{doc.title} <span className="text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
                     <span className="flex items-center gap-2">
+                      <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => setPreviewDoc(doc)}>View</Button>
                       <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
-                      {isOsa && onChangeDocument && (
+                      {isAdmissionsOffice && onChangeDocument && (
                         <span className="flex gap-1">
                           {verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
                             <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
@@ -142,7 +148,7 @@ export default function ApplicationReviewModal({
             </Panel>
           )}
 
-          {application.status === 'Endorsed' && (
+          {isAdmissionsOffice && application.status === 'Endorsed' && (
             <Panel className="grid gap-3">
               <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Schedule the interview</h4>
               <label className="grid gap-2 text-sm text-app-text">
@@ -157,7 +163,7 @@ export default function ApplicationReviewModal({
             </Panel>
           )}
 
-          {application.status === 'Interview' && (
+          {isAdmissionsOffice && application.status === 'Interview' && (
             <Panel className="grid gap-3">
               <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Evaluation and deliberation</h4>
               <label className="grid gap-2 text-sm text-app-text">
@@ -178,14 +184,17 @@ export default function ApplicationReviewModal({
                   variant={status === 'Rejected' ? 'danger' : 'primary'}
                   onClick={() => {
                     if (status === 'Rejected') {
-                      const note = window.prompt('Record the reason for rejection:') || '';
-                      onStatusChange(application.id, status, note ? { note } : {});
-                    } else if (status === 'Endorsed') {
+                      // A rejection must carry a recorded reason, so it opens the
+                      // reason dialog instead of a window.prompt.
+                      setRejectReasonOpen(true);
+                      return;
+                    }
+                    if (status === 'Endorsed') {
                       onEndorse?.(application.id);
                     } else if (status === 'Interview') {
-                      onScheduleInterview(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
+                      onScheduleInterview?.(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
                     } else if (status === 'Recommended') {
-                      onRecordDeliberation(application.id, 'Recommended', deliberationNote);
+                      onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
                     } else if (status === 'Released') {
                       onRelease?.(application.id);
                     } else {
@@ -214,6 +223,23 @@ export default function ApplicationReviewModal({
           </Panel>
         </section>
       </div>
+      </div>
     </ModalShell>
+    {rejectReasonOpen ? (
+      <ReasonModal
+        title="Reject application"
+        label="Reason for rejection"
+        hint="Record why this application is being rejected. The applicant sees this reason."
+        confirmLabel="Reject application"
+        onConfirm={(note) => {
+          onStatusChange(application.id, 'Rejected', { note });
+          setRejectReasonOpen(false);
+          onClose();
+        }}
+        onClose={() => setRejectReasonOpen(false)}
+      />
+    ) : null}
+    {previewDoc ? <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
+    </>
   );
 }

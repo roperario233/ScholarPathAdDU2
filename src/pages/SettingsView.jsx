@@ -1,28 +1,10 @@
 import { useState } from 'react';
-import { Button } from '../components/ui';
+import { Button, SettingToggle } from '../components/ui';
+import { maskPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
 
-function SettingToggle({ checked, onChange, title, description }) {
-  return (
-    <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
-      <span className="relative mt-0.5 h-7 w-12 shrink-0 rounded-full bg-slate-400/20 transition-colors has-[:checked]:bg-ateneo">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          className="peer sr-only"
-        />
-        <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
-      </span>
-      <span className="min-w-0">
-        <strong className="block text-sm font-semibold text-app-text">{title}</strong>
-        <span className="mt-1 block text-sm text-app-muted">{description}</span>
-      </span>
-    </label>
-  );
-}
-
-export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail }) {
+export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '' }) {
   const [testEmail, setTestEmail] = useState({ status: 'idle', message: '' });
+  const [testSms, setTestSms] = useState({ status: 'idle', message: '' });
   const preferences = notificationPreferences || {
     smsEnabled: false,
     emailEnabled: false,
@@ -58,6 +40,19 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
     setTestEmail({ status: 'error', message: result?.reason || 'Unable to send the test email.' });
   };
 
+  const handleSendTestSms = async () => {
+    if (!onSendTestSms) return;
+    setTestSms({ status: 'sending', message: '' });
+    const result = await onSendTestSms();
+    if (result?.sent) {
+      setTestSms({ status: 'success', message: `Test text sent to ${result.to || 'your mobile number'}.` });
+      return;
+    }
+    setTestSms({ status: 'error', message: result?.reason || 'Unable to send the test SMS.' });
+  };
+
+  const maskedMobileNumber = maskPhilippineMobile(mobileNumber);
+
   return (
     <div className="grid gap-4">
       <section className="page-title-bar rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
@@ -74,7 +69,7 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
               checked={preferences.smsEnabled}
               onChange={(value) => updatePreference('smsEnabled', value)}
               title="SMS Notifications"
-              description="Receive deadline alerts and status updates via text message"
+              description="Deadline reminders and status updates texted to your mobile number"
             />
             <SettingToggle
               checked={preferences.emailEnabled}
@@ -118,6 +113,34 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
                 ? 'Email delivery is available, but the test sender is not wired up on this build.'
                 : 'Email delivery activates once the Supabase workspace is configured for this prototype.'}
             </p>
+          )}
+          {onSendTestSms && (
+            <div className="mt-4 rounded-xl border border-app-border bg-app-card p-4">
+              <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <strong className="block text-sm font-semibold text-app-text">SMS delivery test</strong>
+                  <span className="mt-1 block text-sm text-app-muted">
+                    Send one text to your own mobile number to confirm delivery. Scheduled reminders and status updates use the same channel.
+                  </span>
+                  <span className="mt-1 block text-sm text-app-muted">
+                    {maskedMobileNumber
+                      ? `Delivery number: ${maskedMobileNumber}`
+                      : 'No Philippine mobile number on file yet — add one under My Profile → Personal information.'}
+                  </span>
+                </div>
+                <Button type="button" variant="primary" onClick={handleSendTestSms} disabled={testSms.status === 'sending'}>
+                  {testSms.status === 'sending' ? 'Sending…' : 'Send test SMS'}
+                </Button>
+              </div>
+              {testSms.message && (
+                <p
+                  className={`mt-3 text-sm ${testSms.status === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`}
+                  role="status"
+                >
+                  {testSms.message}
+                </p>
+              )}
+            </div>
           )}
         </div>
 

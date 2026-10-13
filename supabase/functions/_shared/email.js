@@ -28,7 +28,7 @@ const escapeHtml = (value) => String(value ?? '')
   .replace(/'/g, '&#39;');
 
 // Maps a reminder offset in days to the matching notificationPreferences key
-// used by the client (src/lib/demoState.js) and SettingsView.
+// used by the client (src/lib/appState.js) and SettingsView.
 export const REMINDER_OFFSET_KEYS = {
   7: 'oneWeekBefore',
   3: 'threeDaysBefore',
@@ -57,6 +57,10 @@ export const resolveSiteUrl = (env = {}) => {
 
 // An absent preference means "enabled", matching the app's local defaults.
 export const isEmailEnabledForUser = (preferences) => preferences?.emailEnabled !== false;
+
+// Keep in-app status alerts opt-out consistent with the notification settings
+// shape used by the client and the scheduled deadline-reminder function.
+export const isInAppEnabledForUser = (preferences) => preferences?.inAppEnabled !== false;
 
 export const isReminderEnabledForUser = (preferences, daysBefore) => {
   const key = REMINDER_OFFSET_KEYS[daysBefore];

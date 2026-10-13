@@ -15,11 +15,10 @@ export default function DepartmentReviewView({
   profile,
   queue,
   documents,
+  scholarships = [],
   onChangeApplication,
   onEndorseApplication,
-  onScheduleInterview,
-  onRecordDeliberation,
-  onReleaseResults,
+  onFlagForValidation,
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const selected = queue.find((entry) => entry.id === selectedId);
@@ -33,14 +32,14 @@ export default function DepartmentReviewView({
         <div className="page-title-copy">
           <span className="page-section-label">Department Chair workspace</span>
           <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review submitted applicants, convene the interview panel from your school, record endorsements, and route decisions to OSA.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applicants from your department, convene the interview panel, and record department-level recommendations.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Qualified applicants to endorse" />
-        <StatCard label="Endorsed to OSA" value={endorsed.length} note="Routed to the next SOP stage" />
+        <StatCard label="Department recommendations" value={endorsed.length} note="Applications routed to the next SOP stage" />
         <StatCard label="Interviews scheduled" value={interviews.length} note="Panels from the applicant school" />
         <StatCard label="Department scope" value={profile.department || 'Unassigned'} note="Endorsement boundary" />
       </section>
@@ -69,7 +68,11 @@ export default function DepartmentReviewView({
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
                       <Button type="button" disabled={entry.status !== 'For Verification'} onClick={() => onEndorseApplication(entry.id)}>Endorse</Button>
-                      <Button type="button" onClick={() => onChangeApplication(entry.id, entry.status, { note: 'Flagged for OSA document validation.' })}>Flag for OSA</Button>
+                      <Button
+                        type="button"
+                        disabled={!['Submitted', 'Under Review'].includes(entry.status)}
+                        onClick={() => onFlagForValidation?.(entry.id)}
+                      >Flag for validation</Button>
                     </div>
                   </div>
                 </article>
@@ -82,7 +85,7 @@ export default function DepartmentReviewView({
           <div className="grid gap-3">
             <Panel className="grid gap-3">
               <h3>Endorsement focus</h3>
-              <p className="text-sm text-app-muted">Endorse qualified applicants once OSA has verified the required submissions and academic standing is active.</p>
+              <p className="text-sm text-app-muted">Recommend qualified applicants once required submissions are verified and academic standing is active.</p>
             </Panel>
             <Panel className="grid gap-3">
               <h3>Interview panel</h3>
@@ -90,7 +93,7 @@ export default function DepartmentReviewView({
             </Panel>
             <Panel className="grid gap-3">
               <h3>Deliberation</h3>
-              <p className="text-sm text-app-muted">The School Scholarship Sub-committee evaluates interviewed applicants and records its recommendation for OSA approval.</p>
+              <p className="text-sm text-app-muted">The School Scholarship Sub-committee evaluates interviewed applicants and records its recommendation.</p>
             </Panel>
           </div>
         </Card>
@@ -99,14 +102,12 @@ export default function DepartmentReviewView({
       {selected && (
         <ApplicationReviewModal
           application={selected}
+          scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
           role="department_chair"
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
           onEndorse={onEndorseApplication}
-          onScheduleInterview={onScheduleInterview}
-          onRecordDeliberation={onRecordDeliberation}
-          onRelease={onReleaseResults}
         />
       )}
     </div>

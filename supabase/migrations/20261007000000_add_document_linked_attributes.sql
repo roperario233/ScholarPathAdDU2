@@ -1,0 +1,13 @@
+-- Profile-attribute verification via the Document Vault.
+--
+-- A document can declare which profile attribute(s) it proves, for example
+-- `{"qpi","householdIncome"}` (the keys come from VERIFIABLE_ATTRIBUTE_OPTIONS
+-- in src/lib/profile.js). When the Admissions Office verifies the document, the
+-- linked profile attributes are considered verified as well; the attribute state
+-- is derived from these links (see src/lib/verification.js). Verification is
+-- informational and never blocks eligibility matching or applying.
+--
+-- Additive: existing documents default to an empty list, so a project with rows
+-- already present keeps working, and the client tolerates a project where this
+-- migration is pending (documents simply load with no linked attributes).
+alter table documents add column if not exists linked_attributes text[] not null default '{}'::text[];

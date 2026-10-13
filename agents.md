@@ -17,7 +17,7 @@ When deciding what to change, use this priority order:
 3. Future enhancements or refactors that are not already supported by the manuscript or the current app.
 
 
-If the manuscript and the codebase conflict, preserve the manuscript intent first and then make the smallest code change that keeps the demo stable.
+If the manuscript and the codebase conflict, preserve the manuscript intent first and then make the smallest code change that keeps the app stable.
 
 
 ## Product Context
@@ -28,8 +28,9 @@ ScholarPath AdDU is a centralized hybrid web and mobile system for student schol
 - A Smart Eligibility Checker that evaluates QPI, household income, degree program, and exclusion rules.
 - A Document Vault that supports one-time upload and multi-application reuse.
 - A notification subsystem for deadline and status alerts.
-- Role-based access control for students, OSA administrators, and Department Chairs.
+- Role-based access control for students, Admissions Office administrators, and Department Chairs.
 - A student application workspace for filtering, submitting, inspecting, and exporting application reports.
+- An Admissions Office workspace for maintaining AdDU internal scholarship catalog entries and coordinating central application review.
 - A reusable Document Vault with upload validation, verification states, and application links.
 - A deadline calendar supporting scholarship deadlines and student-created reminders.
 - Configurable notification channels and reminder timing, with an in-app notification center.
@@ -43,7 +44,7 @@ The manuscript also establishes important scope boundaries that must stay intact
 - It does not implement actual financial disbursement.
 - It does not integrate with the registrar for verified QPI.
 - It does not give external scholarship organizations direct administrative access.
-- It remains a prototype and must continue to work in demo mode when Supabase is not configured.
+- It remains a prototype. Supabase is required for data and authentication; the demo mode, its seeded data, and the fallback login were removed, which reverses the earlier scope statement that the system "must continue to work in demo mode when Supabase is not configured."
 
 
 ## Canonical Manuscript Terms
@@ -54,7 +55,7 @@ Use the manuscript language consistently in new code, UI text, documentation, an
 - Exclusion Flag Hierarchy.
 - Document Vault.
 - Dynamic Faceted Search.
-- OSA administrators.
+- Admissions Office administrators.
 - Department Chairs and Coordinators.
 - Grant-in-Aid or GIA.
 - Financial aid pipelines.
@@ -62,6 +63,8 @@ Use the manuscript language consistently in new code, UI text, documentation, an
 - Application workspace.
 - Notification center.
 - Deadline calendar.
+
+The Admissions Office administrator is the central office operations role, not a Dean or a reviewer for every academic department. Department Chair access and review remain scoped to the Chair's assigned department. OSA is not a participating scholarship-process role in the web app.
 
 
 Avoid introducing alternate names for the same feature unless the current codebase already uses a different stable label that users see.
@@ -71,22 +74,22 @@ Avoid introducing alternate names for the same feature unless the current codeba
 The present implementation is organized as follows:
 
 
-- `src/App.jsx` is the main state and routing-style coordinator for authentication, demo state, theme, profile hydration, notification generation, deadline reminders, and view switching. It persists the demo state in localStorage under `scholarpath-addu-demo-state`.
+- `src/App.jsx` is the main state and routing-style coordinator for authentication, app state, theme, profile hydration and saving (`saveProfile`), notification generation, deadline reminders, and view switching. It persists the app state in localStorage under `scholarpath-addu-state` (with a one-time migration from the legacy `scholarpath-addu-demo-state` key).
 - `src/pages/` contains the main screens:
-  - `LoginScreen.jsx`
+  - `LoginScreen.jsx` — Google OAuth accepts personal Google accounts as well as AdDU accounts; do not send a Google hosted-domain (`hd`) restriction. Account creation and password-reset forms accept a general email address.
   - `DashboardView.jsx`
-  - `ScholarshipExplorer.jsx`
-  - `EligibilityChecker.jsx`
-  - `ApplicationsView.jsx` — student application filtering, progress, submission, detail modal, and text report export.
-  - `DocumentVaultView.jsx` — student document upload, search/filter, verification display, and deletion.
-  - `ApplicationsAndVault.jsx` — legacy/combined application and vault screen retained for compatibility where referenced.
-  - `AdminConsole.jsx`
-  - `DepartmentReviewView.jsx`
+  - `ScholarshipExplorer.jsx` — scholarship discovery with the inline Smart Eligibility Checker on each scholarship card.
+  - `ApplicationsView.jsx` — student application filtering, progress, detail modal (requirement checklist, statement, profile snapshot, timeline), and text report export. A Draft opens the application workspace (`src/components/ApplicationWorkspaceModal.jsx`), a four-step flow: attach each required document from the Document Vault (or upload a new file, which lands in the vault first), review the self-reported profile snapshot, write the statement (prefilled from the My Profile scholarship essay), then certify and submit. External and government-linked entries are tracked only: no checklist and no submit.
+  - `DocumentVaultView.jsx` — student document upload, search/filter, verification display, and deletion. The upload form is attribute-driven: one grouped picker (mirroring the program/course picker) lists each profile attribute with the document types it accepts below it, plus a leading "General documents" group; picking an item chooses the attribute and document type together, and the vault derives the title from the pair, so there is no free-text title and no attribute checklist.
+  - `AdminConsole.jsx` — Admissions Office review queue and SOP stage track, Document Vault verification, AdDU internal scholarship catalog publishing/editing, recent application activity from timelines, recommendation/release actions, and announcement publishing.
+  - `DepartmentReviewView.jsx` — department-scoped Chair review queue; Chairs can flag eligible submitted/in-review applications for central validation and endorse applications in `For Verification`.
   - `CalendarView.jsx`
   - `SettingsView.jsx`
-- `src/components/` contains shared UI building blocks, modal/page-part helpers, notification cards, announcements, and the `NotificationDropdown` center.
-- `src/lib/` contains the domain logic, formatting helpers, authentication helpers, eligibility rules, demo state, backend-status helpers, academic-program taxonomy, and Supabase setup. The scholarship catalog is read from the Supabase `scholarships` table via `src/lib/supabaseData.js`; offline demo state (demo users, applications, documents, notifications, announcements, and department reviews) lives in `src/lib/demoState.js`; and academic programs are loaded from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` (in `src/lib/supabaseData.js`), with `src/lib/academicPrograms.js` (value/label/department/category) as the offline fallback.
-- `supabase/schema.sql` is the reference schema for backend-aligned work.
+  - `ProfileView.jsx` — My Profile for every role: section menu, completeness metric, and Overview, Personal information, Address, Family details, Academic profile, Household and financial aid, Eligibility background, and Account security. The Overview presents account identity, profile completeness, and a student eligibility snapshot with exclusion flags. Address, Family details, Academic profile, Household and financial aid, and Eligibility background are student-only. Personal information carries the short bio for every role and student-only religion, civil status, and reusable scholarship essay. Each editable section has an independent draft, validation, save, and discard flow; navigation prompts before discarding unsaved changes.
+- `src/components/` contains shared UI building blocks (`ui.jsx`: `Button`, `Card`, `FormField`, `SettingToggle`, `ModalShell`, and related primitives), the reusable `ReasonModal` for required recorded reasons, modal/page-part helpers, notification cards, announcements, the `NotificationDropdown` center, the first-login `AcademicProfileModal`, and the My Profile section forms in `ProfileSections.jsx` (built on its `useSectionForm` draft/validate/save hook).
+- `src/lib/` contains the domain logic, formatting helpers, authentication and profile helpers (`auth.js`), eligibility rules, role-aware application transitions (`getNextApplicationStatuses(status, role)` in `constants.js`), local persisted state (`appState.js`), academic-program taxonomy, profile field definitions and validators (`profile.js`), Document Vault storage helpers (`documentStorage.js`), and Supabase setup. The scholarship catalog is read from the Supabase `scholarships` table via `src/lib/supabaseData.js`; the Admissions Office catalog form saves eligible AdDU internal entries through `createSupabaseScholarship()` / `updateSupabaseScholarship()`; the local persisted state (theme, notification preferences, custom deadlines, and onboarding flags) lives in `src/lib/appState.js`, which starts from empty defaults because Supabase is the authoritative source for applications, documents, notifications, announcements, and department reviews; and academic programs are loaded from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` (in `src/lib/supabaseData.js`), with `src/lib/academicPrograms.js` (value/label/department/category) as the offline reference fallback.
+- `supabase/schema.sql` is the reference schema for fresh Supabase projects. For an existing/deployed project, add and apply a migration under `supabase/migrations/` rather than re-running the full schema; keep the reference schema aligned with those migrations.
+- `supabase/functions/` holds the email and SMS delivery Edge Functions described under Email And SMS Notification Delivery.
 - `src/tailwind.css` is the primary Tailwind entry point and contains the shared theme primitives.
 - `src/styles.css` contains component-specific CSS, browser behavior, pseudo-elements, keyframes, and rules that are not practical as utilities.
 
@@ -106,14 +109,14 @@ Follow these rules when making changes:
 
 - Prefer the smallest change that solves the task.
 - Reuse existing shared components, helpers, and data shapes instead of duplicating logic.
-- Keep demo mode intact unless the task explicitly requires backend integration work.
-- Preserve backward compatibility with stored demo state in localStorage.
-- Keep Supabase optional and safe when environment variables are missing.
+- Supabase is the required backend; do not reintroduce an offline demo mode, seeded data, or a fallback login.
+- Preserve backward compatibility with stored state in localStorage, including the one-time migration from the legacy demo key.
+- Fail cleanly with a clear "not configured" message when the Supabase environment variables are missing, instead of silently entering any offline mode.
 - Do not introduce new dependencies unless they clearly solve the task better than the current stack.
 - Do not remove or rewrite manuscript-aligned terminology just to make the code more generic.
 - Avoid unnecessary refactors that change behavior, layout, or data shape.
-- Treat `applications`, `documents`, `notifications`, `announcements`, `customDeadlines`, `notificationPreferences`, and `theme` as persisted demo-state domains; add compatibility defaults when extending them.
-- Keep file-upload behavior demo-safe: the browser stores document metadata and a local demo record rather than requiring a storage backend.
+- Treat `applications`, `documents`, `notifications`, `announcements`, `customDeadlines`, `notificationPreferences`, `profileDraft`, and `theme` as persisted state domains; add compatibility defaults when extending them.
+- Keep file-upload behavior safe: the file bytes live in a private Supabase Storage bucket (`documents`), and the `documents` row records the object path in `storage_path`. Students manage only their own folder (`documents/<auth.uid()>/<documentId>/<file>`), the Admissions Office reads every document, and a Department Chair reads documents owned by students in the chair's department; viewing always goes through a short-lived signed URL. The bucket and its storage RLS policies come from `supabase/migrations/20261009000000_add_document_storage.sql`.
 
 
 ## Domain Rules
@@ -121,17 +124,44 @@ These rules come from the manuscript and should guide implementation details:
 
 
 - Eligibility matching should honor QPI, income, degree program, active status, deadline state, and exclusion logic.
+- The academic requirement branches on year standing, mirroring `getStandingRequirements()` in `src/lib/profile.js`: enrolled students (1st–5th year) are matched on the collegiate QPI, while incoming first-years are matched on their senior high school general average. The Admissions Office internal catalog stores both floors (`minimum_qpi` and `minimum_shs_average`), and `getAcademicRequirement()` in `src/lib/eligibility.js` is the single source the application gate, the general-pool evaluator, the fit score, and the requirement chips read. Honors (Jubilee) and work-study (Student Assistant) declare no academic floor, so they show no academic requirement chip.
 - Specific exclusions must override broad inclusions.
+- Jubilee Scholarship eligibility is not restricted to incoming first-year students; retain its official Valedictorian/Salutatorian standing and graduating-class size criteria.
+- Student Assistant (SA) / Working Scholar eligibility is open to students across all academic programs and must not be blocked by degree-specific catalog metadata.
 - Scholarship discovery should support faceted filtering and fast search over the current taxonomy.
 - Document handling should behave like a normalized vault where the same file can be attached to multiple applications.
-- Notifications should remain event-oriented in concept, even if the local demo simulates the behavior.
-- Role-based access should preserve student, OSA admin, and Department Chair boundaries.
-- Application progress should remain status-driven (`Draft`, `Submitted`, `Under Review`, `For Verification`, `Approved`, and `Rejected`) and submitting a draft should create a trackable review event.
+- Notifications should remain event-oriented; the scheduled Edge Function is the delivery path, while the in-app center reads the local and server rows.
+- Role-based access should preserve student, central Admissions Office administrator, and department-scoped Department Chair boundaries; never give the central administrator Dean-like scope under a department role.
+- My Profile editing must keep the same boundaries: students edit their academic, household, and eligibility background fields, while Admissions Office administrators and Department Chairs edit only their name, mobile number, and bio. Department assignment is never self-editable because it scopes the Department Review queue; `saveProfile` in `App.jsx` enforces this with `STAFF_EDITABLE_FIELD_KEYS`, not only the UI.
+- Profile QPI and household income are self-reported. They can optionally be verified by the Admissions Office against Document Vault proof, so never describe them as Registrar-verified and never imply a registrar integration.
+- Year standing is the single student control (Incoming 1st year, then 1st–5th year); `applicantType` and `yearLevel` are derived from it for the eligibility engine and stored alongside it. `getStandingRequirements()` in `src/lib/profile.js` is the single source for which fields apply, and the onboarding modal, My Profile Academic profile, validators, and routing gates all read it. An incoming first-year reports ranked program choices and senior high school strand/general average instead of an AdDU student number and collegiate QPI, so profile completeness and onboarding skip those continuing-student fields.
+- An application must not be submittable "whenever". Each AdDU internal catalog entry lists its required documents in `scholarships.required_documents` (`{ id, label, documentTypes, standing: 'all' | 'incoming' | 'continuing' }`), edited by the Admissions Office in the catalog form (`RequiredDocumentsEditor`) and defaulting per rule family to `DEFAULT_REQUIRED_DOCUMENTS` in `src/lib/applicationRequirements.js` (keep it identical to the backfill in `20261012000000_add_application_requirements.sql`). `getApplicationReadiness()` is the single readiness check for the workspace, the submit handler, and the staff review modal: every requirement for the student's standing needs a non-rejected attached vault file (Pending is enough; verification stays at `For Verification`), plus a statement, the certification checkbox, an open deadline, and a passing eligibility gate. The `enforce_student_application_update` trigger repeats the gate server-side, limits students to creating Drafts and moving `Draft` → `Submitted`, and freezes submitted rows; `protect_submitted_application_documents` stops a student from deleting a vault file a submitted application relies on; students may change `application_documents` links only while the application is a Draft.
+- Submission stores `statement`, `certified_at`, and the frozen `profile_snapshot` (`buildProfileSnapshot()`: self-reported values with their derived Document Vault verification badges, never Registrar-verified) on the application. Application ids are real uuids generated client-side and passed to `createSupabaseApplication()`, like vault documents.
+- Application progress should remain status-driven (`Draft`, `Submitted`, `Under Review`, `For Verification`, `Endorsed`, `Interview`, `Recommended`, `Approved`, `Released`, and `Rejected`). Submission and each status transition must persist a trackable event in the application's `timeline`, then invoke the server-side application-status notification after the status write succeeds.
 - Documents should expose verification states (`Pending`, `Verified`, and `Rejected`) and remain reusable across applications through attached document IDs.
-- Custom calendar deadlines must be future-facing, persisted locally, removable, and eligible for configured 7-day, 3-day, and 1-day in-app reminders.
+- Document Vault files are stored in the private Supabase Storage `documents` bucket; `documents.storage_path` holds the object key and `documents.id` is a real uuid generated client-side, so `application_documents.document_id` can reference it. Viewing always uses a short-lived signed URL (`getSupabaseDocumentUrl`), never a public link.
+- Profile attribute verification is informational and derived, never stored separately: a vault document declares the attribute(s) it proves via `linkedAttributes` (client) / `documents.linked_attributes` (Supabase), and `deriveAttributeVerifications()` in `src/lib/verification.js` maps each `VERIFIABLE_ATTRIBUTE_OPTIONS` key to `Unverified` / `Pending` / `Verified` / `Rejected` from those links. Verifying the document in the Admissions Office console verifies the linked attributes; it must never block eligibility matching or applying.
+- Custom calendar deadlines must be future-facing, persisted locally, removable, and eligible for the configured 7-day, 3-day, and 1-day reminders. They are also mirrored to the Supabase `custom_deadlines` table with the client id stored verbatim (for example `custom-<uuid>`), so the scheduled function can email the same reminder the client generates locally.
 - In-app notification creation must respect `notificationPreferences.inAppEnabled`; generated reminders must use a stable source key so they are not duplicated on each render.
-- Server-side email must honor `emailEnabled` and the `deadlineReminders` offsets read from `profiles.notification_preferences`, and must record every delivery in `notification_email_log` so a reminder reaches a student at most once.
+- Application-status in-app rows are written by `notify-application-status` using the stable `application-status-<applicationId>-<status>` source key; client-generated local in-app rows remain for deadline reminders and other local events.
+- Server-side delivery must honor `profiles.notification_preferences` per channel and per reminder, and must record only real deliveries in `notification_email_log` so a reminder reaches a student at most once while a skipped or failed send stays unlogged and retryable. See Email And SMS Notification Delivery.
+- Scholarship catalog management through the Admissions Office console is limited by the role and RLS to AdDU internal entries (`category = 'Internal Endowment'`, `is_external = false`, `rule_family` in `general-pool`, `honors`, or `work-study`). Government-linked and external entries remain outside this management path; catalog eligibility is not an award or disbursement decision.
+- Application stage authority is role-scoped: Department Chairs may flag `Submitted` / `Under Review` applications for central validation and endorse `For Verification` applications; central verification and subsequent SOP actions belong to Admissions Office administrators. Enforce this in the role-aware transition map, `App.jsx` guards, and the department-chair RLS policies; the Chair's review remains limited to their assigned department.
 - The app should continue to feel like a prototype aligned with the study, not a generic scholarship portal.
+
+
+## Email And SMS Notification Delivery
+Notifications stay event-oriented, and delivery runs through Supabase Edge Functions rather than the browser:
+
+- `process-deadline-reminders` is invoked daily at 07:00 Asia/Manila by pg_cron + pg_net (`supabase/migrations/20261005000001_schedule_deadline_reminders.sql`, with the reference block at the bottom of `supabase/schema.sql`). It evaluates the reminder rule on the Manila calendar, writes the in-app row, emails through Resend, texts through iprogSMS, and records the delivery in `notification_email_log`. It runs with `verify_jwt` disabled and authenticates the scheduled caller against `REMINDER_CRON_SECRET` by exact value; a signed-in user's JWT is also accepted for on-demand runs. Never point this endpoint at the anon key.
+- `notify-application-status` is called by the app after a status change and runs with `verify_jwt` enabled. It re-reads the application, recipient, and caller role server-side so the request body cannot spoof the recipient, and it allows only the Admissions Office administrator, the Department Chair for that student's department, or the student who owns the application. It writes the in-app row with `source_key = application-status-<applicationId>-<status>` and an upsert on `(profile_id, source_key)`; `inAppEnabled` controls that channel. Email and SMS are handled independently and tracked by `email_status` / `sms_status` in `notification_email_log`, so already-delivered channels are skipped while failed or skipped sends remain retryable.
+- `send-test-email` backs Settings -> Email delivery test and only ever sends to the signed-in caller; `send-test-sms` is its SMS counterpart and text messages only the caller's own `profiles.phone` number (echoed back masked).
+- Shared, dependency-free modules live in `supabase/functions/_shared/`: `email.js` (Resend-compatible table HTML, plain-text alternatives, and the delivery-preference checks), `reminders.js` (the reminder math shared with `src/App.jsx`), `resend.js` (the minimal email fetch client), and `sms.js` (iprogSMS client, Philippine mobile normalization, and SMS text renderers). They are plain JavaScript so Deno, the vitest suite, and the client bundle can all import them (for example, `validateMobileNumber` in `src/lib/profile.js` reuses `formatPhilippineMobile` for the onboarding modal and My Profile, and Settings reuses `maskPhilippineMobile`).
+- Delivery is opt-in per channel and per reminder. `profiles.notification_preferences` is the only server-side input: the in-app deadline row needs `inAppEnabled` plus the matching `deadlineReminders` offset, the email needs `emailEnabled` plus the same offset, and the SMS needs `smsEnabled` plus the same offset and a normalizable `profiles.phone` value. Status notifications honor `inAppEnabled`, `emailEnabled`, and `smsEnabled`; in-app rows dedupe on the unique `notifications(profile_id, source_key)` key, while email and SMS deliveries are independently deduped/retried through their channel statuses in `notification_email_log`. `isInAppEnabledForUser()` in `_shared/email.js` defaults in-app status alerts to enabled unless explicitly disabled.
+- `notifications.channel` is constrained to `SMS` / `Email` / `In-app`, so carry the deadline kind in the notification title and body instead of adding a channel value.
+- Email requires the verified Resend sending domain and the Edge Function secrets (`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `RESEND_FROM_NAME`, `APP_SITE_URL`, `REMINDER_CRON_SECRET`); SMS requires `IPROGSMS_API_TOKEN` (with optional `IPROGSMS_PROVIDER`, the gateway's `sms_provider` 0/1/2 flag). They are server-side only and must never carry a `VITE_` prefix. A send only happens when the Supabase workspace is loaded, and either gateway may be left unset without breaking the app (sends are skipped, never thrown).
+- The email CTA links use `?view=calendar`, `?view=applications`, and `?view=settings`, but the app does not read a `view` query parameter yet, so a recipient lands on the role's landing view. Do not describe those links as deep links until `App.jsx` handles the parameter.
+- iprogSMS constraints: a 200 response confirms queue-accept (`message_id`) only — there are no delivery webhooks, so ledger rows describe queue-accept rather than confirmed carrier delivery (poll-only status via `GET /sms_messages/status`). Globe, TM, DITO, and GOMO recipients use the shared `iprogSMS` sender; Smart and TNT require a purchased custom sender name.
 
 
 ## UI And UX Expectations
@@ -147,6 +177,7 @@ Match the existing design direction unless a task explicitly calls for redesign:
 - Keep notification menus keyboard- and mobile-friendly: support outside-click/Escape dismissal, readable unread counts, and adequate touch targets.
 - Keep the mobile page-navigation drawer minimal: it should use a solid theme-aware background and show only the page links, without extra branding or a duplicate drawer heading.
 - The light/dark theme toggle is available on both the authenticated shell and login screen and must remain persisted across reloads.
+- Google sign-in must allow personal accounts for incoming and current students who do not have an AdDU email address. Do not restore an OAuth `hd` parameter or add an AdDU email-domain validator; email/password authentication likewise accepts personal email addresses.
 - The login action control combines Google sign in and Create account into one responsive control: it is split 50/50 at rest, uses a CSS-drawn diagonal slash divider, and expands the hovered desktop action to the full control while hiding the inactive action. On mobile widths, keep both actions visible and 50/50 because touch devices do not use cursor hover.
 
 
@@ -154,13 +185,27 @@ Match the existing design direction unless a task explicitly calls for redesign:
 Use the existing local shapes and patterns already established in the app:
 
 
-- Demo state should remain compatible with `src/lib/demoState.js`; the scholarship catalog is read from the Supabase `scholarships` table (including the manuscript-only columns `rule_family`, `gov_program`, `is_matchable`, `application_route`, `is_external`, and `appendix_number`) and falls back to an empty catalog when the Supabase workspace is not loaded.
+- Local persisted state lives in `src/lib/appState.js`; the scholarship catalog is read from the Supabase `scholarships` table (including the manuscript-only columns `rule_family`, `gov_program`, `is_matchable`, `application_route`, `is_external`, and `appendix_number`) and is empty until the Supabase workspace loads.
 - Academic programs should remain consistent with `src/lib/academicPrograms.js` and load from the Supabase `academic_programs` table via `loadSupabaseAcademicPrograms()` when the Supabase workspace is configured, falling back to the static file otherwise.
 - Eligibility logic should remain consistent with `src/lib/eligibility.js`.
 - Supabase configuration should continue to route through `src/lib/supabaseClient.js`.
 - New persisted state should be additive and guarded so old localStorage entries do not break the app.
 - Avoid breaking assumptions in `App.jsx` around `viewerRole`, `activeView`, `profileDraft`, `documents`, `applications`, `notifications`, and `announcements`.
 - Preserve the nested shape of `notificationPreferences`, including `smsEnabled`, `emailEnabled`, `inAppEnabled`, and `deadlineReminders.oneWeekBefore`, `threeDaysBefore`, and `dayBefore`.
+- That preference shape is mirrored to `profiles.notification_preferences` whenever the Settings toggles change, and it is the scheduled function's only input. The other server-side mirrors are `custom_deadlines` (one row per student-created deadline, id stored verbatim) and `notification_email_log` (the service-role delivery ledger). Keep the local and server shapes identical so the two never disagree.
+- `notifications.source_key` is an additive stable idempotency key, unique per `(profile_id, source_key)`; the application-status source key is `application-status-<applicationId>-<status>`. Existing Supabase projects receive it from `20261010000000_add_application_notification_source_key.sql`, and `supabase/schema.sql` must stay aligned.
+- `department_reviews` has a unique `(application_id, reviewer_id)` pair and `upsertSupabaseDepartmentReview()` uses that conflict target. The same migration removes older duplicate pairs before adding the index.
+- Application status writes persist the timeline with the status and any stage payload: `submitSupabaseApplication(id, { timeline, statement, profileSnapshot, certifiedAt })`, `updateSupabaseApplicationStatus(id, status, timeline, stagePatch)`, and `updateSupabaseApplicationStage()` return `{ error }` so the caller notifies only after a successful write. Submission and status events should remain part of the application record, not synthetic client-only notifications.
+- `saveScholarship` in `App.jsx` persists catalog forms through `createSupabaseScholarship()` / `updateSupabaseScholarship()` in `src/lib/supabaseData.js`; `scholarshipToRow()` forces these UI-managed entries to be non-external. The database RLS policy is in `20261010000001_limit_chair_transitions_and_manage_internal_scholarships.sql`.
+- `loadSupabaseWorkspace()` adds `ownerName` and `ownerDepartment` to loaded document records for Admissions Office document review; these labels come from the profiles visible to the staff query.
+- The workspace also returns a compact `students` directory for visible profiles. Admissions Office document verification uses it to compare linked QPI and household-income proof against the student's declared profile values; owner labels fall back to the document's loaded owner fields.
+- Application rejection requires a recorded reason through `ReasonModal`; it is saved to the application's timeline. Department Chairs flag eligible `Submitted` / `Under Review` applications by moving them to `For Verification`, which records the action in the timeline and sends the normal status notification after a successful status write.
+- Application-status in-app notifications are written by `notify-application-status` after the Supabase status write succeeds. Do not add synthetic client-side application-status notifications; staff changes belong in application timelines, and student alerts use the server's stable source key.
+- `validateFinancialSection()` does not require `hasActiveGovernmentGrant`; that account/profile field remains supported, but it is not a required financial-section answer.
+- Profile data has three local homes. `authUser` holds the account fields (`fullName`, `phone`, `bio`, `studentNumber`, `degreeProgram`, `department`, `qpi`, `householdIncome`, `hasActiveGovernmentGrant`), mirrored to the core `profiles` columns. `profileDraft` holds what the Smart Eligibility Checker reads, including the extended attributes listed in `ELIGIBILITY_ATTRIBUTE_KEYS` (`src/lib/profile.js`) — which now also carry the ranked `programChoice2` / `programChoice3` (an incoming first-year's 2nd and 3rd program choices) and the self-reported `ipCommunity`, `pwd`, and `employed` answers — plus the descriptive fields listed in `PROFILE_DETAIL_KEYS` (religion, civil status, address, country, family details, and the scholarship essay). The eligibility attributes are mirrored to `profiles.eligibility_attributes`; the descriptive fields are mirrored to `profiles.profile_details`. Save through `saveProfile` / `updateProfileFields`, which write only the keys present on the patch, and keep the key lists in `src/lib/profile.js` as the single source.
+- `profiles.bio` and `profiles.eligibility_attributes` come from `supabase/migrations/20261005140000_add_profile_details.sql`; `profiles.profile_details` comes from `supabase/migrations/20261008000000_add_profile_details_json.sql`. `getProfileDetails()` reads them in separate queries and `updateProfileFields()` writes each group in its own statement, reporting `detailsSynced: false` when a column is missing, so a project with a migration pending still signs in and saves the rest. Do not add these columns to the `getUserProfile()` select: a missing column would fail the whole query and reopen the onboarding modal.
+- Citizenship, IP community, PWD, and employment status are self-reported and verifiable through the Document Vault (`VERIFIABLE_ATTRIBUTE_OPTIONS`), like QPI and household income. Verification stays informational and never blocks eligibility matching or applying. Class size remains part of the Eligibility background section and the Jubilee honors criterion.
+- Saving a QPI through `updateUserProfile` or `updateProfileFields` also upserts the current academic year in `annual_qpi_records`.
 - New localStorage state must be merged with defaults so older saved sessions remain loadable; do not assume `customDeadlines` or notification preferences exist in older records.
 
 
@@ -170,7 +215,7 @@ When working on this repo, use this order:
 
 1. Read the relevant manuscript section first to understand the intended behavior.
 2. Inspect the specific code path in the current app.
-3. Make the smallest targeted change that aligns code with the manuscript and keeps the demo working.
+3. Make the smallest targeted change that aligns code with the manuscript and keeps the app working.
 4. Validate the touched area with the cheapest meaningful check, usually `npm run build`.
 5. If the change affects a narrow feature slice, prefer a narrow smoke test or local run before broader validation.
 
@@ -182,7 +227,8 @@ Prefer these checks when appropriate:
 - `npm run build` for general validation.
 - `npm run dev` for manual review of the local prototype.
 - Targeted checks for any touched Supabase, auth, or eligibility logic.
-- Manually smoke-test the student flows: apply from Scholarship Explorer, submit/view/export an application, upload/filter/delete a vault document, add/delete a calendar reminder, and toggle notification preferences.
+- `npm test` (vitest) covers the shared email and SMS templates, the SMS client, reminder math, eligibility rules, application requirements and readiness (`tests/applicationRequirements.test.js`), application-status transition roles (`tests/applicationStatus.test.js`), app state, auth redirect, notification merge, and the profile validators; run it whenever `supabase/functions/_shared/`, `src/lib/appState.js`, `src/lib/notificationMerge.js`, or `src/lib/profile.js` is touched.
+- Manually smoke-test the student flows: start an application from Scholarship Explorer, attach (and upload) its required documents in the application workspace, certify and submit, view/export it, upload/filter/delete a vault document, add/delete a calendar reminder, toggle notification preferences, and edit and save each My Profile section.
 
 
 If validation fails, fix the same slice before widening the scope.
@@ -191,8 +237,9 @@ If validation fails, fix the same slice before widening the scope.
 Before pushing a change:
 
 - Run `npm run build` and resolve any build errors.
+- Run `npm test` when the change touches reminder, notification, email or SMS rendering, or profile validation logic.
 - Confirm `package-lock.json` is updated whenever `package.json` dependencies change.
-- Check that demo mode still loads when Supabase environment variables are absent.
+- Check that the app fails cleanly with a clear "not configured" message when Supabase environment variables are absent.
 - Review `git diff` for accidental changes, generated secrets, or unrelated files.
 - Smoke-test the affected student or reviewer flow in the Vite app when the change is visual or interactive.
 
@@ -212,29 +259,34 @@ Do not:
 
 
 - Add features that imply direct scholarship award allocation or monetary disbursement.
-- Turn optional Supabase support into a hard requirement.
-- Break demo mode or local state restoration.
+- Reintroduce demo seed data, a demo or fallback login, or any offline demo mode.
+- Break local state restoration or the one-time legacy storage-key migration.
 - Replace the current domain model with a generic template app model.
 - Rename core manuscript concepts without a good reason.
 - Make broad styling changes that are unrelated to the task.
-- Email notifications are a real integration through Resend: deadline reminders (scholarship, application, and persisted custom deadlines) and application status updates are delivered by the `process-deadline-reminders` and `notify-application-status` Edge Functions, with `send-test-email` for self-service delivery checks.
-- SMS remains a prototype preference only. There is no SMS gateway integration, so do not claim that text-message delivery exists.
+- Do not add a browser-side mailer or SMS sender, a second email provider, or a client-visible email/IPROG token instead of the Resend and iprogSMS Edge Functions.
+- Write a delivery row for a reminder that was skipped or failed; leave it out of `notification_email_log` so the next run retries it.
+- Describe SMS ledger rows as confirmed carrier delivery; iprogSMS only confirms queue-accept, and delivery is poll-only. Do not reintroduce a Smart/TNT claim — those networks need a purchased custom sender name.
 
 
 ## Practical Notes For Future Agents
 The most likely high-value work in this repo is feature polishing, manuscript-aligned copy improvements, eligibility logic refinement, document workflow adjustments, and admin/student role behavior updates.
 
 
-Before any first substantive edit, identify the exact file and behavior being changed, confirm how it relates to the manuscript, and make the smallest edit that preserves the app's demo-first workflow.
+Before any first substantive edit, identify the exact file and behavior being changed, confirm how it relates to the manuscript, and make the smallest edit that preserves the app's workflow.
 
 ## Recent UI Implementation Notes
 
 - Use the shared `page-title-bar` and `page-section-label` pattern for authenticated page headers. Keep one clear title surface per page; avoid stacking a separate welcome card and a second introductory hero unless the content hierarchy clearly requires it.
 - Dashboard student entry content should keep the welcome message, primary actions, and profile/match summaries within one balanced hero section. The layout must remain responsive and avoid large unused areas.
-- Use the `page-metric` pattern for comparable summary boxes, including Applications, Document Vault, Scholarship Explorer, and Smart Eligibility Checker metrics. Center the Eligible grants metric when it is displayed as a standalone count.
+- Use the `page-metric` pattern for comparable summary boxes, including Applications, Document Vault, Smart Eligibility Checker, and the My Profile completeness metrics. Center the Eligible grants metric when it is displayed as a standalone count. Scholarship Explorer does not use the summary-box row: it fuses its section label, a full-width search field, its facet filters, and a one-line result caption into one bar, with the exclusion-logic (gov-grant) state kept as a quiet inline chip in that caption.
 - Primary page actions such as `View Applications`, `Explore scholarships`, and `Save as my profile` should use the shared Ateneo blue gradient treatment; secondary actions should use the app surface treatment.
 - Authenticated page actions are normalized through the `blue-action-view` wrapper in `src/App.jsx` and the matching rules in `src/styles.css`. Preserve the Dashboard action palette across authenticated pages while excluding semantic danger/amber actions, calendar cells, picker options, overlays, and login-specific controls.
-- The shared `SelectPicker` exported by `src/pages/LoginScreen.jsx` is a searchable, grouped modal selector used by Scholarship Explorer, Smart Eligibility Checker, Document Vault, and the Academic Profile modal. It is rendered with a portal to `document.body` so the popup is centered above parent cards/modals and cannot be clipped by an ancestor; keep its full-viewport backdrop separate from the dialog panel.
+- The shared `SelectPicker` exported by `src/pages/LoginScreen.jsx` is a searchable, grouped modal selector used by Scholarship Explorer, Smart Eligibility Checker, Document Vault, the Academic Profile modal, and the My Profile Academic profile section. It is rendered with a portal to `document.body` so the popup is centered above parent cards/modals and cannot be clipped by an ancestor; keep its full-viewport backdrop separate from the dialog panel.
 - Scholarship Explorer reset actions must clear the search query and reset category, coverage, deadline, and Active only state together.
 - Keep explanatory copy inside the relevant forms, filters, workflow cards, or settings groups rather than placing long descriptions in every page header.
-- The authenticated header profile identity is mobile-only: keep the top-right avatar/name visible below the `sm` breakpoint, while the desktop layout uses the persistent profile panel in the left navigation sidebar.
+- The authenticated header profile identity is mobile-only: keep the top-right avatar/name visible below the `sm` breakpoint, while the desktop layout uses the persistent profile panel in the left navigation sidebar. The mobile avatar is a button that opens My Profile.
+- My Profile keeps its section menu in a side column only from the `xl` breakpoint; below that the menu sits above the form as a two- or three-column grid, so form fields keep usable widths between 1024px and 1279px. Each section saves independently through `useSectionForm` and asks before discarding unsaved changes when the user switches sections.
+- Side-by-side fields must line up. `FormField` and the profile `ReadOnlyField` use `content-start` so a neighbour's longer hint or error cannot stretch them, and profile text inputs and native selects share the fixed `h-12 py-0` height (`controlClass` in `ProfileSections.jsx`) because the global padding otherwise renders inputs and selects a few pixels apart. Keep input and select rows in profile cards to at most two columns; toggle groups may use three.
+- The first-login `AcademicProfileModal` mirrors the My Profile Academic profile section rather than a reduced subset: an incoming first-year also ranks a 2nd and 3rd program choice (`getStandingRequirements().requiresProgramChoices`), and the ranked choices ride through `validateOnboardingEssentials` and `saveAcademicProfile` into `profiles.eligibility_attributes`. Its verifiable answers (academic standing, QPI or senior high school general average, household income, citizenship) carry the derived `Unverified` / `Pending` / `Verified` / `Rejected` badge from `src/lib/verification.js`, and one compact info box states that the self-reported answers are verified once the student submits an application after uploading the necessary proof in the Document Vault. Keep that box to a single sentence; the per-attribute accepted document types belong in the Document Vault picker, not in the modal. There is no in-modal "Attach proof" action because the modal is blocking (`ModalShell onClose={undefined}`).
+- Keep a single AdDU internal catalog-management panel in the Admissions Office console, alongside the recent-activity feed derived from application timelines; do not duplicate the scholarship form or restore the removed notification workflow-snapshot card. The review modal and Department Review queue must keep stage actions role-scoped: Chairs flag for central validation or endorse; interview and deliberation controls are Admissions-Office-only.

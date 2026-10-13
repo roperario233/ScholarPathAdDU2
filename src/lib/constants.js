@@ -22,7 +22,26 @@ const nextStatusMap = {
   Rejected: [],
 };
 
-export const getNextApplicationStatuses = (status) => nextStatusMap[status] || [];
+const roleNextStatusMap = {
+  admissions_office: {
+    Submitted: ['Under Review', 'For Verification', 'Rejected'],
+    'Under Review': ['For Verification', 'Rejected'],
+    'For Verification': ['Rejected'],
+    Endorsed: ['Rejected'],
+    Interview: ['Rejected'],
+    Recommended: ['Approved', 'Rejected'],
+    Approved: ['Released'],
+  },
+  department_chair: {
+    'For Verification': ['Endorsed'],
+  },
+};
+
+export const getNextApplicationStatuses = (status, role) => {
+  if (role === 'department_chair') return roleNextStatusMap.department_chair[status] || [];
+  if (role === 'admissions_office') return roleNextStatusMap.admissions_office[status] || [];
+  return nextStatusMap[status] || [];
+};
 
 export const sopStageIndex = (status) => {
   const index = sopStages.indexOf(status);
@@ -33,7 +52,16 @@ export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents',
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 
-export const documentTypeOptions = [
+// Profile-attribute verification states. An attribute is verified when the
+// Admissions Office verifies a Document Vault file that declares it as proof
+// (see src/lib/verification.js). The state is derived per attribute from the
+// linked documents, so it is distinct from a document's own verificationStatus.
+export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected'];
+
+// Standard Procedure submission types (step 2 required documents) plus the
+// generic fallbacks. These are the types offered when a vault file is a general
+// application document rather than proof for a profile attribute.
+export const generalDocumentTypeOptions = [
   { value: 'Application Form', label: 'Application Form' },
   { value: 'Entrance Exam Result', label: 'Entrance Exam Result' },
   { value: 'HS Report Card', label: 'HS Report Card' },
@@ -49,38 +77,29 @@ export const documentTypeOptions = [
   { value: 'Supporting Document', label: 'Supporting Doc' },
 ];
 
-// Standard Procedure for Scholarship Applications, step 2 — required submissions.
-export const sopRequiredDocuments = [
-  { type: 'Application Form', label: 'Application Form' },
-  { type: 'Entrance Exam Result', label: 'Entrance exam result with ACCEPTED remark' },
-  { type: 'HS Report Card', label: 'HS report card with at least 85% average' },
-  { type: 'Recommendation Letter', label: 'Recommendation from Homeroom Moderator' },
-  { type: 'Income Proof', label: 'Financial income documents of parents / legal guardians' },
-  { type: 'Photos of Residence', label: 'Photos of residence' },
-  { type: 'Good Moral Character', label: 'Certificate of Good Moral Character' },
-  { type: 'Certificate of Award', label: 'For academic grant, Certificate of Award as Rank 1 or 2' },
+// Additional document types that only serve as proof for a profile attribute
+// (see `acceptedDocumentTypes` in src/lib/profile.js). Kept separate from the
+// Standard Procedure submission types; a scholarship's required documents
+// (src/lib/applicationRequirements.js) may accept either kind.
+export const attributeProofDocumentTypeOptions = [
+  { value: 'Grade Report', label: 'Grade Report' },
+  { value: 'PSA Birth Certificate', label: 'PSA Birth Certificate' },
+  { value: 'Passport', label: 'Passport' },
+  { value: "Driver's License", label: "Driver's License" },
+  { value: 'Philippine National ID', label: 'Philippine National ID' },
+  { value: 'PWD ID', label: 'PWD ID' },
+  { value: 'Medical Certificate', label: 'Medical Certificate' },
+  { value: 'Certificate of Employment', label: 'Certificate of Employment' },
+  { value: 'Payslip', label: 'Payslip' },
+  { value: 'Certificate of Indigency', label: 'Certificate of Indigency' },
+  { value: 'Certificate of Tribal Membership', label: 'Certificate of Tribal Membership' },
 ];
+
+// Every document type the vault can store, so `getDocumentTypeLabel` can resolve
+// any stored value (including a proof type) to its display label.
+export const documentTypeOptions = [...generalDocumentTypeOptions, ...attributeProofDocumentTypeOptions];
 
 export const getDocumentTypeLabel = (value) => (
   documentTypeOptions.find((option) => option.value === value)?.label || value
 );
 
-export const citizenshipOptions = ['Filipino', 'Non-Filipino'];
-
-export const applicantTypeOptions = [
-  { value: 'first-year', label: 'Incoming first-year' },
-  { value: 'transfer', label: 'Transfer student' },
-  { value: 'current', label: 'Current AdDU student' },
-];
-
-export const honorsRankOptions = [
-  { value: '', label: 'Not applicable' },
-  { value: 'valedictorian', label: 'Valedictorian' },
-  { value: 'salutatorian', label: 'Salutatorian' },
-];
-
-export const hsStrandOptions = [
-  { value: '', label: 'Select strand' },
-  { value: 'STEM', label: 'STEM' },
-  { value: 'Non-STEM', label: 'Non-STEM (ABM, HUMSS, GAS, TVL, etc.)' },
-];

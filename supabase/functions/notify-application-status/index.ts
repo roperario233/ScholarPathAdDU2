@@ -1,24 +1,26 @@
 // Supabase Edge Function: notify-application-status
 //
-// Emails a student when their application status changes. The application
-// workspace calls this after writing the new status, but the authoritative
-// content (recipient, status, scholarship) is re-read here so the request body
-// cannot spoof who receives the message.
+// Notifies a student (in-app, email and SMS) when their application status changes.
+// The application workspace calls this after writing the new status, but the
+// authoritative content (recipient, status, scholarship) is re-read here so
+// the request body cannot spoof who receives the message.
 //
-// Deployed with verify_jwt enabled. The caller must be an OSA administrator,
+// Deployed with verify_jwt enabled. The caller must be an Admissions Office administrator,
 // the Department Chair responsible for the student's department, or the student
 // who owns the application (which covers a self-service submission).
 //
 // A record is written to notification_email_log keyed by
 // `application-status-<applicationId>-<status>` so a repeated save never
-// re-emails the same transition.
-//
+// re-sends the same transition on either channel. The email and SMS channels
+// The email, SMS and in-app channels follow the student's notification preferences.
 // Required Edge Function secrets: RESEND_API_KEY, RESEND_FROM_EMAIL,
-// RESEND_FROM_NAME (optional), APP_SITE_URL (optional).
+// RESEND_FROM_NAME (optional), APP_SITE_URL (optional), IPROGSMS_API_TOKEN,
+// IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { isEmailEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
+import { isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
+import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, sendSms } from '../_shared/sms.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,42 +90,44 @@ Deno.serve(async (req) => {
       .maybeSingle(),
     supabaseAdmin
       .from('profiles')
-      .select('full_name, email, department, notification_preferences')
+      .select('full_name, email, phone, department, notification_preferences')
       .eq('user_id', application.student_id)
       .maybeSingle(),
   ]);
 
   const callerRole = callerProfile?.role;
-  const isOsaAdmin = callerRole === 'osa_admin';
+  const isAdmissionsOffice = callerRole === 'admissions_office' || callerRole === 'osa_admin';
   const isOwningChair = callerRole === 'department_chair'
     && Boolean(studentProfile?.department)
     && callerProfile?.department === studentProfile?.department;
   const isOwner = jwtUser.user.id === application.student_id;
 
-  if (!isOsaAdmin && !isOwningChair && !isOwner) {
+  if (!isAdmissionsOffice && !isOwningChair && !isOwner) {
     return json({ error: 'You are not allowed to notify this application' }, 403);
   }
 
   const status = application.status;
   const sourceKey = `application-status-${application.id}-${status}`;
 
-  const { data: existing } = await supabaseAdmin
+  const { data: existingEmailDelivery, error: existingEmailLookupError } = await supabaseAdmin
     .from('notification_email_log')
-    .select('source_key')
+    .select('source_key, email_status, email_id, email_to, sms_status, sms_message_id, sms_to')
     .eq('source_key', sourceKey)
     .eq('user_id', application.student_id)
     .maybeSingle();
-  if (existing) {
-    return json({ ok: true, sent: false, skipped: true, reason: 'This status update was already emailed' });
+  if (existingEmailLookupError) {
+    return json({ error: 'Unable to check prior status notification delivery' }, 500);
   }
 
   const preferences = studentProfile?.notification_preferences ?? {};
-  if (!isEmailEnabledForUser(preferences)) {
-    return json({ ok: true, sent: false, skipped: true, reason: 'Email notifications are disabled for this student' });
-  }
-  if (!studentProfile?.email) {
-    return json({ ok: true, sent: false, skipped: true, reason: 'This student has no email address on file' });
-  }
+  // Each channel is independently opt-in. The in-app event is separate from
+  // the email/SMS delivery ledger, so an in-app-only preference still works.
+  const wantsInApp = isInAppEnabledForUser(preferences);
+  const emailAlreadySent = existingEmailDelivery?.email_status === 'sent';
+  const smsAlreadySent = existingEmailDelivery?.sms_status === 'sent';
+  const wantsEmail = !emailAlreadySent && isEmailEnabledForUser(preferences) && Boolean(studentProfile?.email);
+  const smsTo = normalizePhilippineMobile(studentProfile?.phone);
+  const wantsSms = !smsAlreadySent && isSmsEnabledForUser(preferences) && Boolean(smsTo);
 
   const { data: scholarship } = await supabaseAdmin
     .from('scholarships')
@@ -133,10 +137,11 @@ Deno.serve(async (req) => {
 
   const actorLabel = isOwner
     ? 'your submission'
-    : isOsaAdmin ? 'the Office of Student Affairs' : 'your Department Chair';
+    : isAdmissionsOffice ? 'the Admissions Office' : 'your Department Chair';
 
   const env = Deno.env.toObject();
   const resend = getResendConfig(env);
+  const sms = getSmsConfig(env);
   const message = renderApplicationStatusEmail({
     subject: `Application status: ${status}`,
     body: `Your application status was updated to ${status} through ${actorLabel}. Sign in to review the next steps.`,
@@ -145,36 +150,90 @@ Deno.serve(async (req) => {
     siteUrl: resolveSiteUrl(env),
   });
 
-  const result = await sendEmail({
-    apiKey: resend.apiKey,
-    from: resend.from,
-    to: studentProfile.email,
-    subject: message.subject,
-    html: message.html,
-    text: message.text,
-    idempotencyKey: `${sourceKey}:${application.student_id}`,
-  });
+  let inAppSent = false;
+  let inAppAlreadyExists = false;
+  let inAppError = null;
+  if (wantsInApp) {
+    const { error } = await supabaseAdmin
+      .from('notifications')
+      .upsert({
+        profile_id: application.student_id,
+        title: message.subject,
+        body: `Your ${scholarship?.title || 'scholarship'} application status changed to ${status} through ${actorLabel}. Open your application workspace to review the update.`,
+        channel: 'In-app',
+        status: 'Unread',
+        source_key: sourceKey,
+      }, { onConflict: 'profile_id,source_key', ignoreDuplicates: true });
+    inAppError = error;
+    inAppAlreadyExists = !error;
+    inAppSent = !error && !existingEmailDelivery;
+  }
 
-  if (!result.ok) {
+  const emailResult = emailAlreadySent
+    ? { ok: false, skipped: true, reason: 'This status update was already emailed' }
+    : wantsEmail
+    ? await sendEmail({
+        apiKey: resend.apiKey,
+        from: resend.from,
+        to: studentProfile.email,
+        subject: message.subject,
+        html: message.html,
+        text: message.text,
+        idempotencyKey: `${sourceKey}:${application.student_id}`,
+      })
+    : { ok: false, skipped: true, reason: 'Email notifications are disabled or no email address on file' };
+
+  const smsResult = smsAlreadySent
+    ? { ok: false, skipped: true, reason: 'This status update was already texted' }
+    : wantsSms
+    ? await sendSms({
+        apiToken: sms.apiToken,
+        phoneNumber: smsTo,
+        message: renderApplicationStatusSms({
+          scholarshipTitle: scholarship?.title,
+          status,
+        }).message,
+        provider: sms.provider,
+      })
+    : { ok: false, skipped: true, reason: 'SMS notifications are disabled or no mobile number on file' };
+
+  if (emailResult.ok || smsResult.ok) {
+    // Log only real email/SMS deliveries. In-app rows have their own source-key
+    // uniqueness and must not suppress a later retry of a failed gateway send.
+    await supabaseAdmin
+      .from('notification_email_log')
+      .upsert({
+        source_key: sourceKey,
+        user_id: application.student_id,
+        reminder_title: message.subject,
+        email_to: emailResult.ok ? studentProfile.email : existingEmailDelivery?.email_to ?? null,
+        email_status: emailAlreadySent ? 'sent' : emailResult.ok ? 'sent' : wantsEmail ? 'failed' : 'skipped',
+        email_id: emailResult.id ?? existingEmailDelivery?.email_id ?? null,
+        email_error: emailResult.error ?? null,
+        sms_to: smsResult.ok ? (formatPhilippineMobile(studentProfile.phone) ?? smsTo) : existingEmailDelivery?.sms_to ?? null,
+        sms_status: smsAlreadySent ? 'sent' : smsResult.ok ? 'sent' : wantsSms ? 'failed' : 'skipped',
+        sms_message_id: smsResult.messageId ?? existingEmailDelivery?.sms_message_id ?? null,
+        sms_error: smsResult.error ?? smsResult.reason ?? null,
+      });
+  }
+
+  if (!emailResult.ok && !smsResult.ok && !inAppSent && !inAppAlreadyExists) {
     return json({
       ok: false,
       sent: false,
-      skipped: Boolean(result.skipped),
-      reason: result.error || result.reason || 'Unable to send the status email',
+      skipped: !wantsInApp && Boolean(emailResult.skipped) && Boolean(smsResult.skipped),
+      reason: inAppError?.message || emailResult.error || emailResult.reason || smsResult.error || smsResult.reason || 'Unable to send the status notification',
     });
   }
 
-  await supabaseAdmin
-    .from('notification_email_log')
-    .upsert({
-      source_key: sourceKey,
-      user_id: application.student_id,
-      reminder_title: message.subject,
-      email_to: studentProfile.email,
-      email_status: 'sent',
-      email_id: result.id ?? null,
-      email_error: null,
-    });
-
-  return json({ ok: true, sent: true, to: studentProfile.email, emailId: result.id });
+  return json({
+    ok: true,
+    sent: Boolean(emailResult.ok || smsResult.ok || inAppSent),
+    inAppSent,
+    emailSmsAlreadyDelivered: Boolean(emailAlreadySent || smsAlreadySent),
+    to: emailResult.ok ? studentProfile.email : null,
+    emailId: emailResult.id ?? null,
+    smsTo: smsResult.ok ? smsTo : null,
+    smsMessageId: smsResult.messageId ?? null,
+  });
 });

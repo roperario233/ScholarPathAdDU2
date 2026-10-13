@@ -2,7 +2,7 @@ import { AnnouncementItem, Card, EmptyState, NotificationItem, ScholarshipRow, S
 import { ArrowRight, CalendarDays, CircleAlert } from 'lucide-react';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
-export default function DashboardView({ profile, isFirstLogin, stats, applications, scholarships, customDeadlines = [], eligibleScholarships, notifications, announcements, onOpenExplorer, onOpenEligibility, onTrackScholarship, onMarkRead, onShowApplications, onOpenCalendar, onOpenAdmin, onOpenReview, hasIncompleteProfile, onCompleteProfile }) {
+export default function DashboardView({ profile, isFirstLogin, stats, applications, scholarships, customDeadlines = [], eligibleScholarships, notifications, announcements, onOpenExplorer, onOpenEligibility, onTrackScholarship, onMarkRead, onShowApplications, onContinueApplication, onOpenCalendar, onOpenAdmin, onOpenReview, hasIncompleteProfile, onCompleteProfile }) {
   // Student Dashboard
   if (profile.role === 'student') {
     const draftApplication = applications.find((entry) => entry.status === 'Draft');
@@ -10,7 +10,7 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
     const nextAction = hasIncompleteProfile
       ? { label: 'Complete your academic profile', detail: 'Add your program, QPI, income, and student number to improve match accuracy.', action: onCompleteProfile, actionLabel: 'Complete profile', icon: CircleAlert }
       : draftApplication
-          ? { label: 'Finish a saved application', detail: `${draftApplication.scholarshipTitle} is saved as a draft and ready for your review.`, action: onShowApplications, actionLabel: 'Open applications', icon: ArrowRight }
+          ? { label: 'Finish a saved application', detail: `${draftApplication.scholarshipTitle} is a draft. Attach its required documents, then certify and submit.`, action: () => (onContinueApplication ? onContinueApplication(draftApplication.id) : onShowApplications()), actionLabel: 'Continue application', icon: ArrowRight }
           : reviewApplication
             ? { label: 'Check your application status', detail: `${reviewApplication.scholarshipTitle} is currently ${reviewApplication.status.toLowerCase()}.`, action: onShowApplications, actionLabel: 'View application', icon: ArrowRight }
             : { label: 'Explore your scholarship matches', detail: 'Review ranked opportunities and track the scholarships that fit your profile.', action: onOpenExplorer, actionLabel: 'Explore scholarships', icon: ArrowRight };
@@ -37,7 +37,6 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
             <h1>Find the right scholarship and take the next step.</h1>
             <div className="flex flex-wrap items-center gap-3">
               <button className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenExplorer}>Explore scholarships</button>
-              <button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Run eligibility check</button>
             </div>
           </div>
           <div className="dashboard-hero-summary grid content-start gap-3">
@@ -53,17 +52,6 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
             </div>
           </div>
         </section>
-
-        {hasIncompleteProfile && (
-          <section className="profile-reminder flex flex-col gap-4 rounded-app border border-amber-300/40 bg-gradient-to-r from-amber-400/15 via-orange-400/10 to-blue-500/10 p-5 shadow-app sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <span className="eyebrow text-amber-700 dark:text-amber-200">Profile reminder</span>
-              <h2 className="mt-1 text-xl font-bold text-app-text">Complete your academic profile</h2>
-              <p className="mb-0 mt-1 max-w-2xl text-sm text-app-muted">Add your program, student number, household income, and QPI to improve Smart Eligibility Checker matches.</p>
-            </div>
-            <button type="button" className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 px-5 py-2 text-sm font-bold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-amber-500/25" onClick={onCompleteProfile}>Complete profile</button>
-          </section>
-        )}
 
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,0.45fr)]">
           <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app">
@@ -95,8 +83,8 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
           <Card title="Top matches" action={<button className="link-btn" type="button" onClick={onOpenExplorer}>View all matches</button>}>
             <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-2">
               {eligibleScholarships.length ? eligibleScholarships.map((scholarship) => (
-                <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} />
-              )) : <EmptyState title="No eligible matches yet" description="Try adjusting your QPI, income, or degree inputs in the Eligibility Checker." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Check eligibility</button>} />}
+                <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} profile={profile} />
+              )) : <EmptyState title="No eligible matches yet" description="Review the Smart Eligibility Checker on the Scholarships page and confirm your saved profile details." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Check eligibility</button>} />}
             </div>
           </Card>
 
@@ -115,18 +103,18 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
     );
   }
 
-  // OSA Admin Dashboard
-  if (profile.role === 'osa_admin') {
+  // Admissions Office Dashboard
+  if (profile.role === 'admissions_office') {
     return (
       <div className="grid gap-4">
         <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-          <div className="page-title-copy"><span className="page-section-label">OSA administrator workspace</span><h2>Good day, {profile.fullName || 'Administrator'}</h2><p>Keep application review, document verification, deliberation, and result release moving through the Standard Procedure.</p></div>
-          <button type="button" onClick={onOpenAdmin} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white shadow-sm">Open OSA Console <ArrowRight className="ml-2" size={16} /></button>
+          <div className="page-title-copy"><span className="page-section-label">Admissions Office workspace</span><h2>Good day, {profile.fullName || 'Administrator'}</h2><p>Coordinate application operations, document verification, announcements, and results through the Standard Procedure.</p></div>
+          <button type="button" onClick={onOpenAdmin} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white shadow-sm">Open Admissions Office <ArrowRight className="ml-2" size={16} /></button>
         </section>
         <section className="grid gap-4 sm:grid-cols-3"><StatCard label="Applications to review" value={stats.openApplications} note="Submitted and under review" /><StatCard label="Programs available" value={stats.totalPrograms} note="Active scholarship pipelines" /><StatCard label="Unread alerts" value={stats.unreadNotifications} note="Needs attention" /></section>
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.62fr)]">
-          <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Today’s priorities</span><h2 className="mt-2 text-xl font-bold">Start with the OSA Console</h2><p className="mt-2 max-w-2xl text-sm text-app-muted">Review the oldest applications first, verify supporting documents, then publish any scholarship updates that students need to see.</p><button type="button" onClick={onOpenAdmin} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review work queues <ArrowRight className="ml-2" size={16} /></button></article>
-          <div className="grid gap-3"><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Role</span><strong className="mt-1 block">OSA Administrator</strong><p className="mt-1 text-sm text-app-muted">Centralized scholarship operations</p></div><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Workspace status</span><strong className="mt-1 block text-emerald-600 dark:text-emerald-300">Ready for review</strong><p className="mt-1 text-sm text-app-muted">Updates are tracked in the notification center.</p></div></div>
+          <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Today’s priorities</span><h2 className="mt-2 text-xl font-bold">Start with Admissions Office</h2><p className="mt-2 max-w-2xl text-sm text-app-muted">Review the oldest applications first, verify supporting documents, then publish any scholarship updates that students need to see.</p><button type="button" onClick={onOpenAdmin} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review work queues <ArrowRight className="ml-2" size={16} /></button></article>
+          <div className="grid gap-3"><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Role</span><strong className="mt-1 block">Admissions Office Administrator</strong><p className="mt-1 text-sm text-app-muted">Centralized scholarship operations</p></div><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Workspace status</span><strong className="mt-1 block text-emerald-600 dark:text-emerald-300">Ready for review</strong><p className="mt-1 text-sm text-app-muted">Updates are tracked in the notification center.</p></div></div>
         </section>
       </div>
     );
@@ -136,9 +124,16 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
   if (profile.role === 'department_chair') {
     return (
       <div className="grid gap-4">
-        <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center"><div className="page-title-copy"><span className="page-section-label">Department Chair workspace</span><h2>{profile.department || 'Department'} endorsements</h2><p>Screen submitted applicants, convene the interview panel from your school, and endorse qualified students to OSA.</p></div><button type="button" onClick={onOpenReview} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white">Open review queue <ArrowRight className="ml-2" size={16} /></button></section>
+        <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
+          <div className="page-title-copy">
+            <span className="page-section-label">Department Chair workspace</span>
+            <h2>{profile.department || 'Department'} endorsements</h2>
+            <p>Screen applicants assigned to your department, convene the interview panel, and record department-level recommendations.</p>
+          </div>
+          <button type="button" onClick={onOpenReview} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white">Open review queue <ArrowRight className="ml-2" size={16} /></button>
+        </section>
         <section className="grid gap-4 sm:grid-cols-3"><StatCard label="Applicants in review" value={stats.openApplications} note="Pending endorsement" /><StatCard label="Department" value={profile.department} note="Endorsement scope" /><StatCard label="Unread alerts" value={stats.unreadNotifications} note="System notifications" /></section>
-        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.62fr)]"><article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Next step</span><h2 className="mt-2 text-xl font-bold">Review departmental endorsements</h2><p className="mt-2 text-sm text-app-muted">Check academic standing, household income, and recommendations before endorsing qualified GIA applicants.</p><button type="button" onClick={onOpenReview} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review applicants <ArrowRight className="ml-2" size={16} /></button></article><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Review scope</span><strong className="mt-1 block">{profile.department || 'Your department'}</strong><p className="mt-2 text-sm text-app-muted">Endorse qualified students and flag concerns for OSA document validation.</p></div></section>
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.62fr)]"><article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Next step</span><h2 className="mt-2 text-xl font-bold">Review departmental endorsements</h2><p className="mt-2 text-sm text-app-muted">Check academic standing, household income, and recommendations before endorsing qualified GIA applicants.</p><button type="button" onClick={onOpenReview} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review applicants <ArrowRight className="ml-2" size={16} /></button></article><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Review scope</span><strong className="mt-1 block">{profile.department || 'Your department'}</strong><p className="mt-2 text-sm text-app-muted">Record recommendations within your department’s assigned review scope.</p></div></section>
       </div>
     );
   }

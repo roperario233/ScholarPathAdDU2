@@ -4,7 +4,7 @@ create table if not exists profiles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique,
   full_name text not null,
-  role text not null check (role in ('student', 'osa_admin', 'department_chair')),
+  role text not null check (role in ('student', 'admissions_office', 'department_chair')),
   email text,
   phone text,
   department text,
@@ -16,6 +16,10 @@ create table if not exists profiles (
   updated_at timestamptz not null default now()
 );
 alter table profiles add column if not exists student_number text;
+alter table profiles drop constraint if exists profiles_role_check;
+update profiles set role = 'admissions_office' where role = 'osa_admin';
+alter table profiles add constraint profiles_role_check
+  check (role in ('student', 'admissions_office', 'department_chair'));
 
 -- Server-side mirror of the notification center settings (see
 -- src/lib/demoState.js `notificationPreferences`). Required so the scheduled
@@ -25,19 +29,20 @@ alter table profiles add column if not exists student_number text;
 -- deadlineReminders: { oneWeekBefore, threeDaysBefore, dayBefore } }.
 alter table profiles add column if not exists notification_preferences jsonb not null default '{}'::jsonb;
 
--- Standard Procedure stage records (endorsement, interview, deliberation,
--- release) and the event timeline live on applications as JSON payloads.
-alter table applications add column if not exists endorsement jsonb;
-alter table applications add column if not exists interview jsonb;
-alter table applications add column if not exists deliberation jsonb;
-alter table applications add column if not exists release jsonb;
-alter table applications add column if not exists timeline jsonb not null default '[]'::jsonb;
+-- My Profile details (see migrations/20261005140000_add_profile_details.sql):
+-- a short bio and the extended Smart Eligibility Checker attributes listed in
+-- src/lib/profile.js (ELIGIBILITY_ATTRIBUTE_KEYS).
+alter table profiles add column if not exists bio text;
+alter table profiles add column if not exists eligibility_attributes jsonb not null default '{}'::jsonb;
+alter table profiles drop constraint if exists profiles_bio_length_check;
+alter table profiles add constraint profiles_bio_length_check
+  check (bio is null or char_length(bio) <= 280);
 
--- Widen the application status check to cover the SOP stage sequence
--- (Endorsed, Interview, Recommended, Released) additively.
-alter table applications drop constraint if exists applications_status_check;
-alter table applications add constraint applications_status_check
-  check (status in ('Draft', 'Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'));
+-- Descriptive My Profile fields that are not eligibility inputs (see
+-- migrations/20261008000000_add_profile_details_json.sql): religion, civil
+-- status, address, country, family details, and the scholarship essay. The field
+-- keys mirror PROFILE_DETAIL_KEYS in src/lib/profile.js.
+alter table profiles add column if not exists profile_details jsonb not null default '{}'::jsonb;
 
 create table if not exists scholarships (
   id uuid primary key default gen_random_uuid(),
@@ -68,6 +73,15 @@ alter table scholarships add column if not exists is_matchable boolean not null 
 alter table scholarships add column if not exists application_route text;
 alter table scholarships add column if not exists is_external boolean not null default false;
 alter table scholarships add column if not exists appendix_number integer;
+-- Incoming first-years have no collegiate QPI, so the general pool gates them on
+-- their senior high school general average instead (see getAcademicRequirement
+-- in src/lib/eligibility.js). NULL falls back to GENERAL_POOL_SHS_AVERAGE_FLOOR.
+alter table scholarships add column if not exists minimum_shs_average numeric(5, 2);
+-- Documents a student must attach before submitting (see
+-- migrations/20261012000000_add_application_requirements.sql for the default
+-- lists and src/lib/applicationRequirements.js for the client mirror). Each item:
+-- { id, label, documentTypes: [vault document types], standing: 'all' | 'incoming' | 'continuing' }.
+alter table scholarships add column if not exists required_documents jsonb not null default '[]'::jsonb;
 
 create table if not exists documents (
   id uuid primary key default gen_random_uuid(),
@@ -81,6 +95,11 @@ create table if not exists documents (
   uploaded_at timestamptz not null default now()
 );
 
+-- Profile-attribute proof links: which profile attribute(s) a vault document
+-- proves (see src/lib/verification.js and VERIFIABLE_ATTRIBUTE_OPTIONS in
+-- src/lib/profile.js). Additive so existing rows keep working.
+alter table documents add column if not exists linked_attributes text[] not null default '{}'::text[];
+
 create table if not exists applications (
   id uuid primary key default gen_random_uuid(),
   student_id uuid not null references profiles(user_id) on delete cascade,
@@ -91,6 +110,26 @@ create table if not exists applications (
   submitted_at timestamptz,
   updated_at timestamptz not null default now()
 );
+
+-- Standard Procedure stage records (endorsement, interview, deliberation,
+-- release) and the event timeline live on applications as JSON payloads. Keep
+-- these alters after table creation so this reference schema works on a fresh DB.
+alter table applications add column if not exists endorsement jsonb;
+alter table applications add column if not exists interview jsonb;
+alter table applications add column if not exists deliberation jsonb;
+alter table applications add column if not exists release jsonb;
+alter table applications add column if not exists timeline jsonb not null default '[]'::jsonb;
+-- The application statement, the self-reported profile values frozen at submit,
+-- and the student's certification (see the submit gate trigger below).
+alter table applications add column if not exists statement text;
+alter table applications add column if not exists profile_snapshot jsonb;
+alter table applications add column if not exists certified_at timestamptz;
+
+-- Widen the application status check to cover the SOP stage sequence
+-- (Endorsed, Interview, Recommended, Released) additively.
+alter table applications drop constraint if exists applications_status_check;
+alter table applications add constraint applications_status_check
+  check (status in ('Draft', 'Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'));
 
 create table if not exists application_documents (
   application_id uuid not null references applications(id) on delete cascade,
@@ -114,8 +153,12 @@ create table if not exists notifications (
   body text not null,
   channel text not null check (channel in ('SMS', 'Email', 'In-app')),
   status text not null default 'Unread' check (status in ('Unread', 'Read')),
+  source_key text,
   created_at timestamptz not null default now()
 );
+alter table notifications add column if not exists source_key text;
+create unique index if not exists notifications_profile_source_key_unique
+  on notifications (profile_id, source_key);
 
 create table if not exists academic_programs (
   id uuid primary key default gen_random_uuid(),
@@ -141,6 +184,8 @@ create table if not exists department_reviews (
   created_at timestamptz not null default now()
 );
 alter table department_reviews add column if not exists application_id uuid references applications(id) on delete cascade;
+create unique index if not exists department_reviews_application_reviewer_unique
+  on department_reviews (application_id, reviewer_id);
 
 alter table profiles enable row level security;
 alter table scholarships enable row level security;
@@ -182,8 +227,8 @@ begin
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1), 'ScholarPath user'),
-    -- Public registration cannot grant privileged roles. Assign OSA Admin or
-    -- Department Chair only after verifying the account in Supabase.
+    -- Public registration cannot grant privileged roles. Assign Admissions Office
+    -- or Department Chair only after verifying the account in Supabase.
     'student',
     new.email,
     nullif(new.raw_user_meta_data->>'student_id', '')
@@ -201,67 +246,112 @@ create trigger on_auth_user_created
 drop policy if exists "profiles_self_read_write" on profiles;
 drop policy if exists "staff_read_profiles" on profiles;
 drop policy if exists "scholarships_read_all" on scholarships;
+drop policy if exists "admissions_office_scholarships_manage" on scholarships;
 drop policy if exists "documents_self_access" on documents;
 drop policy if exists "osa_documents_access" on documents;
+drop policy if exists "admissions_office_documents_access" on documents;
+drop policy if exists "chair_documents_read" on documents;
 drop policy if exists "applications_self_access" on applications;
 drop policy if exists "osa_applications_access" on applications;
+drop policy if exists "admissions_office_applications_access" on applications;
 drop policy if exists "chair_applications_read" on applications;
 drop policy if exists "chair_applications_status" on applications;
+drop policy if exists "chair_applications_flag_for_validation" on applications;
+drop policy if exists "chair_applications_endorse" on applications;
 drop policy if exists "application_documents_self_access" on application_documents;
+drop policy if exists "application_documents_self_read" on application_documents;
+drop policy if exists "application_documents_self_draft_insert" on application_documents;
+drop policy if exists "application_documents_self_draft_delete" on application_documents;
 drop policy if exists "staff_application_documents_access" on application_documents;
 drop policy if exists "announcements_read_all" on announcements;
 drop policy if exists "osa_announcements_manage" on announcements;
+drop policy if exists "admissions_office_announcements_manage" on announcements;
 drop policy if exists "notifications_self_access" on notifications;
 drop policy if exists "department_reviews_restricted" on department_reviews;
 drop policy if exists "chair_department_reviews_access" on department_reviews;
 drop policy if exists "academic_programs_read_all" on academic_programs;
 drop policy if exists "osa_academic_programs_manage" on academic_programs;
+drop policy if exists "admissions_office_academic_programs_manage" on academic_programs;
 
 create policy "profiles_self_read_write" on profiles
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "staff_read_profiles" on profiles
-for select using (public.current_profile_role() in ('osa_admin', 'department_chair'));
+for select using (public.current_profile_role() in ('admissions_office', 'department_chair'));
 
 create policy "scholarships_read_all" on scholarships
 for select using (true);
+create policy "admissions_office_scholarships_manage" on scholarships
+for all using (
+  public.current_profile_role() = 'admissions_office'
+  and category = 'Internal Endowment'
+  and is_external = false
+  and rule_family in ('general-pool', 'honors', 'work-study')
+) with check (
+  public.current_profile_role() = 'admissions_office'
+  and category = 'Internal Endowment'
+  and is_external = false
+  and rule_family in ('general-pool', 'honors', 'work-study')
+);
 create policy "documents_self_access" on documents
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
-create policy "osa_documents_access" on documents
-for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
+create policy "admissions_office_documents_access" on documents
+for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
+create policy "chair_documents_read" on documents
+for select using (
+  public.current_profile_role() = 'department_chair'
+  and exists (select 1 from profiles p where p.user_id = documents.owner_id and p.department = public.current_profile_department())
+);
 create policy "applications_self_access" on applications
 for all using (auth.uid() = student_id) with check (auth.uid() = student_id);
-create policy "osa_applications_access" on applications
-for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
+create policy "admissions_office_applications_access" on applications
+for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
 create policy "chair_applications_read" on applications
 for select using (
   public.current_profile_role() = 'department_chair'
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 );
-create policy "chair_applications_status" on applications
+create policy "chair_applications_flag_for_validation" on applications
 for update using (
   public.current_profile_role() = 'department_chair'
+  and status in ('Submitted', 'Under Review')
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 ) with check (
   public.current_profile_role() = 'department_chair'
+  and status = 'For Verification'
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 );
-create policy "application_documents_self_access" on application_documents
-for all using (
-  exists (
-    select 1 from applications a where a.id = application_id and a.student_id = auth.uid()
-  )
+create policy "chair_applications_endorse" on applications
+for update using (
+  public.current_profile_role() = 'department_chair'
+  and status = 'For Verification'
+  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 ) with check (
-  exists (
-    select 1 from applications a where a.id = application_id and a.student_id = auth.uid()
-  )
+  public.current_profile_role() = 'department_chair'
+  and status = 'Endorsed'
+  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
+);
+-- Students attach or detach only their own vault files, and only while the
+-- application is still a Draft.
+create policy "application_documents_self_read" on application_documents
+for select using (
+  exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid())
+);
+create policy "application_documents_self_draft_insert" on application_documents
+for insert with check (
+  exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft')
+  and exists (select 1 from documents d where d.id = document_id and d.owner_id = auth.uid())
+);
+create policy "application_documents_self_draft_delete" on application_documents
+for delete using (
+  exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft')
 );
 create policy "staff_application_documents_access" on application_documents
-for all using (public.current_profile_role() in ('osa_admin', 'department_chair'))
-with check (public.current_profile_role() in ('osa_admin', 'department_chair'));
+for all using (public.current_profile_role() in ('admissions_office', 'department_chair'))
+with check (public.current_profile_role() in ('admissions_office', 'department_chair'));
 create policy "announcements_read_all" on announcements
 for select using (true);
-create policy "osa_announcements_manage" on announcements
-for insert with check (public.current_profile_role() = 'osa_admin' and created_by = auth.uid());
+create policy "admissions_office_announcements_manage" on announcements
+for insert with check (public.current_profile_role() = 'admissions_office' and created_by = auth.uid());
 create policy "notifications_self_access" on notifications
 for all using (auth.uid() = profile_id) with check (auth.uid() = profile_id);
 create policy "department_reviews_restricted" on department_reviews
@@ -271,8 +361,166 @@ for all using (public.current_profile_role() = 'department_chair' and auth.uid()
 with check (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id);
 create policy "academic_programs_read_all" on academic_programs
 for select using (true);
-create policy "osa_academic_programs_manage" on academic_programs
-for all using (public.current_profile_role() = 'osa_admin') with check (public.current_profile_role() = 'osa_admin');
+create policy "admissions_office_academic_programs_manage" on academic_programs
+for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
+
+-- ---------------------------------------------------------------------------
+-- Student submit gate. Staff transitions keep their own RLS policies; this
+-- trigger only constrains the student, whose self-access policy otherwise
+-- allows any column change on their own rows:
+--   * a student creates applications only as Draft;
+--   * a student edits only Draft rows, and may move them only to Submitted;
+--   * submission needs an AdDU internal scholarship that is still open, a
+--     certification, a statement, and a non-rejected vault file attached for
+--     every required document that applies to the student's year standing.
+-- ---------------------------------------------------------------------------
+create or replace function public.enforce_student_application_update()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_scholarship public.scholarships%rowtype;
+  v_is_incoming boolean;
+  v_item jsonb;
+begin
+  if public.current_profile_role() is distinct from 'student' then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.status <> 'Draft' then
+      raise exception 'New applications start as drafts.' using errcode = '42501';
+    end if;
+    return new;
+  end if;
+
+  if new.student_id <> old.student_id or new.scholarship_id <> old.scholarship_id then
+    raise exception 'An application cannot be moved to another student or scholarship.' using errcode = '42501';
+  end if;
+  if old.status <> 'Draft' then
+    raise exception 'A submitted application can no longer be changed by the student.' using errcode = '42501';
+  end if;
+  if new.status = 'Draft' then
+    return new;
+  end if;
+  if new.status <> 'Submitted' then
+    raise exception 'Students can only submit a draft application.' using errcode = '42501';
+  end if;
+
+  select * into v_scholarship from public.scholarships where id = new.scholarship_id;
+  if not found
+    or v_scholarship.is_external
+    or coalesce(v_scholarship.rule_family, '') not in ('general-pool', 'honors', 'work-study') then
+    raise exception 'External programs are tracked only. Apply through the provider.' using errcode = '23514';
+  end if;
+  if not v_scholarship.is_active
+    or (v_scholarship.deadline is not null and v_scholarship.deadline < (now() at time zone 'Asia/Manila')::date) then
+    raise exception 'This scholarship is no longer accepting applications.' using errcode = '23514';
+  end if;
+  if new.certified_at is null then
+    raise exception 'Certify that your information and documents are true and complete.' using errcode = '23514';
+  end if;
+  if coalesce(btrim(new.statement), '') = '' then
+    raise exception 'Write your application statement.' using errcode = '23514';
+  end if;
+
+  select coalesce(p.eligibility_attributes ->> 'yearStanding', '') = 'incoming-1st'
+    into v_is_incoming
+    from public.profiles p
+    where p.user_id = new.student_id;
+
+  for v_item in select value from jsonb_array_elements(coalesce(v_scholarship.required_documents, '[]'::jsonb)) loop
+    if (v_item ->> 'standing') = 'incoming' and not coalesce(v_is_incoming, false) then continue; end if;
+    if (v_item ->> 'standing') = 'continuing' and coalesce(v_is_incoming, false) then continue; end if;
+    if not exists (
+      select 1
+      from public.application_documents ad
+      join public.documents d on d.id = ad.document_id
+      where ad.application_id = new.id
+        and d.verification_status <> 'Rejected'
+        and d.document_type in (select jsonb_array_elements_text(v_item -> 'documentTypes'))
+    ) then
+      raise exception 'Attach the required document: %.', v_item ->> 'label' using errcode = '23514';
+    end if;
+  end loop;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_student_application_update on public.applications;
+create trigger enforce_student_application_update
+  before insert or update on public.applications
+  for each row execute function public.enforce_student_application_update();
+
+-- A student may not delete a vault file that a submitted application relies on;
+-- the foreign-key cascade would otherwise silently unlink it from the review.
+create or replace function public.protect_submitted_application_documents()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if public.current_profile_role() = 'student' and exists (
+    select 1
+    from public.application_documents ad
+    join public.applications a on a.id = ad.application_id
+    where ad.document_id = old.id and a.status <> 'Draft'
+  ) then
+    raise exception 'This document is attached to a submitted application and cannot be deleted.' using errcode = '42501';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists protect_submitted_application_documents on public.documents;
+create trigger protect_submitted_application_documents
+  before delete on public.documents
+  for each row execute function public.protect_submitted_application_documents();
+
+-- ---------------------------------------------------------------------------
+-- Document Vault storage.
+--
+-- File bytes live in a private Supabase Storage bucket (`documents`); the
+-- documents table keeps the metadata and records the object path in
+-- storage_path. Viewing uses short-lived signed URLs. Students manage only their
+-- own folder (documents/<auth.uid()>/<documentId>/<file>); the Admissions Office
+-- reads every document; a Department Chair reads documents owned by students in
+-- the chair's department (the first path segment is the owner's user_id).
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('documents', 'documents', false, 10485760, array['application/pdf','image/jpeg','image/png'])
+on conflict (id) do update
+  set public = false,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "documents_storage_owner_access" on storage.objects;
+create policy "documents_storage_owner_access" on storage.objects
+for all to authenticated
+using (bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text)
+with check (bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists "documents_storage_admissions_office_read" on storage.objects;
+create policy "documents_storage_admissions_office_read" on storage.objects
+for select to authenticated
+using (bucket_id = 'documents' and public.current_profile_role() = 'admissions_office');
+
+drop policy if exists "documents_storage_chair_read" on storage.objects;
+create policy "documents_storage_chair_read" on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'documents'
+  and public.current_profile_role() = 'department_chair'
+  and exists (
+    select 1 from public.profiles p
+    where p.user_id::text = (storage.foldername(name))[1]
+      and p.department = public.current_profile_department()
+  )
+);
 
 -- ---------------------------------------------------------------------------
 -- Server-side deadline reminder delivery ledger.
@@ -285,7 +533,9 @@ for all using (public.current_profile_role() = 'osa_admin') with check (public.c
 -- often the scheduled job runs. Written only via the service role.
 --
 -- The email_* columns record the Resend outcome so a failed send stays
--- observable instead of silently disappearing.
+-- observable instead of silently disappearing; the sms_* columns record the
+-- matching iprogSMS outcome (sms_message_id is the gateway's queue-accept id,
+-- since iprogSMS has no delivery webhooks).
 -- ---------------------------------------------------------------------------
 create table if not exists notification_email_log (
   id uuid primary key default gen_random_uuid(),
@@ -296,6 +546,10 @@ create table if not exists notification_email_log (
   email_status text check (email_status in ('sent', 'failed', 'skipped')),
   email_id text,
   email_error text,
+  sms_to text,
+  sms_status text check (sms_status in ('sent', 'failed', 'skipped')),
+  sms_message_id text,
+  sms_error text,
   delivered_at timestamptz not null default now(),
   unique (source_key, user_id)
 );
@@ -334,13 +588,19 @@ for select using (auth.uid() = user_id);
 -- enable them from the dashboard if not already active). Runs daily at
 -- 07:00 Asia/Manila.
 --
+-- Applied to the deployed project by the migration
+-- supabase/migrations/20261005000001_schedule_deadline_reminders.sql; the block
+-- below stays as the documented, project-ref-agnostic reference for a fresh
+-- project.
+--
 -- Setup, in order:
 --   1. Replace <project-ref> below with the deployed project ref.
---   2. Store the scheduled-caller secret once, so the job can authenticate.
---      Use the same value you set as the REMINDER_CRON_SECRET Edge Function
---      secret:
---        alter database postgres
---          set app.settings.reminder_cron_secret = '<the same value>';
+--   2. Replace <REMINDER_CRON_SECRET> below with the same long random value you
+--      set as the REMINDER_CRON_SECRET Edge Function secret. The scheduled
+--      caller authenticates with it, and the function compares it by exact value
+--      (failing closed when its own secret is unset). The value is bound into the
+--      scheduled command because Supabase's `postgres` role cannot run
+--      `alter database postgres set app.settings.reminder_cron_secret`.
 --   3. Run the create extension and cron.schedule statements below.
 --
 -- The function deliberately runs with verify_jwt disabled: the platform-level
@@ -358,7 +618,7 @@ for select using (auth.uid() = user_id);
 --   select net.http_post(
 --     url := 'https://<project-ref>.supabase.co/functions/v1/process-deadline-reminders',
 --     headers := jsonb_build_object(
---       'Authorization', 'Bearer ' || current_setting('app.settings.reminder_cron_secret'),
+--       'Authorization', 'Bearer <REMINDER_CRON_SECRET>',
 --       'Content-Type', 'application/json'
 --     ),
 --     body := '{}'::jsonb

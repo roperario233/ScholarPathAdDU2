@@ -3,6 +3,7 @@ import {
   DEFAULT_FROM,
   REMINDER_OFFSET_KEYS,
   isEmailEnabledForUser,
+  isInAppEnabledForUser,
   isReminderEnabledForUser,
   renderApplicationStatusEmail,
   renderReminderEmail,
@@ -47,6 +48,12 @@ describe('notification preferences', () => {
 
   it('honors an explicit email opt-out', () => {
     expect(isEmailEnabledForUser({ emailEnabled: false })).toBe(false);
+  });
+
+  it('defaults in-app notifications to enabled and honors an explicit opt-out', () => {
+    expect(isInAppEnabledForUser(undefined)).toBe(true);
+    expect(isInAppEnabledForUser({})).toBe(true);
+    expect(isInAppEnabledForUser({ inAppEnabled: false })).toBe(false);
   });
 
   it('maps each reminder offset to its notificationPreferences key', () => {
