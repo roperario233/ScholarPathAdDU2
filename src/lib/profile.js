@@ -562,6 +562,8 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
 
 export const validateFinancialSection = (form = {}) => collect({
   householdIncome: validateHouseholdIncome(form.householdIncome),
+  // Supported account field; keep it boolean, but do not require an answer.
+  hasActiveGovernmentGrant: ok(Boolean(form.hasActiveGovernmentGrant)),
   hasOtherActiveScholarship: ok(Boolean(form.hasOtherActiveScholarship)),
   hasSiblingOnAid: ok(Boolean(form.hasSiblingOnAid)),
   isOnPrepaidPlan: ok(Boolean(form.isOnPrepaidPlan)),
@@ -616,7 +618,9 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
       programChoice2: academic.values.programChoice2,
       programChoice3: academic.values.programChoice3,
       householdIncome: financial.values.householdIncome,
-      hasActiveGovernmentGrant: financial.values.hasActiveGovernmentGrant,
+      // The active-grant response is optional in the form, but its current
+      // boolean value must be carried through onboarding when supplied.
+      hasActiveGovernmentGrant: Boolean(form.hasActiveGovernmentGrant),
       phone: phone.value,
       citizenship: citizenship.value,
     },

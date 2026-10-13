@@ -51,7 +51,12 @@ describe('internal scholarship eligibility gate', () => {
     const gia = { title: 'Grant-in-Aid (GIA)', ruleFamily: 'general-pool' };
     const jubilee = { title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors' };
     const studentAssistant = { title: 'Student Assistant (SA) Program', ruleFamily: 'work-study' };
-    const donorEndowment = { title: 'Ateneo Alumni Association of Canada', ruleFamily: 'general-pool' };
+    const donorEndowment = {
+      title: 'Ateneo Alumni Association of Canada',
+      category: 'Internal Endowment',
+      ruleFamily: 'general-pool',
+      isExternal: false,
+    };
     const externalProgram = { title: 'CHED Scholarship Program', ruleFamily: 'government-linked' };
 
     expect(getAdduInternalPrograms([

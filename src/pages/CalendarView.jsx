@@ -9,7 +9,7 @@ const daysLeftLabel = (value) => {
   return `${value} days`;
 };
 
-export default function CalendarView({ scholarships, customDeadlines = [], onAddCustomDeadline, onDeleteCustomDeadline }) {
+export default function CalendarView({ scholarships, customDeadlines = [], onAddCustomDeadline, onDeleteCustomDeadline, syncFeedback, onDismissSyncFeedback }) {
   const now = new Date();
   const todayInputValue = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const [displayMonth, setDisplayMonth] = useState(now.getMonth());
@@ -108,6 +108,30 @@ export default function CalendarView({ scholarships, customDeadlines = [], onAdd
           <h2>Scholarship deadlines and personal reminders</h2>
           <p className="mt-2 max-w-2xl text-sm text-app-muted">Track scholarship deadlines alongside your own document and essay reminders.</p>
         </div>
+        {syncFeedback?.message && (
+          <div
+            className={`mt-4 flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border p-3 text-sm ${
+              syncFeedback.tone === 'error'
+                ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200'
+                : syncFeedback.tone === 'success'
+                  ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                  : 'border-amber-400/40 bg-amber-500/10 text-amber-700 dark:text-amber-200'
+            }`}
+            role="status"
+          >
+            <span className="min-w-0">{syncFeedback.message}</span>
+            {onDismissSyncFeedback && (
+              <button
+                type="button"
+                className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                onClick={onDismissSyncFeedback}
+                aria-label="Dismiss reminder sync message"
+              >
+                <X size={16} />
+              </button>
+            )}
+          </div>
+        )}
         <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
           <div className="calendar-grid">
             <div className="calendar-nav">

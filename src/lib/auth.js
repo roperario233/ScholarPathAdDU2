@@ -403,7 +403,6 @@ export const signInWithGoogle = async () => {
       options: {
         redirectTo: getAuthRedirectUrl(),
         queryParams: {
-          hd: 'addu.edu.ph',
           prompt: 'select_account',
         },
       },

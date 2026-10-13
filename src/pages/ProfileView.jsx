@@ -31,6 +31,7 @@ export default function ProfileView({
   onAttachProof,
   onUploadDocument,
   previewProofImpact,
+  onOpenEligibility,
 }) {
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
@@ -100,10 +101,12 @@ export default function ProfileView({
           {activeSection === 'overview' && (
             <ProfileOverview
               profile={profile}
+              role={role}
               roleLabel={roleLabel}
               completeness={completeness}
               documentChecklist={documentChecklist}
               onEditSection={openSection}
+              onOpenEligibility={onOpenEligibility}
               attributeVerifications={attributeVerifications}
               onAttachProof={onAttachProof}
               onUploadDocument={onUploadDocument}

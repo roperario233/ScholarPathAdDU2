@@ -94,12 +94,10 @@ export const isAdduInternalProgram = (scholarship = {}) => (
   ADDU_INTERNAL_PROGRAM_TITLE_SET.has(String(scholarship.title || '').trim().toLowerCase())
 );
 
-export const getAdduInternalPrograms = (scholarships = []) => scholarships.filter((scholarship) => (
-  (ADDU_INTERNAL_RULE_FAMILIES.includes(scholarship.ruleFamily)
-    && scholarship.category === 'Internal Endowment'
-    && scholarship.isExternal !== true)
-  || isAdduInternalProgram(scholarship)
-));
+// The Explorer currently surfaces only the three AdDU programs in scope.
+// Do not use ruleFamily/category as the inclusion condition: other internal
+// catalog entries can share those values without being GIA, Jubilee, or SA.
+export const getAdduInternalPrograms = (scholarships = []) => scholarships.filter(isAdduInternalProgram);
 
 export const isInternalScholarship = (scholarship = {}) => {
   if (ADDU_INTERNAL_RULE_FAMILIES.includes(scholarship.ruleFamily)) return true;
