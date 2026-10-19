@@ -1,5 +1,9 @@
 import { Button, StatusBadge } from './ui';
-import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, getProfileSnapshotSections } from '../lib/applicationRequirements';
+import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
+
+// Re-exported so the staff surfaces (review modal, console) keep importing it
+// from here while the implementation and its tests live in the lib layer.
+export { describeStatusActor };
 import { getDocumentTypeLabel } from '../lib/constants';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtDate } from '../lib/formatters';
@@ -38,6 +42,45 @@ export function RequirementChecklist({ requirements, onPreview }) {
       ))}
     </ul>
   );
+}
+
+// The append-only status log is the trustworthy history (RQ2): every change
+// records actor_id and actor_role from the database. Staff see the reviewer's
+// name when the profiles directory can resolve it; a student sees the role
+// instead, because their profile read is scoped to their own row. A record with
+// no log rows (an older submission, or a project whose migration is pending)
+// falls back to the browser-written timeline. `describeStatusActor` is
+// re-exported from src/lib/applicationRequirements.js.
+export function StatusHistoryList({ statusLog = [], timeline = [], showActorName = false }) {
+  if (statusLog.length) {
+    return (
+      <>
+        <ol className="m-0 grid gap-2 pl-5">
+          {statusLog.map((event) => (
+            <li key={event.id} className="text-sm text-app-muted">
+              <strong className="text-app-text">{event.fromStatus || 'New'} → {event.toStatus}</strong>
+              {event.reason ? <span> · {event.reason}</span> : null}
+              <span className="block text-xs">{describeStatusActor(event, showActorName)} · {fmtDate(event.at)}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="m-0 text-xs text-app-muted">Recorded automatically on every status change; the log cannot be edited.</p>
+      </>
+    );
+  }
+  if (timeline.length) {
+    return (
+      <ol className="m-0 grid gap-2 pl-5">
+        {timeline.map((event) => (
+          <li key={event.id} className="text-sm text-app-muted">
+            <strong className="text-app-text">{event.stage}</strong> · {event.note}
+            <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
+          </li>
+        ))}
+      </ol>
+    );
+  }
+  return <p className="m-0 text-sm text-app-muted">No stage events recorded yet.</p>;
 }
 
 const verificationTone = (status) => (status === 'Verified' ? 'success' : status === 'Rejected' ? 'danger' : 'warning');

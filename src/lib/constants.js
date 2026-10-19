@@ -33,6 +33,10 @@ const roleNextStatusMap = {
     Approved: ['Released'],
   },
   department_chair: {
+    // A Chair may flag a live application for central validation...
+    Submitted: ['For Verification'],
+    'Under Review': ['For Verification'],
+    // ...and endorse it once the Admissions Office has verified its documents.
     'For Verification': ['Endorsed'],
   },
 };
@@ -41,6 +45,37 @@ export const getNextApplicationStatuses = (status, role) => {
   if (role === 'department_chair') return roleNextStatusMap.department_chair[status] || [];
   if (role === 'admissions_office') return roleNextStatusMap.admissions_office[status] || [];
   return nextStatusMap[status] || [];
+};
+
+// The Admissions Office review queue: everything that still needs an SOP action.
+// Shared with the dashboard count so the dashboard and the Admissions Office
+// console can never show different numbers for the same data.
+export const ADMISSIONS_REVIEW_EXCLUDED_STATUSES = ['Draft', 'Approved', 'Released', 'Rejected'];
+
+// The role-aware "applications to review" count shown on the dashboard.
+//   - Student: their own live applications (not Rejected or Approved).
+//   - Admissions Office: every application awaiting an SOP action (same filter
+//     as the console's review queue).
+//   - Department Chair: applications from their department awaiting chair action.
+export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
+  const list = Array.isArray(applications) ? applications : [];
+
+  if (role === 'admissions_office') {
+    return list.filter((entry) => !ADMISSIONS_REVIEW_EXCLUDED_STATUSES.includes(entry.status)).length;
+  }
+
+  if (role === 'department_chair') {
+    return list.filter((entry) => (
+      (entry.studentDepartment || '') === (department || '')
+      && ['Submitted', 'Under Review', 'For Verification'].includes(entry.status)
+    )).length;
+  }
+
+  return list.filter((entry) => (
+    entry.studentId === studentId
+    && entry.status !== 'Rejected'
+    && entry.status !== 'Approved'
+  )).length;
 };
 
 export const sopStageIndex = (status) => {

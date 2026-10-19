@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { verificationStatuses, sopStages, sopStageIndex, getDocumentTypeLabel } from '../lib/constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, verificationStatuses, sopStages, sopStageIndex, getDocumentTypeLabel } from '../lib/constants';
 import { getVerifiableAttributeOption } from '../lib/profile';
 import { AnnouncementItem, StatCard } from '../components/pageParts';
+import { describeStatusActor } from '../components/ApplicationParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
@@ -68,7 +69,11 @@ export default function AdminConsole({
   const [editingScholarship, setEditingScholarship] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
   const pendingDocuments = documents.filter((entry) => entry.verificationStatus === 'Pending');
-  const reviewApplications = applications.filter((entry) => !['Draft', 'Approved', 'Released', 'Rejected'].includes(entry.status));
+  // A Pending file only blocks a forward stage when an application actually
+  // relies on it; an unattached vault upload gates nothing (manuscript 3.3.3).
+  const attachedDocumentIds = new Set(applications.flatMap((entry) => entry.attachedDocuments || []));
+  const blockingDocuments = pendingDocuments.filter((entry) => attachedDocumentIds.has(entry.id));
+  const reviewApplications = applications.filter((entry) => !ADMISSIONS_REVIEW_EXCLUDED_STATUSES.includes(entry.status));
   const approvedApplications = applications.filter((entry) => entry.status === 'Approved');
   const releasedApplications = applications.filter((entry) => entry.status === 'Released');
   const internalScholarships = scholarships.filter((entry) => (
@@ -76,10 +81,22 @@ export default function AdminConsole({
     && entry.category === 'Internal Endowment'
     && ['general-pool', 'honors', 'work-study'].includes(entry.ruleFamily)
   ));
+  // Prefer the append-only status log (the trustworthy actor), falling back to
+  // the browser-written timeline for rows that predate it.
   const recentActivity = applications
     .flatMap((entry) => {
+      const log = Array.isArray(entry.statusLog) ? entry.statusLog : [];
       const timeline = entry.timeline || [];
-      return (timeline.length ? timeline : [{
+      const events = log.length
+        ? log.map((event) => ({
+            id: event.id,
+            stage: event.toStatus,
+            note: event.reason || `Application moved to ${event.toStatus}.`,
+            actor: describeStatusActor(event, true),
+            at: event.at,
+          }))
+        : timeline;
+      return (events.length ? events : [{
           id: `current-${entry.id}`,
           stage: entry.status,
           note: `Application is currently ${entry.status}.`,
@@ -161,7 +178,7 @@ export default function AdminConsole({
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-        <StatCard label="Documents for review" value={pendingDocuments.length} note="Blocking endorsement and approval" />
+        <StatCard label="Documents for review" value={blockingDocuments.length} note="Attached files still Pending" />
         <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for the Admissions Office" />
         <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office" />
       </section>

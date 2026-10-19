@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
-import { describeApplicantAcademic } from '../lib/applicationRequirements';
+import { describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const queueTone = (status) => {
@@ -49,8 +49,9 @@ export default function DepartmentReviewView({
         <Card title="Endorsement queue" action={<StatusBadge tone={awaitingEndorsement.length ? 'warning' : 'success'}>{awaitingEndorsement.length} awaiting decision</StatusBadge>} className="min-w-0">
           <div className="grid max-h-[620px] gap-3 overflow-y-auto pr-1">
             {queue.length ? queue.map((entry) => {
-              const linkedDocs = (entry.attachedDocuments || []).map((id) => documents.find((doc) => doc.id === id)).filter(Boolean);
-              const verifiedCount = linkedDocs.filter((doc) => doc.verificationStatus === 'Verified').length;
+              // An application can only be endorsed once every attached vault file
+              // is Verified (manuscript 3.3.3); the database enforces this too.
+              const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
               return (
                 <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
                   <div className="flex min-w-0 items-start justify-between gap-4">
@@ -65,10 +66,18 @@ export default function DepartmentReviewView({
                     {entry.endorsement?.note || 'No recommendation has been recorded.'}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
-                    <span className="text-xs text-app-muted">{verifiedCount}/{linkedDocs.length || 0} linked documents verified</span>
+                    <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
+                      {verified}/{total || 0} linked documents verified
+                      {!ready ? ` · ${outstanding} still need${outstanding === 1 ? 's' : ''} verification` : ''}
+                    </span>
                     <div className="flex flex-wrap gap-2">
                       <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
-                      <Button type="button" disabled={entry.status !== 'For Verification'} onClick={() => onEndorseApplication(entry.id)}>Endorse</Button>
+                      <Button
+                        type="button"
+                        disabled={entry.status !== 'For Verification' || !ready}
+                        title={!ready ? `${outstanding} document${outstanding === 1 ? '' : 's'} still need${outstanding === 1 ? 's' : ''} verification` : undefined}
+                        onClick={() => onEndorseApplication(entry.id)}
+                      >Endorse</Button>
                       <Button
                         type="button"
                         disabled={!['Submitted', 'Under Review'].includes(entry.status)}
