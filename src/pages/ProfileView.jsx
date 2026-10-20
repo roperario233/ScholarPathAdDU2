@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Award, GraduationCap, LayoutDashboard, MapPin, ShieldCheck, UserRound, Users, Wallet } from 'lucide-react';
 import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancialSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
+import ProfileAvatar from '../components/ProfileAvatar';
 import { getDocumentChecklist } from '../lib/applicationRequirements';
 import { getProfileCompleteness } from '../lib/profile';
 
@@ -25,7 +26,10 @@ export default function ProfileView({
   scholarships = [],
   documents = [],
   initialSection = '',
+  avatar = {},
   onSaveProfile,
+  onChangeAvatar,
+  onRemoveAvatar,
   onChangePassword,
   onRequestPasswordReset,
   onAttachProof,
@@ -67,9 +71,12 @@ export default function ProfileView({
   return (
     <div className="grid content-start gap-4">
       <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-        <div className="page-title-copy">
-          <span className="page-section-label">My Profile</span>
-          <h2>Profile and account details</h2>
+        <div className="flex min-w-0 items-center gap-3">
+          <ProfileAvatar src={avatar.url} name={profile.fullName} size="lg" />
+          <div className="page-title-copy">
+            <span className="page-section-label">My Profile</span>
+            <h2>Profile and account details</h2>
+          </div>
         </div>
         <div className="page-metric rounded-2xl border border-app-border bg-app-surface p-4 text-center sm:min-w-36">
           <strong>{completeness.percent}%</strong>
@@ -108,7 +115,7 @@ export default function ProfileView({
               onUploadDocument={onUploadDocument}
             />
           )}
-          {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} roleLabel={roleLabel} />}
+          {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} roleLabel={roleLabel} avatar={avatar} onChangeAvatar={onChangeAvatar} onRemoveAvatar={onRemoveAvatar} />}
           {activeSection === 'address' && isStudent && <AddressSection {...sectionProps} />}
           {activeSection === 'family' && isStudent && <FamilySection {...sectionProps} />}
           {activeSection === 'academic' && isStudent && (

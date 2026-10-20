@@ -773,6 +773,19 @@ main .deadline-item > .deadline-actions {
   overflow-y: auto;
 }
 
+/* The camera modal is taller than a phone viewport once the guide and the
+   preview are shown. Left-aligning it and giving the panel automatic margins
+   lets it center when it fits and scroll as one unit when it does not. */
+.photo-capture-overlay {
+  align-items: flex-start;
+}
+
+.photo-capture-overlay > section {
+  margin: auto;
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
+}
+
 /* Tailwind migration compatibility: retain the rounded glass-card language from
    the previous UI without bringing back the legacy component stylesheet. */
 .login-screen > section,

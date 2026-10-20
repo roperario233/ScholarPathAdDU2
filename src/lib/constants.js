@@ -224,8 +224,16 @@ export const documentRejectionReasons = [
   { value: 'name-mismatch', label: 'Name on the document does not match the applicant' },
   { value: 'value-mismatch', label: 'Document does not support the value declared in the profile' },
   { value: 'not-certified', label: 'Not signed, stamped, or issued by the proper office' },
+  // Photo-specific reasons, phrased against the guide a student sees before
+  // capturing or uploading a photo (src/lib/photoGuide.js).
+  { value: 'photo-quality', label: 'Photo is blurry, poorly lit, or the face is partly hidden' },
+  { value: 'not-recent', label: 'Photo is not recent or does not clearly show the applicant' },
   { value: 'other', label: 'Other', requiresNotes: true },
 ];
+
+// The rejection reasons that only apply to a photo. The review modal omits them
+// when a non-photo file is being rejected.
+export const photoRejectionReasonValues = ['photo-quality', 'not-recent'];
 
 // Profile-attribute verification states. An attribute is verified when the
 // Admissions Office verifies a Document Vault file that declares it as proof
@@ -238,6 +246,10 @@ export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified
 // application document rather than proof for a profile attribute.
 export const generalDocumentTypeOptions = [
   { value: 'Application Form', label: 'Application Form' },
+  // A recent photo of the applicant, captured with the camera or uploaded from
+  // the device. Required by every in-scope AdDU track and verified by the
+  // Admissions Office like any other vault file.
+  { value: 'Applicant Photo', label: '2x2 ID Photo' },
   { value: 'Entrance Exam Result', label: 'Entrance Exam Result' },
   { value: 'HS Report Card', label: 'HS Report Card' },
   { value: 'Recommendation Letter', label: 'Recommendation' },
@@ -273,6 +285,22 @@ export const attributeProofDocumentTypeOptions = [
 // Every document type the vault can store, so `getDocumentTypeLabel` can resolve
 // any stored value (including a proof type) to its display label.
 export const documentTypeOptions = [...generalDocumentTypeOptions, ...attributeProofDocumentTypeOptions];
+
+// Document types a student can produce with a camera. The vault, the application
+// workspace, and the rejected-file replacement offer a camera for these types
+// and show the matching photo guide (src/lib/photoGuide.js). `Applicant Photo` is
+// a portrait, square-framed ID photo; `Photos of Residence` is a set of scene
+// photos that keep the camera's aspect ratio.
+export const photoDocumentTypes = ['Applicant Photo', 'Photos of Residence'];
+export const isPhotoDocumentType = (value) => photoDocumentTypes.includes(value);
+
+// The rejection-reason list for one file: photo-specific reasons are offered
+// only for the two camera-capable types.
+export const getDocumentRejectionReasons = (documentType) => (
+  isPhotoDocumentType(documentType)
+    ? documentRejectionReasons
+    : documentRejectionReasons.filter((reason) => !photoRejectionReasonValues.includes(reason.value))
+);
 
 export const getDocumentTypeLabel = (value) => (
   documentTypeOptions.find((option) => option.value === value)?.label || value

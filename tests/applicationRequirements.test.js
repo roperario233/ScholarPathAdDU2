@@ -69,6 +69,17 @@ describe('scholarship requirements', () => {
     });
   });
 
+  it('asks for the applicant photo and residence photos on every in-scope track', () => {
+    const known = new Set(documentTypeOptions.map((option) => option.value));
+    Object.values(DEFAULT_REQUIRED_DOCUMENTS).forEach((items) => {
+      const byId = Object.fromEntries(items.map((item) => [item.id, item]));
+      expect(byId['applicant-photo']).toMatchObject({ documentTypes: ['Applicant Photo'], standing: 'all' });
+      expect(byId['residence-photos']).toMatchObject({ documentTypes: ['Photos of Residence'], standing: 'all' });
+    });
+    expect(known.has('Applicant Photo')).toBe(true);
+    expect(known.has('Photos of Residence')).toBe(true);
+  });
+
   it('filters the defaults by year standing', () => {
     const continuing = ids(getScholarshipRequirements(gia, continuingProfile));
     const incoming = ids(getScholarshipRequirements(gia, incomingProfile));
@@ -115,6 +126,25 @@ describe('application readiness', () => {
   const requirements = getScholarshipRequirements(gia, continuingProfile);
   const allDocs = requirements.map((item, index) => doc(`d${index}`, item.documentTypes[0]));
   const complete = { attachedDocuments: allDocs.map((entry) => entry.id), statement: 'I need support to continue my studies.' };
+
+  it('blocks submission until the applicant photo and residence photos are attached', () => {
+    const requirements = getScholarshipRequirements(gia, continuingProfile);
+    expect(ids(requirements)).toEqual(expect.arrayContaining(['applicant-photo', 'residence-photos']));
+    const photoIds = ['applicant-photo', 'residence-photos'];
+    const partialDocs = requirements
+      .filter((item) => !photoIds.includes(item.id))
+      .map((item, index) => doc(`partial-${index}`, item.documentTypes[0]));
+    const result = getApplicationReadiness({
+      application: { attachedDocuments: partialDocs.map((entry) => entry.id), statement: 'I need support to continue my studies.' },
+      scholarship: gia,
+      documents: partialDocs,
+      profile: continuingProfile,
+      certified: true,
+    });
+    expect(result.ready).toBe(false);
+    expect(result.requirements.find((item) => item.id === 'applicant-photo').state).toBe('missing');
+    expect(result.requirements.find((item) => item.id === 'residence-photos').state).toBe('missing');
+  });
 
   it('is ready once every requirement is attached, the statement is written, and the student certifies', () => {
     const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
@@ -302,7 +332,7 @@ describe('My Profile document checklist', () => {
   it('merges the open internal scholarships into one list per document', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa, closed, inactive, external], profile: continuingProfile, today });
     expect(checklist.scholarships.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
-    expect(ids(checklist.items)).toEqual(['application-form', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
+    expect(ids(checklist.items)).toEqual(['application-form', 'applicant-photo', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
     expect(keyOf(checklist.items, 'application-form').askedByAll).toBe(true);
     expect(keyOf(checklist.items, 'income-proof').scholarships.map((item) => item.id)).toEqual(['gia', 'sa']);
     expect(keyOf(checklist.items, 'income-proof').notAskedBy).toEqual([{ id: 'jubilee', title: jubilee.title }]);
@@ -324,6 +354,7 @@ describe('My Profile document checklist', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa], profile: continuingProfile, documents, today });
     expect(Object.fromEntries(checklist.items.map((item) => [item.id, item.state]))).toEqual({
       'application-form': 'verified',
+      'applicant-photo': 'missing',
       'college-grades': 'attached',
       'income-proof': 'rejected',
       'residence-photos': 'missing',
@@ -331,7 +362,7 @@ describe('My Profile document checklist', () => {
       'certificate-of-award': 'missing',
     });
     // A pending file counts, a rejected one does not: the same bar as submitting.
-    expect([checklist.ready, checklist.total]).toEqual([2, 6]);
+    expect([checklist.ready, checklist.total]).toEqual([2, 7]);
   });
 
   it('is empty when no internal scholarship is open', () => {
@@ -341,6 +372,8 @@ describe('My Profile document checklist', () => {
   it('preselects a general vault type, falling back to the attribute that accepts a proof-only type', () => {
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report', 'Transcript'] })).toEqual({ attribute: '', documentType: 'Transcript' });
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report'] })).toEqual({ attribute: 'qpi', documentType: 'Grade Report' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Applicant Photo'] })).toEqual({ attribute: '', documentType: 'Applicant Photo' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Photos of Residence'] })).toEqual({ attribute: '', documentType: 'Photos of Residence' });
     expect(getRequirementUploadPreset({ documentTypes: ['Unknown Type'] })).toEqual({ attribute: '', documentType: '' });
   });
 });

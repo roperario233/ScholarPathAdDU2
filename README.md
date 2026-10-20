@@ -41,7 +41,7 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Section | Who sees it | What it covers |
 | --- | --- | --- |
 | Overview | Everyone | Identity card and a profile completeness checklist that also surfaces each verifiable attribute's Document Vault verification state |
-| Personal information | Everyone | Full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
+| Personal information | Everyone | Profile photo (take one with the camera or choose an existing image), full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
 | Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
@@ -88,6 +88,19 @@ ride along in `profiles.eligibility_attributes`. Until the migration is applied,
 these fields stay on the device and the rest of the profile still saves. Fresh
 projects get the column from `supabase/schema.sql`.
 
+Profile photos add `profiles.avatar_path` and the private `avatars` bucket through
+`supabase/migrations/20261026000000_add_profile_avatar.sql`. Until it is applied,
+the rest of My Profile still loads and saves (the path is read in its own query),
+and the profile photo controls report that the server profile cannot store the
+photo yet. Fresh projects get the column and the bucket from
+`supabase/schema.sql`.
+
+The two application photo requirements are backfilled by
+`supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`. It adds
+`applicant-photo` and `residence-photos` to the in-scope catalog rows that do not
+already list them; existing Draft applications must attach both before they can
+be submitted, while already-submitted applications are unaffected.
+
 Document Vault files are stored in a private Supabase Storage bucket named
 `documents` (10 MB limit; PDF, JPG, and PNG only). The bucket, its storage RLS
 policies, and the department-scoped `chair_documents_read` policy come from
@@ -96,6 +109,41 @@ them from `supabase/schema.sql`. Students manage only their own folder, the
 Admissions Office reads every document, and a Department Chair reads documents
 owned by students in the chair's department. Viewing is always through a
 short-lived signed URL, so no document is ever public.
+
+Profile photos use a separate private `avatars` bucket (5 MB limit; JPG, PNG, or
+WebP), with only an owner policy, plus a `profiles.avatar_path` column. They come
+from `supabase/migrations/20261026000000_add_profile_avatar.sql`. A profile photo
+is personal: it appears in the signed-in user's header and My Profile only, is
+never sent with an application, and has no photo guidelines. The app resolves a
+signed URL in memory and falls back to the user's initials when it expires.
+
+### Photos submitted with applications
+
+Every in-scope AdDU track (Grant-in-Aid, Jubilee, and the Student Assistant
+Program) asks for two verifiable photo requirements:
+
+- **Applicant photo** (`Applicant Photo`, shown as *2x2 ID Photo*): a recent
+  square ID photo of the applicant.
+- **Photos of residence** (`Photos of Residence`): exterior and interior photos
+  of the student's home; one requirement can hold several attached files.
+
+Students can take either with the device camera or choose an existing image, from
+the application workspace, the Document Vault, or a rejected-file replacement.
+The camera opens from a tap, supports switching between the front and rear
+camera, and falls back to an existing photo or the native device camera when
+permission is blocked or unavailable. Captures are normalized to a JPEG: the ID
+photo is cropped square at 1024 px, residence photos keep their aspect ratio at
+1600 px on the long edge. A bullet-point guide (clean, presentable, well lit, face
+unobstructed, recent, no filters) is shown beside the camera and in the upload
+card, and it applies **only to application photos** — the profile photo has no
+such rules.
+
+Both are ordinary Document Vault files, so the Admissions Office verifies them at
+Standard Procedure step 3 like any other required document, rejects them with a
+recorded reason (including photo-specific reasons), and the student can replace a
+rejected file with another capture or upload. The two requirements come from the
+default lists in `src/lib/applicationRequirements.js`; existing catalog rows get
+them from `supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
 
 ## Admissions Office workspace
 

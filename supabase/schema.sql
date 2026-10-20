@@ -38,6 +38,12 @@ alter table profiles drop constraint if exists profiles_bio_length_check;
 alter table profiles add constraint profiles_bio_length_check
   check (bio is null or char_length(bio) <= 280);
 
+-- The current profile photo object key in the private `avatars` bucket (see
+-- migrations/20261026000000_add_profile_avatar.sql). A profile photo is
+-- personal: it is shown in the signed-in user's header and My Profile only and
+-- is never sent with an application.
+alter table profiles add column if not exists avatar_path text;
+
 -- Descriptive My Profile fields that are not eligibility inputs (see
 -- migrations/20261008000000_add_profile_details_json.sql): religion, civil
 -- status, address, country, family details, and the scholarship essay. The field
@@ -81,6 +87,9 @@ alter table scholarships add column if not exists minimum_shs_average numeric(5,
 -- migrations/20261012000000_add_application_requirements.sql for the default
 -- lists and src/lib/applicationRequirements.js for the client mirror). Each item:
 -- { id, label, documentTypes: [vault document types], standing: 'all' | 'incoming' | 'continuing' }.
+-- Every in-scope track also asks for `applicant-photo` (Applicant Photo) and
+-- `residence-photos` (Photos of Residence); existing catalog rows receive both
+-- from migrations/20261026000001_add_applicant_photo_requirement.sql.
 alter table scholarships add column if not exists required_documents jsonb not null default '[]'::jsonb;
 
 create table if not exists documents (
@@ -1022,6 +1031,28 @@ using (
       and p.department = public.current_profile_department()
   )
 );
+
+-- ---------------------------------------------------------------------------
+-- Profile photos.
+--
+-- A private `avatars` bucket holds one profile photo per user
+-- (`<user_id>/<timestamp>-<file>`), recorded in profiles.avatar_path. Unlike a
+-- Document Vault file, an avatar is personal: only its owner can read or write
+-- it (no Admissions Office or Chair read policy), and it is never sent with an
+-- application. The app resolves a short-lived signed URL to display it.
+-- ---------------------------------------------------------------------------
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('avatars', 'avatars', false, 5242880, array['image/jpeg','image/png','image/webp'])
+on conflict (id) do update
+  set public = false,
+      file_size_limit = excluded.file_size_limit,
+      allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "avatars_owner_access" on storage.objects;
+create policy "avatars_owner_access" on storage.objects
+for all to authenticated
+using (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text)
+with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
 
 -- ---------------------------------------------------------------------------
 -- Server-side deadline reminder delivery ledger.

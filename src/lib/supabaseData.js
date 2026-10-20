@@ -1,5 +1,6 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
 import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
+import { AVATAR_BUCKET, buildAvatarStoragePath } from './avatarStorage';
 
 const toScholarship = (row) => ({
   ...row,
@@ -440,6 +441,36 @@ export const deleteSupabaseDocument = async (documentId, storagePath) => {
   if (result.error) return { error: result.error };
   if (storagePath) await supabase.storage.from(DOCUMENT_BUCKET).remove([storagePath]);
   return { error: null };
+};
+
+// Profile photos live in their own private bucket, keyed by the owner's user id
+// (`<ownerId>/<timestamp>-<file>`) so the owner-only policy scopes the object
+// without a documents row. The caller deletes the previous object only after the
+// profiles.avatar_path write succeeds, so a failed save never loses the old
+// photo.
+export const uploadSupabaseAvatar = async ({ ownerId, file }) => {
+  if (!ensureReady()) return { path: null, error: { message: 'Supabase is not configured.' } };
+  if (!ownerId || !file) return { path: null, error: { message: 'Choose a photo to upload.' } };
+  const storagePath = buildAvatarStoragePath({ ownerId, fileName: file.name || 'avatar.jpg' });
+  const upload = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .upload(storagePath, file, { contentType: file.type || 'image/jpeg', upsert: false });
+  if (upload.error) return { path: null, error: upload.error };
+  return { path: storagePath, error: null };
+};
+
+// Short-lived signed URL for the private avatar object. The app keeps it in
+// memory only; an expired URL falls back to the initials avatar.
+export const getSupabaseAvatarUrl = async (storagePath, expiresIn = 3600) => {
+  if (!ensureReady() || !storagePath) return { url: null, error: null };
+  const { data, error } = await supabase.storage.from(AVATAR_BUCKET).createSignedUrl(storagePath, expiresIn);
+  return { url: data?.signedUrl || null, error };
+};
+
+export const deleteSupabaseAvatar = async (storagePath) => {
+  if (!ensureReady() || !storagePath) return { error: null };
+  const { error } = await supabase.storage.from(AVATAR_BUCKET).remove([storagePath]);
+  return { error };
 };
 
 // A rejection carries its required reason; any other status clears it.

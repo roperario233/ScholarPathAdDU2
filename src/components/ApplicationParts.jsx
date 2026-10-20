@@ -1,12 +1,16 @@
 import { Fragment, useState } from 'react';
+import { Camera } from 'lucide-react';
 import { Button, StatusBadge } from './ui';
+import PhotoCaptureModal from './PhotoCaptureModal';
+import PhotoGuide from './PhotoGuide';
+import { PHOTO_ACCEPT } from '../lib/photoGuide';
 import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { getApplicationStatusLabel, getDocumentTypeLabel, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
+import { getApplicationStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
 import { getVerifiableAttributeOption } from '../lib/profile';
 import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -133,6 +137,10 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
   const [uploadType, setUploadType] = useState(documentTypes[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const photoType = isPhotoDocumentType(uploadType)
+    ? uploadType
+    : documentTypes.length === 1 && isPhotoDocumentType(documentTypes[0]) ? documentTypes[0] : '';
 
   const run = async (payload) => {
     setBusy(true);
@@ -151,6 +159,13 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
       return;
     }
     run({ file, documentType: uploadType });
+  };
+
+  // A replacement photo is normalized by the capture modal, then uploaded into
+  // the vault first (the same path as a file-picker replacement).
+  const useCameraPhoto = (file) => {
+    run({ file, documentType: photoType });
+    return { ok: true };
   };
 
   return (
@@ -188,14 +203,35 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
                 {documentTypes.map((type) => <option key={type} value={type}>{getDocumentTypeLabel(type)}</option>)}
               </select>
             ) : null}
-            <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-              {busy ? 'Working…' : 'Upload file'}
-              <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
-            </label>
+            {photoType ? (
+              <>
+                <Button type="button" onClick={() => setCameraOpen(true)} disabled={busy}>
+                  <Camera size={16} aria-hidden="true" /> Take photo
+                </Button>
+                <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                  {busy ? 'Working...' : 'Upload photo'}
+                  <input type="file" accept={PHOTO_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+                </label>
+              </>
+            ) : (
+              <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                {busy ? 'Working...' : 'Upload file'}
+                <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+              </label>
+            )}
           </div>
         </div>
       </div>
+      {photoType ? <PhotoGuide documentType={photoType} defaultOpen /> : null}
       {error ? <p className="form-error m-0" role="alert">{error}</p> : null}
+      {cameraOpen ? (
+        <PhotoCaptureModal
+          title={photoType === 'Photos of Residence' ? 'Take a replacement photo of your residence' : 'Take your 2x2 ID photo'}
+          documentType={photoType}
+          onUsePhoto={useCameraPhoto}
+          onClose={() => setCameraOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -259,6 +295,13 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
         <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
       </div>
       <DocumentRejectionReason doc={doc} />
+      {isPhotoDocumentType(doc.documentType) ? (
+        <p className="m-0 rounded-xl border border-sky-400/30 bg-sky-500/5 px-3 py-2 text-xs text-app-muted">
+          {doc.documentType === 'Photos of Residence'
+            ? 'Check that the photos show the residence clearly, inside and out, with no people in the frame and no signs of editing.'
+            : "Check that the photo is recent, sharp, and unobstructed, with a plain background and the applicant's whole face visible."}
+        </p>
+      ) : null}
       {linkedAttributes.length ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>

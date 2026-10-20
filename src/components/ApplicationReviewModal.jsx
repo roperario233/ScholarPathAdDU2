@@ -5,7 +5,7 @@ import ReasonModal from './ReasonModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
-import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getApplicationStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -657,7 +657,7 @@ export default function ApplicationReviewModal({
         title="Reject document"
         label="Reason for rejection"
         hint={`The student sees this reason for “${documentRejectTarget.title}” so they can upload a correct replacement.`}
-        options={documentRejectionReasons}
+        options={getDocumentRejectionReasons(documentRejectTarget.documentType)}
         notesHint="Add details, such as which page or value needs correcting."
         confirmLabel="Reject document"
         onConfirm={(reason) => {

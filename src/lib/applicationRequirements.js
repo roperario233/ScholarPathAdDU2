@@ -41,34 +41,45 @@ export const REQUIREMENT_STANDINGS = [
 ];
 
 const APPLICATION_FORM = { id: 'application-form', label: 'Application Form', documentTypes: ['Application Form'], standing: 'all' };
+const APPLICANT_PHOTO = { id: 'applicant-photo', label: 'Recent 2x2 ID photo of the applicant', documentTypes: ['Applicant Photo'], standing: 'all' };
+const RESIDENCE_PHOTOS = { id: 'residence-photos', label: 'Photos of residence', documentTypes: ['Photos of Residence'], standing: 'all' };
 const GOOD_MORAL = { id: 'good-moral', label: 'Certificate of Good Moral Character', documentTypes: ['Good Moral Character'], standing: 'all' };
 const INCOME_PROOF = { id: 'income-proof', label: 'Financial income documents of parents / legal guardians', documentTypes: ['Income Proof', 'Certificate of Indigency'], standing: 'all' };
 const HS_REPORT_CARD = { id: 'hs-report-card', label: 'Senior high school report card', documentTypes: ['HS Report Card'], standing: 'incoming' };
 const COLLEGE_GRADES = { id: 'college-grades', label: 'Latest grade report or transcript', documentTypes: ['Grade Report', 'Transcript'], standing: 'continuing' };
 
+// Every in-scope track asks for a recent photo of the applicant and photos of
+// their residence. Both are ordinary Document Vault files, so the Admissions
+// Office verifies them like any other required submission; a student can take
+// them with the camera or upload an existing photo (src/lib/photoGuide.js).
 export const DEFAULT_REQUIRED_DOCUMENTS = {
   'general-pool': [
     APPLICATION_FORM,
+    APPLICANT_PHOTO,
     { id: 'entrance-exam', label: 'Entrance exam result with ACCEPTED remark', documentTypes: ['Entrance Exam Result'], standing: 'incoming' },
     { ...HS_REPORT_CARD, label: 'Senior high school report card with at least 85% average' },
     COLLEGE_GRADES,
     { id: 'recommendation', label: 'Recommendation from Homeroom Moderator', documentTypes: ['Recommendation Letter'], standing: 'incoming' },
     INCOME_PROOF,
-    { id: 'residence-photos', label: 'Photos of residence', documentTypes: ['Photos of Residence'], standing: 'all' },
+    RESIDENCE_PHOTOS,
     GOOD_MORAL,
   ],
   honors: [
     APPLICATION_FORM,
+    APPLICANT_PHOTO,
     { id: 'certificate-of-award', label: 'Certificate of Award as Rank 1 or 2', documentTypes: ['Certificate of Award'], standing: 'all' },
     HS_REPORT_CARD,
     COLLEGE_GRADES,
+    RESIDENCE_PHOTOS,
     GOOD_MORAL,
   ],
   'work-study': [
     APPLICATION_FORM,
+    APPLICANT_PHOTO,
     INCOME_PROOF,
     HS_REPORT_CARD,
     COLLEGE_GRADES,
+    RESIDENCE_PHOTOS,
     GOOD_MORAL,
   ],
 };
