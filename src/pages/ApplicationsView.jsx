@@ -3,10 +3,10 @@ import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import { ProfileSnapshotList, RequirementChecklist, SupportingDocumentList } from '../components/ApplicationParts';
+import { ProfileSnapshotList, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { getApplicationReadiness, getProfileSnapshotSections } from '../lib/applicationRequirements';
 import { applicationStatuses, getDocumentTypeLabel } from '../lib/constants';
-import { getApplicationProgress, isInternalScholarship } from '../lib/eligibility';
+import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
 
 const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
@@ -58,7 +58,7 @@ export default function ApplicationsView({
   const selected = applications.find((entry) => entry.id === selectedId);
   // Only an AdDU internal draft opens the workspace; external entries are tracked.
   const workspaceApplication = applications.find((entry) => (
-    entry.id === openApplicationId && entry.status === 'Draft' && isInternalScholarship(scholarshipById[entry.scholarshipId])
+    entry.id === openApplicationId && entry.status === 'Draft' && isAdduInternalProgram(scholarshipById[entry.scholarshipId])
   ));
 
   const exportReport = (entry) => {
@@ -143,12 +143,10 @@ export default function ApplicationsView({
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
               <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} /></Panel>
               <Panel className="grid gap-2">
-                <h3 className={sectionHeading}>Application timeline</h3>
-                {(selected.timeline || []).length ? (
-                  <ol className="m-0 grid gap-2 pl-5">
-                    {selected.timeline.map((event) => <li key={event.id} className="text-sm text-app-muted"><strong className="text-app-text">{event.stage}</strong> · {event.note}<span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span></li>)}
-                  </ol>
-                ) : <p className="m-0 text-sm text-app-muted">No stage events recorded yet.</p>}
+                <h3 className={sectionHeading}>Status history</h3>
+                {/* The student sees the actor's role (their profile read is scoped
+                    to their own row, so a reviewer's name cannot be resolved). */}
+                <StatusHistoryList statusLog={selected.statusLog} timeline={selected.timeline} />
               </Panel>
             </>
           )}

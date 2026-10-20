@@ -7,6 +7,7 @@ import {
   getAdduInternalPrograms,
   getInternalScholarships,
   getScholarshipAcademicDisplay,
+  isAdduInternalProgram,
   isInternalScholarship,
 } from '../src/lib/eligibility';
 import { getProfileSectionForField } from '../src/lib/profile';
@@ -195,4 +196,53 @@ describe('eligibility issues link to My Profile sections', () => {
     expect(result.issues).toContainEqual({ message: 'Inactive or past deadline.', field: null });
     expect(getProfileSectionForField(null)).toBeNull();
   });
+
+// Only the three Appendix A tracks are in scope for an application. The scope is
+// decided by the title, so an unrelated internal catalog entry that shares a
+// rule family (for example a donor endowment stored as `general-pool`) is
+// excluded even though `isInternalScholarship` would accept it.
+describe('in-scope AdDU internal tracks', () => {
+  const gia = { title: 'Grant-in-Aid (GIA)', ruleFamily: 'general-pool' };
+  const jubilee = { title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors' };
+  const sa = { title: 'Student Assistant (SA) Program', ruleFamily: 'work-study' };
+
+  it('accepts the three canonical tracks', () => {
+    expect(isAdduInternalProgram(gia)).toBe(true);
+    expect(isAdduInternalProgram(jubilee)).toBe(true);
+    expect(isAdduInternalProgram(sa)).toBe(true);
+  });
+
+  it('accepts the title variants the catalog and documents use', () => {
+    expect(isAdduInternalProgram({ title: 'Jubilee Scholarship' })).toBe(true);
+    expect(isAdduInternalProgram({ title: 'Student Assistant Program (Working Scholars)' })).toBe(true);
+    expect(isAdduInternalProgram({ title: 'GIA' })).toBe(true);
+  });
+
+  it('rejects an unrelated internal entry that shares a rule family', () => {
+    const villanueva = {
+      title: 'Antonio A. Villanueva Endowment Fund',
+      category: 'Internal Endowment',
+      ruleFamily: 'general-pool',
+      isExternal: false,
+    };
+    // The looser catalog helper still accepts it, which is exactly why the
+    // lifecycle must not rely on it.
+    expect(isInternalScholarship(villanueva)).toBe(true);
+    expect(isAdduInternalProgram(villanueva)).toBe(false);
+  });
+
+  it('rejects external and government-linked entries', () => {
+    expect(isAdduInternalProgram({ title: 'CHED Scholarship Program', ruleFamily: 'government-linked' })).toBe(false);
+    expect(isAdduInternalProgram({})).toBe(false);
+    expect(isAdduInternalProgram()).toBe(false);
+  });
+
+  it('refuses to start or gate an application for an out-of-scope program', () => {
+    const villanueva = { title: 'Antonio A. Villanueva Endowment Fund', ruleFamily: 'general-pool', isActive: true };
+    const result = evaluateApplicationGate(eligibleProfile, villanueva);
+    expect(result.allowed).toBe(false);
+    expect(result.reasons).toContain('The Smart Eligibility Checker only evaluates AdDU internal scholarships.');
+  });
+});
+
 });

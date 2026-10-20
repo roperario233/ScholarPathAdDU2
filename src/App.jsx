@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
-import { createInitialState, readStoredState, storageKey } from './lib/appState';
+import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
-import { findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
-import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
+import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
+import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
+import { countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
-import { buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, pickDefaultAttachments } from './lib/applicationRequirements';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -113,11 +114,13 @@ const prependInAppNotification = (previous, notification) => {
 
 // The in-app alert for a profile attribute whose Document Vault proof went
 // stale, from getOutdatedAttributeAlerts() in src/lib/verification.js.
-const buildOutdatedProofNotification = ({ key, reason, sourceKey }) => {
+const buildOutdatedProofNotification = ({ key, reason, sourceKey }, ownerId = null) => {
   const label = getVerifiableAttributeOption(key)?.label || key;
   return {
     id: `not-${crypto.randomUUID()}`,
     sourceKey,
+    // Stamped so a shared browser never keeps one user's alert for the next.
+    ownerId,
     title: `${label} proof is outdated`,
     channel: 'In-app',
     body: reason === 'year'
@@ -132,11 +135,31 @@ const buildOutdatedProofNotification = ({ key, reason, sourceKey }) => {
 // persisted to Supabase (so server-side reminders can email them). Merge by id
 // so a hydrated session neither drops an unsynced local deadline nor duplicates
 // one that already round-tripped through the database.
-const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
-  const local = Array.isArray(localDeadlines) ? localDeadlines : [];
+const mergeCustomDeadlines = (localDeadlines, serverDeadlines, ownerId) => {
+  const local = filterLocalDeadlinesForOwner(localDeadlines, ownerId);
   const server = Array.isArray(serverDeadlines) ? serverDeadlines : [];
   const localIds = new Set(local.map((entry) => entry.id));
   return [...local, ...server.filter((entry) => !localIds.has(entry.id))];
+};
+
+// Device-level preferences survive an account switch and a sign-out. Every
+// other slice is session-scoped and must not leak between users on a browser
+// that has not signed the previous user out.
+// Only the non-identifying device preferences carry across a sign-out; the
+// "remember me" email/role belong to the previous user and reset with the rest.
+const devicePreferencesOf = (state) => ({
+  theme: state.theme,
+  hasLoggedInBefore: state.hasLoggedInBefore,
+});
+
+// Stamps the persisted state with the signed-in Supabase user. If the record
+// still belongs to a different user (a shared browser where sign-out was
+// skipped), the previous user's session-scoped slices are discarded first.
+const adoptStateOwner = (previous, ownerId) => {
+  if (!ownerId) return previous;
+  return previous.ownerId && previous.ownerId !== ownerId
+    ? { ...createFreshState(devicePreferencesOf(previous)), ownerId }
+    : { ...previous, ownerId };
 };
 
 // After a successful workspace load, push reminders that exist only in this
@@ -146,7 +169,7 @@ const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
 const backfillLocalDeadlines = async ({ localDeadlines, serverDeadlines, ownerId, today, onError }) => {
   if (!isRealUserId(ownerId)) return;
 
-  const missing = findDeadlinesMissingFromServer(localDeadlines, serverDeadlines)
+  const missing = findDeadlinesMissingFromServer(filterLocalDeadlinesForOwner(localDeadlines, ownerId), serverDeadlines)
     .filter((entry) => isFutureDeadline(entry.deadline, today));
   if (!missing.length) return;
 
@@ -268,6 +291,8 @@ function App() {
             dueReminders.push({
               id: `not-${crypto.randomUUID()}`,
               sourceKey,
+              // Stamped so the reminder does not follow the browser to another user.
+              ownerId: previous.ownerId ?? previous.authUser?.id ?? null,
               title: `Reminder: "${deadline.title}" due in ${daysBefore} day${daysBefore === 1 ? '' : 's'}`,
               channel: 'In-app',
               body: daysBefore === 1
@@ -331,43 +356,51 @@ function App() {
       const profile = profileResult.profile;
       const profileDetails = await getProfileDetails(user.id);
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
-      updateState((previous) => ({
-        ...previous,
-        isAuthenticated: true,
-        viewerRole: userRole,
-        activeView: landingViewForRole(userRole),
-        authUser: {
-          id: user.id,
-          email: user.email,
-          phone: profile?.phone || '',
-          role: userRole,
-          fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user',
-          department: profile?.department || '',
-          degreeProgram: profile?.degree_program || '',
-          studentNumber: profile?.student_number || user.user_metadata?.student_id || '',
-          qpi: profile?.qpi ?? '',
-          householdIncome: profile?.household_income ?? '',
-          hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
-          bio: profileDetails.bio,
-        },
-        profileDraft: {
-          ...previous.profileDraft,
-          ...profileDetails.eligibilityAttributes,
-          ...profileDetails.profileDetails,
-          ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
-        },
-      }));
+      updateState((previous) => {
+        const base = adoptStateOwner(previous, user.id);
+        return {
+          ...base,
+          isAuthenticated: true,
+          viewerRole: userRole,
+          activeView: landingViewForRole(userRole),
+          authUser: {
+            id: user.id,
+            email: user.email,
+            phone: profile?.phone || '',
+            role: userRole,
+            fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user',
+            department: profile?.department || '',
+            degreeProgram: profile?.degree_program || '',
+            studentNumber: profile?.student_number || user.user_metadata?.student_id || '',
+            qpi: profile?.qpi ?? '',
+            householdIncome: profile?.household_income ?? '',
+            hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
+            bio: profileDetails.bio,
+          },
+          profileDraft: {
+            ...base.profileDraft,
+            ...profileDetails.eligibilityAttributes,
+            ...profileDetails.profileDetails,
+            ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
+          },
+        };
+      });
       const workspace = await loadSupabaseWorkspace({ role: userRole, userId: user.id, department: profile?.department || '' });
       if (active && workspace.success) {
-        updateState((previous) => ({
-          ...previous,
-          ...workspace,
-          // The Supabase workspace is authoritative for server-backed notifications,
-          // but locally generated deadline reminders only exist in localStorage.
-          // Merge instead of replacing so hydrated sessions cannot wipe them.
-          notifications: mergeNotifications(previous.notifications, workspace.notifications),
-          customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
-        }));
+        updateState((previous) => {
+          const base = adoptStateOwner(previous, user.id);
+          return {
+            ...base,
+            ...workspace,
+            // The Supabase workspace is authoritative for server-backed notifications,
+            // but locally generated deadline reminders only exist in localStorage.
+            // Merge instead of replacing so hydrated sessions cannot wipe them, and
+            // scope the merge to this user so a shared browser cannot carry over the
+            // previous user's reminders.
+            notifications: mergeNotifications(base.notifications, workspace.notifications, { ownerId: user.id }),
+            customDeadlines: mergeCustomDeadlines(base.customDeadlines, workspace.customDeadlines, user.id),
+          };
+        });
         setIsSupabaseWorkspaceLoaded(true);
         // Push any reminder that only exists in this browser so it can be emailed.
         backfillLocalDeadlines({
@@ -472,7 +505,7 @@ function App() {
     if (!alerts.length) return;
     setState((previous) => {
       const notifications = alerts.reduce(
-        (current, alert) => prependInAppNotification({ ...previous, notifications: current }, buildOutdatedProofNotification(alert)),
+        (current, alert) => prependInAppNotification({ ...previous, notifications: current }, buildOutdatedProofNotification(alert, previous.ownerId ?? previous.authUser?.id ?? null)),
         previous.notifications,
       );
       return notifications === previous.notifications ? previous : { ...previous, notifications };
@@ -490,9 +523,25 @@ function App() {
   const stats = useMemo(() => ({
     totalPrograms: scholarshipCatalog.length,
     eligibleMatches: eligibleScholarships.length,
-    openApplications: studentApplications.filter((entry) => entry.status !== 'Rejected' && entry.status !== 'Approved').length,
+    // Role-aware so the dashboard agrees with the review queues: a student sees
+    // their own live applications, the Admissions Office sees everything
+    // awaiting an SOP action, and a Department Chair sees their department's
+    // pending queue.
+    openApplications: countApplicationsToReview(state.applications, {
+      role: state.viewerRole,
+      studentId: currentProfile.id,
+      department: currentProfile.department,
+    }),
     unreadNotifications: unreadNotifications.length,
-  }), [eligibleScholarships.length, scholarshipCatalog.length, studentApplications, unreadNotifications.length]);
+  }), [
+    eligibleScholarships.length,
+    scholarshipCatalog.length,
+    state.applications,
+    state.viewerRole,
+    currentProfile.id,
+    currentProfile.department,
+    unreadNotifications.length,
+  ]);
 
   // Navigating to the vault clears any upload preset; the My Profile links pass
   // the attribute and/or document type so the upload form opens on them.
@@ -520,47 +569,53 @@ function App() {
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const accountId = authResult.user?.id;
       const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
-      updateState((previous) => ({
-        ...previous,
-        isAuthenticated: true,
-        hasLoggedInBefore: true,
-        showFirstLoginWelcome: !previous.hasLoggedInBefore,
-        viewerRole: resolvedRole,
-        activeView: landingViewForRole(resolvedRole),
-        authUser: {
-          id: accountId,
-          email: credentials.email,
-          role: resolvedRole,
-          fullName: displayName,
-          department: profile?.department || '',
-          degreeProgram: profile?.degree_program || '',
-          studentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '',
-          qpi: profile?.qpi ?? '',
-          householdIncome: profile?.household_income ?? '',
-          ...(profile ? {
-            phone: profile.phone || '',
-            hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
-            bio: profileDetails.bio,
-          } : {}),
-        },
-        rememberMe: credentials.rememberMe || false,
-        savedEmail: credentials.rememberMe ? credentials.email : previous.savedEmail,
-        savedRole: credentials.rememberMe ? resolvedRole : previous.savedRole,
-        profileDraft: {
-          ...previous.profileDraft,
-          ...profileDetails.eligibilityAttributes,
-          ...profileDetails.profileDetails,
-          ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
-        },
-      }));
+      updateState((previous) => {
+        const base = adoptStateOwner(previous, accountId);
+        return {
+          ...base,
+          isAuthenticated: true,
+          hasLoggedInBefore: true,
+          showFirstLoginWelcome: !base.hasLoggedInBefore,
+          viewerRole: resolvedRole,
+          activeView: landingViewForRole(resolvedRole),
+          authUser: {
+            id: accountId,
+            email: credentials.email,
+            role: resolvedRole,
+            fullName: displayName,
+            department: profile?.department || '',
+            degreeProgram: profile?.degree_program || '',
+            studentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '',
+            qpi: profile?.qpi ?? '',
+            householdIncome: profile?.household_income ?? '',
+            ...(profile ? {
+              phone: profile.phone || '',
+              hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
+              bio: profileDetails.bio,
+            } : {}),
+          },
+          rememberMe: credentials.rememberMe || false,
+          savedEmail: credentials.rememberMe ? credentials.email : base.savedEmail,
+          savedRole: credentials.rememberMe ? resolvedRole : base.savedRole,
+          profileDraft: {
+            ...base.profileDraft,
+            ...profileDetails.eligibilityAttributes,
+            ...profileDetails.profileDetails,
+            ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
+          },
+        };
+      });
       const workspace = await loadSupabaseWorkspace({ role: resolvedRole, userId: accountId, department: profile?.department || '' });
       if (workspace.success) {
-        updateState((previous) => ({
-          ...previous,
-          ...workspace,
-          notifications: mergeNotifications(previous.notifications, workspace.notifications),
-          customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
-        }));
+        updateState((previous) => {
+          const base = adoptStateOwner(previous, accountId);
+          return {
+            ...base,
+            ...workspace,
+            notifications: mergeNotifications(base.notifications, workspace.notifications, { ownerId: accountId }),
+            customDeadlines: mergeCustomDeadlines(base.customDeadlines, workspace.customDeadlines, accountId),
+          };
+        });
         setIsSupabaseWorkspaceLoaded(true);
         // Push any reminder that only exists in this browser so it can be emailed.
         backfillLocalDeadlines({
@@ -634,16 +689,16 @@ function App() {
 
   const logout = async () => {
     await signOutFromSupabase();
-    updateState((previous) => ({
-      ...previous,
-      isAuthenticated: false,
-      showFirstLoginWelcome: false,
-      authUser: null,
-      viewerRole: 'student',
-      activeView: 'dashboard',
-    }));
+    // Replace the whole state rather than clearing a few flags: the previous
+    // user's notifications, reminders, applications, documents, and profile
+    // draft must not survive into the next session on a shared browser. Only
+    // device-level preferences (theme, remember-me) carry over. The state
+    // persistence effect then overwrites the stored record with the cleared
+    // state, so the next page load starts clean too.
+    setState(createFreshState(devicePreferencesOf(state)));
     setProfileOnboarding(null);
     setIsSupabaseWorkspaceLoaded(false);
+    setDeadlineSync(null);
   };
 
   const saveAcademicProfile = async (profileValues) => {
@@ -724,7 +779,9 @@ function App() {
   // student already uploaded; an external or government-linked entry is tracked
   // only, because the student applies through the provider.
   const applyToScholarship = async (scholarship, qualificationProfile = studentMatchProfile) => {
-    const isInternal = isInternalScholarship(scholarship);
+    // Only the three in-scope AdDU tracks can be applied to; any other internal
+    // catalog entry is tracked only, exactly like an external program.
+    const isInternal = isAdduInternalProgram(scholarship);
     if (isInternal) {
       const gateResult = evaluateApplicationGate(qualificationProfile, scholarship);
       if (!gateResult.allowed) return gateResult;
@@ -882,7 +939,10 @@ function App() {
       certifiedAt: submittedAt,
     });
     if (result?.error) return { error: result.error.message || 'The application could not be submitted.' };
-    // Send the status alert only after the submission is persisted.
+    // The database trigger is the primary sender; this browser call is a retry
+    // that covers a tab closing between the status write and the trigger. It
+    // sends only the idempotent channels — the trigger owns SMS (see
+    // supabase/functions/notify-application-status/index.ts).
     notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
 
     setState((previous) => ({
@@ -904,22 +964,19 @@ function App() {
   const changeApplicationStatus = (applicationId, status, options = {}) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application) return;
-    if (state.viewerRole === 'department_chair') {
-      const allowedChairTransition = status === 'Endorsed'
-        ? application.status === 'For Verification'
-        : status === 'For Verification' && ['Submitted', 'Under Review'].includes(application.status);
-      if (!allowedChairTransition) return;
-    } else if (state.viewerRole === 'admissions_office') {
-      const allowedStatuses = {
-        Submitted: ['Under Review', 'For Verification', 'Rejected'],
-        'Under Review': ['For Verification', 'Rejected'],
-        'For Verification': ['Rejected'],
-        Endorsed: ['Rejected'],
-        Interview: ['Rejected'],
-        Recommended: ['Approved', 'Rejected'],
-        Approved: ['Released'],
-      };
-      if (!allowedStatuses[application.status]?.includes(status)) return;
+    // Manuscript 3.3.3: forward stages require every attached Document Vault
+    // file to be Verified. The reviewer UI disables these actions and the
+    // database trigger repeats the rule, so this guard only stops a stale
+    // client from optimistically advancing an application it should not.
+    if (ENDORSEMENT_BLOCKED_STATUSES.includes(status)
+      && !isApplicationVerifiedForEndorsement(application, state.documents)) {
+      return;
+    }
+    // Stage authority lives once in getNextApplicationStatuses
+    // (src/lib/constants.js), so this guard and the role maps cannot drift apart.
+    if (state.viewerRole !== 'student') {
+      const allowedStatuses = getNextApplicationStatuses(application.status, state.viewerRole);
+      if (!allowedStatuses.includes(status)) return;
     }
     const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'Admissions Office';
     const stageEvent = {
@@ -931,8 +988,9 @@ function App() {
     };
     const { note: _note, ...stageFields } = options || {};
     if (isSupabaseWorkspaceLoaded) {
-      // Chain rather than fire-and-forget so the Edge Function reads the new
-      // status after its status, SOP payload, and timeline are persisted.
+      // The database trigger (20261014000003) is the primary sender. This call
+      // is a retry for a tab that closed first, and it only ever sends the
+      // idempotent in-app and email channels; the trigger owns the SMS channel.
       Promise.resolve(updateSupabaseApplicationStatus(
         applicationId,
         status,
@@ -969,6 +1027,11 @@ function App() {
     if (state.viewerRole !== 'department_chair') return;
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'For Verification') return;
+    // Manuscript 3.3.3: never record an endorsement for an application whose
+    // attached documents are not all Verified. changeApplicationStatus refuses
+    // that status change, so writing the department_reviews row first would
+    // leave an "Endorsed" review against an application that never advanced.
+    if (!isApplicationVerifiedForEndorsement(application, state.documents)) return;
     const record = {
       reviewedBy: currentProfile.fullName || 'Department Chair',
       decision: 'Endorsed',
@@ -1042,32 +1105,13 @@ function App() {
       releasedAt: new Date().toISOString().slice(0, 10),
       reference: `OAA-${applicationId.slice(0, 8).toUpperCase()}`,
     };
-    const stageEvent = {
-      id: `ev-${crypto.randomUUID()}`,
-      stage: 'Released',
+    // Routed through changeApplicationStatus so the release honours the same
+    // document-verification guard, timeline, and persistence path as every other
+    // stage — instead of writing status, stage payload, and local state directly.
+    changeApplicationStatus(applicationId, 'Released', {
       note: `Result released to the applicant through the Admissions Office (${record.reference}).`,
-      actor: 'Admissions Office',
-      at: new Date().toISOString().slice(0, 10),
-    };
-    if (isSupabaseWorkspaceLoaded) {
-      Promise.resolve(updateSupabaseApplicationStage(applicationId, 'Released', {
-        release: record,
-        timeline: [...(application.timeline || []), stageEvent],
-      })).then((result) => {
-        if (!result?.error) return notifySupabaseApplicationStatus(applicationId);
-        return undefined;
-      }).catch(() => undefined);
-    }
-    setState((previous) => ({
-      ...previous,
-      applications: previous.applications.map((entry) => entry.id === applicationId ? {
-        ...entry,
-        status: 'Released',
-        release: record,
-        updatedAt: new Date().toISOString().slice(0, 10),
-        timeline: [...(entry.timeline || []), stageEvent],
-      } : entry),
-    }));
+      release: record,
+    });
   };
 
   // The Admissions Office verifies or rejects a vault document here. Because an
@@ -1273,11 +1317,16 @@ function App() {
       return;
     }
 
+    const ownerId = state.authUser?.id || currentProfile.id;
+
     const newDeadline = {
       id: `custom-${crypto.randomUUID()}`,
       title,
       deadline: deadline,
       createdAt: new Date().toISOString().slice(0, 10),
+      // Stamped so the reminder cannot be backfilled into another user's
+      // account on a shared browser.
+      ownerId: isRealUserId(ownerId) ? ownerId : null,
     };
 
     // The calendar updates immediately. The server save is reported separately,
@@ -1288,7 +1337,6 @@ function App() {
       customDeadlines: [newDeadline, ...previous.customDeadlines],
     }));
 
-    const ownerId = state.authUser?.id || currentProfile.id;
 
     if (!isSupabaseWorkspaceLoaded || !isRealUserId(ownerId)) {
       setDeadlineSync({

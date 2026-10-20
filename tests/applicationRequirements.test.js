@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REQUIRED_DOCUMENTS,
+  ENDORSEMENT_BLOCKED_STATUSES,
   buildProfileSnapshot,
   describeApplicantAcademic,
+  describeStatusActor,
   getApplicationReadiness,
   getCatalogRequirements,
   getDocumentChecklist,
+  getDocumentVerificationReadiness,
+  getLinkedDocuments,
   getProfileSnapshotSections,
   getRequirementUploadPreset,
   getScholarshipRequirements,
+  isApplicationVerifiedForEndorsement,
   normalizeRequirements,
   pickDefaultAttachments,
 } from '../src/lib/applicationRequirements';
@@ -335,3 +340,123 @@ describe('My Profile document checklist', () => {
     expect(getRequirementUploadPreset({ documentTypes: ['Unknown Type'] })).toEqual({ attribute: '', documentType: '' });
   });
 });
+
+describe('document verification readiness for endorsement', () => {
+  const application = (attachedDocuments = []) => ({ id: 'app-1', attachedDocuments });
+  const doc = (id, verificationStatus) => ({ id, verificationStatus });
+
+  it('flags the SOP stages that require every attached document verified', () => {
+    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
+    expect(ENDORSEMENT_BLOCKED_STATUSES).not.toContain('Rejected');
+  });
+
+  it('resolves only the attached documents that are loaded', () => {
+    expect(getLinkedDocuments(application(['doc-1', 'doc-missing']), [doc('doc-1', 'Verified')]).map((entry) => entry.id)).toEqual(['doc-1']);
+  });
+
+  it('is ready only when every attached document is Verified', () => {
+    const ready = getDocumentVerificationReadiness(application(['doc-1', 'doc-2']), [
+      doc('doc-1', 'Verified'),
+      doc('doc-2', 'Verified'),
+    ]);
+    expect(ready).toMatchObject({ total: 2, verified: 2, outstanding: 0, ready: true });
+
+    const pending = getDocumentVerificationReadiness(application(['doc-1', 'doc-2']), [
+      doc('doc-1', 'Verified'),
+      doc('doc-2', 'Pending'),
+    ]);
+    expect(pending).toMatchObject({ total: 2, verified: 1, outstanding: 1, ready: false });
+
+    const rejected = getDocumentVerificationReadiness(application(['doc-1']), [doc('doc-1', 'Rejected')]);
+    expect(rejected).toMatchObject({ outstanding: 1, ready: false });
+  });
+
+  it('treats an application with no attached documents as ready', () => {
+    expect(isApplicationVerifiedForEndorsement(application([]), [])).toBe(true);
+    expect(isApplicationVerifiedForEndorsement({}, [])).toBe(true);
+    expect(isApplicationVerifiedForEndorsement(application([]), undefined)).toBe(true);
+  });
+
+  it('blocks endorsement while any attached document is not verified', () => {
+    expect(isApplicationVerifiedForEndorsement(application(['doc-1']), [doc('doc-1', 'Pending')])).toBe(false);
+    expect(isApplicationVerifiedForEndorsement(application(['doc-1']), [doc('doc-1', 'Verified')])).toBe(true);
+  });
+
+  it('tolerates malformed inputs', () => {
+    expect(getDocumentVerificationReadiness(undefined, undefined)).toMatchObject({ total: 0, outstanding: 0, ready: true });
+    expect(getDocumentVerificationReadiness({ attachedDocuments: ['x'] }, 'not an array')).toMatchObject({ total: 0, ready: true });
+  });
+});
+
+
+// An internal catalog entry that is not one of the three in-scope tracks must
+// behave like an external program: no requirement checklist and no submit path.
+describe('out-of-scope internal programs', () => {
+  const villanueva = {
+    id: 'villanueva',
+    title: 'Antonio A. Villanueva Endowment Fund',
+    category: 'Internal Endowment',
+    ruleFamily: 'general-pool',
+    isExternal: false,
+    isActive: true,
+    deadline: '2999-12-31',
+  };
+
+  it('returns no catalog requirements for an out-of-scope internal entry', () => {
+    expect(getCatalogRequirements(villanueva)).toEqual([]);
+  });
+
+  it('does not list the out-of-scope entry in the My Profile document checklist', () => {
+    const checklist = getDocumentChecklist({ scholarships: [gia, villanueva], documents: [], profile: continuingProfile, today: new Date('2026-10-12T00:00:00') });
+    expect(checklist.scholarships.some((item) => item.title === villanueva.title)).toBe(false);
+    expect(checklist.scholarships.some((item) => item.title === gia.title)).toBe(true);
+    expect(checklist.items.every((item) => item.scholarships.every((entry) => entry.title !== villanueva.title))).toBe(true);
+  });
+
+  it('routes an out-of-scope application as tracked-only (no readiness)', () => {
+    const readiness = getApplicationReadiness({
+      application: { id: 'app-v', attachedDocuments: [] },
+      scholarship: villanueva,
+      documents: [],
+      profile: continuingProfile,
+    });
+    expect(readiness.route).toBe('external');
+    expect(readiness.ready).toBe(false);
+    expect(readiness.requirements).toEqual([]);
+  });
+});
+
+
+// The append-only status log (application_status_log) is the trustworthy history;
+// staff see the reviewer's name, a student sees the role, and a system move has
+// no user. describeStatusActor() is the single label used by the review modal,
+// the console activity feed, and the student's detail view.
+describe('describeStatusActor', () => {
+  const logRow = (overrides = {}) => ({ actorRole: 'admissions_office', actorName: null, ...overrides });
+
+  it('shows the reviewer name for staff when the directory resolves it', () => {
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), true)).toBe('Ada Cruz');
+  });
+
+  it('falls back to the humanized role for staff when the name cannot be resolved', () => {
+    expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorRole: 'department_chair', actorName: null }), true)).toBe('Department Chair');
+    expect(describeStatusActor(logRow({ actorRole: 'student', actorName: null }), true)).toBe('Student');
+  });
+
+  it('shows the role (never the name) for a student', () => {
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }))).toBe('Admissions Office');
+  });
+
+  it('labels an automated move as System', () => {
+    expect(describeStatusActor(logRow({ actorRole: 'system', actorName: null }), true)).toBe('System');
+    expect(describeStatusActor(logRow({ actorRole: null, actorName: null }), true)).toBe('System');
+  });
+
+  it('tolerates a missing row', () => {
+    expect(describeStatusActor(null, true)).toBe('Recorded automatically');
+    expect(describeStatusActor(undefined)).toBe('Recorded automatically');
+  });
+});
+

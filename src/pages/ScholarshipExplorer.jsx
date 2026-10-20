@@ -3,7 +3,7 @@ import { ArrowRight } from 'lucide-react';
 import { EmptyState } from '../components/pageParts';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { coverageTypes } from '../lib/constants';
-import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
+import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
 import { getScholarshipRequirements } from '../lib/applicationRequirements';
 import { getProfileSectionForField } from '../lib/profile';
@@ -82,7 +82,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {scholarships.length ? scholarships.map((scholarship) => {
           const deadline = getDeadlineStatus(scholarship.deadline);
-          const isInternal = isInternalScholarship(scholarship);
+          const isInternal = isAdduInternalProgram(scholarship);
           const gateResult = isInternal ? evaluateApplicationGate(profile, scholarship) : null;
           const academicDisplay = getScholarshipAcademicDisplay(profile, scholarship);
           const isEligibilityExpanded = String(expandedEligibilityId) === String(scholarship.id);
@@ -116,7 +116,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                   : scholarship.minimumQpi != null
                     ? <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
                     : null}
-                <span><strong>Income</strong> ≤ {fmtCurrency(scholarship.maximumIncome)}</span>
+                <span><strong>Income</strong> {scholarship.maximumIncome == null ? 'No limit' : `≤ ${fmtCurrency(scholarship.maximumIncome)}`}</span>
                 <span><strong>Deadline</strong> {fmtDate(scholarship.deadline)}</span>
                 <span><strong>Degrees</strong> {scholarship.ruleFamily === 'work-study' || scholarship.eligibleDegrees.includes('ALL') ? 'All programs' : scholarship.eligibleDegrees.length}</span>
               </div>

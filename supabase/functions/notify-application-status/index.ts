@@ -1,13 +1,19 @@
 // Supabase Edge Function: notify-application-status
 //
 // Notifies a student (in-app, email and SMS) when their application status changes.
-// The application workspace calls this after writing the new status, but the
-// authoritative content (recipient, status, scholarship) is re-read here so
-// the request body cannot spoof who receives the message.
+// The application workspace calls this after writing the new status, and a
+// database trigger calls it too (20261014000003), so the notification is sent
+// even when the tab closes between the status write and the browser call. The
+// authoritative content (recipient, status, scholarship) is re-read here so the
+// request body cannot spoof who receives the message.
 //
-// Deployed with verify_jwt enabled. The caller must be an Admissions Office administrator,
-// the Department Chair responsible for the student's department, or the student
-// who owns the application (which covers a self-service submission).
+// Deployed with verify_jwt disabled, like process-deadline-reminders, because
+// the database caller presents the shared REMINDER_CRON_SECRET rather than a
+// JWT (the platform-level JWT check rejects service role keys). Authorization is
+// enforced here instead: the caller must present the cron secret, or be an
+// Admissions Office administrator, the Department Chair responsible for the
+// student's department, or the student who owns the application (which covers a
+// self-service submission). A repeated call is idempotent via the source key.
 //
 // A record is written to notification_email_log keyed by
 // `application-status-<applicationId>-<status>` so a repeated save never
@@ -43,7 +49,15 @@ Deno.serve(async (req) => {
 
   const authorizationHeader = req.headers.get('Authorization') ?? '';
   const token = authorizationHeader.replace(/^Bearer\s+/i, '').trim();
-  if (!token) {
+  // The database trigger presents the shared REMINDER_CRON_SECRET as its bearer
+  // token, exactly like process-deadline-reminders. Any other token is treated
+  // as a signed-in user's JWT and validated below. The check fails closed when
+  // the secret is unset, and it is compared by exact value so a forged token
+  // cannot authorize itself.
+  const cronSecret = Deno.env.get('REMINDER_CRON_SECRET') ?? '';
+  const isTrustedDatabaseCaller = Boolean(cronSecret) && token === cronSecret;
+
+  if (!isTrustedDatabaseCaller && !token) {
     return json({ error: 'Missing Authorization header' }, 401);
   }
 
@@ -53,9 +67,13 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
-  const { data: jwtUser, error: jwtError } = await supabaseAdmin.auth.getUser(token);
-  if (jwtError || !jwtUser?.user) {
-    return json({ error: 'Unauthorized' }, 401);
+  let callerUserId = null;
+  if (!isTrustedDatabaseCaller) {
+    const { data: jwtUser, error: jwtError } = await supabaseAdmin.auth.getUser(token);
+    if (jwtError || !jwtUser?.user) {
+      return json({ error: 'Unauthorized' }, 401);
+    }
+    callerUserId = jwtUser.user.id;
   }
 
   let payload = {};
@@ -83,11 +101,13 @@ Deno.serve(async (req) => {
   }
 
   const [{ data: callerProfile }, { data: studentProfile }] = await Promise.all([
-    supabaseAdmin
-      .from('profiles')
-      .select('role, department')
-      .eq('user_id', jwtUser.user.id)
-      .maybeSingle(),
+    callerUserId
+      ? supabaseAdmin
+          .from('profiles')
+          .select('role, department')
+          .eq('user_id', callerUserId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
     supabaseAdmin
       .from('profiles')
       .select('full_name, email, phone, department, notification_preferences')
@@ -100,9 +120,9 @@ Deno.serve(async (req) => {
   const isOwningChair = callerRole === 'department_chair'
     && Boolean(studentProfile?.department)
     && callerProfile?.department === studentProfile?.department;
-  const isOwner = jwtUser.user.id === application.student_id;
+  const isOwner = callerUserId != null && callerUserId === application.student_id;
 
-  if (!isAdmissionsOffice && !isOwningChair && !isOwner) {
+  if (!isTrustedDatabaseCaller && !isAdmissionsOffice && !isOwningChair && !isOwner) {
     return json({ error: 'You are not allowed to notify this application' }, 403);
   }
 
@@ -127,7 +147,11 @@ Deno.serve(async (req) => {
   const smsAlreadySent = existingEmailDelivery?.sms_status === 'sent';
   const wantsEmail = !emailAlreadySent && isEmailEnabledForUser(preferences) && Boolean(studentProfile?.email);
   const smsTo = normalizePhilippineMobile(studentProfile?.phone);
-  const wantsSms = !smsAlreadySent && isSmsEnabledForUser(preferences) && Boolean(smsTo);
+  // The database trigger and a browser retry can run for the same status change
+  // at almost the same moment. In-app dedupes on the source key and email on the
+  // Resend idempotency key, but SMS has neither — so only the authoritative
+  // database caller sends the text; the browser path covers the other channels.
+  const wantsSms = isTrustedDatabaseCaller && !smsAlreadySent && isSmsEnabledForUser(preferences) && Boolean(smsTo);
 
   const { data: scholarship } = await supabaseAdmin
     .from('scholarships')
@@ -135,9 +159,35 @@ Deno.serve(async (req) => {
     .eq('id', application.scholarship_id)
     .maybeSingle();
 
+  // A database-triggered call has no user JWT, so the actor comes from the
+  // append-only status log (20261014000002); the table may be absent while its
+  // migration is pending, in which case the message reads "the system".
+  let databaseActorRole = null;
+  if (isTrustedDatabaseCaller) {
+    const { data: logRow } = await supabaseAdmin
+      .from('application_status_log')
+      .select('actor_role')
+      .eq('application_id', application.id)
+      .eq('to_status', status)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    databaseActorRole = logRow?.actor_role ?? null;
+  }
+
   const actorLabel = isOwner
     ? 'your submission'
-    : isAdmissionsOffice ? 'the Admissions Office' : 'your Department Chair';
+    : isAdmissionsOffice
+      ? 'the Admissions Office'
+      : isOwningChair
+        ? 'your Department Chair'
+        : databaseActorRole === 'admissions_office'
+          ? 'the Admissions Office'
+          : databaseActorRole === 'department_chair'
+            ? 'your Department Chair'
+            : databaseActorRole === 'student'
+              ? 'your submission'
+              : 'the system';
 
   const env = Deno.env.toObject();
   const resend = getResendConfig(env);
@@ -195,11 +245,33 @@ Deno.serve(async (req) => {
         }).message,
         provider: sms.provider,
       })
-    : { ok: false, skipped: true, reason: 'SMS notifications are disabled or no mobile number on file' };
+    : {
+        ok: false,
+        skipped: true,
+        reason: isTrustedDatabaseCaller
+          ? 'SMS notifications are disabled or no mobile number on file'
+          : 'The database delivery path owns the SMS channel for this update',
+      };
 
   if (emailResult.ok || smsResult.ok) {
     // Log only real email/SMS deliveries. In-app rows have their own source-key
     // uniqueness and must not suppress a later retry of a failed gateway send.
+    //
+    // A browser caller never touches SMS, so it preserves whatever the database
+    // path recorded there instead of overwriting it with a stale 'skipped'.
+    const smsLedger = isTrustedDatabaseCaller
+      ? {
+          sms_to: smsResult.ok ? (formatPhilippineMobile(studentProfile.phone) ?? smsTo) : existingEmailDelivery?.sms_to ?? null,
+          sms_status: smsAlreadySent ? 'sent' : smsResult.ok ? 'sent' : wantsSms ? 'failed' : 'skipped',
+          sms_message_id: smsResult.messageId ?? existingEmailDelivery?.sms_message_id ?? null,
+          sms_error: smsResult.error ?? smsResult.reason ?? null,
+        }
+      : {
+          sms_to: existingEmailDelivery?.sms_to ?? null,
+          sms_status: existingEmailDelivery?.sms_status ?? null,
+          sms_message_id: existingEmailDelivery?.sms_message_id ?? null,
+        };
+
     await supabaseAdmin
       .from('notification_email_log')
       .upsert({
@@ -210,10 +282,7 @@ Deno.serve(async (req) => {
         email_status: emailAlreadySent ? 'sent' : emailResult.ok ? 'sent' : wantsEmail ? 'failed' : 'skipped',
         email_id: emailResult.id ?? existingEmailDelivery?.email_id ?? null,
         email_error: emailResult.error ?? null,
-        sms_to: smsResult.ok ? (formatPhilippineMobile(studentProfile.phone) ?? smsTo) : existingEmailDelivery?.sms_to ?? null,
-        sms_status: smsAlreadySent ? 'sent' : smsResult.ok ? 'sent' : wantsSms ? 'failed' : 'skipped',
-        sms_message_id: smsResult.messageId ?? existingEmailDelivery?.sms_message_id ?? null,
-        sms_error: smsResult.error ?? smsResult.reason ?? null,
+        ...smsLedger,
       });
   }
 

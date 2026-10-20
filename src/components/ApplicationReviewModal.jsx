@@ -2,9 +2,9 @@ import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
-import { ProfileSnapshotList, RequirementChecklist, SupportingDocumentList } from './ApplicationParts';
+import { ProfileSnapshotList, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from './ApplicationParts';
 import { getNextApplicationStatuses, getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
-import { getApplicationReadiness } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, getApplicationReadiness, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { getApplicationProgress } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 
@@ -39,6 +39,14 @@ export default function ApplicationReviewModal({
     .map((id) => documents.find((doc) => doc.id === id))
     .filter(Boolean);
   const isAdmissionsOffice = role === 'admissions_office';
+  // Manuscript 3.3.3: an application whose attached files are still Pending or
+  // Rejected cannot be endorsed or advance to any later SOP stage. The database
+  // enforces the same rule, so the UI disables the forward actions first and
+  // explains why.
+  const statusLog = Array.isArray(application.statusLog) ? application.statusLog : [];
+  const { outstanding: outstandingDocuments } = getDocumentVerificationReadiness(application, documents);
+  const blockedByDocuments = outstandingDocuments > 0;
+  const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
   // declared at submit time (the frozen profile snapshot).
   const { requirements, supportingDocuments = [] } = getApplicationReadiness({
@@ -64,6 +72,12 @@ export default function ApplicationReviewModal({
         <div className="h-full rounded-full bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright" style={{ width: `${getApplicationProgress(application.status)}%` }} />
       </div>
       <p className="mb-4 text-xs text-app-muted">Standard Procedure stage progress: {toPercent(getApplicationProgress(application.status))}</p>
+
+      {blockedByDocuments && (
+        <p className="mb-4 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200" role="status">
+          {documentBlockReason} before this application can be endorsed or advance to a later stage.
+        </p>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="grid content-start gap-4">
@@ -164,7 +178,7 @@ export default function ApplicationReviewModal({
                 <span className="font-semibold">Panel / school</span>
                 <input value={interviewPanel} onChange={(event) => setInterviewPanel(event.target.value)} placeholder={`${application.studentDepartment || 'Applicant school'} Scholarship Panel`} />
               </label>
-              <Button variant="primary" type="button" onClick={() => onScheduleInterview(application.id, { scheduledAt: interviewDate, panel: interviewPanel })}>Schedule interview</Button>
+              <Button variant="primary" type="button" disabled={blockedByDocuments} title={blockedByDocuments ? documentBlockReason : undefined} onClick={() => onScheduleInterview(application.id, { scheduledAt: interviewDate, panel: interviewPanel })}>Schedule interview</Button>
             </Panel>
           )}
 
@@ -175,18 +189,24 @@ export default function ApplicationReviewModal({
                 <span className="font-semibold">Sub-committee note</span>
                 <textarea rows="3" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the School Scholarship Sub-committee deliberation." />
               </label>
-              <Button variant="primary" type="button" onClick={() => { onRecordDeliberation(application.id, 'Recommended', deliberationNote); setDeliberationNote(''); }}>Recommend for approval</Button>
+              <Button variant="primary" type="button" disabled={blockedByDocuments} title={blockedByDocuments ? documentBlockReason : undefined} onClick={() => { onRecordDeliberation(application.id, 'Recommended', deliberationNote); setDeliberationNote(''); }}>Recommend for approval</Button>
             </Panel>
           )}
 
           <Panel className="grid gap-3">
             <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Stage actions</h4>
             <div className="flex flex-wrap gap-2">
-              {nextStatuses.map((status) => (
+              {nextStatuses.map((status) => {
+                // Forward stages are disabled until every attached file is
+                // Verified; rejection stays available at any point.
+                const blocked = blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status);
+                return (
                 <Button
                   key={status}
                   type="button"
                   variant={status === 'Rejected' ? 'danger' : 'primary'}
+                  disabled={blocked}
+                  title={blocked ? documentBlockReason : undefined}
                   onClick={() => {
                     if (status === 'Rejected') {
                       // A rejection must carry a recorded reason, so it opens the
@@ -208,23 +228,19 @@ export default function ApplicationReviewModal({
                     onClose();
                   }}
                 >{status}</Button>
-              ))}
+                );
+              })}
               {!nextStatuses.length && <p className="text-sm text-app-muted">This application has reached a terminal stage.</p>}
             </div>
           </Panel>
 
           <Panel className="grid gap-2">
-            <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Application timeline</h4>
-            {(application.timeline || []).length ? (
-              <ol className="grid gap-2 pl-5">
-                {application.timeline.map((event) => (
-                  <li key={event.id} className="text-sm text-app-muted">
-                    <strong className="text-app-text">{event.stage}</strong> · {event.note}
-                    <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : <p className="text-sm text-app-muted">No stage events recorded yet.</p>}
+            <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Status history</h4>
+            <StatusHistoryList
+              statusLog={statusLog}
+              timeline={application.timeline}
+              showActorName={isAdmissionsOffice || role === 'department_chair'}
+            />
           </Panel>
         </section>
       </div>

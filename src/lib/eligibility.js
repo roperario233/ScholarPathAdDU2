@@ -90,13 +90,24 @@ export const ADDU_INTERNAL_PROGRAM_TITLES = [
 
 const ADDU_INTERNAL_PROGRAM_TITLE_SET = new Set(ADDU_INTERNAL_PROGRAM_TITLES.map((title) => title.toLowerCase()));
 
-export const isAdduInternalProgram = (scholarship = {}) => (
-  ADDU_INTERNAL_PROGRAM_TITLE_SET.has(String(scholarship.title || '').trim().toLowerCase())
-);
+// A title that names one of the three in-scope tracks, tolerating the wording
+// variants the catalog and the documents use (for example "Jubilee Scholarship"
+// and "Student Assistant Program (Working Scholars)").
+const ADDU_INTERNAL_PROGRAM_TITLE_PATTERN = /jubilee|grant[ -]?in[ -]?aid|\bgia\b|student assistant|working scholar/;
+
+// The single in-scope predicate: only GIA, Jubilee, and the Student Assistant /
+// Working Scholar program may be applied to. It reads the *title*, never
+// ruleFamily/category alone, because other internal catalog entries (for example
+// a donor endowment set to `general-pool`) share those values without being one
+// of the three tracks. Use this wherever an application can be started,
+// continued, or submitted; `isInternalScholarship` below is the looser
+// catalog-listing helper and must not gate the application lifecycle.
+export const isAdduInternalProgram = (scholarship = {}) => {
+  const title = String(scholarship.title || '').trim().toLowerCase();
+  return ADDU_INTERNAL_PROGRAM_TITLE_SET.has(title) || ADDU_INTERNAL_PROGRAM_TITLE_PATTERN.test(title);
+};
 
 // The Explorer currently surfaces only the three AdDU programs in scope.
-// Do not use ruleFamily/category as the inclusion condition: other internal
-// catalog entries can share those values without being GIA, Jubilee, or SA.
 export const getAdduInternalPrograms = (scholarships = []) => scholarships.filter(isAdduInternalProgram);
 
 export const isInternalScholarship = (scholarship = {}) => {
@@ -317,11 +328,13 @@ export const evaluateApplicationGate = (profile, scholarship) => {
   }
 
   if (!scholarship) issues.push(issue('Select an internal scholarship to check.'));
-  if (scholarship && !isInternalScholarship(scholarship)) {
+  // Only the three in-scope AdDU tracks are evaluated (and therefore only they
+  // can be applied to); an unrelated internal catalog entry is rejected here.
+  if (scholarship && !isAdduInternalProgram(scholarship)) {
     issues.push(issue('The Smart Eligibility Checker only evaluates AdDU internal scholarships.'));
   }
 
-  if (scholarship && isInternalScholarship(scholarship) && issues.length === 0) {
+  if (scholarship && isAdduInternalProgram(scholarship) && issues.length === 0) {
     const ruleFamily = getInternalRuleFamily(scholarship);
     if (!ruleFamily) {
       issues.push(issue('Scholarship qualification rules are not configured. Please contact the Admissions Office.'));

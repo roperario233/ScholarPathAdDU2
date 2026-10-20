@@ -35,7 +35,7 @@ const toDocument = (row) => ({
   uploadedAt: row.uploaded_at,
 });
 
-const toApplication = (row, scholarshipById, documentIdsByApplication, studentById = {}) => {
+const toApplication = (row, scholarshipById, documentIdsByApplication, studentById = {}, statusLogByApplication = {}) => {
   const student = studentById[row.student_id] || {};
   return {
     ...row,
@@ -59,6 +59,9 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
     statement: row.statement ?? '',
     profileSnapshot: row.profile_snapshot ?? null,
     certifiedAt: row.certified_at ?? null,
+    // The append-only audit history (application_status_log). Empty when the
+    // migration is pending or no status change has been logged yet.
+    statusLog: statusLogByApplication[row.id] || [],
   };
 };
 
@@ -145,11 +148,43 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     });
   }
 
+  // The append-only status log is the audit history the review modal shows
+  // (application_status_log, from 20261014000002). A pending migration yields no
+  // rows rather than failing the whole workspace.
+  const statusLogByApplication = {};
+  if (applicationIds.length) {
+    const logResult = await supabase
+      .from('application_status_log')
+      .select('id, application_id, from_status, to_status, actor_id, actor_role, reason, created_at')
+      .in('application_id', applicationIds)
+      .order('created_at', { ascending: true });
+    if (!logResult.error) {
+      (logResult.data || []).forEach((row) => {
+        statusLogByApplication[row.application_id] = [
+          ...(statusLogByApplication[row.application_id] || []),
+          {
+            id: row.id,
+            applicationId: row.application_id,
+            fromStatus: row.from_status,
+            toStatus: row.to_status,
+            actorId: row.actor_id,
+            actorRole: row.actor_role,
+            // Resolved from the profiles visible to the caller; a student sees
+            // only their own profile, so the modal falls back to the role.
+            actorName: studentById[row.actor_id]?.full_name || null,
+            reason: row.reason,
+            at: row.created_at,
+          },
+        ];
+      });
+    }
+  }
+
   return {
     success: true,
     fallback: false,
     scholarships,
-    applications: (applicationsResult.data || []).map((entry) => toApplication(entry, scholarshipById, documentIdsByApplication, studentById)),
+    applications: (applicationsResult.data || []).map((entry) => toApplication(entry, scholarshipById, documentIdsByApplication, studentById, statusLogByApplication)),
     documents: documentsWithOwners,
     students,
     announcements: (announcementsResult.data || []).map(toAnnouncement),

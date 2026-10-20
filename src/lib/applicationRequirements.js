@@ -1,5 +1,5 @@
 import { generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
-import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isInternalScholarship } from './eligibility';
+import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
 import { fmtCurrency } from './formatters';
 import {
   VERIFIABLE_ATTRIBUTE_OPTIONS,
@@ -100,7 +100,7 @@ export const normalizeRequirements = (items) => (
 // The full catalog list for a scholarship, before the standing filter: its own
 // list when the Admissions Office set one, otherwise the rule-family default.
 export const getCatalogRequirements = (scholarship = {}) => {
-  if (!isInternalScholarship(scholarship)) return [];
+  if (!isAdduInternalProgram(scholarship)) return [];
   const own = normalizeRequirements(scholarship.requiredDocuments);
   if (own.length) return own;
   return DEFAULT_REQUIRED_DOCUMENTS[resolveRuleFamily(scholarship)] || [];
@@ -162,7 +162,7 @@ export const VAULT_REQUIREMENT_STATE_LABELS = {
 };
 
 const isOpenForApplications = (scholarship, today) => (
-  isInternalScholarship(scholarship)
+  isAdduInternalProgram(scholarship)
   && Boolean(scholarship.isActive)
   && getDeadlineStatus(scholarship.deadline, today).label !== 'Closed'
 );
@@ -220,7 +220,7 @@ export const getRequirementUploadPreset = (requirement) => {
 // about whether an application can be submitted. A Pending file is enough to
 // submit; verification happens later at the For Verification stage.
 export const getApplicationReadiness = ({ application = {}, scholarship, documents = [], profile = {}, certified = false, today = new Date() } = {}) => {
-  const isInternal = Boolean(scholarship) && isInternalScholarship(scholarship);
+  const isInternal = Boolean(scholarship) && isAdduInternalProgram(scholarship);
   const attachedIds = new Set(application.attachedDocuments || []);
   const attachedDocuments = documents.filter((doc) => attachedIds.has(doc.id));
   const requirements = isInternal
@@ -262,6 +262,59 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
     blockers,
     ready: blockers.length === 0,
   };
+};
+
+// SOP stages that may only be entered once every attached Document Vault file is
+// Verified. Manuscript Section 3.3.3: an application linked to a Pending or
+// Rejected document cannot proceed to interview or subcommittee evaluation, so
+// the endorsement and every later stage are blocked. Rejection is always allowed.
+export const ENDORSEMENT_BLOCKED_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+
+// The vault files attached to an application, resolved against the loaded
+// documents. Attached ids whose document is not loaded are skipped.
+export const getLinkedDocuments = (application, documents = []) => (
+  (application?.attachedDocuments || [])
+    .map((id) => (Array.isArray(documents) ? documents : []).find((doc) => doc.id === id))
+    .filter(Boolean)
+);
+
+// The single readiness check behind the document-verification gate: every
+// attached file must be Verified. The reviewer UI reads this to disable forward
+// actions, and `tests/applicationRequirements.test.js` pins the behavior; the
+// database repeats the rule in a trigger so a direct write cannot bypass it.
+export const getDocumentVerificationReadiness = (application, documents = []) => {
+  const linked = getLinkedDocuments(application, documents);
+  const outstanding = linked.filter((doc) => doc.verificationStatus !== 'Verified').length;
+  return {
+    total: linked.length,
+    verified: linked.length - outstanding,
+    outstanding,
+    ready: outstanding === 0,
+  };
+};
+
+export const isApplicationVerifiedForEndorsement = (application, documents = []) => (
+  getDocumentVerificationReadiness(application, documents).ready
+);
+
+// The actor label for an `application_status_log` row (RQ2). Staff see the
+// reviewer's name when the loaded profiles directory resolves it; everyone else
+// sees the recorded role, with "System" for an automated move. The role is
+// humanized (the log stores `admissions_office`, `department_chair`, `student`,
+// or `system`). Kept here (not in a component) so it is unit-testable.
+const ACTOR_ROLE_LABELS = {
+  admissions_office: 'Admissions Office',
+  department_chair: 'Department Chair',
+  student: 'Student',
+  system: 'System',
+};
+
+export const describeStatusActor = (event, showName = false) => {
+  if (!event) return 'Recorded automatically';
+  const name = showName ? event.actorName : null;
+  const roleLabel = ACTOR_ROLE_LABELS[event.actorRole]
+    || String(event.actorRole || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+  return name || roleLabel || 'System';
 };
 
 // Version 2 adds the eligibility answers, background, personal, address, and
