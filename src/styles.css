@@ -54,6 +54,7 @@ html {
 .select-picker-modal-list:hover,
 .modal-overlay:hover,
 .application-detail-modal-body:hover,
+.application-review-modal-body:hover,
 .academic-profile-overlay > section:hover,
 .app-scroll:hover {
   scrollbar-color: var(--scrollbar-thumb-hover) var(--scrollbar-track);
@@ -1087,6 +1088,15 @@ main .deadline-item > .deadline-actions {
 /* Keep the modal header fixed and scroll only the body so the scrollbar no
    longer tracks the rounded corner of the modal surface. */
 .application-detail-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 0.4rem; }
+/* Staff review modal: fixed header, tabs, and action bar around one scrolling
+   body, wide enough for the side-by-side document list and inline preview. */
+.application-review-modal { width: min(1180px, 100%); height: min(92vh, 900px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
+.application-review-modal h2 { margin: 0; }
+.application-review-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 0.4rem; padding-bottom: 1rem; }
+@media (max-width: 640px) {
+  .application-review-modal { height: calc(100dvh - 1.5rem); padding: 1rem; }
+  .application-review-actions button { min-height: 2.75rem; }
+}
 .wrap { flex-wrap: wrap; }
 
 .scholarship-card {

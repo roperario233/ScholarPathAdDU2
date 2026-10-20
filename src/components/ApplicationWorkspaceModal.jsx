@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
-import { ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
+import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
 import { getDocumentTypeLabel } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
@@ -53,6 +53,7 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(requirement, doc.id)}>Remove</Button>
               </span>
+              <DocumentRejectionReason doc={doc} className="w-full" />
             </li>
           ))}
         </ul>

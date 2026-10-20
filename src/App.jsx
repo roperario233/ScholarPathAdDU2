@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -19,7 +19,11 @@ import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
-import AdminConsolePage from './pages/AdminConsole';
+import AdminOverviewPage from './pages/admin/AdminOverview';
+import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
+import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
+import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
+import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
@@ -227,6 +231,10 @@ function App() {
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
   const [openApplicationId, setOpenApplicationId] = useState(null);
+  // The Admissions Office catalog form is uncontrolled and lives on its own
+  // route, so leaving that route discards the draft. The route reports its own
+  // dirtiness (including required-document edits) for the navigation guard.
+  const [isAdminCatalogDirty, setIsAdminCatalogDirty] = useState(false);
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -546,6 +554,12 @@ function App() {
   // Navigating to the vault clears any upload preset; the My Profile links pass
   // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
+    // Leaving the catalog route discards its uncontrolled form, so ask first.
+    // Clicking the catalog link while already there keeps the draft and the flag.
+    if (state.activeView === 'admin-catalog' && view !== 'admin-catalog') {
+      if (isAdminCatalogDirty && !window.confirm('Discard your unsaved scholarship changes?')) return;
+      setIsAdminCatalogDirty(false);
+    }
     setVaultPreset(view === 'vault'
       ? { attribute: options.attribute || '', documentType: options.documentType || '' }
       : { attribute: '', documentType: '' });
@@ -856,12 +870,14 @@ function App() {
     return application;
   };
 
-  const setApplicationAttachments = (applicationId, update) => setState((previous) => ({
+  // `touch: false` keeps `updatedAt` faithful when the server row is not being
+  // written (a rejected-file replacement swaps only the link, 20261021000000).
+  const setApplicationAttachments = (applicationId, update, { touch = true } = {}) => setState((previous) => ({
     ...previous,
     applications: previous.applications.map((entry) => entry.id === applicationId ? {
       ...entry,
       attachedDocuments: update(entry.attachedDocuments || []),
-      updatedAt: new Date().toISOString().slice(0, 10),
+      ...(touch ? { updatedAt: new Date().toISOString().slice(0, 10) } : {}),
     } : entry),
   }));
 
@@ -1117,31 +1133,62 @@ function App() {
   // The Admissions Office verifies or rejects a vault document here. Because an
   // attribute's state is derived from its linked proof documents
   // (src/lib/verification.js), verifying the file also verifies the attributes it
-  // proves. A verified or rejected decision notifies the owner, deduped by a
-  // stable source key.
-  const changeDocumentStatus = (documentId, verificationStatus) => {
-    const document = state.documents.find((entry) => entry.id === documentId);
-    if (isSupabaseWorkspaceLoaded) updateSupabaseDocumentStatus(documentId, verificationStatus);
+  // proves. A rejection must carry a recorded reason (ReasonModal in
+  // ApplicationReviewModal); the database enforces the same rule. The student is
+  // notified server-side by notify-document-verification, which the database
+  // trigger calls; the browser call below is a retry for the idempotent channels.
+  const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
+    const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
+    if (verificationStatus === 'Rejected' && !reason) return;
+    if (isSupabaseWorkspaceLoaded) {
+      const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
+      if (result.error) {
+        window.alert(result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.');
+        return;
+      }
+      if (['Verified', 'Rejected'].includes(verificationStatus)) {
+        notifySupabaseDocumentVerification(documentId).catch(() => undefined);
+      }
+    }
     setState((previous) => ({
       ...previous,
       documents: previous.documents.map((entry) => entry.id === documentId ? {
         ...entry,
         verificationStatus,
+        rejectionReason: reason,
       } : entry),
-      notifications: document && ['Verified', 'Rejected'].includes(verificationStatus)
-        ? prependInAppNotification(previous, {
-            id: `not-${crypto.randomUUID()}`,
-            sourceKey: `document-verification-${documentId}-${verificationStatus}`,
-            title: verificationStatus === 'Verified' ? `${document.title} verified` : `${document.title} needs attention`,
-            channel: 'In-app',
-            body: verificationStatus === 'Verified'
-              ? `The Admissions Office verified “${document.title}”. Any profile attributes it proves are now verified.`
-              : `The Admissions Office could not verify “${document.title}”. Upload a replacement to complete verification.`,
-            status: 'Unread',
-            createdAt: new Date().toISOString().slice(0, 10),
-          })
-        : previous.notifications,
     }));
+  };
+
+  // A Rejected file on a submitted, pre-endorsement application can be swapped
+  // for another vault file or a new upload (which lands in the vault first, as
+  // in the workspace). The status does not change; the new file arrives Pending
+  // for the Admissions Office. The server repeats every check
+  // (replace_rejected_application_document).
+  const replaceRejectedDocument = async (applicationId, oldDocumentId, { documentId = '', file = null, documentType = '' } = {}) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    const oldDocument = studentDocuments.find((doc) => doc.id === oldDocumentId);
+    if (!application || application.studentId !== currentProfile.id || !DOCUMENT_REPLACEMENT_STATUSES.includes(application.status)) {
+      return { error: 'Documents can be replaced only before the application is endorsed.' };
+    }
+    if (!oldDocument || oldDocument.verificationStatus !== 'Rejected' || !(application.attachedDocuments || []).includes(oldDocumentId)) {
+      return { error: 'Only a rejected document attached to this application can be replaced.' };
+    }
+    let replacementId = documentId;
+    if (file) {
+      const upload = await uploadVaultDocument({ file, documentType });
+      if (upload.error) return upload;
+      replacementId = upload.document.id;
+    }
+    if (!replacementId) return { error: 'Choose a replacement file.' };
+    const result = await replaceSupabaseApplicationDocument(applicationId, oldDocumentId, replacementId);
+    if (result.error) {
+      return { error: file
+        ? `The file was saved to your Document Vault but could not replace the rejected one: ${result.error.message || 'please try again.'}`
+        : result.error.message || 'The document could not be replaced.' };
+    }
+    setApplicationAttachments(applicationId, (ids) => [...ids.filter((id) => id !== oldDocumentId && id !== replacementId), replacementId], { touch: false });
+    return { ok: true };
   };
 
   const deleteDocument = async (documentId) => {
@@ -1448,33 +1495,56 @@ function App() {
     || !studentMatchProfile.citizenship
   );
 
+  // The Admissions Office workspace is split into one route per function, shown
+  // as a labeled group so the page navigation stays scannable.
+  const admissionsWorkspaceItems = state.viewerRole === 'admissions_office'
+    ? [
+      { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
+      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
+      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: true },
+      { view: 'admin-release', label: 'Results release', group: 'Admissions Office', visible: true },
+      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: true },
+    ]
+    : [];
+
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: true },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
-    { view: 'admin', label: 'Admissions Office', visible: state.viewerRole === 'admissions_office' },
+    ...admissionsWorkspaceItems,
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => (
-    <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
-      {navigationItems.map((item) => (
-        <button
-          key={item.view}
-          type="button"
-          className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
-          onClick={() => navigate(item.view)}
-          aria-current={state.activeView === item.view ? 'page' : undefined}
-        >
-          {item.label}
-        </button>
-      ))}
-    </nav>
-  );
+  const renderNavigation = (className = '') => {
+    let renderedGroup = null;
+    return (
+      <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
+        {navigationItems.map((item) => {
+          const groupHeading = item.group && item.group !== renderedGroup ? item.group : null;
+          renderedGroup = item.group || null;
+          return (
+            <Fragment key={item.view}>
+              {groupHeading && (
+                <span className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-app-muted">{groupHeading}</span>
+              )}
+              <button
+                type="button"
+                className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
+                onClick={() => navigate(item.view)}
+                aria-current={state.activeView === item.view ? 'page' : undefined}
+              >
+                {item.label}
+              </button>
+            </Fragment>
+          );
+        })}
+      </nav>
+    );
+  };
 
   if (isBooting) {
     return (
@@ -1654,6 +1724,7 @@ function App() {
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
               onOpenCalendar={() => navigate('calendar')}
               onOpenAdmin={() => navigate('admin')}
+              onOpenAdminReview={() => navigate('admin-review')}
               onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
@@ -1685,6 +1756,7 @@ function App() {
               onAttach={attachDocumentToApplication}
               onDetach={detachDocumentFromApplication}
               onUploadAndAttach={uploadAndAttachDocument}
+              onReplaceDocument={replaceRejectedDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
               onSaveProfile={saveProfile}
@@ -1699,26 +1771,54 @@ function App() {
               profile={studentMatchProfile}
               onUpload={addDocument}
               onDelete={deleteDocument}
+              onResolveDocument={(applicationId) => navigate('applications', { applicationId })}
               presetAttribute={vaultPreset.attribute}
               presetDocumentType={vaultPreset.documentType}
             />
           )}
 
-          {state.activeView === 'admin' && state.viewerRole === 'admissions_office' && (
-            <AdminConsolePage
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin' && (
+            <AdminOverviewPage
+              applications={state.applications}
+              documents={state.documents}
+              onOpenWorkspace={(view) => navigate(view)}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-review' && (
+            <AdminReviewQueuePage
               applications={state.applications}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
-              announcements={state.announcements}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onScheduleInterview={scheduleInterview}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
-              onCreateAnnouncement={addAnnouncement}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-catalog' && (
+            <AdminScholarshipCatalogPage
+              scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
+              onDirtyChange={setIsAdminCatalogDirty}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-release' && (
+            <AdminResultsReleasePage
+              applications={state.applications}
+              onReleaseResults={releaseApplicationResults}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-announcements' && (
+            <AdminAnnouncementsPage
+              announcements={state.announcements}
+              onCreateAnnouncement={addAnnouncement}
             />
           )}
 

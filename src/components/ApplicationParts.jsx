@@ -1,12 +1,15 @@
+import { Fragment, useState } from 'react';
 import { Button, StatusBadge } from './ui';
 import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
+import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { getDocumentTypeLabel } from '../lib/constants';
-import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
-import { fmtDate } from '../lib/formatters';
+import { getDocumentTypeLabel, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
+import { getVerifiableAttributeOption } from '../lib/profile';
+import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
+import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 // Shared read-only pieces of an application: the required-document checklist,
 // the supporting documents, and the self-reported profile snapshot. The
@@ -14,12 +17,33 @@ import { fmtDate } from '../lib/formatters';
 // staff review modal all render them, so the three never describe the same
 // application differently.
 
+// Standard Procedure stage track, shown on each Admissions Office queue entry and
+// in the staff review modal header.
+export function SopStageTrack({ status }) {
+  const currentIndex = sopStageIndex(status);
+  if (currentIndex == null) {
+    return <StatusBadge tone="neutral">Draft — not yet in the SOP pipeline</StatusBadge>;
+  }
+  return (
+    <ol className="flex flex-wrap gap-1" aria-label="Standard Procedure stage track">
+      {sopStages.map((stage, index) => (
+        <li
+          key={stage}
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-ateneo-strong/50 bg-ateneo/15 text-ateneo-strong dark:border-blue-400/50 dark:bg-blue-500/15 dark:text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
+        >{stage}</li>
+      ))}
+    </ol>
+  );
+}
+
 export function RequirementStateBadge({ state }) {
   const entry = REQUIREMENT_STATE_LABELS[state] || REQUIREMENT_STATE_LABELS.missing;
   return <StatusBadge tone={entry.tone} className="shrink-0">{entry.label}</StatusBadge>;
 }
 
-export function RequirementChecklist({ requirements, onPreview }) {
+// `renderAttachmentNote(doc)` lets the student's view add the rejection reason
+// and the replace action under an attached file.
+export function RequirementChecklist({ requirements, onPreview, renderAttachmentNote }) {
   if (!requirements.length) return <p className="m-0 text-sm text-app-muted">This program does not list required documents.</p>;
   return (
     <ul className="m-0 grid gap-2 p-0">
@@ -38,6 +62,7 @@ export function RequirementChecklist({ requirements, onPreview }) {
               ))}
             </span>
           ) : <span className="text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)}</span>}
+          {renderAttachmentNote ? requirement.attached.map((doc) => <Fragment key={doc.id}>{renderAttachmentNote(doc)}</Fragment>) : null}
         </li>
       ))}
     </ul>
@@ -85,9 +110,99 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
 
 const verificationTone = (status) => (status === 'Verified' ? 'success' : status === 'Rejected' ? 'danger' : 'warning');
 
+// The reason the Admissions Office recorded when it rejected a vault file,
+// shown to the student and to staff. Files rejected before reasons were
+// recorded show nothing.
+export function DocumentRejectionReason({ doc, className = '' }) {
+  if (doc?.verificationStatus !== 'Rejected' || !doc.rejectionReason) return null;
+  return (
+    <p className={`m-0 rounded-xl border border-rose-400/30 bg-rose-500/5 px-3 py-2 text-sm text-app-text ${className}`}>
+      <span className="font-semibold text-rose-600 dark:text-rose-300">Rejection reason: </span>
+      <span className="whitespace-pre-line">{doc.rejectionReason}</span>
+    </p>
+  );
+}
+
+// Lets a student swap a rejected file on a submitted, pre-endorsement
+// application: pick another vault file or upload a new one (it lands in the
+// Document Vault first). `options` comes from getReplacementOptions() in
+// src/lib/applicationRequirements.js; `onReplace(docId, { documentId } | { file,
+// documentType })` resolves to `{ ok }` or `{ error }`.
+export function RejectedDocumentReplacer({ doc, options, onReplace }) {
+  const { documentTypes, candidates } = options;
+  const [uploadType, setUploadType] = useState(documentTypes[0]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const run = async (payload) => {
+    setBusy(true);
+    setError('');
+    const result = await onReplace(doc.id, payload);
+    setBusy(false);
+    if (result?.error) setError(result.error);
+  };
+
+  const handleFile = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (file.size > DOCUMENT_MAX_BYTES) {
+      setError('Files must be 10 MB or smaller.');
+      return;
+    }
+    run({ file, documentType: uploadType });
+  };
+
+  return (
+    <div className="grid gap-3 rounded-xl border border-rose-400/30 bg-rose-500/5 p-3">
+      <div className="grid gap-1">
+        <p className="m-0 text-sm font-semibold text-app-text">Replace “{doc.title}”</p>
+        {doc.rejectionReason ? (
+          <p className="m-0 text-sm text-app-text">
+            <span className="font-semibold text-rose-600 dark:text-rose-300">Rejection reason: </span>
+            <span className="whitespace-pre-line">{doc.rejectionReason}</span>
+          </p>
+        ) : null}
+        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to the Admissions Office for verification.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="grid content-start gap-1 text-xs font-semibold text-app-muted">
+          <span>Choose from your Document Vault</span>
+          <select
+            value=""
+            disabled={busy || !candidates.length}
+            onChange={(event) => { if (event.target.value) run({ documentId: event.target.value }); }}
+            aria-label={`Choose a replacement for ${doc.title}`}
+          >
+            <option value="">{candidates.length ? 'Select a file…' : 'No other matching files in your vault'}</option>
+            {candidates.map((candidate) => (
+              <option key={candidate.id} value={candidate.id}>{candidate.title} · {candidate.verificationStatus} · {fmtDate(candidate.uploadedAt)}</option>
+            ))}
+          </select>
+        </label>
+        <div className="grid content-start gap-1 text-xs font-semibold text-app-muted">
+          <span>Or upload a corrected file</span>
+          <div className="flex min-w-0 flex-wrap gap-2">
+            {documentTypes.length > 1 ? (
+              <select className="min-w-0 flex-1" value={uploadType} onChange={(event) => setUploadType(event.target.value)} aria-label={`Document type for the replacement of ${doc.title}`} disabled={busy}>
+                {documentTypes.map((type) => <option key={type} value={type}>{getDocumentTypeLabel(type)}</option>)}
+              </select>
+            ) : null}
+            <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+              {busy ? 'Working…' : 'Upload file'}
+              <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+            </label>
+          </div>
+        </div>
+      </div>
+      {error ? <p className="form-error m-0" role="alert">{error}</p> : null}
+    </div>
+  );
+}
+
 // Vault files attached beyond the required documents. They never gate
 // submitting, but the student and the reviewers see the same list.
-export function SupportingDocumentList({ documents = [], onPreview }) {
+export function SupportingDocumentList({ documents = [], onPreview, renderAttachmentNote }) {
   if (!documents.length) return <p className="m-0 text-sm text-app-muted">No supporting documents attached.</p>;
   return (
     <ul className="m-0 grid gap-2 p-0">
@@ -98,9 +213,87 @@ export function SupportingDocumentList({ documents = [], onPreview }) {
             <StatusBadge tone={verificationTone(doc.verificationStatus)}>{doc.verificationStatus}</StatusBadge>
             {onPreview ? <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button> : null}
           </span>
+          {renderAttachmentNote ? <div className="w-full">{renderAttachmentNote(doc)}</div> : null}
         </li>
       ))}
     </ul>
+  );
+}
+
+// Renders a declared attribute value: the value a proof was uploaded to attest
+// (any verifiable attribute) or the student's current QPI and household income
+// from the staff directory.
+const formatDeclaredValue = (key, value) => {
+  if (value == null || value === '') return 'not provided';
+  if (key === 'qpi') return Number(value).toFixed(2);
+  if (key === 'householdIncome') return fmtCurrency(Number(value));
+  return String(value);
+};
+
+// Verification buttons read as actions; the status they set stays the same.
+const documentActionLabels = { Rejected: 'Reject' };
+
+const hasAttestedValue =(doc, key) => Boolean(doc.attestedValues) && Object.prototype.hasOwnProperty.call(doc.attestedValues, key);
+
+// One attached Document Vault file in the staff review modal: what it proves,
+// the value declared at upload against the student's current value, and, for
+// the Admissions Office (when `onChangeDocument` is passed), the verification
+// actions. Department Chairs get the same details read-only. `as` lets the
+// review modal's preview pane render it outside a list.
+export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument, as: Element = 'li' }) {
+  // The declared value a staff member can compare the file against, read from
+  // the profiles directory first and the application second.
+  const declaredFor = (key) => {
+    if (key === 'qpi') return owner?.qpi ?? application?.studentQpi ?? null;
+    if (key === 'householdIncome') return owner?.householdIncome ?? application?.studentHouseholdIncome ?? null;
+    return null;
+  };
+  const linkedAttributes = Array.isArray(doc.linkedAttributes) ? doc.linkedAttributes : [];
+  return (
+    <Element className="grid gap-2 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="block text-sm text-app-text">{doc.title}</span>
+          <span className="block text-xs text-app-muted">{doc.fileName ? `${doc.fileName} · ` : ''}{getDocumentTypeLabel(doc.documentType)}</span>
+        </div>
+        <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
+      </div>
+      <DocumentRejectionReason doc={doc} />
+      {linkedAttributes.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
+          {linkedAttributes.map((key) => {
+            const declared = declaredFor(key);
+            const hasDeclared = declared != null && declared !== '';
+            const attested = hasAttestedValue(doc, key);
+            // The directory only carries QPI and household income, so the value
+            // check runs for those; the academic-year check runs for all.
+            const staleReason = getProofStaleReason(doc, key, {
+              profile: hasDeclared && ['qpi', 'householdIncome'].includes(key) ? { [key]: declared } : null,
+            });
+            return (
+              <span key={key} className="inline-flex flex-wrap items-center gap-1">
+                <StatusBadge tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>
+                {attested
+                  ? <span className="text-xs text-app-muted">Declared at upload: {formatDeclaredValue(key, doc.attestedValues[key])}</span>
+                  : hasDeclared ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span> : null}
+                {staleReason === 'value' && <span className="text-xs text-app-muted">Profile now: {formatDeclaredValue(key, declared)}</span>}
+                {staleReason && <StatusBadge tone="danger">{staleReason === 'year' ? 'Outdated · earlier academic year' : 'Outdated · profile changed'}</StatusBadge>}
+              </span>
+            );
+          })}
+          {!linkedAttributes.some((key) => hasAttestedValue(doc, key) || declaredFor(key) != null) && (
+            <span className="text-xs text-app-muted">Declared values are in the student’s My Profile.</span>
+          )}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-1">
+        {onPreview ? <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button> : null}
+        {onChangeDocument && verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
+          <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{documentActionLabels[status] || status}</Button>
+        ))}
+      </div>
+    </Element>
   );
 }
 

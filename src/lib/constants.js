@@ -27,8 +27,11 @@ const roleNextStatusMap = {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
     'For Verification': ['Rejected'],
-    Endorsed: ['Rejected'],
-    Interview: ['Rejected'],
+    // SOP steps 5 and 6: the Admissions Office schedules the interview and
+    // records the sub-committee recommendation (scheduleInterview and
+    // recordDeliberation in App.jsx read this map through their status guard).
+    Endorsed: ['Interview', 'Rejected'],
+    Interview: ['Recommended', 'Rejected'],
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },
@@ -47,15 +50,63 @@ export const getNextApplicationStatuses = (status, role) => {
   return nextStatusMap[status] || [];
 };
 
+// The verb a reviewer sees for each transition in the review modal's action
+// bar. Authority still comes only from getNextApplicationStatuses; this maps a
+// permitted target status to its button label.
+const stageActionLabels = {
+  Submitted: 'Submit',
+  'Under Review': 'Mark under review',
+  'For Verification': 'Move to verification',
+  Endorsed: 'Endorse',
+  Interview: 'Schedule interview',
+  Recommended: 'Recommend for approval',
+  Approved: 'Approve',
+  Released: 'Release results',
+  Rejected: 'Reject…',
+};
+
+export const getStageActionLabel = (status, role) => {
+  if (status === 'For Verification' && role === 'department_chair') return 'Flag for central validation';
+  return stageActionLabels[status] || status;
+};
+
+// The StatusBadge tone used wherever an application status is displayed in the
+// Admissions Office workspace.
+export const getStatusTone = (status) => {
+  if (status === 'Rejected') return 'danger';
+  if (['Released', 'Approved'].includes(status)) return 'success';
+  if (['For Verification', 'Endorsed'].includes(status)) return 'warning';
+  return 'info';
+};
+
+// Every persisted `activeView` the app can render. The Admissions Office
+// workspace is split into one route per function; `admin` stays the landing
+// overview so a session saved before the split still resolves.
+export const pageViewKeys = [
+  'dashboard',
+  'explore',
+  'applications',
+  'vault',
+  'calendar',
+  'admin',
+  'admin-review',
+  'admin-catalog',
+  'admin-release',
+  'admin-announcements',
+  'review',
+  'profile',
+  'settings',
+];
+
 // The Admissions Office review queue: everything that still needs an SOP action.
 // Shared with the dashboard count so the dashboard and the Admissions Office
-// console can never show different numbers for the same data.
+// review route can never show different numbers for the same data.
 export const ADMISSIONS_REVIEW_EXCLUDED_STATUSES = ['Draft', 'Approved', 'Released', 'Rejected'];
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
 //   - Admissions Office: every application awaiting an SOP action (same filter
-//     as the console's review queue).
+//     as the review queue route).
 //   - Department Chair: applications from their department awaiting chair action.
 export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
@@ -86,6 +137,25 @@ export const sopStageIndex = (status) => {
 export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents', 'Endorsed', 'Returned'];
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
+
+// Statuses in which a student may replace a Rejected file on a submitted
+// application. After For Verification every attached file is Verified, so a
+// rejected file cannot exist there. Mirrors replace_rejected_application_document
+// (20261021000000).
+export const DOCUMENT_REPLACEMENT_STATUSES = ['Submitted', 'Under Review', 'For Verification'];
+
+// Preset reasons the Admissions Office picks from when rejecting a Document
+// Vault file. "Other" carries no preset text, so its note is required.
+export const documentRejectionReasons = [
+  { value: 'illegible', label: 'File is blurry, cropped, or unreadable' },
+  { value: 'incomplete', label: 'Document is incomplete or missing pages' },
+  { value: 'wrong-type', label: 'Wrong document type for this requirement' },
+  { value: 'outdated', label: 'Document is expired or not for the current academic year' },
+  { value: 'name-mismatch', label: 'Name on the document does not match the applicant' },
+  { value: 'value-mismatch', label: 'Document does not support the value declared in the profile' },
+  { value: 'not-certified', label: 'Not signed, stamped, or issued by the proper office' },
+  { value: 'other', label: 'Other', requiresNotes: true },
+];
 
 // Profile-attribute verification states. An attribute is verified when the
 // Admissions Office verifies a Document Vault file that declares it as proof

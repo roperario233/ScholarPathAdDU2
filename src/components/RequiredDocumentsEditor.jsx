@@ -9,18 +9,30 @@ const newRequirementId = () => `requirement-${crypto.randomUUID().slice(0, 8)}`;
 // lives inside the uncontrolled catalog form and hands the list back through a
 // hidden `requiredDocuments` JSON field, so the form's submit handler reads it
 // like any other field. Each item names the vault document types that satisfy it
-// and the year standing it applies to.
-export default function RequiredDocumentsEditor({ scholarship }) {
+// and the year standing it applies to. `onDirty` lets the catalog route include
+// these edits in its unsaved-changes guard, because the hidden field fires no
+// form event of its own.
+export default function RequiredDocumentsEditor({ scholarship, onDirty }) {
   const [items, setItems] = useState(() => (
     scholarship ? getCatalogRequirements(scholarship) : DEFAULT_REQUIRED_DOCUMENTS['general-pool']
   ).map((item) => ({ ...item, documentTypes: [...item.documentTypes] })));
 
-  const update = (id, patch) => setItems((previous) => previous.map((item) => (item.id === id ? { ...item, ...patch } : item)));
-  const remove = (id) => setItems((previous) => previous.filter((item) => item.id !== id));
-  const add = () => setItems((previous) => [...previous, { id: newRequirementId(), label: '', documentTypes: [], standing: 'all' }]);
+  const update = (id, patch) => {
+    onDirty?.();
+    setItems((previous) => previous.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+  const remove = (id) => {
+    onDirty?.();
+    setItems((previous) => previous.filter((item) => item.id !== id));
+  };
+  const add = () => {
+    onDirty?.();
+    setItems((previous) => [...previous, { id: newRequirementId(), label: '', documentTypes: [], standing: 'all' }]);
+  };
   const resetToDefaults = (event) => {
     const ruleFamily = event.currentTarget.form?.elements?.ruleFamily?.value || 'general-pool';
     if (!window.confirm('Replace this list with the default required documents for the selected eligibility rule?')) return;
+    onDirty?.();
     setItems((DEFAULT_REQUIRED_DOCUMENTS[ruleFamily] || []).map((item) => ({ ...item, documentTypes: [...item.documentTypes] })));
   };
 

@@ -230,6 +230,50 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
 };
 
 /**
+ * Renders the email sent when the Admissions Office rejects a Document Vault
+ * file. It carries the recorded reason and tells the student where to replace
+ * the file (the application's details, while the application is before
+ * endorsement).
+ */
+export const renderDocumentRejectionEmail = ({ documentTitle, reason, scholarshipTitles = [], siteUrl }) => {
+  const title = documentTitle || 'Your document';
+  const heading = `${title} needs a replacement`;
+  const applications = (Array.isArray(scholarshipTitles) ? scholarshipTitles : []).filter(Boolean);
+  const intro = applications.length
+    ? 'The Admissions Office could not verify this document. Open the application in ScholarPath AdDU and replace the file so your application can continue.'
+    : 'The Admissions Office could not verify this document. Upload a corrected file to your Document Vault.';
+  const link = `${siteUrl}?view=applications`;
+  const rows = [
+    { label: 'Document', value: title },
+    { label: 'Reason', value: reason || 'No reason was recorded.' },
+    ...(applications.length ? [{ label: applications.length === 1 ? 'Application' : 'Applications', value: applications.join(', ') }] : []),
+  ];
+
+  return {
+    subject: heading,
+    html: renderEmailLayout({
+      heading,
+      intro,
+      rows,
+      ctaLabel: 'View your applications',
+      ctaUrl: link,
+      footerNote: 'Document decisions are sent as they are recorded by the Admissions Office.',
+    }),
+    text: [
+      heading,
+      '',
+      intro,
+      '',
+      ...rows.map((row) => `${row.label}: ${row.value}`),
+      '',
+      `View your applications: ${link}`,
+      '',
+      'You are receiving this because Email Notifications are enabled in your ScholarPath AdDU settings. You can change this any time under Settings.',
+    ].join('\n'),
+  };
+};
+
+/**
  * Renders the self-service test email used by the Settings page so a signed-in
  * user can confirm real delivery without waiting for a scheduled reminder.
  */

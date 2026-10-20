@@ -1,4 +1,5 @@
 import { academicPrograms } from './academicPrograms';
+import { pageViewKeys } from './constants';
 
 // The app's local persistence key. It was renamed from the old
 // `scholarpath-addu-demo-state` key when the seeded demo data and the demo
@@ -136,7 +137,11 @@ export const createInitialState = () => {
   const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
-  const activeView = stored.activeView === 'eligibility' ? 'explore' : (stored.activeView ?? defaults.activeView);
+  // A retired or unknown view key would render an empty page, so the stored
+  // value is validated against the routes the app can actually render.
+  const activeView = stored.activeView === 'eligibility'
+    ? 'explore'
+    : (pageViewKeys.includes(stored.activeView) ? stored.activeView : defaults.activeView);
   const authUser = stored.authUser
     ? { ...stored.authUser, role: migrateRole(stored.authUser.role) }
     : defaults.authUser;
