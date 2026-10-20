@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
+import { getApplicationStatusLabel } from '../lib/constants';
 import { describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -60,7 +61,7 @@ export default function DepartmentReviewView({
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram}</p>
                       <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
                     </div>
-                    <StatusBadge tone={queueTone(entry.status)}>{entry.status}</StatusBadge>
+                    <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
                   </div>
                   <div className="rounded-xl bg-app-card/60 p-3 text-sm text-app-muted">
                     {entry.endorsement?.note || 'No recommendation has been recorded.'}
@@ -77,7 +78,7 @@ export default function DepartmentReviewView({
                         disabled={entry.status !== 'For Verification' || !ready}
                         title={!ready ? `${outstanding} document${outstanding === 1 ? '' : 's'} still need${outstanding === 1 ? 's' : ''} verification` : undefined}
                         onClick={() => onEndorseApplication(entry.id)}
-                      >Endorse</Button>
+                      >Send to endorsement</Button>
                       <Button
                         type="button"
                         disabled={!['Submitted', 'Under Review'].includes(entry.status)}

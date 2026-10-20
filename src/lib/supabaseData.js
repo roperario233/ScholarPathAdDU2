@@ -282,7 +282,7 @@ export const upsertSupabaseDepartmentReview = ({ applicationId, reviewerId, stud
 
 const recommendationNote = (status) => (
   status === 'Endorsed'
-    ? 'Endorsed to the next evaluation stage by the Department Chair.'
+    ? 'Sent to endorsement by the Department Chair.'
     : 'Returned for central document validation.'
 );
 

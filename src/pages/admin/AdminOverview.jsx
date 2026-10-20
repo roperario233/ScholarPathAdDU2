@@ -3,7 +3,7 @@ import AdminPageHeader from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { getDocumentsAwaitingReview, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
-import { getStatusTone } from '../../lib/constants';
+import { getApplicationStatusLabel, getStatusTone } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
 // The Admissions Office landing route. It carries only the metrics that steer the
@@ -96,7 +96,7 @@ export default function AdminOverview({ applications = [], documents = [], onOpe
                     <strong className="block text-sm text-app-text">{event.application.studentName} · {event.application.scholarshipTitle}</strong>
                     <span className="text-xs text-app-muted">{event.actor || 'Application workspace'} · {fmtDate(event.at || event.application.updatedAt)}</span>
                   </div>
-                  <StatusBadge tone={getStatusTone(event.application.status)}>{event.application.status}</StatusBadge>
+                  <StatusBadge tone={getStatusTone(event.application.status)}>{getApplicationStatusLabel(event.application.status)}</StatusBadge>
                 </div>
                 <p className="m-0 text-sm text-app-muted">{event.note || `Application moved to ${event.stage}.`}</p>
               </article>

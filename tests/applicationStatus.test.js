@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
@@ -115,6 +115,22 @@ describe('department chair transition map', () => {
 
 describe('transition map completeness', () => {
   const roles = ['student', 'admissions_office', 'department_chair'];
+
+  // Stored statuses stay as the database records them; the surfaces show the
+  // Standard Procedure phase instead (`Endorsed` reads "Endorsement").
+  it('shows the endorsement phase for the stored Endorsed status', () => {
+    expect(getApplicationStatusLabel('Endorsed')).toBe('Endorsement');
+  });
+
+  it('keeps every other status label identical to the stored value', () => {
+    applicationStatuses
+      .filter((status) => status !== 'Endorsed')
+      .forEach((status) => expect(getApplicationStatusLabel(status)).toBe(status));
+  });
+
+  it('labels the chair action as sending the application to endorsement', () => {
+    expect(getStageActionLabel('Endorsed', 'department_chair')).toBe('Send to endorsement');
+  });
 
   it('returns only known statuses for every role and status pair', () => {
     applicationStatuses.forEach((status) => {

@@ -3,7 +3,7 @@ import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
-import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
+import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getApplicationStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -338,7 +338,7 @@ export default function ApplicationReviewModal({
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
             <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentDepartment || 'Department on file'}</p>
           </div>
-          <StatusBadge tone={statusTone(application.status)}>{application.status}</StatusBadge>
+          <StatusBadge tone={statusTone(application.status)}>{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
         {sopStageIndex(application.status) != null ? <SopStageTrack status={application.status} /> : null}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-app-muted">

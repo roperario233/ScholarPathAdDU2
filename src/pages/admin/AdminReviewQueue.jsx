@@ -7,7 +7,7 @@ import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
 import { getDocumentsAwaitingReview, getReviewQueue } from '../../lib/admissionsOffice';
-import { getStatusTone } from '../../lib/constants';
+import { getApplicationStatusLabel, getStatusTone } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
 // SOP steps 2-6 for the Admissions Office. Document Vault verification happens
@@ -140,7 +140,7 @@ export default function AdminReviewQueue({
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
                       <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · Income ₱{Number(entry.studentHouseholdIncome || 0).toLocaleString()} · Updated {fmtDate(entry.updatedAt)}</p>
                     </div>
-                    <StatusBadge tone={getStatusTone(entry.status)}>{entry.status}</StatusBadge>
+                    <StatusBadge tone={getStatusTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
                   </div>
                   <SopStageTrack status={entry.status} />
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">

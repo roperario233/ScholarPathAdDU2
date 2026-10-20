@@ -111,6 +111,11 @@ describe('renderApplicationStatusSms', () => {
     expect(renderApplicationStatusSms({ scholarshipTitle: '', status: 'Approved' }).message)
       .toContain('your application for a scholarship is now Approved');
   });
+
+  it('shows the endorsement phase label for the stored Endorsed status', () => {
+    expect(renderApplicationStatusSms({ scholarshipTitle: 'GIA Grant', status: 'Endorsed' }).message)
+      .toBe('ScholarPath AdDU: your application for GIA Grant is now Endorsement. Sign in to view details.');
+  });
 });
 
 describe('renderDocumentRejectionSms', () => {

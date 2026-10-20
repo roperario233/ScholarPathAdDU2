@@ -58,6 +58,11 @@ export const getNextApplicationStatuses = (status, role) => {
 // automatic write did not land.
 export const AUTOMATIC_STAGE_STATUSES = ['Under Review'];
 
+// The labels every surface shows for a stored application status. Kept in the
+// shared Edge Function module so the emails and SMS use the same words as the
+// app (for example `Endorsed` is shown as "Endorsement").
+export { getApplicationStatusLabel } from '../../supabase/functions/_shared/applicationStatus.js';
+
 // The verb a reviewer sees for each transition in the review modal's action
 // bar. Authority still comes only from getNextApplicationStatuses; this maps a
 // permitted target status to its button label.
@@ -65,7 +70,7 @@ const stageActionLabels = {
   Submitted: 'Submit',
   'Under Review': 'Mark under review',
   'For Verification': 'Continue to verification',
-  Endorsed: 'Endorse',
+  Endorsed: 'Send to endorsement',
   Interview: 'Schedule interview',
   Recommended: 'Recommend for approval',
   Approved: 'Approve',
@@ -86,7 +91,7 @@ const applicationStatusGuidance = {
   Submitted: 'Your application is submitted and waiting for the Admissions Office to begin review. No action is needed right now.',
   'Under Review': 'The Admissions Office has opened your application for review. We will notify you if anything needs correction.',
   'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
-  Endorsed: 'Your application has been endorsed and is moving to the next evaluation stage.',
+  Endorsed: 'Your application is in the endorsement phase. The Department Chair has endorsed it, and the Admissions Office will schedule the interview next.',
   Interview: 'An interview has been scheduled. Watch your notifications for the date and panel details.',
   Recommended: 'The School Scholarship Sub-committee has recommended your application for approval.',
   Approved: 'Your application has been approved and is awaiting release of results.',

@@ -1,4 +1,4 @@
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES } from './constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, getApplicationStatusLabel } from './constants';
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 
 // The Admissions Office workspace is split into one route per function
@@ -59,7 +59,7 @@ export const getRecentApplicationActivity = (applications = [], limit = 5) => as
       ? log.map((event) => ({
         id: event.id,
         stage: event.toStatus,
-        note: event.reason || `Application moved to ${event.toStatus}.`,
+        note: event.reason || `Application moved to ${getApplicationStatusLabel(event.toStatus)}.`,
         actor: describeStatusActor(event, true),
         at: event.at,
       }))
@@ -67,7 +67,7 @@ export const getRecentApplicationActivity = (applications = [], limit = 5) => as
     return (events.length ? events : [{
       id: `current-${application.id}`,
       stage: application.status,
-      note: `Application is currently ${application.status}.`,
+      note: `Application is currently ${getApplicationStatusLabel(application.status)}.`,
       actor: 'Application workspace',
       at: application.updatedAt,
     }]).map((event) => ({ ...event, application }));
@@ -82,7 +82,7 @@ export const getRecentApplicationActivity = (applications = [], limit = 5) => as
 export const buildAcceptedApplicantsReport = (applications = []) => {
   const lines = ['SCHOLARPATH ADDU — ACCEPTED APPLICANTS FOR THE ADMISSIONS OFFICE', ''];
   asList(applications).forEach((entry) => {
-    lines.push(`${entry.studentName} · ${entry.scholarshipTitle} · ${entry.status} · Reference ${entry.release?.reference || 'Pending release'}`);
+    lines.push(`${entry.studentName} · ${entry.scholarshipTitle} · ${getApplicationStatusLabel(entry.status)} · Reference ${entry.release?.reference || 'Pending release'}`);
   });
   return lines.join('\n');
 };

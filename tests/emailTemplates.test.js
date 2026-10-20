@@ -154,6 +154,17 @@ describe('renderApplicationStatusEmail', () => {
     expect(html).toContain('For Verification');
     expect(text).toContain('View your applications: https://example.org/?view=applications');
   });
+
+  it('shows the endorsement phase label for the stored Endorsed status', () => {
+    const { subject, html, text } = renderApplicationStatusEmail({
+      scholarshipTitle: 'GIA Grant',
+      status: 'Endorsed',
+      siteUrl: 'https://example.org/',
+    });
+    expect(subject).toBe('Application update: Endorsement');
+    expect(html).toContain('Endorsement');
+    expect(text).toContain('New status: Endorsement');
+  });
 });
 
 describe('describeApplicationStatusUpdate', () => {
@@ -164,8 +175,14 @@ describe('describeApplicationStatusUpdate', () => {
   });
 
   it('keeps the generic next-step copy for other statuses', () => {
-    expect(describeApplicationStatusUpdate('Endorsed', 'the Admissions Office'))
-      .toBe('Your application status was updated to Endorsed through the Admissions Office. Sign in to review the next steps.');
+    expect(describeApplicationStatusUpdate('Interview', 'the Admissions Office'))
+      .toBe('Your application status was updated to Interview through the Admissions Office. Sign in to review the next steps.');
+  });
+
+  it('describes the endorsement phase for the stored Endorsed status', () => {
+    const message = describeApplicationStatusUpdate('Endorsed', 'the Department Chair');
+    expect(message).toContain('endorsement phase');
+    expect(message).toContain('interview');
   });
 });
 

@@ -24,6 +24,7 @@
 // IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { getApplicationStatusLabel } from '../_shared/applicationStatus.js';
 import { describeApplicationStatusUpdate, isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
 import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, sendSms } from '../_shared/sms.js';
@@ -196,7 +197,7 @@ Deno.serve(async (req) => {
   const message = renderApplicationStatusEmail({
     subject: status === 'For Verification'
       ? 'Application update: documents under verification'
-      : `Application status: ${status}`,
+      : `Application status: ${getApplicationStatusLabel(status)}`,
     body: statusUpdate,
     scholarshipTitle: scholarship?.title || 'Scholarship application',
     status,

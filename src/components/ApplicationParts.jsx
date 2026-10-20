@@ -6,7 +6,7 @@ import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { getDocumentTypeLabel, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
+import { getApplicationStatusLabel, getDocumentTypeLabel, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
 import { getVerifiableAttributeOption } from '../lib/profile';
 import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -30,7 +30,7 @@ export function SopStageTrack({ status }) {
         <li
           key={stage}
           className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-ateneo-strong/50 bg-ateneo/15 text-ateneo-strong dark:border-blue-400/50 dark:bg-blue-500/15 dark:text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
-        >{stage}</li>
+        >{getApplicationStatusLabel(stage)}</li>
       ))}
     </ol>
   );
@@ -83,7 +83,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
         <ol className="m-0 grid gap-2 pl-5">
           {statusLog.map((event) => (
             <li key={event.id} className="text-sm text-app-muted">
-              <strong className="text-app-text">{event.fromStatus || 'New'} → {event.toStatus}</strong>
+              <strong className="text-app-text">{event.fromStatus ? getApplicationStatusLabel(event.fromStatus) : 'New'} → {getApplicationStatusLabel(event.toStatus)}</strong>
               {event.reason ? <span> · {event.reason}</span> : null}
               <span className="block text-xs">{describeStatusActor(event, showActorName)} · {fmtDate(event.at)}</span>
             </li>
@@ -98,7 +98,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
       <ol className="m-0 grid gap-2 pl-5">
         {timeline.map((event) => (
           <li key={event.id} className="text-sm text-app-muted">
-            <strong className="text-app-text">{event.stage}</strong> · {event.note}
+            <strong className="text-app-text">{getApplicationStatusLabel(event.stage)}</strong> · {event.note}
             <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
           </li>
         ))}

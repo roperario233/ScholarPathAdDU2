@@ -1076,7 +1076,7 @@ function App() {
     const record = {
       reviewedBy: currentProfile.fullName || 'Department Chair',
       decision: 'Endorsed',
-      note: note || 'Endorsed based on academic standing and verified documents.',
+      note: note || 'Sent to endorsement based on academic standing and verified documents.',
       decidedAt: new Date().toISOString().slice(0, 10),
     };
     const result = await changeApplicationStatus(applicationId, 'Endorsed', {

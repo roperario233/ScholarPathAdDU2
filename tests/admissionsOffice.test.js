@@ -174,6 +174,15 @@ describe('getRecentApplicationActivity', () => {
     });
   });
 
+  it('shows the endorsement phase in the fallback note', () => {
+    const activity = getRecentApplicationActivity([application({ status: 'Endorsed' })]);
+
+    expect(activity[0]).toMatchObject({
+      stage: 'Endorsed',
+      note: 'Application is currently Endorsement.',
+    });
+  });
+
   it('sorts newest first and honours the limit', () => {
     const activity = getRecentApplicationActivity([
       application({ id: 'older', updatedAt: '2026-09-01T00:00:00.000Z' }),
