@@ -114,6 +114,7 @@ export default function ApplicationReviewModal({
   documents,
   students = {},
   role,
+  initialTab = null,
   onClose,
   onStatusChange,
   onEndorse,
@@ -151,7 +152,9 @@ export default function ApplicationReviewModal({
   ]);
   const otherDocuments = [...supportingDocuments, ...linkedDocuments.filter((doc) => !listedIds.has(doc.id))];
 
-  const [activeTab, setActiveTab] = useState(isAdmissionsOffice && blockedByDocuments ? 'documents' : 'overview');
+  const [activeTab, setActiveTab] = useState(
+    initialTab || (isAdmissionsOffice && blockedByDocuments ? 'documents' : 'overview'),
+  );
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
   ));
@@ -161,6 +164,7 @@ export default function ApplicationReviewModal({
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
+  const [actionError, setActionError] = useState('');
   // Re-read from `documents` every render so a Verified/Rejected decision shows
   // in the pane immediately.
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
@@ -243,22 +247,38 @@ export default function ApplicationReviewModal({
     if (status === 'Interview' && !interviewDate) return 'Enter the interview date first';
     return '';
   };
-  const runAction = (status) => {
+  const runAction = async (status) => {
     if (status === 'Rejected') {
       // A rejection must carry a recorded reason, so it opens the reason dialog.
       setRejectReasonOpen(true);
       return;
     }
+    setActionError('');
+    // The transition writes the stage and its timeline note. "For Verification"
+    // routes the attached files into the Admissions Office document queue, so
+    // the note says that explicitly for the reviewer and the student's history.
+    const options = status === 'For Verification'
+      ? {
+        note: role === 'department_chair'
+          ? 'Flagged for central document validation.'
+          : 'Continued to document verification. Attached files are queued for Admissions Office review.',
+      }
+      : undefined;
+    let result;
     if (status === 'Endorsed') {
-      onEndorse?.(application.id);
+      result = await onEndorse?.(application.id);
     } else if (status === 'Interview') {
-      onScheduleInterview?.(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
+      result = await onScheduleInterview?.(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
     } else if (status === 'Recommended') {
-      onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
+      result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
     } else if (status === 'Released') {
-      onRelease?.(application.id);
+      result = await onRelease?.(application.id);
     } else {
-      onStatusChange(application.id, status);
+      result = await onStatusChange(application.id, status, options);
+    }
+    if (result?.error) {
+      setActionError(result.error);
+      return;
     }
     onClose();
   };
@@ -446,6 +466,12 @@ export default function ApplicationReviewModal({
             <span className="font-semibold">Sub-committee note</span>
             <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the School Scholarship Sub-committee deliberation." />
           </label>
+        ) : null}
+
+        {actionError ? (
+          <p className="m-0 rounded-[14px] border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200" role="alert">
+            {actionError}
+          </p>
         ) : null}
 
         {nextStatuses.length ? (

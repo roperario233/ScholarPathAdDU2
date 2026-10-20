@@ -977,45 +977,57 @@ function App() {
     return { ok: true };
   };
 
-  const changeApplicationStatus = (applicationId, status, options = {}) => {
+  // Every reviewer stage transition goes through this one function. It awaits
+  // the Supabase write before touching local state so a failed write can never
+  // leave the queue showing a stage the database never recorded, and it returns
+  // { ok } / { error } so the review surface can report the outcome.
+  const changeApplicationStatus = async (applicationId, status, options = {}) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application) return;
+    if (!application) return { error: 'The application could not be found.' };
     // Manuscript 3.3.3: forward stages require every attached Document Vault
     // file to be Verified. The reviewer UI disables these actions and the
     // database trigger repeats the rule, so this guard only stops a stale
     // client from optimistically advancing an application it should not.
     if (ENDORSEMENT_BLOCKED_STATUSES.includes(status)
       && !isApplicationVerifiedForEndorsement(application, state.documents)) {
-      return;
+      return { error: 'Every attached document must be Verified before this stage.' };
     }
     // Stage authority lives once in getNextApplicationStatuses
     // (src/lib/constants.js), so this guard and the role maps cannot drift apart.
     if (state.viewerRole !== 'student') {
       const allowedStatuses = getNextApplicationStatuses(application.status, state.viewerRole);
-      if (!allowedStatuses.includes(status)) return;
+      if (!allowedStatuses.includes(status)) {
+        return { error: 'Your role cannot move this application to that stage.' };
+      }
     }
     const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'Admissions Office';
+    const defaultNote = status === 'For Verification'
+      ? (state.viewerRole === 'department_chair'
+        ? 'Flagged for central document validation.'
+        : 'Continued to document verification. Attached files are queued for Admissions Office review.')
+      : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
-      note: options?.note || `Application moved to ${status}.`,
+      note: options?.note || defaultNote,
       actor,
       at: new Date().toISOString().slice(0, 10),
     };
     const { note: _note, ...stageFields } = options || {};
-    if (isSupabaseWorkspaceLoaded) {
-      // The database trigger (20261014000003) is the primary sender. This call
-      // is a retry for a tab that closed first, and it only ever sends the
-      // idempotent in-app and email channels; the trigger owns the SMS channel.
-      Promise.resolve(updateSupabaseApplicationStatus(
-        applicationId,
-        status,
-        [...(application.timeline || []), stageEvent],
-        stageFields,
-      )).then((result) => {
-        if (!result?.error) return notifySupabaseApplicationStatus(applicationId);
-        return undefined;
-      }).catch(() => undefined);
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the stage change could not be saved.' };
+    }
+    const result = await updateSupabaseApplicationStatus(
+      applicationId,
+      status,
+      [...(application.timeline || []), stageEvent],
+      stageFields,
+    );
+    if (result?.error) {
+      return {
+        error: result.error.message
+          || 'The application status could not be saved. Confirm Supabase is configured and apply pending migrations.',
+      };
     }
     setState((previous) => ({
       ...previous,
@@ -1027,34 +1039,52 @@ function App() {
         timeline: [...(entry.timeline || []), stageEvent],
       } : entry),
     }));
+    // The database trigger (20261014000003) is the primary sender; this is the
+    // retry for a tab that closed first and only sends the idempotent in-app and
+    // email channels. The trigger owns the SMS channel.
+    notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+    return { ok: true };
   };
 
   // A Department Chair flags submitted applications for central validation by
   // moving them to For Verification and recording the reason in the timeline.
-  const flagApplicationForValidation = (applicationId) => {
+  const flagApplicationForValidation = (applicationId) => (
     changeApplicationStatus(applicationId, 'For Verification', {
       note: 'Flagged for central document validation.',
-    });
-  };
+    })
+  );
 
   // SOP step 4 — the Department Chair endorses qualified applications to the
   // next stage (interview and other evaluation).
-  const endorseApplication = (applicationId, note = '') => {
-    if (state.viewerRole !== 'department_chair') return;
+  const endorseApplication = async (applicationId, note = '') => {
+    if (state.viewerRole !== 'department_chair') {
+      return { error: 'Only the Department Chair can endorse at this stage.' };
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'For Verification') return;
+    if (!application || application.status !== 'For Verification') {
+      return { error: 'This application is not awaiting endorsement.' };
+    }
     // Manuscript 3.3.3: never record an endorsement for an application whose
-    // attached documents are not all Verified. changeApplicationStatus refuses
-    // that status change, so writing the department_reviews row first would
-    // leave an "Endorsed" review against an application that never advanced.
-    if (!isApplicationVerifiedForEndorsement(application, state.documents)) return;
+    // attached documents are not all Verified. The status write refuses that
+    // change too, so checking first keeps a department_reviews row from being
+    // written against an application that never advanced.
+    if (!isApplicationVerifiedForEndorsement(application, state.documents)) {
+      return { error: 'Every attached document must be Verified before endorsement.' };
+    }
     const record = {
       reviewedBy: currentProfile.fullName || 'Department Chair',
       decision: 'Endorsed',
       note: note || 'Endorsed based on academic standing and verified documents.',
       decidedAt: new Date().toISOString().slice(0, 10),
     };
+    const result = await changeApplicationStatus(applicationId, 'Endorsed', {
+      note: record.note,
+      endorsement: record,
+    });
+    if (result?.error) return result;
     if (isSupabaseWorkspaceLoaded) {
+      // The endorsement itself is the authoritative write; the department review
+      // row is an auxiliary audit record, so a failure there does not roll it back.
       upsertSupabaseDepartmentReview({
         applicationId,
         reviewerId: currentProfile.id,
@@ -1064,20 +1094,21 @@ function App() {
         householdIncome: application.studentHouseholdIncome,
         status: 'Endorsed',
         recommendation: record.note,
-      });
+      }).catch(() => undefined);
     }
-    changeApplicationStatus(applicationId, 'Endorsed', {
-      note: record.note,
-      endorsement: record,
-    });
+    return { ok: true };
   };
 
   // SOP step 5 — interview scheduling; the interviewing panel comes from the
   // school where the applicant's program belongs.
   const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
-    if (state.viewerRole !== 'admissions_office') return;
+    if (state.viewerRole !== 'admissions_office') {
+      return Promise.resolve({ error: 'Only the Admissions Office can schedule an interview.' });
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Endorsed') return;
+    if (!application || application.status !== 'Endorsed') {
+      return Promise.resolve({ error: 'This application is not awaiting an interview.' });
+    }
     const record = {
       scheduledAt: scheduledAt || null,
       panel: panel || `${application.studentDepartment || 'Department'} Scholarship Panel`,
@@ -1085,7 +1116,7 @@ function App() {
       note,
       outcome: null,
     };
-    changeApplicationStatus(applicationId, 'Interview', {
+    return changeApplicationStatus(applicationId, 'Interview', {
       note: `Interview scheduled for ${record.scheduledAt || 'an upcoming date'} with the ${record.panel}.`,
       interview: record,
     });
@@ -1094,9 +1125,13 @@ function App() {
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
   const recordDeliberation = (applicationId, decision, note = '') => {
-    if (state.viewerRole !== 'admissions_office') return;
+    if (state.viewerRole !== 'admissions_office') {
+      return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Interview') return;
+    if (!application || application.status !== 'Interview') {
+      return Promise.resolve({ error: 'This application is not awaiting a deliberation.' });
+    }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
     const record = {
       decidedBy: 'School Scholarship Sub-committee',
@@ -1104,7 +1139,7 @@ function App() {
       note,
       decidedAt: new Date().toISOString().slice(0, 10),
     };
-    changeApplicationStatus(applicationId, nextStatus, {
+    return changeApplicationStatus(applicationId, nextStatus, {
       note: note || `Sub-committee deliberation recorded as ${nextStatus}.`,
       deliberation: record,
     });
@@ -1113,9 +1148,13 @@ function App() {
   // SOP steps 7 and 8 — the scholarship committee approves and the result is
   // released to the applicant through the Admissions Office.
   const releaseApplicationResults = (applicationId) => {
-    if (state.viewerRole !== 'admissions_office') return;
+    if (state.viewerRole !== 'admissions_office') {
+      return Promise.resolve({ error: 'Only the Admissions Office can release results.' });
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Approved') return;
+    if (!application || application.status !== 'Approved') {
+      return Promise.resolve({ error: 'This application is not awaiting release.' });
+    }
     const record = {
       releasedTo: 'Admissions Office',
       releasedAt: new Date().toISOString().slice(0, 10),
@@ -1124,7 +1163,7 @@ function App() {
     // Routed through changeApplicationStatus so the release honours the same
     // document-verification guard, timeline, and persistence path as every other
     // stage — instead of writing status, stage payload, and local state directly.
-    changeApplicationStatus(applicationId, 'Released', {
+    return changeApplicationStatus(applicationId, 'Released', {
       note: `Result released to the applicant through the Admissions Office (${record.reference}).`,
       release: record,
     });

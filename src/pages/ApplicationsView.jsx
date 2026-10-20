@@ -5,7 +5,7 @@ import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import { DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
-import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getDocumentTypeLabel } from '../lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
 
@@ -152,7 +152,7 @@ export default function ApplicationsView({
                 : <><span><strong>Documents</strong> {readiness.attachedCount} of {readiness.requiredCount} attached</span>{isDraft ? <span><strong>Statement</strong> {String(entry.statement || '').trim() ? 'Written' : 'Not yet'}</span> : <span><strong>Progress</strong> {toPercent(getApplicationProgress(entry.status))}</span>}</>}
               <span><strong>Deadline</strong> {scholarship ? fmtDate(scholarship.deadline) : 'N/A'}</span>
             </div>
-            <p className="m-0 text-sm text-app-muted">{needsReplacement ? 'Action needed: replace the rejected document so your application can continue.' : isDraft ? (readiness.requirements.some((item) => item.state === 'missing' || item.state === 'rejected') ? 'Next: attach the remaining required documents.' : 'Next: review your statement, certify, and submit.') : entry.notes}</p>
+            <p className="m-0 text-sm text-app-muted">{needsReplacement ? 'Action needed: replace the rejected document so your application can continue.' : isDraft ? (readiness.requirements.some((item) => item.state === 'missing' || item.state === 'rejected') ? 'Next: attach the remaining required documents.' : 'Next: review your statement, certify, and submit.') : (isTracked ? entry.notes : getApplicationStatusGuidance(entry.status) || entry.notes)}</p>
             <div className="flex flex-wrap items-center gap-3 border-t border-app-border/60 pt-3">
               {isDraft
                 ? <Button variant="primary" type="button" onClick={() => onOpenApplication(entry.id)}>Continue application</Button>
@@ -168,6 +168,11 @@ export default function ApplicationsView({
       <ModalShell title={selected.scholarshipTitle} onClose={() => setSelectedId(null)} className="application-detail-modal">
         <div className="application-detail-modal-body grid content-start gap-4">
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted"><span><strong>Status</strong> {selectedReadiness.route === 'external' ? 'Tracked' : selected.status}</span><span><strong>Submitted</strong> {selected.submittedAt ? fmtDate(selected.submittedAt) : 'Not yet'}</span>{selected.certifiedAt ? <span><strong>Certified</strong> {fmtDate(selected.certifiedAt)}</span> : null}</div>
+          {selectedReadiness.route !== 'external' && getApplicationStatusGuidance(selected.status) ? (
+            <p className="m-0 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-app-text">
+              {getApplicationStatusGuidance(selected.status)}
+            </p>
+          ) : null}
           {selectedReadiness.route === 'external' ? <p className="m-0 text-sm text-app-muted">{selected.notes}</p> : (
             <>
               {replaceableRejected.length ? (

@@ -24,7 +24,7 @@
 // IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
+import { describeApplicationStatusUpdate, isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
 import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, sendSms } from '../_shared/sms.js';
 
@@ -192,9 +192,12 @@ Deno.serve(async (req) => {
   const env = Deno.env.toObject();
   const resend = getResendConfig(env);
   const sms = getSmsConfig(env);
+  const statusUpdate = describeApplicationStatusUpdate(status, actorLabel);
   const message = renderApplicationStatusEmail({
-    subject: `Application status: ${status}`,
-    body: `Your application status was updated to ${status} through ${actorLabel}. Sign in to review the next steps.`,
+    subject: status === 'For Verification'
+      ? 'Application update: documents under verification'
+      : `Application status: ${status}`,
+    body: statusUpdate,
     scholarshipTitle: scholarship?.title || 'Scholarship application',
     status,
     siteUrl: resolveSiteUrl(env),
@@ -209,7 +212,7 @@ Deno.serve(async (req) => {
       .upsert({
         profile_id: application.student_id,
         title: message.subject,
-        body: `Your ${scholarship?.title || 'scholarship'} application status changed to ${status} through ${actorLabel}. Open your application workspace to review the update.`,
+        body: `Your ${scholarship?.title || 'scholarship'} application: ${statusUpdate}`,
         channel: 'In-app',
         status: 'Unread',
         source_key: sourceKey,
