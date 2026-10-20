@@ -235,17 +235,21 @@ export default function ApplicationReviewModal({
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
-    {
+    // The Documents tab appears only once the application reaches the SOP
+    // verification stage; before that the gate is explained in the action bar
+    // rather than by a tab that cannot be opened.
+    ...(documentsUnlocked ? [{
       key: 'documents',
       label: 'Documents',
-      badge: documentsUnlocked
-        ? (blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length)
-        : 'Locked',
-      alert: documentsUnlocked && blockedByDocuments,
-    },
+      badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
+      alert: blockedByDocuments,
+    }] : []),
     { key: 'profile', label: 'Profile snapshot' },
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
+  // A selection pointing at a tab that is not shown (for example right after a
+  // status write) falls back to the overview instead of an empty panel.
+  const visibleActiveTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : 'overview';
 
   // Action bar: one button per transition the role may take, read once from
   // getNextApplicationStatuses. Rejection sits apart on the left; when several
@@ -266,7 +270,8 @@ export default function ApplicationReviewModal({
     && application.status === 'For Verification'
     && totalDocuments > 0
     && !blockedByDocuments;
-  // Why the Documents tab is closed, phrased for the role that is reading it.
+  // Why the Documents tab is not shown yet, phrased for the role that is reading
+  // it. It appears with the action guidance at the verification gate.
   const lockedDocumentsMessage = !isAdmissionsOffice
     ? 'Supporting documents become available once the Admissions Office continues this application to verification. You can still flag it for central validation from the action bar.'
     : linkedDocuments.length
@@ -349,15 +354,15 @@ export default function ApplicationReviewModal({
         </div>
       </header>
 
-      <ReviewTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+      <ReviewTabs tabs={tabs} active={visibleActiveTab} onChange={setActiveTab} />
 
       <div
         className="application-review-modal-body pt-4"
         role="tabpanel"
-        id={`review-panel-${activeTab}`}
-        aria-labelledby={`review-tab-${activeTab}`}
+        id={`review-panel-${visibleActiveTab}`}
+        aria-labelledby={`review-tab-${visibleActiveTab}`}
       >
-        {activeTab === 'overview' && (
+        {visibleActiveTab === 'overview' && (
           <div className="grid content-start gap-4">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <FactTile {...academicFact} />
@@ -389,18 +394,8 @@ export default function ApplicationReviewModal({
           </div>
         )}
 
-        {activeTab === 'documents' && (
-          !documentsUnlocked ? (
-            <Panel className="grid content-start gap-3">
-              <h4 className={sectionHeading}>Documents unlock at verification</h4>
-              <p className="m-0 text-sm text-app-muted">{lockedDocumentsMessage}</p>
-              {isAdmissionsOffice && forwardStatuses.includes('For Verification') ? (
-                <div>
-                  <Button type="button" onClick={() => runAction('For Verification')}>{getStageActionLabel('For Verification', role)}</Button>
-                </div>
-              ) : null}
-            </Panel>
-          ) : linkedDocuments.length || requirements.length ? (
+        {visibleActiveTab === 'documents' && (
+          linkedDocuments.length || requirements.length ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
               <div className="grid content-start gap-4">
                 {requirements.length ? (
@@ -469,14 +464,14 @@ export default function ApplicationReviewModal({
           ) : <p className="m-0 text-sm text-app-muted">No documents attached yet.</p>
         )}
 
-        {activeTab === 'profile' && (
+        {visibleActiveTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
             <ProfileSnapshotList snapshot={application.profileSnapshot} />
           </Panel>
         )}
 
-        {activeTab === 'history' && (
+        {visibleActiveTab === 'history' && (
           <Panel className="grid gap-2">
             <h4 className={sectionHeading}>Status history</h4>
             <StatusHistoryList
@@ -489,10 +484,16 @@ export default function ApplicationReviewModal({
       </div>
 
       <footer className="application-review-actions grid shrink-0 gap-3 border-t border-app-border pt-4">
+        {!documentsUnlocked ? (
+          <p className="m-0 rounded-[14px] border border-app-border bg-app-surface px-3 py-2 text-sm text-app-muted">
+            {lockedDocumentsMessage}
+          </p>
+        ) : null}
+
         {hasBlockedForward ? (
           <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200" role="status">
             <span>{documentBlockReason} before this application can be endorsed or advance to a later stage.</span>
-            {activeTab !== 'documents' ? (
+            {visibleActiveTab !== 'documents' ? (
               <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setActiveTab('documents')}>Review documents</button>
             ) : null}
           </p>

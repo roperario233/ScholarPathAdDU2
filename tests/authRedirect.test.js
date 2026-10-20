@@ -18,6 +18,9 @@ describe('getAuthRedirectUrl', () => {
 
   it('falls back to the current origin with a trailing slash', () => {
     globalThis.window = { location: { origin: 'http://localhost:5173' } };
+    // A local .env may define the canonical site URL; this case is about the
+    // fallback, so clear it explicitly instead of relying on the environment.
+    vi.stubEnv('VITE_SITE_URL', '');
 
     expect(getAuthRedirectUrl()).toBe('http://localhost:5173/');
   });
