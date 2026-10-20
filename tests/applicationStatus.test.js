@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
@@ -27,6 +27,21 @@ describe('role-aware application stage actions', () => {
 
   it('preserves the generic legacy status map when no role is supplied', () => {
     expect(getNextApplicationStatuses('For Verification')).toEqual(['Endorsed', 'Rejected']);
+  });
+});
+
+// Opening an application starts its review, so "Under Review" is a move the
+// review surface performs itself rather than a button in the action bar.
+describe('automatic review start', () => {
+  it('marks Under Review as an automatic transition', () => {
+    expect(AUTOMATIC_STAGE_STATUSES).toEqual(['Under Review']);
+  });
+
+  it('still permits the automatic write and the direct verification fallback', () => {
+    // changeApplicationStatus guards the automatic write with this map, and a
+    // Submitted application may still continue straight to verification when
+    // that write did not land.
+    expect(getNextApplicationStatuses('Submitted', 'admissions_office')).toEqual(['Under Review', 'For Verification', 'Rejected']);
   });
 });
 

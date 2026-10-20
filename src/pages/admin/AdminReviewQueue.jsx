@@ -5,7 +5,7 @@ import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { SopStageTrack } from '../../components/ApplicationParts';
 import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
-import { describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
+import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
 import { getDocumentsAwaitingReview, getReviewQueue } from '../../lib/admissionsOffice';
 import { getStatusTone } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
@@ -28,6 +28,7 @@ export default function AdminReviewQueue({
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
   const [feedback, setFeedback] = useState(null);
+  const [startingReviewId, setStartingReviewId] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
   const blockingDocuments = useMemo(
@@ -39,12 +40,27 @@ export default function AdminReviewQueue({
     [reviewApplications],
   );
 
-  // Open the shared review surface, optionally straight on its Documents tab so
-  // a queued file is one click away instead of something the reviewer has to
-  // find by opening the application and switching tabs.
+  // Open the shared review surface. Opening a Submitted application also starts
+  // its review: the move to Under Review happens once in the background so the
+  // reviewer never has to press a separate "Mark under review" button, and the
+  // application's files stay locked until it reaches verification. The modal
+  // opens immediately either way, and a failed write is reported in the banner
+  // instead of blocking the read. `tab` is only passed for an application whose
+  // documents are already reviewable.
   const openReview = (applicationId, tab = null) => {
+    const entry = applications.find((item) => item.id === applicationId);
     setReviewTab(tab);
     setSelectedId(applicationId);
+    if (entry?.status !== 'Submitted') return;
+    setStartingReviewId(applicationId);
+    Promise.resolve(onChangeApplication?.(applicationId, 'Under Review', {
+      note: 'The Admissions Office opened this application for review. Attached documents are reviewed at the verification stage.',
+    })).then((result) => {
+      setStartingReviewId((current) => (current === applicationId ? null : current));
+      if (result?.error) {
+        setFeedback({ tone: 'error', message: `Review could not be started: ${result.error}` });
+      }
+    });
   };
   const closeReview = () => {
     setSelectedId(null);
@@ -73,7 +89,7 @@ export default function AdminReviewQueue({
     <div className="grid gap-5">
       <AdminPageHeader
         title="Application review queue"
-        description="Verify supporting documents, record Standard Procedure decisions, and schedule interviews for submitted applications."
+        description="Opening an application starts its review. Continue it to verification to review its attached documents, then schedule interviews after endorsement."
         badge={`${reviewApplications.length} awaiting action`}
         badgeTone={reviewApplications.length ? 'warning' : 'success'}
       />
@@ -101,7 +117,7 @@ export default function AdminReviewQueue({
 
       <section className="grid gap-3 sm:grid-cols-3">
         <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-        <StatCard label="Documents to verify" value={blockingDocuments.length} note="Attached files still Pending" />
+        <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
         <StatCard label="For verification" value={awaitingVerification.length} note="Awaiting document decisions" />
       </section>
 
@@ -110,6 +126,12 @@ export default function AdminReviewQueue({
           <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
             {reviewApplications.length ? reviewApplications.map((entry) => {
               const { outstanding } = getDocumentVerificationReadiness(entry, documents);
+              // Document Vault review begins at the verification stage, so a
+              // Submitted or Under Review entry reports what is attached instead
+              // of promising work the current stage does not allow yet.
+              const documentsUnlocked = areDocumentsReviewable(entry.status);
+              const attachedCount = Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments.length : 0;
+              const startingThisReview = startingReviewId === entry.id;
               return (
                 <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
                   <div className="flex min-w-0 items-start justify-between gap-4">
@@ -122,11 +144,21 @@ export default function AdminReviewQueue({
                   </div>
                   <SopStageTrack status={entry.status} />
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-                    <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
-                    {outstanding ? (
+                    {entry.status === 'Submitted' ? (
+                      <Button type="button" onClick={() => openReview(entry.id)} disabled={startingThisReview}>
+                        {startingThisReview ? 'Starting review…' : 'Start review'}
+                      </Button>
+                    ) : entry.status === 'For Verification' ? (
                       <Button type="button" onClick={() => openReview(entry.id, 'documents')}>Review documents</Button>
+                    ) : (
+                      <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
+                    )}
+                    {documentsUnlocked && outstanding ? (
+                      <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge>
                     ) : null}
-                    {outstanding ? <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge> : null}
+                    {!documentsUnlocked && attachedCount ? (
+                      <StatusBadge tone="neutral">{attachedCount} attached document{attachedCount === 1 ? '' : 's'}</StatusBadge>
+                    ) : null}
                   </div>
                 </article>
               );

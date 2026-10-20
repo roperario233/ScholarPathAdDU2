@@ -1,4 +1,4 @@
-import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel, sopStageIndex } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
 import { fmtCurrency } from './formatters';
 import {
@@ -293,6 +293,26 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 // Rejected document cannot proceed to interview or subcommittee evaluation, so
 // the endorsement and every later stage are blocked. Rejection is always allowed.
 export const ENDORSEMENT_BLOCKED_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+
+// Document Vault review starts at the SOP document-verification stage. Before
+// that the reviewer is still deciding whether to continue the application, so
+// its attached files stay out of reach. `ApplicationReviewModal` keeps the
+// Documents tab locked until this is true, and `getDocumentsAwaitingReview()`
+// (src/lib/admissionsOffice.js) counts only the files this unlocks so the
+// Admissions Office metrics never promise work the stage does not allow.
+export const areDocumentsReviewable = (status) => {
+  const current = sopStageIndex(status);
+  const from = sopStageIndex('For Verification');
+  return current != null && from != null && current >= from;
+};
+
+// A terminal Rejected application has left the SOP pipeline, but its attached
+// files stay inspectable so the recorded decision can be read back. The review
+// surface gates on this; the verification queue and its metrics use
+// `areDocumentsReviewable` alone, since no document decision is pending there.
+export const areApplicationDocumentsVisible = (status) => (
+  status === 'Rejected' || areDocumentsReviewable(status)
+);
 
 // The vault files attached to an application, resolved against the loaded
 // documents. Attached ids whose document is not loaded are skipped.

@@ -51,11 +51,24 @@ describe('getDocumentsAwaitingReview', () => {
 
   it('counts only Pending files an application actually attaches', () => {
     const result = getDocumentsAwaitingReview(
-      [application({ attachedDocuments: ['doc-attached-pending', 'doc-attached-verified'] })],
+      [application({ status: 'For Verification', attachedDocuments: ['doc-attached-pending', 'doc-attached-verified'] })],
       documents,
     );
 
     expect(result.map((entry) => entry.id)).toEqual(['doc-attached-pending']);
+  });
+
+  it('waits for the verification stage before counting an application\'s files', () => {
+    const attached = ['doc-attached-pending'];
+
+    // Files are only reviewable from the SOP verification stage on, so a
+    // Submitted or Under Review application does not put work in the queue yet.
+    expect(getDocumentsAwaitingReview([application({ status: 'Submitted', attachedDocuments: attached })], documents)).toEqual([]);
+    expect(getDocumentsAwaitingReview([application({ status: 'Under Review', attachedDocuments: attached })], documents)).toEqual([]);
+    expect(getDocumentsAwaitingReview(
+      [application({ status: 'For Verification', attachedDocuments: attached })],
+      documents,
+    ).map((entry) => entry.id)).toEqual(['doc-attached-pending']);
   });
 
   it('ignores applications without an attachment list', () => {

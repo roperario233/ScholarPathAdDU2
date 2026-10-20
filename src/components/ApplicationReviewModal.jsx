@@ -3,8 +3,8 @@ import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
-import { documentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -135,6 +135,10 @@ export default function ApplicationReviewModal({
   // explains why.
   const { outstanding: outstandingDocuments, verified: verifiedDocuments, total: totalDocuments } = getDocumentVerificationReadiness(application, documents);
   const blockedByDocuments = outstandingDocuments > 0;
+  // SOP step 3 gates the Document Vault review: an application's attached files
+  // stay out of reach until it reaches the verification stage, and a rejected
+  // application keeps them readable for its recorded decision.
+  const documentsUnlocked = areApplicationDocumentsVisible(application.status);
   const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
   // declared at submit time (the frozen profile snapshot).
@@ -152,9 +156,11 @@ export default function ApplicationReviewModal({
   ]);
   const otherDocuments = [...supportingDocuments, ...linkedDocuments.filter((doc) => !listedIds.has(doc.id))];
 
-  const [activeTab, setActiveTab] = useState(
-    initialTab || (isAdmissionsOffice && blockedByDocuments ? 'documents' : 'overview'),
-  );
+  const [activeTab, setActiveTab] = useState(() => {
+    if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
+    if (initialTab) return initialTab;
+    return isAdmissionsOffice && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
+  });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
   ));
@@ -229,19 +235,43 @@ export default function ApplicationReviewModal({
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
-    { key: 'documents', label: 'Documents', badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length, alert: blockedByDocuments },
+    {
+      key: 'documents',
+      label: 'Documents',
+      badge: documentsUnlocked
+        ? (blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length)
+        : 'Locked',
+      alert: documentsUnlocked && blockedByDocuments,
+    },
     { key: 'profile', label: 'Profile snapshot' },
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
 
   // Action bar: one button per transition the role may take, read once from
   // getNextApplicationStatuses. Rejection sits apart on the left; when several
-  // forward moves are allowed, the furthest one is the primary action.
-  const forwardStatuses = nextStatuses.filter((status) => status !== 'Rejected');
+  // forward moves are allowed, the furthest one is the primary action. Moves the
+  // surface performs itself (opening an application starts its review) never
+  // render as buttons.
+  const forwardStatuses = nextStatuses.filter((status) => (
+    status !== 'Rejected' && !AUTOMATIC_STAGE_STATUSES.includes(status)
+  ));
   const canReject = nextStatuses.includes('Rejected');
   const showInterviewFields = isAdmissionsOffice && nextStatuses.includes('Interview');
   const showDeliberationField = isAdmissionsOffice && nextStatuses.includes('Recommended');
   const hasBlockedForward = blockedByDocuments && forwardStatuses.some((status) => ENDORSEMENT_BLOCKED_STATUSES.includes(status));
+  // At verification the Admissions Office has no forward stage action (the
+  // Department Chair endorses once the files pass), so say so instead of leaving
+  // a lone Reject button with no explanation.
+  const readyForEndorsement = isAdmissionsOffice
+    && application.status === 'For Verification'
+    && totalDocuments > 0
+    && !blockedByDocuments;
+  // Why the Documents tab is closed, phrased for the role that is reading it.
+  const lockedDocumentsMessage = !isAdmissionsOffice
+    ? 'Supporting documents become available once the Admissions Office continues this application to verification. You can still flag it for central validation from the action bar.'
+    : linkedDocuments.length
+      ? `Supporting documents are reviewed at Standard Procedure step 3. Continue this application to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
+      : 'This application has no attached files. Continue it to verification to begin the document stage.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
     if (status === 'Interview' && !interviewDate) return 'Enter the interview date first';
@@ -280,6 +310,12 @@ export default function ApplicationReviewModal({
       setActionError(result.error);
       return;
     }
+    if (status === 'For Verification' && isAdmissionsOffice) {
+      // The document queue opens in place: closing the modal would hide the work
+      // the review just queued.
+      setActiveTab('documents');
+      return;
+    }
     onClose();
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
@@ -304,7 +340,11 @@ export default function ApplicationReviewModal({
           <span>Submitted {application.submittedAt ? fmtDate(application.submittedAt) : 'not yet'}</span>
           <span>Certified {application.certifiedAt ? fmtDate(application.certifiedAt) : 'not yet'}</span>
           {totalDocuments ? (
-            <StatusBadge tone={blockedByDocuments ? 'warning' : 'success'}>{verifiedDocuments}/{totalDocuments} documents verified</StatusBadge>
+            documentsUnlocked ? (
+              <StatusBadge tone={blockedByDocuments ? 'warning' : 'success'}>{verifiedDocuments}/{totalDocuments} documents verified</StatusBadge>
+            ) : (
+              <StatusBadge tone="neutral">{totalDocuments} document{totalDocuments === 1 ? '' : 's'} attached · reviewed at verification</StatusBadge>
+            )
           ) : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
         </div>
       </header>
@@ -350,7 +390,17 @@ export default function ApplicationReviewModal({
         )}
 
         {activeTab === 'documents' && (
-          linkedDocuments.length || requirements.length ? (
+          !documentsUnlocked ? (
+            <Panel className="grid content-start gap-3">
+              <h4 className={sectionHeading}>Documents unlock at verification</h4>
+              <p className="m-0 text-sm text-app-muted">{lockedDocumentsMessage}</p>
+              {isAdmissionsOffice && forwardStatuses.includes('For Verification') ? (
+                <div>
+                  <Button type="button" onClick={() => runAction('For Verification')}>{getStageActionLabel('For Verification', role)}</Button>
+                </div>
+              ) : null}
+            </Panel>
+          ) : linkedDocuments.length || requirements.length ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
               <div className="grid content-start gap-4">
                 {requirements.length ? (
@@ -445,6 +495,12 @@ export default function ApplicationReviewModal({
             {activeTab !== 'documents' ? (
               <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setActiveTab('documents')}>Review documents</button>
             ) : null}
+          </p>
+        ) : null}
+
+        {readyForEndorsement ? (
+          <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
+            All attached documents are verified. This application is ready for Department Chair endorsement.
           </p>
         ) : null}
 

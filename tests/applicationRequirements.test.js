@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REQUIRED_DOCUMENTS,
   ENDORSEMENT_BLOCKED_STATUSES,
+  areApplicationDocumentsVisible,
+  areDocumentsReviewable,
   buildProfileSnapshot,
   describeApplicantAcademic,
   describeStatusActor,
@@ -387,6 +389,38 @@ describe('document verification readiness for endorsement', () => {
   it('tolerates malformed inputs', () => {
     expect(getDocumentVerificationReadiness(undefined, undefined)).toMatchObject({ total: 0, outstanding: 0, ready: true });
     expect(getDocumentVerificationReadiness({ attachedDocuments: ['x'] }, 'not an array')).toMatchObject({ total: 0, ready: true });
+  });
+});
+
+// The Document Vault review is gated to the SOP verification stage: an
+// application's files cannot be verified or rejected before it gets there.
+describe('document review stage gate', () => {
+  it('keeps documents locked until the application reaches verification', () => {
+    expect(areDocumentsReviewable('Draft')).toBe(false);
+    expect(areDocumentsReviewable('Submitted')).toBe(false);
+    expect(areDocumentsReviewable('Under Review')).toBe(false);
+    expect(areDocumentsReviewable('For Verification')).toBe(true);
+  });
+
+  it('stays unlocked for every stage after verification', () => {
+    ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].forEach((status) => {
+      expect(areDocumentsReviewable(status)).toBe(true);
+    });
+  });
+
+  it('treats a terminal or unknown status as locked', () => {
+    expect(areDocumentsReviewable('Rejected')).toBe(false);
+    expect(areDocumentsReviewable('')).toBe(false);
+    expect(areDocumentsReviewable(undefined)).toBe(false);
+  });
+
+  it('keeps a rejected application readable for its recorded decision', () => {
+    // The review surface uses this broader predicate: a rejected application has
+    // no stage action left, but its files must stay inspectable.
+    expect(areApplicationDocumentsVisible('Rejected')).toBe(true);
+    expect(areApplicationDocumentsVisible('For Verification')).toBe(true);
+    expect(areApplicationDocumentsVisible('Submitted')).toBe(false);
+    expect(areApplicationDocumentsVisible('Under Review')).toBe(false);
   });
 });
 

@@ -14,7 +14,7 @@ const workspaces = [
     view: 'admin-review',
     label: 'Application review queue',
     note: 'SOP steps 2-6',
-    description: 'Verify application documents, record stage decisions, and schedule interviews.',
+    description: 'Start application reviews, verify attached documents at the verification stage, and schedule interviews.',
     action: 'Open review queue',
   },
   {
@@ -62,7 +62,7 @@ export default function AdminOverview({ applications = [], documents = [], onOpe
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-        <StatCard label="Documents for review" value={blockingDocuments.length} note="Attached files still Pending — review inside each application" />
+        <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
         <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for the Admissions Office" />
         <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office" />
       </section>

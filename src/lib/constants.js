@@ -50,6 +50,14 @@ export const getNextApplicationStatuses = (status, role) => {
   return nextStatusMap[status] || [];
 };
 
+// Transitions the review surface performs itself instead of offering as a
+// button: opening an application starts its review, so "Under Review" is never
+// rendered in the action bar. The role maps above still permit the move because
+// changeApplicationStatus (App.jsx) reads them as the guard for that write, and
+// a Submitted application can still continue straight to verification if the
+// automatic write did not land.
+export const AUTOMATIC_STAGE_STATUSES = ['Under Review'];
+
 // The verb a reviewer sees for each transition in the review modal's action
 // bar. Authority still comes only from getNextApplicationStatuses; this maps a
 // permitted target status to its button label.
@@ -76,7 +84,7 @@ export const getStageActionLabel = (status, role) => {
 const applicationStatusGuidance = {
   Draft: 'Continue your application by attaching the required documents, writing your statement, and certifying it.',
   Submitted: 'Your application is submitted and waiting for the Admissions Office to begin review. No action is needed right now.',
-  'Under Review': 'The Admissions Office is reviewing your application and its attached documents. We will notify you if anything needs correction.',
+  'Under Review': 'The Admissions Office has opened your application for review. We will notify you if anything needs correction.',
   'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
   Endorsed: 'Your application has been endorsed and is moving to the next evaluation stage.',
   Interview: 'An interview has been scheduled. Watch your notifications for the date and panel details.',

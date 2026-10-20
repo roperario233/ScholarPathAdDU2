@@ -1,5 +1,5 @@
 import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES } from './constants';
-import { describeStatusActor } from './applicationRequirements';
+import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 
 // The Admissions Office workspace is split into one route per function
 // (overview, application review, catalog management, results release, and
@@ -28,9 +28,12 @@ export const getReleaseQueue = (applications = []) => {
 // (manuscript 3.3.3). Document Vault verification itself happens inside each
 // application's review modal, so this is a count, not a separate review list.
 export const getDocumentsAwaitingReview = (applications = [], documents = []) => {
-  const attachedDocumentIds = new Set(asList(applications).flatMap((entry) => (
-    Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments : []
-  )));
+  // Only applications that have reached the SOP verification stage can have
+  // their files reviewed, so a Pending file attached to a Submitted or
+  // Under Review application is not counted yet.
+  const attachedDocumentIds = new Set(asList(applications)
+    .filter((entry) => areDocumentsReviewable(entry.status))
+    .flatMap((entry) => (Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments : [])));
   return asList(documents).filter((entry) => (
     entry.verificationStatus === 'Pending' && attachedDocumentIds.has(entry.id)
   ));

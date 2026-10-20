@@ -1005,7 +1005,9 @@ function App() {
       ? (state.viewerRole === 'department_chair'
         ? 'Flagged for central document validation.'
         : 'Continued to document verification. Attached files are queued for Admissions Office review.')
-      : `Application moved to ${status}.`;
+      : status === 'Under Review'
+        ? 'The Admissions Office opened this application for review. Attached documents are reviewed at the verification stage.'
+        : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
