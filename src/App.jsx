@@ -355,7 +355,20 @@ function App() {
 
     const hydrateSession = async () => {
       const result = await getSupabaseSession();
-      if (!active || !result.session) {
+      if (!active) {
+        return;
+      }
+      if (!result.session) {
+        // A stored record can still claim an authenticated session after the
+        // refresh token expired. Clear it so the login screen replaces stale
+        // application data instead of leaving staff actions on an unusable
+        // session, where every write would fail with a misleading message.
+        setState((previous) => (
+          previous.isAuthenticated || previous.ownerId
+            ? createFreshState(devicePreferencesOf(previous))
+            : previous
+        ));
+        setIsSupabaseWorkspaceLoaded(false);
         return;
       }
 
@@ -1014,9 +1027,6 @@ function App() {
       at: new Date().toISOString().slice(0, 10),
     };
     const { note: _note, ...stageFields } = options || {};
-    if (!isSupabaseWorkspaceLoaded) {
-      return { error: 'Supabase is not configured, so the stage change could not be saved.' };
-    }
     const result = await updateSupabaseApplicationStatus(
       applicationId,
       status,

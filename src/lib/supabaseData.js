@@ -253,7 +253,7 @@ export const updateSupabaseApplicationStatus = (applicationId, status, timeline,
     status,
     updated_at: new Date().toISOString(),
     ...(Array.isArray(timeline) ? { timeline } : {}),
-  }).eq('id', applicationId).then(({ error }) => ({ error })) : Promise.resolve({ error: null })
+  }).eq('id', applicationId).then(({ error }) => ({ error })) : Promise.resolve({ error: { message: 'Supabase is not configured, so the application status could not be saved.' } })
 );
 
 // Persists an SOP stage payload (endorsement, interview, deliberation, release)
