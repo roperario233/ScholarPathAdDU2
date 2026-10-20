@@ -193,7 +193,7 @@ const assignmentNote = {
   student: 'Set automatically from your degree program in Academic profile.',
   department_chair: 'Your assigned department scopes the Department Review queue and is managed by the Admissions Office.',
   admissions_office: 'Admissions Office Staff lane: application preparation and document verification.',
-  admissions_head: 'Admissions Office Head lane: approval, results release, catalog, and announcements.',
+  admissions_head: 'Full Admissions Office authority: preparation, verification, approval, release, catalog, and announcements.',
 };
 
 // Both Admissions Office lanes belong to the central office, so the read-only

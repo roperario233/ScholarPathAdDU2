@@ -1019,7 +1019,7 @@ function App() {
       : status === 'For Endorsement'
         ? 'Sent to endorsement. The application is now with the Department Chair for endorsement.'
         : status === 'Under Review'
-          ? 'The Admissions Office Staff opened this application for review. Attached documents are reviewed at the verification stage.'
+          ? `${actor} opened this application for review. Attached documents are reviewed at the verification stage.`
           : status === 'Approved'
             ? 'Recommendation approved by the Admissions Office Head.'
             : `Application moved to ${status}.`;
@@ -1158,8 +1158,8 @@ function App() {
   // school where the applicant's program belongs. Planning the interview is a
   // Staff action; the Head's lane starts at the approval decision.
   const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
-    if (!isAdmissionsStaffRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only Admissions Office Staff can schedule an interview.' });
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office can schedule an interview.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Endorsed') {
@@ -1181,8 +1181,8 @@ function App() {
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
   const recordDeliberation = (applicationId, decision, note = '') => {
-    if (!isAdmissionsStaffRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only Admissions Office Staff can record a deliberation.' });
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Interview') {
@@ -1247,10 +1247,10 @@ function App() {
   // notified server-side by notify-document-verification, which the database
   // trigger calls; the browser call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
-    // Reviewing a vault file is operational work, so it belongs to the Staff
-    // lane. The Head reads verified files but does not verify them.
-    if (!isAdmissionsStaffRole(state.viewerRole)) {
-      window.alert('Only Admissions Office Staff can verify or reject a document.');
+    // Reviewing a vault file belongs to the Admissions Office. Staff verify
+    // documents; the Head has the same authority as a superset.
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      window.alert('Only the Admissions Office can verify or reject a document.');
       return;
     }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
@@ -1623,7 +1623,7 @@ function App() {
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
-      { view: 'admin-review', label: isAdmissionsHead ? 'Review queue (read-only)' : 'Review queue', group: 'Admissions Office', visible: true },
+      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
       { view: 'admin-release', label: 'Recommendation and release', group: 'Admissions Office', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: isAdmissionsHead },

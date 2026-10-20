@@ -45,12 +45,12 @@ describe('Admissions Office lane authority', () => {
     expect(getNextApplicationStatuses('Released', 'admissions_office')).toEqual([]);
   });
 
-  it('stops the Head before the approval decision', () => {
-    ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview']
-      .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_head')).toEqual([]));
+  it('gives the Head every Staff stage as well', () => {
+    ['Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview']
+      .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_head').length).toBeGreaterThan(0));
   });
 
-  it('lets the Head approve and release only', () => {
+  it('lets the Head approve and release on top of the Staff stages', () => {
     expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
     expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released']);
     expect(ADMISSIONS_APPROVAL_STATUSES).toEqual(['Recommended', 'Approved']);

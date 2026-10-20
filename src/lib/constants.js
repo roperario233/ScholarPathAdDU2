@@ -54,8 +54,14 @@ const roleNextStatusMap = {
     Interview: ['Recommended', 'Rejected'],
   },
   admissions_head: {
-    // SOP steps 7 and 8: the Head approves a recommendation and releases the
-    // result. The Head reads earlier stages but never performs them.
+    // The Head is a superset of the Staff lane: they can run every preparation
+    // stage and also decide approval (SOP step 7) and release (step 8). Staff
+    // remain limited to the preparation stages.
+    Submitted: ['Under Review', 'For Verification', 'Rejected'],
+    'Under Review': ['For Verification', 'Rejected'],
+    'For Verification': ['For Endorsement', 'Rejected'],
+    Endorsed: ['Interview', 'Rejected'],
+    Interview: ['Recommended', 'Rejected'],
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },

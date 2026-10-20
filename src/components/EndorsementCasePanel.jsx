@@ -1,7 +1,7 @@
 import ApplicationCommentThread from './ApplicationCommentThread';
 import { Button, Panel } from './ui';
 import { getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { getStageActionLabel, isAdmissionsStaffRole } from '../lib/constants';
+import { getStageActionLabel, isAdmissionsReviewerRole } from '../lib/constants';
 import {
   getApplicationComments,
   getEndorsementAgeDays,
@@ -34,7 +34,7 @@ export default function EndorsementCasePanel({
 
   const canDecide = Boolean(
     onRequestDecision
-    && ((isAdmissionsStaffRole(role) && application.status === 'For Verification')
+    && ((isAdmissionsReviewerRole(role) && application.status === 'For Verification')
       || (role === 'department_chair' && application.status === 'For Endorsement')),
   );
   const decisionLabel = role === 'department_chair'

@@ -304,7 +304,12 @@ begin
     end if;
   else
     if not (
-      (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
+      (old.status = 'Submitted' and new.status in ('Under Review', 'For Verification', 'Rejected'))
+      or (old.status = 'Under Review' and new.status in ('For Verification', 'Rejected'))
+      or (old.status = 'For Verification' and new.status in ('For Endorsement', 'Rejected'))
+      or (old.status = 'Endorsed' and new.status in ('Interview', 'Rejected'))
+      or (old.status = 'Interview' and new.status in ('Recommended', 'Rejected'))
+      or (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
       or (old.status = 'Approved' and new.status = 'Released')
     ) then
       raise exception 'The Admissions Office Head cannot move an application from % to %.', old.status, new.status
@@ -360,6 +365,7 @@ drop policy if exists "osa_documents_access" on documents;
 drop policy if exists "admissions_office_documents_access" on documents;
 drop policy if exists "admissions_office_documents_read" on documents;
 drop policy if exists "admissions_staff_documents_update" on documents;
+drop policy if exists "admissions_office_documents_update" on documents;
 drop policy if exists "chair_documents_read" on documents;
 drop policy if exists "applications_self_access" on applications;
 drop policy if exists "osa_applications_access" on applications;
@@ -409,8 +415,8 @@ create policy "documents_self_access" on documents
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
 create policy "admissions_office_documents_read" on documents
 for select using (public.is_admissions_office());
-create policy "admissions_staff_documents_update" on documents
-for update using (public.is_admissions_staff()) with check (public.is_admissions_staff());
+create policy "admissions_office_documents_update" on documents
+for update using (public.is_admissions_office()) with check (public.is_admissions_office());
 create policy "chair_documents_read" on documents
 for select using (
   public.current_profile_role() = 'department_chair'
@@ -431,10 +437,10 @@ for update using (
 create policy "admissions_head_applications_update" on applications
 for update using (
   public.is_admissions_head()
-  and status in ('Recommended', 'Approved')
+  and status in ('Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved')
 ) with check (
   public.is_admissions_head()
-  and status in ('Approved', 'Released', 'Rejected')
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
 );
 create policy "chair_applications_read" on applications
 for select using (

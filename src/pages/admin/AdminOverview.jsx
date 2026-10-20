@@ -68,7 +68,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
       <AdminPageHeader
         title={isHead ? 'Admissions Office Head overview' : 'Admissions Office overview'}
         description={isHead
-          ? 'Approve the recommendations your staff have prepared, release approved results, and maintain the office catalog and announcements.'
+          ? 'Run the full Standard Procedure when needed: prepare cases, approve recommendations, release approved results, and maintain the office catalog and announcements.'
           : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to decide.'}
         badge={isHead ? 'Approval authority' : 'Internal operations'}
       />
@@ -79,7 +79,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
             <StatCard label="Awaiting your approval" value={approvalApplications.length} note="Sub-committee recommendations" />
             <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for release" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released to applicants" />
-            <StatCard label="Open cases" value={reviewApplications.length} note="Read-only oversight" />
+            <StatCard label="Open cases" value={reviewApplications.length} note="Awaiting action" />
           </>
         ) : (
           <>

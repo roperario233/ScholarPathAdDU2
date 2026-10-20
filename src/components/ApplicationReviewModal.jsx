@@ -5,7 +5,7 @@ import ReasonModal from './ReasonModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
-import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getApplicationStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole, sopStageIndex } from '../lib/constants';
+import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getApplicationStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -127,10 +127,9 @@ export default function ApplicationReviewModal({
   reviewComments = [],
   onAddComment,
 }) {
-  // Two accountability lanes: Staff verify documents and prepare the SOP stages;
-  // the Head reads the case and decides approval and release. Department Chairs
-  // keep their endorsement-only lane.
-  const isAdmissionsStaff = isAdmissionsStaffRole(role);
+  // Both Admissions Office lanes can run the preparation stages; the Head is a
+  // superset and also decides approval and release. Department Chairs keep their
+  // endorsement-only lane.
   const isAdmissionsHead = isAdmissionsHeadRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const isWide = useIsWide();
@@ -172,7 +171,7 @@ export default function ApplicationReviewModal({
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
     if (initialTab) return initialTab;
-    return isAdmissionsStaff && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
+    return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
@@ -282,8 +281,8 @@ export default function ApplicationReviewModal({
     ...(documentsUnlocked ? [{
       key: 'documents',
       label: 'Documents',
-      badge: isAdmissionsStaff && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
-      alert: isAdmissionsStaff && blockedByDocuments,
+      badge: isAdmissionsReviewer && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
+      alert: isAdmissionsReviewer && blockedByDocuments,
     }] : []),
     // SOP step 4 in one place: the hand-off/decision record, the internal
     // thread, and the decision action. It appears from the
@@ -310,12 +309,12 @@ export default function ApplicationReviewModal({
     status !== 'Rejected' && !AUTOMATIC_STAGE_STATUSES.includes(status)
   ));
   const canReject = nextStatuses.includes('Rejected');
-  const showInterviewFields = isAdmissionsStaff && nextStatuses.includes('Interview');
-  const showDeliberationField = isAdmissionsStaff && nextStatuses.includes('Recommended');
+  const showInterviewFields = isAdmissionsReviewer && nextStatuses.includes('Interview');
+  const showDeliberationField = isAdmissionsReviewer && nextStatuses.includes('Recommended');
   const hasBlockedForward = blockedByDocuments && forwardStatuses.some((status) => ENDORSEMENT_BLOCKED_STATUSES.includes(status));
-  // The Admissions Office Staff finish verification and hand the application to
-  // the Department Chair, so at this point the only forward action is that hand-off.
-  const readyForEndorsement = isAdmissionsStaff
+  // Both Admissions Office lanes finish verification and hand the application to
+  // the Department Chair, so at this point the forward action is that hand-off.
+  const readyForEndorsement = isAdmissionsReviewer
     && application.status === 'For Verification'
     && totalDocuments > 0
     && !blockedByDocuments;
@@ -323,11 +322,9 @@ export default function ApplicationReviewModal({
   // it. It appears with the action guidance at the verification gate.
   const lockedDocumentsMessage = !isAdmissionsReviewer
     ? 'Supporting documents become available once the Admissions Office continues this application to verification. You can still flag it for central validation from the action bar.'
-    : isAdmissionsHead
-      ? 'Supporting documents are verified by Admissions Office Staff at Standard Procedure step 3. They become readable here once the application reaches verification.'
-      : linkedDocuments.length
-        ? `Supporting documents are reviewed at Standard Procedure step 3. Continue this application to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
-        : 'This application has no attached files. Continue it to verification to begin the document stage.';
+    : linkedDocuments.length
+      ? `Supporting documents are reviewed at Standard Procedure step 3. Continue this application to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
+      : 'This application has no attached files. Continue it to verification to begin the document stage.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
     if (status === 'Interview' && !interviewDate) return 'Enter the interview date first';
@@ -366,7 +363,7 @@ export default function ApplicationReviewModal({
       setActionError(result.error);
       return;
     }
-    if (status === 'For Verification' && isAdmissionsStaff) {
+    if (status === 'For Verification' && isAdmissionsReviewer) {
       // The document queue opens in place: closing the modal would hide the work
       // the review just queued.
       setActiveTab('documents');
@@ -377,7 +374,9 @@ export default function ApplicationReviewModal({
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
     : isAdmissionsHead
-      ? 'The next action at this stage belongs to Admissions Office Staff.'
+      ? (application.status === 'For Endorsement'
+        ? 'The next action at this stage belongs to the Department Chair.'
+        : 'No stage action is available at this stage.')
       : role === 'department_chair'
         ? 'The next action at this stage belongs to the Admissions Office.'
         : 'No stage action is available to your role at this stage.';
@@ -490,7 +489,7 @@ export default function ApplicationReviewModal({
                   <Panel className="grid content-start gap-3 lg:sticky lg:top-0">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                       <h4 className={sectionHeading}>Document verification</h4>
-                      {!isAdmissionsStaff ? <span className="text-xs text-app-muted">Read-only · verified by Admissions Office Staff</span> : null}
+                      {!isAdmissionsReviewer ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office</span> : null}
                     </div>
                     <DocumentVerificationItem
                       as="div"
@@ -498,7 +497,7 @@ export default function ApplicationReviewModal({
                       application={application}
                       owner={students[selectedDoc.ownerId] || null}
                       onPreview={isWide ? undefined : setPreviewDoc}
-                      onChangeDocument={isAdmissionsStaff && onChangeDocument ? changeDocument : undefined}
+                      onChangeDocument={isAdmissionsReviewer && onChangeDocument ? changeDocument : undefined}
                     />
                     {isWide ? (
                       <DocumentPreview

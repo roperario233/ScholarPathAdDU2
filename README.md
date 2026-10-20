@@ -101,23 +101,26 @@ short-lived signed URL, so no document is ever public.
 
 The Admissions Office is one office with two accountability lanes. **Admissions
 Office Staff** (`admissions_office`) prepare a case and **Admissions Office Head**
-(`admissions_head`) decide it. Both lanes share the overview and read the review
-queue; only the Head sees the approval/release, catalog, and announcement pages.
+(`admissions_head`) has full office authority: the Head can run every Staff stage
+and also decides approval and release. Both lanes share the overview and the
+review queue; only the Head sees the approval/release, catalog, and announcement
+pages.
 
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both (Head read-only) | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, interviews, and the sub-committee recommendation |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, interviews, and the sub-committee recommendation |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
 | `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
 | `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
 
-Stage authority is role-scoped in both directions: Staff may move an application
-through `Submitted`, `Under Review`, `For Verification`, `For Endorsement`
-(hand-off), `Endorsed` → `Interview` → `Recommended`, while the Head owns
-`Recommended → Approved → Released`. The same split is repeated in the database
+Stage authority is role-scoped: Staff may move an application through
+`Submitted`, `Under Review`, `For Verification`, `For Endorsement` (hand-off),
+`Endorsed` → `Interview` → `Recommended`, but cannot approve or release. The Head
+can perform all of those Staff moves and also `Recommended → Approved →
+Released`. The same rule is repeated in the database
 (`enforce_admissions_office_lane_transitions`) and in the role-scoped transition
-map, so a client-side bug cannot let one lane perform the other's decisions.
+map, so a client-side bug cannot let Staff approve or release.
 
 The Department Chair workspace opens the same application review modal. Its
 **Endorsement** tab appears once an application reaches document verification and

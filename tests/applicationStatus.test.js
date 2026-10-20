@@ -26,13 +26,13 @@ describe('role-aware application stage actions', () => {
     expect(getNextApplicationStatuses('Approved', 'admissions_office')).toEqual([]);
   });
 
-  it('reserves approval and release for the Admissions Office Head', () => {
+  it('gives the Admissions Office Head the full pipeline plus approval and release', () => {
+    expect(getNextApplicationStatuses('Submitted', 'admissions_head')).toEqual(['Under Review', 'For Verification', 'Rejected']);
+    expect(getNextApplicationStatuses('For Verification', 'admissions_head')).toEqual(['For Endorsement', 'Rejected']);
+    expect(getNextApplicationStatuses('Endorsed', 'admissions_head')).toEqual(['Interview', 'Rejected']);
+    expect(getNextApplicationStatuses('Interview', 'admissions_head')).toEqual(['Recommended', 'Rejected']);
     expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
     expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released']);
-    // The Head reads earlier stages but never performs them.
-    expect(getNextApplicationStatuses('Submitted', 'admissions_head')).toEqual([]);
-    expect(getNextApplicationStatuses('For Verification', 'admissions_head')).toEqual([]);
-    expect(getNextApplicationStatuses('Interview', 'admissions_head')).toEqual([]);
     expect(getNextApplicationStatuses('Released', 'admissions_head')).toEqual([]);
   });
 
