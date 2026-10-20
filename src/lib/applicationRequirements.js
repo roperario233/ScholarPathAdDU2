@@ -347,7 +347,8 @@ export const isApplicationVerifiedForEndorsement = (application, documents = [])
 // humanized (the log stores `admissions_office`, `department_chair`, `student`,
 // or `system`). Kept here (not in a component) so it is unit-testable.
 const ACTOR_ROLE_LABELS = {
-  admissions_office: 'Admissions Office',
+  admissions_office: 'Admissions Office Staff',
+  admissions_head: 'Admissions Office Head',
   department_chair: 'Department Chair',
   student: 'Student',
   system: 'System',

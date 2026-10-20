@@ -5,7 +5,7 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole } from './lib/constants';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
@@ -32,14 +32,15 @@ import logoImage from '../pictures/logo.png';
 
 const roleLabels = {
   student: 'Student',
-  admissions_office: 'Admissions Office Administrator',
+  admissions_office: 'Admissions Office Staff',
+  admissions_head: 'Admissions Office Head',
   department_chair: 'Department Chair',
 };
 
 // The identity rows (sidebar panel and mobile header) should not repeat a staff
 // member's name as its own role label, or echo a department whose words are
 // already in the name. The central office's seeded name is literally
-// "Admissions Office Administrator" and its department is "Office of
+// "Admissions Office Staff" and its department is "Office of
 // Admissions", which otherwise prints the same phrase three times. Parts whose
 // significant words are all covered by the name are dropped.
 const identityStopwords = new Set(['of', 'the', 'and', 'for']);
@@ -61,11 +62,19 @@ const identitySubtitle = (name, ...parts) => {
     .join(' · ');
 };
 
-const normalizeRole = (role) => role === 'osa_admin' || role === 'admissions_office'
-  ? 'admissions_office'
-  : role === 'department_chair' ? 'department_chair' : 'student';
+// The Admissions Office is two lanes: `admissions_office` (Staff) prepares a
+// case and `admissions_head` decides it. The retired `osa_admin` value and any
+// unknown value resolve to the staff lane / student respectively.
+const normalizeRole = (role) => {
+  if (role === 'osa_admin') return 'admissions_office';
+  return ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(role) ? role : 'student';
+};
 
-const landingViewForRole = (role) => normalizeRole(role) === 'admissions_office' ? 'admin' : normalizeRole(role) === 'department_chair' ? 'review' : 'dashboard';
+const landingViewForRole = (role) => (isAdmissionsStaffRole(role)
+  ? 'admin-review'
+  : isAdmissionsHeadRole(role)
+    ? 'admin'
+    : role === 'department_chair' ? 'review' : 'dashboard');
 
 const getInitials = (fullName = '') => fullName
   .split(/\s+/)
@@ -1000,7 +1009,9 @@ function App() {
         return { error: 'Your role cannot move this application to that stage.' };
       }
     }
-    const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'Admissions Office';
+    const actor = state.viewerRole === 'department_chair'
+      ? 'Department Chair'
+      : roleLabels[state.viewerRole] || 'Admissions Office';
     const defaultNote = status === 'For Verification'
       ? (state.viewerRole === 'department_chair'
         ? 'Flagged for central document validation.'
@@ -1008,8 +1019,10 @@ function App() {
       : status === 'For Endorsement'
         ? 'Sent to endorsement. The application is now with the Department Chair for endorsement.'
         : status === 'Under Review'
-          ? 'The Admissions Office opened this application for review. Attached documents are reviewed at the verification stage.'
-          : `Application moved to ${status}.`;
+          ? 'The Admissions Office Staff opened this application for review. Attached documents are reviewed at the verification stage.'
+          : status === 'Approved'
+            ? 'Recommendation approved by the Admissions Office Head.'
+            : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
@@ -1142,10 +1155,11 @@ function App() {
   };
 
   // SOP step 5 — interview scheduling; the interviewing panel comes from the
-  // school where the applicant's program belongs.
+  // school where the applicant's program belongs. Planning the interview is a
+  // Staff action; the Head's lane starts at the approval decision.
   const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
-    if (state.viewerRole !== 'admissions_office') {
-      return Promise.resolve({ error: 'Only the Admissions Office can schedule an interview.' });
+    if (!isAdmissionsStaffRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only Admissions Office Staff can schedule an interview.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Endorsed') {
@@ -1167,8 +1181,8 @@ function App() {
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
   const recordDeliberation = (applicationId, decision, note = '') => {
-    if (state.viewerRole !== 'admissions_office') {
-      return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
+    if (!isAdmissionsStaffRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only Admissions Office Staff can record a deliberation.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Interview') {
@@ -1187,11 +1201,25 @@ function App() {
     });
   };
 
-  // SOP steps 7 and 8 — the scholarship committee approves and the result is
-  // released to the applicant through the Admissions Office.
+  // SOP step 7 — the Admissions Office Head approves the sub-committee's
+  // recommendation. Staff prepare the case but never sign it off.
+  const approveApplication = (applicationId, note = '') => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office Head can approve a recommendation.' });
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || application.status !== 'Recommended') {
+      return Promise.resolve({ error: 'This application is not awaiting approval.' });
+    }
+    return changeApplicationStatus(applicationId, 'Approved', {
+      note: note || 'Recommendation approved by the Admissions Office Head.',
+    });
+  };
+
+  // SOP step 8 — the Head releases the approved result to the applicant.
   const releaseApplicationResults = (applicationId) => {
-    if (state.viewerRole !== 'admissions_office') {
-      return Promise.resolve({ error: 'Only the Admissions Office can release results.' });
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office Head can release results.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Approved') {
@@ -1219,6 +1247,12 @@ function App() {
   // notified server-side by notify-document-verification, which the database
   // trigger calls; the browser call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
+    // Reviewing a vault file is operational work, so it belongs to the Staff
+    // lane. The Head reads verified files but does not verify them.
+    if (!isAdmissionsStaffRole(state.viewerRole)) {
+      window.alert('Only Admissions Office Staff can verify or reject a document.');
+      return;
+    }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
     if (verificationStatus === 'Rejected' && !reason) return;
     if (isSupabaseWorkspaceLoaded) {
@@ -1382,6 +1416,7 @@ function App() {
 
   const addAnnouncement = (event) => {
     event.preventDefault();
+    if (!isAdmissionsHeadRole(state.viewerRole)) return;
     const formData = new FormData(event.currentTarget);
     const title = String(formData.get('announcementTitle') || '').trim();
     const body = String(formData.get('announcementBody') || '').trim();
@@ -1407,6 +1442,10 @@ function App() {
   };
 
   const saveScholarship = async (scholarship) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      window.alert('Only the Admissions Office Head can publish catalog entries.');
+      return false;
+    }
     if (!scholarship?.title || !scholarship?.coverage || !['general-pool', 'honors', 'work-study'].includes(scholarship.ruleFamily)) return;
     if (!isSupabaseWorkspaceLoaded) {
       window.alert('Supabase is not configured, so the scholarship could not be saved.');
@@ -1577,14 +1616,17 @@ function App() {
   );
 
   // The Admissions Office workspace is split into one route per function, shown
-  // as a labeled group so the page navigation stays scannable.
-  const admissionsWorkspaceItems = state.viewerRole === 'admissions_office'
+  // as a labeled group so the page navigation stays scannable. Both lanes read
+  // the overview and the review queue; only the Head manages the catalog,
+  // announcements, and the approval/release decisions.
+  const isAdmissionsHead = isAdmissionsHeadRole(state.viewerRole);
+  const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
-      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
-      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: true },
-      { view: 'admin-release', label: 'Results release', group: 'Admissions Office', visible: true },
-      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: true },
+      { view: 'admin-review', label: isAdmissionsHead ? 'Review queue (read-only)' : 'Review queue', group: 'Admissions Office', visible: true },
+      { view: 'admin-release', label: 'Recommendation and release', group: 'Admissions Office', visible: isAdmissionsHead },
+      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: isAdmissionsHead },
+      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: isAdmissionsHead },
     ]
     : [];
 
@@ -1806,6 +1848,7 @@ function App() {
               onOpenCalendar={() => navigate('calendar')}
               onOpenAdmin={() => navigate('admin')}
               onOpenAdminReview={() => navigate('admin-review')}
+              onOpenRelease={() => navigate('admin-release')}
               onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
@@ -1858,20 +1901,22 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin' && (
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin' && (
             <AdminOverviewPage
               applications={state.applications}
               documents={state.documents}
+              role={state.viewerRole}
               onOpenWorkspace={(view) => navigate(view)}
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-review' && (
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-review' && (
             <AdminReviewQueuePage
               applications={state.applications}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
+              role={state.viewerRole}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onScheduleInterview={scheduleInterview}
@@ -1883,7 +1928,7 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-catalog' && (
+          {isAdmissionsHead && state.activeView === 'admin-catalog' && (
             <AdminScholarshipCatalogPage
               scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
@@ -1891,14 +1936,19 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-release' && (
+          {isAdmissionsHead && state.activeView === 'admin-release' && (
             <AdminResultsReleasePage
               applications={state.applications}
+              documents={state.documents}
+              students={state.students}
+              scholarships={state.scholarships || []}
+              onChangeApplication={changeApplicationStatus}
+              onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-announcements' && (
+          {isAdmissionsHead && state.activeView === 'admin-announcements' && (
             <AdminAnnouncementsPage
               announcements={state.announcements}
               onCreateAnnouncement={addAnnouncement}

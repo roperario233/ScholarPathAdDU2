@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAcceptedApplicantsReport,
+  getApprovalQueue,
   getDocumentsAwaitingReview,
   getInternalCatalogEntries,
   getRecentApplicationActivity,
@@ -29,6 +30,7 @@ describe('getReviewQueue', () => {
       application({ id: 'verification', status: 'For Verification' }),
       application({ id: 'for-endorsement', status: 'For Endorsement' }),
       application({ id: 'endorsed', status: 'Endorsed' }),
+      application({ id: 'recommended', status: 'Recommended' }),
       application({ id: 'approved', status: 'Approved' }),
       application({ id: 'released', status: 'Released' }),
       application({ id: 'rejected', status: 'Rejected' }),
@@ -40,6 +42,24 @@ describe('getReviewQueue', () => {
   it('tolerates a missing collection', () => {
     expect(getReviewQueue(undefined)).toEqual([]);
     expect(getReviewQueue(null)).toEqual([]);
+  });
+});
+
+describe('getApprovalQueue', () => {
+  it('keeps only the recommendations the Admissions Office Head decides', () => {
+    const queue = getApprovalQueue([
+      application({ id: 'submitted', status: 'Submitted' }),
+      application({ id: 'recommended-a', status: 'Recommended' }),
+      application({ id: 'approved', status: 'Approved' }),
+      application({ id: 'recommended-b', status: 'Recommended' }),
+    ]);
+
+    expect(queue.map((entry) => entry.id)).toEqual(['recommended-a', 'recommended-b']);
+  });
+
+  it('tolerates a missing collection', () => {
+    expect(getApprovalQueue(undefined)).toEqual([]);
+    expect(getApprovalQueue(null)).toEqual([]);
   });
 });
 

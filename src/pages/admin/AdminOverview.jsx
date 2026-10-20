@@ -2,13 +2,15 @@ import { useMemo } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
-import { getDocumentsAwaitingReview, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
-import { getApplicationStatusLabel, getStatusTone } from '../../lib/constants';
+import { getApprovalQueue, getDocumentsAwaitingReview, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
+import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
 // The Admissions Office landing route. It carries only the metrics that steer the
 // day's work, the links into each functional workspace, and the cross-cutting
-// activity feed, so the queues and forms live on their own routes.
+// activity feed, so the queues and forms live on their own routes. Both lanes
+// share the overview; only the Head sees the approval, release, and policy
+// workspaces and metrics.
 const workspaces = [
   {
     view: 'admin-review',
@@ -23,13 +25,15 @@ const workspaces = [
     note: 'Catalog management',
     description: 'Publish and update AdDU internal entries and the documents each one requires.',
     action: 'Open catalog',
+    headOnly: true,
   },
   {
     view: 'admin-release',
     label: 'Recommendation and results release',
     note: 'SOP steps 7-8',
-    description: 'Release approved results to applicants and export the accepted list.',
-    action: 'Open results release',
+    description: 'Approve sub-committee recommendations, release approved results, and export the accepted list.',
+    action: 'Open recommendation and release',
+    headOnly: true,
   },
   {
     view: 'admin-announcements',
@@ -37,11 +41,18 @@ const workspaces = [
     note: 'Communications',
     description: 'Publish application windows, answers to inquiries, and office notices.',
     action: 'Open announcements',
+    headOnly: true,
   },
 ];
 
-export default function AdminOverview({ applications = [], documents = [], onOpenWorkspace }) {
+export default function AdminOverview({ applications = [], documents = [], role = 'admissions_office', onOpenWorkspace }) {
+  const isHead = isAdmissionsHeadRole(role);
+  const visibleWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => !workspace.headOnly || isHead),
+    [isHead],
+  );
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
+  const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
   const blockingDocuments = useMemo(
     () => getDocumentsAwaitingReview(applications, documents),
     [applications, documents],
@@ -55,22 +66,35 @@ export default function AdminOverview({ applications = [], documents = [], onOpe
   return (
     <div className="grid gap-5">
       <AdminPageHeader
-        title="Admissions Office overview"
-        description="Coordinate application operations, verify application documents, track sub-committee recommendations, and release results through the Standard Procedure."
-        badge="Internal operations"
+        title={isHead ? 'Admissions Office Head overview' : 'Admissions Office overview'}
+        description={isHead
+          ? 'Approve the recommendations your staff have prepared, release approved results, and maintain the office catalog and announcements.'
+          : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to decide.'}
+        badge={isHead ? 'Approval authority' : 'Internal operations'}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-        <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
-        <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for the Admissions Office" />
-        <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office" />
+        {isHead ? (
+          <>
+            <StatCard label="Awaiting your approval" value={approvalApplications.length} note="Sub-committee recommendations" />
+            <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for release" />
+            <StatCard label="Results released" value={releasedApplications.length} note="Released to applicants" />
+            <StatCard label="Open cases" value={reviewApplications.length} note="Read-only oversight" />
+          </>
+        ) : (
+          <>
+            <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
+            <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
+            <StatCard label="Awaiting approval" value={approvalApplications.length} note="With the Admissions Office Head" />
+            <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Head" />
+          </>
+        )}
       </section>
 
       <section className="grid gap-4">
-        <Card title="Admissions Office workspaces" action={<StatusBadge tone="info">{workspaces.length} workspaces</StatusBadge>}>
+        <Card title="Admissions Office workspaces" action={<StatusBadge tone="info">{visibleWorkspaces.length} workspaces</StatusBadge>}>
           <div className="grid gap-3 sm:grid-cols-2">
-            {workspaces.map((workspace) => (
+            {visibleWorkspaces.map((workspace) => (
               <article key={workspace.view} className="grid content-start gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                   <strong className="min-w-0 text-sm text-app-text">{workspace.label}</strong>

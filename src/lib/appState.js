@@ -137,6 +137,10 @@ export const createInitialState = () => {
     return defaults;
   }
 
+  // Session state key. `admissions_head` is the approval lane; the legacy
+  // combined `admissions_office` value is the staff lane, so a saved session
+  // keeps working after the split.
+  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_head', 'department_chair'];
   const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
@@ -153,14 +157,14 @@ export const createInitialState = () => {
     ...defaults,
     ...stored,
     activeView,
-    viewerRole: ['student', 'admissions_office', 'department_chair'].includes(viewerRole) ? viewerRole : defaults.viewerRole,
+    viewerRole: ROLE_KEYS.includes(viewerRole) ? viewerRole : defaults.viewerRole,
     theme: stored.theme ?? 'light',
     authUser,
     hasLoggedInBefore: stored.hasLoggedInBefore ?? defaults.hasLoggedInBefore,
     showFirstLoginWelcome: stored.showFirstLoginWelcome ?? defaults.showFirstLoginWelcome,
     rememberMe: stored.rememberMe ?? defaults.rememberMe,
     savedEmail: stored.savedEmail ?? defaults.savedEmail,
-    savedRole: ['student', 'admissions_office', 'department_chair'].includes(savedRole) ? savedRole : defaults.savedRole,
+    savedRole: ROLE_KEYS.includes(savedRole) ? savedRole : defaults.savedRole,
     filters: {
       ...defaults.filters,
       ...(stored.filters ?? {}),

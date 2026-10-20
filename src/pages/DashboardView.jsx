@@ -2,7 +2,7 @@ import { AnnouncementItem, Card, EmptyState, NotificationItem, ScholarshipRow, S
 import { ArrowRight, CalendarDays, CircleAlert } from 'lucide-react';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
-export default function DashboardView({ profile, isFirstLogin, stats, applications, scholarships, customDeadlines = [], eligibleScholarships, notifications, announcements, onOpenExplorer, onOpenEligibility, onTrackScholarship, onMarkRead, onShowApplications, onContinueApplication, onOpenCalendar, onOpenAdmin, onOpenAdminReview, onOpenReview, hasIncompleteProfile, onCompleteProfile }) {
+export default function DashboardView({ profile, isFirstLogin, stats, applications, scholarships, customDeadlines = [], eligibleScholarships, notifications, announcements, onOpenExplorer, onOpenEligibility, onTrackScholarship, onMarkRead, onShowApplications, onContinueApplication, onOpenCalendar, onOpenAdmin, onOpenAdminReview, onOpenRelease, onOpenReview, hasIncompleteProfile, onCompleteProfile }) {
   // Student Dashboard
   if (profile.role === 'student') {
     const draftApplication = applications.find((entry) => entry.status === 'Draft');
@@ -103,22 +103,43 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
     );
   }
 
-  // Admissions Office Dashboard
+  // Admissions Office Staff Dashboard: intake, document verification, the
+  // hand-off to the Department Chair, interviews, and the sub-committee record.
   if (profile.role === 'admissions_office') {
     return (
       <div className="grid gap-4">
         <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-          <div className="page-title-copy"><span className="page-section-label">Admissions Office workspace</span><h2>Good day, {profile.fullName || 'Administrator'}</h2><p>Coordinate application operations, document verification, announcements, and results through the Standard Procedure.</p></div>
+          <div className="page-title-copy"><span className="page-section-label">Admissions Office workspace</span><h2>Good day, {profile.fullName || 'Staff'}</h2><p>Prepare applications for decision: verify supporting documents, hand verified cases to the Department Chair, and record the interview and sub-committee stages.</p></div>
           <button type="button" onClick={onOpenAdmin} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white shadow-sm">Open Admissions Office <ArrowRight className="ml-2" size={16} /></button>
         </section>
-        <section className="grid gap-4 sm:grid-cols-3"><StatCard label="Applications to review" value={stats.openApplications} note="Submitted and under review" /><StatCard label="Programs available" value={stats.totalPrograms} note="Active scholarship pipelines" /><StatCard label="Unread alerts" value={stats.unreadNotifications} note="Needs attention" /></section>
+        <section className="grid gap-4 sm:grid-cols-3"><StatCard label="Applications to prepare" value={stats.openApplications} note="Awaiting a staff or Chair action" /><StatCard label="Programs available" value={stats.totalPrograms} note="Active scholarship pipelines" /><StatCard label="Unread alerts" value={stats.unreadNotifications} note="Needs attention" /></section>
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.62fr)]">
-          <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Today’s priorities</span><h2 className="mt-2 text-xl font-bold">Start with Admissions Office</h2><p className="mt-2 max-w-2xl text-sm text-app-muted">Review the oldest applications first, verify supporting documents, then publish any scholarship updates that students need to see.</p><button type="button" onClick={onOpenAdminReview} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review work queues <ArrowRight className="ml-2" size={16} /></button></article>
-          <div className="grid gap-3"><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Role</span><strong className="mt-1 block">Admissions Office Administrator</strong><p className="mt-1 text-sm text-app-muted">Centralized scholarship operations</p></div><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Workspace status</span><strong className="mt-1 block text-emerald-600 dark:text-emerald-300">Ready for review</strong><p className="mt-1 text-sm text-app-muted">Updates are tracked in the notification center.</p></div></div>
+          <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Today’s priorities</span><h2 className="mt-2 text-xl font-bold">Start with the review queue</h2><p className="mt-2 max-w-2xl text-sm text-app-muted">Review the oldest applications first, verify the attached documents at the verification stage, then hand the case to the Department Chair. Approval and release belong to the Admissions Office Head.</p><button type="button" onClick={onOpenAdminReview} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review work queues <ArrowRight className="ml-2" size={16} /></button></article>
+          <div className="grid gap-3"><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Role</span><strong className="mt-1 block">Admissions Office Staff</strong><p className="mt-1 text-sm text-app-muted">Application preparation and document verification</p></div><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Workspace status</span><strong className="mt-1 block text-emerald-600 dark:text-emerald-300">Ready for review</strong><p className="mt-1 text-sm text-app-muted">Updates are tracked in the notification center.</p></div></div>
         </section>
       </div>
     );
   }
+
+  // Admissions Office Head Dashboard: approval and release decisions plus the
+  // office's policy surfaces. The Head reads the review queue but never performs
+  // the staff stages.
+  if (profile.role === 'admissions_head') {
+    return (
+      <div className="grid gap-4">
+        <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
+          <div className="page-title-copy"><span className="page-section-label">Admissions Office Head workspace</span><h2>Good day, {profile.fullName || 'Head'}</h2><p>Decide the cases your staff have prepared: approve recommendations, release results, and maintain the scholarship catalog and office announcements.</p></div>
+          <button type="button" onClick={onOpenRelease} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white shadow-sm">Open recommendation and release <ArrowRight className="ml-2" size={16} /></button>
+        </section>
+        <section className="grid gap-4 sm:grid-cols-3"><StatCard label="Awaiting your decision" value={stats.openApplications} note="Recommendations and approved results" /><StatCard label="Programs available" value={stats.totalPrograms} note="Active scholarship pipelines" /><StatCard label="Unread alerts" value={stats.unreadNotifications} note="Needs attention" /></section>
+        <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.62fr)]">
+          <article className="rounded-app border border-blue-400/30 bg-gradient-to-br from-blue-500/15 via-app-card to-app-card p-5 shadow-app"><span className="eyebrow text-blue-700 dark:text-blue-200">Approval authority</span><h2 className="mt-2 text-xl font-bold">Approve, then release</h2><p className="mt-2 max-w-2xl text-sm text-app-muted">Open a recommendation to read its statement, documents, and profile snapshot before approving it. Approved results queue for release in the same workspace.</p><button type="button" onClick={onOpenRelease} className="mt-5 inline-flex min-h-10 items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white">Review decisions <ArrowRight className="ml-2" size={16} /></button></article>
+          <div className="grid gap-3"><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Role</span><strong className="mt-1 block">Admissions Office Head</strong><p className="mt-1 text-sm text-app-muted">Approval, release, and office policy surfaces</p></div><div className="rounded-[18px] border border-app-border bg-app-surface p-4"><span className="text-xs font-semibold uppercase tracking-wide text-app-muted">Oversight</span><strong className="mt-1 block text-emerald-600 dark:text-emerald-300">Read-only case access</strong><p className="mt-1 text-sm text-app-muted">The review queue stays visible without staff actions.</p></div></div>
+        </section>
+      </div>
+    );
+  }
+
 
   // Department Chair Dashboard
   if (profile.role === 'department_chair') {

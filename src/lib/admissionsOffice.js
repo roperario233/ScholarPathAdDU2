@@ -1,19 +1,25 @@
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, getApplicationStatusLabel } from './constants';
+import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from './constants';
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 
 // The Admissions Office workspace is split into one route per function
 // (overview, application review, catalog management, results release, and
-// announcements). These selectors keep every derivation out of the pages so the
+// announcements) and two accountability lanes: Staff prepare a case, the Head
+// decides it. These selectors keep every derivation out of the pages so the
 // queues, the overview metrics, and the dashboard count all read one source and
 // can be unit-tested without a DOM.
 
 const asList = (value) => (Array.isArray(value) ? value : []);
 
-// Applications that still need an SOP action. It reads the same exclusion list
-// as countApplicationsToReview(), so the overview, the review queue, and the
-// dashboard can never show different numbers for the same data.
+// Applications that still need a Staff or Department Chair action. It reads the
+// same exclusion list as countApplicationsToReview(), so the overview, the
+// review queue, and the dashboard can never show different numbers for the same
+// data. Approval and release leave this queue for the Head's lane.
 export const getReviewQueue = (applications = []) => asList(applications)
-  .filter((entry) => !ADMISSIONS_REVIEW_EXCLUDED_STATUSES.includes(entry.status));
+  .filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status));
+
+// SOP step 7: recommendations the Admissions Office Head approves.
+export const getApprovalQueue = (applications = []) => asList(applications)
+  .filter((entry) => entry.status === 'Recommended');
 
 // Applications whose result can be released (SOP steps 7-8).
 export const getReleaseQueue = (applications = []) => {

@@ -192,8 +192,13 @@ function SelectField({ label, hint, error, value, onChange, options, placeholder
 const assignmentNote = {
   student: 'Set automatically from your degree program in Academic profile.',
   department_chair: 'Your assigned department scopes the Department Review queue and is managed by the Admissions Office.',
-  admissions_office: 'Central Admissions Office operations role.',
+  admissions_office: 'Admissions Office Staff lane: application preparation and document verification.',
+  admissions_head: 'Admissions Office Head lane: approval, results release, catalog, and announcements.',
 };
+
+// Both Admissions Office lanes belong to the central office, so the read-only
+// field reads "Office" for either of them.
+const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'admissions_head';
 
 // The year standing decides which answers an application reads, so the
 // overview says which credential the student is matched on.
@@ -395,7 +400,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       <div className="grid gap-3 md:grid-cols-2">
         <ReadOnlyField label="Sign-in email" value={profile.email} note="Managed by your sign-in account." className="md:col-span-2" />
         <ReadOnlyField label="Role" value={roleLabel} />
-        <ReadOnlyField label={role === 'admissions_office' ? 'Office' : 'School / Department'} value={profile.department} note={assignmentNote[role]} />
+        <ReadOnlyField label={isAdmissionsRole(role) ? 'Office' : 'School / Department'} value={profile.department} note={assignmentNote[role]} />
       </div>
     </SectionForm>
   );

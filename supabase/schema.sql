@@ -4,7 +4,7 @@ create table if not exists profiles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique,
   full_name text not null,
-  role text not null check (role in ('student', 'admissions_office', 'department_chair')),
+  role text not null check (role in ('student', 'admissions_office', 'admissions_head', 'department_chair')),
   email text,
   phone text,
   department text,
@@ -19,7 +19,7 @@ alter table profiles add column if not exists student_number text;
 alter table profiles drop constraint if exists profiles_role_check;
 update profiles set role = 'admissions_office' where role = 'osa_admin';
 alter table profiles add constraint profiles_role_check
-  check (role in ('student', 'admissions_office', 'department_chair'));
+  check (role in ('student', 'admissions_office', 'admissions_head', 'department_chair'));
 
 -- Server-side mirror of the notification center settings (see
 -- src/lib/demoState.js `notificationPreferences`). Required so the scheduled
@@ -205,7 +205,7 @@ create table if not exists application_review_comments (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null references applications(id) on delete cascade,
   author_id uuid not null references profiles(user_id) on delete cascade,
-  author_role text not null check (author_role in ('admissions_office', 'department_chair')),
+  author_role text not null check (author_role in ('admissions_office', 'admissions_head', 'department_chair')),
   author_name text not null,
   kind text not null default 'note' check (kind in ('note', 'question', 'decision')),
   body text not null check (char_length(btrim(body)) between 1 and 2000),
@@ -244,6 +244,86 @@ set search_path = public
 stable
 as $$ select department from public.profiles where user_id = auth.uid() limit 1 $$;
 
+-- Admissions Office lanes (see 20261024000000_split_admissions_office_head_and_staff.sql).
+-- `admissions_office` is Staff (intake, verification, hand-off, interviews,
+-- recommendation); `admissions_head` decides approval and release and owns the
+-- catalog and announcement surfaces.
+create or replace function public.is_admissions_staff()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$ select public.current_profile_role() = 'admissions_office' $$;
+
+create or replace function public.is_admissions_head()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$ select public.current_profile_role() = 'admissions_head' $$;
+
+create or replace function public.is_admissions_office()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$ select public.current_profile_role() in ('admissions_office', 'admissions_head') $$;
+
+-- The role-scoped transition map, repeated in the database because RLS cannot
+-- compare a row's old and new status. Students, Chairs, and service-role writes
+-- are exempt.
+create or replace function public.enforce_admissions_office_lane_transitions()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role text := public.current_profile_role();
+begin
+  if caller_role is null or caller_role not in ('admissions_office', 'admissions_head') then
+    return new;
+  end if;
+  if new.status is not distinct from old.status then
+    return new;
+  end if;
+
+  if caller_role = 'admissions_office' then
+    if not (
+      (old.status = 'Submitted' and new.status in ('Under Review', 'For Verification', 'Rejected'))
+      or (old.status = 'Under Review' and new.status in ('For Verification', 'Rejected'))
+      or (old.status = 'For Verification' and new.status in ('For Endorsement', 'Rejected'))
+      or (old.status = 'Endorsed' and new.status in ('Interview', 'Rejected'))
+      or (old.status = 'Interview' and new.status in ('Recommended', 'Rejected'))
+    ) then
+      raise exception 'Admissions Office Staff cannot move an application from % to %.', old.status, new.status
+        using errcode = '42501';
+    end if;
+  else
+    if not (
+      (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
+      or (old.status = 'Approved' and new.status = 'Released')
+    ) then
+      raise exception 'The Admissions Office Head cannot move an application from % to %.', old.status, new.status
+        using errcode = '42501';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_admissions_office_lane_transitions on public.applications;
+create trigger enforce_admissions_office_lane_transitions
+  before update on public.applications
+  for each row execute function public.enforce_admissions_office_lane_transitions();
+
+revoke all on function public.enforce_admissions_office_lane_transitions() from public;
+revoke all on function public.enforce_admissions_office_lane_transitions() from anon, authenticated;
+
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -278,10 +358,15 @@ drop policy if exists "admissions_office_scholarships_manage" on scholarships;
 drop policy if exists "documents_self_access" on documents;
 drop policy if exists "osa_documents_access" on documents;
 drop policy if exists "admissions_office_documents_access" on documents;
+drop policy if exists "admissions_office_documents_read" on documents;
+drop policy if exists "admissions_staff_documents_update" on documents;
 drop policy if exists "chair_documents_read" on documents;
 drop policy if exists "applications_self_access" on applications;
 drop policy if exists "osa_applications_access" on applications;
 drop policy if exists "admissions_office_applications_access" on applications;
+drop policy if exists "admissions_office_applications_read" on applications;
+drop policy if exists "admissions_staff_applications_update" on applications;
+drop policy if exists "admissions_head_applications_update" on applications;
 drop policy if exists "chair_applications_read" on applications;
 drop policy if exists "chair_applications_status" on applications;
 drop policy if exists "chair_applications_flag_for_validation" on applications;
@@ -304,26 +389,28 @@ drop policy if exists "admissions_office_academic_programs_manage" on academic_p
 create policy "profiles_self_read_write" on profiles
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "staff_read_profiles" on profiles
-for select using (public.current_profile_role() in ('admissions_office', 'department_chair'));
+for select using (public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair'));
 
 create policy "scholarships_read_all" on scholarships
 for select using (true);
 create policy "admissions_office_scholarships_manage" on scholarships
 for all using (
-  public.current_profile_role() = 'admissions_office'
+  public.is_admissions_head()
   and category = 'Internal Endowment'
   and is_external = false
   and rule_family in ('general-pool', 'honors', 'work-study')
 ) with check (
-  public.current_profile_role() = 'admissions_office'
+  public.is_admissions_head()
   and category = 'Internal Endowment'
   and is_external = false
   and rule_family in ('general-pool', 'honors', 'work-study')
 );
 create policy "documents_self_access" on documents
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
-create policy "admissions_office_documents_access" on documents
-for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
+create policy "admissions_office_documents_read" on documents
+for select using (public.is_admissions_office());
+create policy "admissions_staff_documents_update" on documents
+for update using (public.is_admissions_staff()) with check (public.is_admissions_staff());
 create policy "chair_documents_read" on documents
 for select using (
   public.current_profile_role() = 'department_chair'
@@ -331,8 +418,24 @@ for select using (
 );
 create policy "applications_self_access" on applications
 for all using (auth.uid() = student_id) with check (auth.uid() = student_id);
-create policy "admissions_office_applications_access" on applications
-for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
+create policy "admissions_office_applications_read" on applications
+for select using (public.is_admissions_office());
+create policy "admissions_staff_applications_update" on applications
+for update using (
+  public.is_admissions_staff()
+  and status in ('Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview')
+) with check (
+  public.is_admissions_staff()
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Interview', 'Recommended', 'Rejected')
+);
+create policy "admissions_head_applications_update" on applications
+for update using (
+  public.is_admissions_head()
+  and status in ('Recommended', 'Approved')
+) with check (
+  public.is_admissions_head()
+  and status in ('Approved', 'Released', 'Rejected')
+);
 create policy "chair_applications_read" on applications
 for select using (
   public.current_profile_role() = 'department_chair'
@@ -374,12 +477,12 @@ for delete using (
   exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft')
 );
 create policy "staff_application_documents_access" on application_documents
-for all using (public.current_profile_role() in ('admissions_office', 'department_chair'))
-with check (public.current_profile_role() in ('admissions_office', 'department_chair'));
+for all using (public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair'))
+with check (public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair'));
 create policy "announcements_read_all" on announcements
 for select using (true);
 create policy "admissions_office_announcements_manage" on announcements
-for insert with check (public.current_profile_role() = 'admissions_office' and created_by = auth.uid());
+for insert with check (public.is_admissions_head() and created_by = auth.uid());
 create policy "notifications_self_access" on notifications
 for all using (auth.uid() = profile_id) with check (auth.uid() = profile_id);
 create policy "department_reviews_restricted" on department_reviews
@@ -389,7 +492,7 @@ for all using (public.current_profile_role() = 'department_chair' and auth.uid()
 with check (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id);
 create policy "staff_review_comments_read" on application_review_comments
 for select using (
-  public.current_profile_role() = 'admissions_office'
+  public.is_admissions_office()
   or (
     public.current_profile_role() = 'department_chair'
     and exists (
@@ -405,7 +508,7 @@ for insert with check (
   author_id = auth.uid()
   and author_role = public.current_profile_role()
   and (
-    public.current_profile_role() = 'admissions_office'
+    public.is_admissions_office()
     or (
       public.current_profile_role() = 'department_chair'
       and exists (
@@ -420,7 +523,7 @@ for insert with check (
 create policy "academic_programs_read_all" on academic_programs
 for select using (true);
 create policy "admissions_office_academic_programs_manage" on academic_programs
-for all using (public.current_profile_role() = 'admissions_office') with check (public.current_profile_role() = 'admissions_office');
+for all using (public.is_admissions_head()) with check (public.is_admissions_head());
 
 -- ---------------------------------------------------------------------------
 -- Student submit gate. Staff transitions keep their own RLS policies; this
@@ -674,7 +777,7 @@ alter table public.application_status_log enable row level security;
 drop policy if exists "status_log_staff_read" on public.application_status_log;
 create policy "status_log_staff_read" on public.application_status_log
 for select using (
-  public.current_profile_role() = 'admissions_office'
+  public.is_admissions_office()
   or (
     public.current_profile_role() = 'department_chair'
     and exists (
@@ -899,7 +1002,7 @@ with check (bucket_id = 'documents' and (storage.foldername(name))[1] = auth.uid
 drop policy if exists "documents_storage_admissions_office_read" on storage.objects;
 create policy "documents_storage_admissions_office_read" on storage.objects
 for select to authenticated
-using (bucket_id = 'documents' and public.current_profile_role() = 'admissions_office');
+using (bucket_id = 'documents' and public.is_admissions_office());
 
 drop policy if exists "documents_storage_chair_read" on storage.objects;
 create policy "documents_storage_chair_read" on storage.objects

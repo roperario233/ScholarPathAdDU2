@@ -133,6 +133,20 @@ describe('createInitialState', () => {
     expect(state.authUser.role).toBe('admissions_office');
   });
 
+  it('restores an Admissions Office Head session', () => {
+    installStorage({
+      viewerRole: 'admissions_head',
+      savedRole: 'admissions_head',
+      authUser: { id: 'head-1', role: 'admissions_head', fullName: 'Office Head' },
+    });
+
+    const state = createInitialState();
+
+    expect(state.viewerRole).toBe('admissions_head');
+    expect(state.savedRole).toBe('admissions_head');
+    expect(state.authUser.role).toBe('admissions_head');
+  });
+
   it('carries over only theme, preferences, and deadlines from the legacy demo key', () => {
     const storage = createMemoryStorage({
       [legacyStorageKey]: JSON.stringify({

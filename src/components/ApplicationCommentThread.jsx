@@ -3,7 +3,8 @@ import { Button, EmptyState } from './ui';
 import { fmtDate } from '../lib/formatters';
 
 const roleLabels = {
-  admissions_office: 'Admissions Office',
+  admissions_office: 'Admissions Office Staff',
+  admissions_head: 'Admissions Office Head',
   department_chair: 'Department Chair',
 };
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
+import { ADMISSIONS_APPROVAL_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
@@ -16,13 +16,24 @@ describe('role-aware application stage actions', () => {
     expect(getNextApplicationStatuses('Interview', 'department_chair')).toEqual([]);
   });
 
-  it('reserves verification, interview, approval, and release actions for Admissions Office', () => {
+  it('reserves preparation actions for Admissions Office Staff', () => {
     expect(getNextApplicationStatuses('For Verification', 'admissions_office')).toEqual(['For Endorsement', 'Rejected']);
     // scheduleInterview and recordDeliberation in App.jsx pass through this map.
     expect(getNextApplicationStatuses('Endorsed', 'admissions_office')).toEqual(['Interview', 'Rejected']);
     expect(getNextApplicationStatuses('Interview', 'admissions_office')).toEqual(['Recommended', 'Rejected']);
-    expect(getNextApplicationStatuses('Recommended', 'admissions_office')).toContain('Approved');
-    expect(getNextApplicationStatuses('Approved', 'admissions_office')).toEqual(['Released']);
+    // Approval and release are the Head's decisions.
+    expect(getNextApplicationStatuses('Recommended', 'admissions_office')).toEqual([]);
+    expect(getNextApplicationStatuses('Approved', 'admissions_office')).toEqual([]);
+  });
+
+  it('reserves approval and release for the Admissions Office Head', () => {
+    expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
+    expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released']);
+    // The Head reads earlier stages but never performs them.
+    expect(getNextApplicationStatuses('Submitted', 'admissions_head')).toEqual([]);
+    expect(getNextApplicationStatuses('For Verification', 'admissions_head')).toEqual([]);
+    expect(getNextApplicationStatuses('Interview', 'admissions_head')).toEqual([]);
+    expect(getNextApplicationStatuses('Released', 'admissions_head')).toEqual([]);
   });
 
   it('preserves the generic legacy status map when no role is supplied', () => {
@@ -51,6 +62,7 @@ describe('countApplicationsToReview', () => {
     application({ id: 'a-submitted', studentId: 'student-1', status: 'Submitted' }),
     application({ id: 'a-review', studentId: 'student-1', status: 'Under Review' }),
     application({ id: 'a-verify', studentId: 'student-1', status: 'For Endorsement' }),
+    application({ id: 'a-recommended', studentId: 'student-1', status: 'Recommended' }),
     application({ id: 'a-approved', studentId: 'student-1', status: 'Approved' }),
     application({ id: 'a-released', studentId: 'student-1', status: 'Released' }),
     application({ id: 'a-rejected', studentId: 'student-1', status: 'Rejected' }),
@@ -64,15 +76,22 @@ describe('countApplicationsToReview', () => {
 
   it('counts a student\'s own live applications, excluding Rejected and Approved', () => {
     // Only Rejected and Approved are closed for a student (preserved behavior),
-    // so Draft, Submitted, Under Review, For Verification, and Released count.
-    expect(countApplicationsToReview(applications, { role: 'student', studentId: 'student-1' })).toBe(5);
+    // so Draft, Submitted, Under Review, For Endorsement, Recommended, and
+    // Released count.
+    expect(countApplicationsToReview(applications, { role: 'student', studentId: 'student-1' })).toBe(6);
     expect(countApplicationsToReview(applications, { role: 'student', studentId: 'student-2' })).toBe(1);
   });
 
-  it('counts every application awaiting an Admissions Office SOP action', () => {
-    const expected = applications.filter((entry) => !ADMISSIONS_REVIEW_EXCLUDED_STATUSES.includes(entry.status)).length;
-    expect(countApplicationsToReview(applications, { role: 'admissions_office' })).toBe(expected);
+  it('counts only Staff-actionable applications for Admissions Office Staff', () => {
+    // Recommended has moved to the Head's lane, so Staff see Submitted, Under
+    // Review, and the two For Endorsement cases.
     expect(countApplicationsToReview(applications, { role: 'admissions_office' })).toBe(4);
+  });
+
+  it('counts the approval and release decisions for the Admissions Office Head', () => {
+    const expected = applications.filter((entry) => ADMISSIONS_APPROVAL_STATUSES.includes(entry.status)).length;
+    expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(expected);
+    expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(2);
   });
 
   it('counts only the department\'s pending queue for a Department Chair', () => {
@@ -115,7 +134,7 @@ describe('department chair transition map', () => {
 });
 
 describe('transition map completeness', () => {
-  const roles = ['student', 'admissions_office', 'department_chair'];
+  const roles = ['student', 'admissions_office', 'admissions_head', 'department_chair'];
 
   // Stored statuses stay as the database records them; the surfaces show the
   // Standard Procedure phase instead (`Endorsed` reads "Endorsement", and the

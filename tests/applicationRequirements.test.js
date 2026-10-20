@@ -475,14 +475,15 @@ describe('describeStatusActor', () => {
   });
 
   it('falls back to the humanized role for staff when the name cannot be resolved', () => {
-    expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office Staff');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: null }), true)).toBe('Admissions Office Head');
     expect(describeStatusActor(logRow({ actorRole: 'department_chair', actorName: null }), true)).toBe('Department Chair');
     expect(describeStatusActor(logRow({ actorRole: 'student', actorName: null }), true)).toBe('Student');
   });
 
   it('shows the role (never the name) for a student', () => {
-    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office');
-    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }))).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office Staff');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: 'Ada Cruz' }))).toBe('Admissions Office Head');
   });
 
   it('labels an automated move as System', () => {

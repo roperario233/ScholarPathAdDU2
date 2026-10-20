@@ -24,18 +24,38 @@ const nextStatusMap = {
   Rejected: [],
 };
 
+// The Admissions Office is two lanes with one accountability boundary. Staff
+// prepare a case (intake, document verification, the hand-off to the Department
+// Chair, the interview schedule, and the sub-committee recommendation); the Head
+// decides it (approval and release) and owns the office's policy surfaces.
+// Stage authority is still this one map: App.jsx's changeApplicationStatus guard,
+// the review modal's action bar, and the database trigger all read it.
+export const ADMISSIONS_OFFICE_ROLES = ['admissions_office', 'admissions_head'];
+
+// The decisions the Head owns: SOP step 7 (approval) and step 8 (release).
+export const ADMISSIONS_APPROVAL_STATUSES = ['Recommended', 'Approved'];
+
+export const isAdmissionsStaffRole = (role) => role === 'admissions_office';
+export const isAdmissionsHeadRole = (role) => role === 'admissions_head';
+export const isAdmissionsReviewerRole = (role) => ADMISSIONS_OFFICE_ROLES.includes(role);
+
 const roleNextStatusMap = {
   admissions_office: {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
-    // The Admissions Office finishes document verification and hands the
+    // The Admissions Office Staff finish document verification and hand the
     // application to the Department Chair for endorsement (SOP step 4).
     'For Verification': ['For Endorsement', 'Rejected'],
-    // SOP steps 5 and 6: the Admissions Office schedules the interview and
-    // records the sub-committee recommendation (scheduleInterview and
-    // recordDeliberation in App.jsx read this map through their status guard).
+    // SOP steps 5 and 6: staff schedule the interview and record the
+    // sub-committee recommendation (scheduleInterview and recordDeliberation in
+    // App.jsx read this map through their status guard). Approval and release
+    // are not staff decisions.
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
+  },
+  admissions_head: {
+    // SOP steps 7 and 8: the Head approves a recommendation and releases the
+    // result. The Head reads earlier stages but never performs them.
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },
@@ -50,7 +70,7 @@ const roleNextStatusMap = {
 
 export const getNextApplicationStatuses = (status, role) => {
   if (role === 'department_chair') return roleNextStatusMap.department_chair[status] || [];
-  if (role === 'admissions_office') return roleNextStatusMap.admissions_office[status] || [];
+  if (isAdmissionsReviewerRole(role)) return roleNextStatusMap[role][status] || [];
   return nextStatusMap[status] || [];
 };
 
@@ -135,21 +155,28 @@ export const pageViewKeys = [
   'settings',
 ];
 
-// The Admissions Office review queue: everything that still needs an SOP action.
-// Shared with the dashboard count so the dashboard and the Admissions Office
-// review route can never show different numbers for the same data.
+// The Admissions Office Staff review queue: everything that still needs a staff
+// or Department Chair action. `Recommended` is excluded because approval now
+// belongs to the Admissions Office Head, and `Approved` moves to the Head's
+// release queue.
 export const ADMISSIONS_REVIEW_EXCLUDED_STATUSES = ['Draft', 'Approved', 'Released', 'Rejected'];
+export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED_STATUSES, 'Recommended'];
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
-//   - Admissions Office: every application awaiting an SOP action (same filter
-//     as the review queue route).
+//   - Admissions Office Staff: every application awaiting a staff or Chair action
+//     (the same filter as the staff review queue route).
+//   - Admissions Office Head: the approval and release decisions the Head owns.
 //   - Department Chair: applications from their department awaiting chair action.
 export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
 
-  if (role === 'admissions_office') {
-    return list.filter((entry) => !ADMISSIONS_REVIEW_EXCLUDED_STATUSES.includes(entry.status)).length;
+  if (isAdmissionsStaffRole(role)) {
+    return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
+  }
+
+  if (isAdmissionsHeadRole(role)) {
+    return list.filter((entry) => ADMISSIONS_APPROVAL_STATUSES.includes(entry.status)).length;
   }
 
   if (role === 'department_chair') {

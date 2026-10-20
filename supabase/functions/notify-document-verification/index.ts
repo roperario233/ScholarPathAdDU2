@@ -14,8 +14,8 @@
 //
 // Deployed with verify_jwt disabled, like notify-application-status: the
 // database caller presents the shared REMINDER_CRON_SECRET, and any other caller
-// must be a signed-in Admissions Office administrator (the only role that
-// verifies documents). Every channel dedupes on
+// must be a signed-in Admissions Office Staff or Head account (Staff is the lane
+// that verifies documents). Every channel dedupes on
 // `document-verification-<documentId>-<status>-<decidedAtEpoch>`; SMS is sent
 // only by the database caller because it has no idempotency key of its own.
 // Required Edge Function secrets: RESEND_API_KEY, RESEND_FROM_EMAIL,
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', jwtUser.user.id)
       .maybeSingle();
-    if (!['admissions_office', 'osa_admin'].includes(callerProfile?.role)) {
+    if (!['admissions_office', 'admissions_head', 'osa_admin'].includes(callerProfile?.role)) {
       return json({ error: 'Only the Admissions Office can send document notifications' }, 403);
     }
   }

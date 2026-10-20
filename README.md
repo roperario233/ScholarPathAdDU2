@@ -55,7 +55,7 @@ optionally upload proof documents for these attributes in the Document Vault,
 and the Admissions Office verifies the file and the linked attribute together;
 verification is informational and never blocks eligibility matching or applying.
 
-Department Chairs and Admissions Office administrators can edit only their name,
+Department Chairs and both Admissions Office lanes can edit only their name,
 mobile number, and bio. Department assignment is never self-editable, because it
 scopes the Department Review queue.
 
@@ -99,22 +99,25 @@ short-lived signed URL, so no document is ever public.
 
 ## Admissions Office workspace
 
-The Admissions Office administrator role works across five focused pages instead
-of one combined console. Each page is its own app route, and the sidebar shows
-them as a grouped set of page links:
+The Admissions Office is one office with two accountability lanes. **Admissions
+Office Staff** (`admissions_office`) prepare a case and **Admissions Office Head**
+(`admissions_head`) decide it. Both lanes share the overview and read the review
+queue; only the Head sees the approval/release, catalog, and announcement pages.
 
-| Route | Page | What it covers |
-| --- | --- | --- |
-| `admin` | Overview | Applications in review, documents still to verify, approved-awaiting-release and released counts, links into each workspace, and recent application activity |
-| `admin-review` | Review queue | SOP steps 2–6: the review queue and the shared application review modal, where documents are verified or rejected, the application is handed to endorsement, and each stage decision is recorded |
-| `admin-catalog` | Scholarship catalog | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
-| `admin-release` | Results release | SOP steps 7–8: releasing approved results and exporting the accepted list |
-| `admin-announcements` | Announcements | Publishing office updates and reviewing the published list |
+| Route | Page | Lane | What it covers |
+| --- | --- | --- | --- |
+| `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
+| `admin-review` | Review queue | Both (Head read-only) | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, interviews, and the sub-committee recommendation |
+| `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
+| `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
+| `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
 
-Splitting these pages does not change any stage authority: every action still
-runs through the same role-scoped transition map and the same
-document-verification gate, and the workspace is still limited to the
-`admissions_office` role.
+Stage authority is role-scoped in both directions: Staff may move an application
+through `Submitted`, `Under Review`, `For Verification`, `For Endorsement`
+(hand-off), `Endorsed` → `Interview` → `Recommended`, while the Head owns
+`Recommended → Approved → Released`. The same split is repeated in the database
+(`enforce_admissions_office_lane_transitions`) and in the role-scoped transition
+map, so a client-side bug cannot let one lane perform the other's decisions.
 
 The Department Chair workspace opens the same application review modal. Its
 **Endorsement** tab appears once an application reaches document verification and
@@ -130,7 +133,8 @@ these seeded credentials:
 
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
-| Admissions Office Administrator | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office overview |
+| Admissions Office Staff | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
+| Admissions Office Head | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
 | Department Chair | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
@@ -149,13 +153,19 @@ the matching `profiles` row. Do not use a user-initiated email change: while
 Secure Email Change is enabled it mails a confirmation to the old address, and
 changing only the auth identity leaves delivery pointed at the previous mailbox.
 
-To provision or reset either account, create the auth user with a confirmed
-email address, then set the role and department on the matching `profiles` row:
+To provision or reset an account, create the auth user with a confirmed
+email address, then set the role and department on the matching `profiles` row.
+The Admissions Office Head shares the Office of Admissions department with the
+Staff lane; the role value, not the department, decides what the account may do:
 
 ```sql
 update public.profiles
 set role = 'admissions_office', department = 'Office of Admissions'
 where email = 'scholarpath.admissions@gmail.com';
+
+update public.profiles
+set role = 'admissions_head', department = 'Office of Admissions'
+where email = 'scholarpath.admissionshead@gmail.com';
 
 update public.profiles
 set role = 'department_chair', department = 'College of Computer Studies (CCS)'
@@ -166,8 +176,8 @@ The Department Chair `department` scopes the Department Review queue, so it must
 match the applicant department the chair should see. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
-Office workspace routes and the Department Review view appear in the sidebar only
-for those roles.
+Office Staff and Head routes, and the Department Review view, appear in the
+sidebar only for those roles.
 
 
 ## Email notifications (Resend)

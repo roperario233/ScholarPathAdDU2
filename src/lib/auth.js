@@ -217,7 +217,7 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
     const metadata = authUser.user_metadata || {};
     const role = metadata.role === 'osa_admin'
       ? 'admissions_office'
-      : ['student', 'admissions_office', 'department_chair'].includes(metadata.role)
+      : ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(metadata.role)
         ? metadata.role
         : 'student';
     const fullName = metadata.full_name?.trim() || authUser.email?.split('@')[0] || 'ScholarPath user';

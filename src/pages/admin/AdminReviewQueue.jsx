@@ -7,17 +7,19 @@ import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
 import { getDocumentsAwaitingReview, getReviewQueue } from '../../lib/admissionsOffice';
-import { getApplicationStatusLabel, getStatusTone } from '../../lib/constants';
+import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole, isAdmissionsStaffRole } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
 // SOP steps 2-6 for the Admissions Office. Document Vault verification happens
 // inside the shared ApplicationReviewModal, so this route is the queue plus the
-// review surface and nothing else.
+// review surface and nothing else. Staff work the queue; the Head reads it for
+// oversight without triggering the automatic review start.
 export default function AdminReviewQueue({
   applications = [],
   students = {},
   documents = [],
   scholarships = [],
+  role = 'admissions_office',
   onChangeApplication,
   onEndorseApplication,
   onScheduleInterview,
@@ -27,6 +29,8 @@ export default function AdminReviewQueue({
   reviewComments = [],
   onAddComment,
 }) {
+  const isHead = isAdmissionsHeadRole(role);
+  const isStaff = isAdmissionsStaffRole(role);
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
   const [feedback, setFeedback] = useState(null);
@@ -45,18 +49,18 @@ export default function AdminReviewQueue({
   // Open the shared review surface. Opening a Submitted application also starts
   // its review: the move to Under Review happens once in the background so the
   // reviewer never has to press a separate "Mark under review" button, and the
-  // application's files stay locked until it reaches verification. The modal
-  // opens immediately either way, and a failed write is reported in the banner
-  // instead of blocking the read. `tab` is only passed for an application whose
-  // documents are already reviewable.
+  // application's files stay locked until it reaches verification. Only Staff
+  // start a review — the Head's oversight read must not stamp the stage. The
+  // modal opens immediately either way, and a failed write is reported in the
+  // banner instead of blocking the read.
   const openReview = (applicationId, tab = null) => {
     const entry = applications.find((item) => item.id === applicationId);
     setReviewTab(tab);
     setSelectedId(applicationId);
-    if (entry?.status !== 'Submitted') return;
+    if (!isStaff || entry?.status !== 'Submitted') return;
     setStartingReviewId(applicationId);
     Promise.resolve(onChangeApplication?.(applicationId, 'Under Review', {
-      note: 'The Admissions Office opened this application for review. Attached documents are reviewed at the verification stage.',
+      note: 'The Admissions Office Staff opened this application for review. Attached documents are reviewed at the verification stage.',
     })).then((result) => {
       setStartingReviewId((current) => (current === applicationId ? null : current));
       if (result?.error) {
@@ -90,9 +94,11 @@ export default function AdminReviewQueue({
   return (
     <div className="grid gap-5">
       <AdminPageHeader
-        title="Application review queue"
-        description="Opening an application starts its review. Continue it to verification to review its attached documents, then schedule interviews after endorsement."
-        badge={`${reviewApplications.length} awaiting action`}
+        title={isHead ? 'Application review queue (read-only)' : 'Application review queue'}
+        description={isHead
+          ? 'Oversight view of the cases your staff are preparing. Approval and release decisions happen in the recommendation and release workspace.'
+          : 'Opening an application starts its review. Continue it to verification to review its attached documents, then schedule interviews after endorsement.'}
+        badge={`${reviewApplications.length} ${isHead ? 'open' : 'awaiting action'}`}
         badgeTone={reviewApplications.length ? 'warning' : 'success'}
       />
 
@@ -118,16 +124,16 @@ export default function AdminReviewQueue({
       )}
 
       <section className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-        <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
-        <StatCard label="For verification" value={awaitingVerification.length} note="Awaiting document decisions" />
+        <StatCard label="Applications in review" value={reviewApplications.length} note={isHead ? 'Read-only oversight' : 'Standard Procedure workflow queue'} />
+        <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note={isHead ? 'Checked by Admissions Office Staff' : 'Files on applications at verification'} />
+        <StatCard label="For verification" value={awaitingVerification.length} note={isHead ? 'With Admissions Office Staff' : 'Awaiting document decisions'} />
       </section>
 
       <section className="grid gap-4">
-        <Card title="Application review queue" action={<StatusBadge tone={reviewApplications.length ? 'warning' : 'success'}>{reviewApplications.length} awaiting action</StatusBadge>}>
+        <Card title="Application review queue" action={<StatusBadge tone={reviewApplications.length ? 'warning' : 'success'}>{reviewApplications.length} {isHead ? 'open' : 'awaiting action'}</StatusBadge>}>
           <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
             {reviewApplications.length ? reviewApplications.map((entry) => {
-              const { outstanding } = getDocumentVerificationReadiness(entry, documents);
+              const { outstanding, verified, total } = getDocumentVerificationReadiness(entry, documents);
               // Document Vault review begins at the verification stage, so a
               // Submitted or Under Review entry reports what is attached instead
               // of promising work the current stage does not allow yet.
@@ -146,7 +152,9 @@ export default function AdminReviewQueue({
                   </div>
                   <SopStageTrack status={entry.status} />
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-                    {entry.status === 'Submitted' ? (
+                    {!isStaff ? (
+                      <Button type="button" onClick={() => openReview(entry.id, entry.status === 'For Endorsement' ? 'endorsement' : documentsUnlocked ? 'documents' : null)}>Open review</Button>
+                    ) : entry.status === 'Submitted' ? (
                       <Button type="button" onClick={() => openReview(entry.id)} disabled={startingThisReview}>
                         {startingThisReview ? 'Starting review…' : 'Start review'}
                       </Button>
@@ -157,8 +165,12 @@ export default function AdminReviewQueue({
                     ) : (
                       <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
                     )}
-                    {documentsUnlocked && outstanding ? (
-                      <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge>
+                    {documentsUnlocked && (isStaff ? outstanding : total) ? (
+                      isStaff ? (
+                        <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge>
+                      ) : (
+                        <StatusBadge tone={outstanding ? 'neutral' : 'success'}>{verified}/{total} verified</StatusBadge>
+                      )
                     ) : null}
                     {!documentsUnlocked && attachedCount ? (
                       <StatusBadge tone="neutral">{attachedCount} attached document{attachedCount === 1 ? '' : 's'}</StatusBadge>
@@ -166,7 +178,7 @@ export default function AdminReviewQueue({
                   </div>
                 </article>
               );
-            }) : <EmptyState title="No applications in review" description="Submitted applications will appear here for central office review." />}
+            }) : <EmptyState title="No applications in review" description={isHead ? 'Cases your staff are preparing appear here for oversight.' : 'Submitted applications will appear here for central office review.'} />}
           </div>
         </Card>
       </section>
@@ -177,7 +189,7 @@ export default function AdminReviewQueue({
           scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
           students={students}
-          role="admissions_office"
+          role={role}
           initialTab={reviewTab}
           onClose={closeReview}
           onStatusChange={handleStatusChange}
