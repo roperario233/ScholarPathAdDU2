@@ -120,6 +120,9 @@ const createDefaultState = () => ({
   students: {},
   notifications: [],
   announcements: [],
+  // The internal endorsement thread. Staff-only rows; a student session always
+  // keeps this empty.
+  reviewComments: [],
   customDeadlines: [],
   profileSkipped: false,
   theme: 'light',
@@ -179,6 +182,7 @@ export const createInitialState = () => {
     students: stored.students && typeof stored.students === 'object' && !Array.isArray(stored.students) ? stored.students : defaults.students,
     notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
+    reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
     academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,

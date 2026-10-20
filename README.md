@@ -106,7 +106,7 @@ them as a grouped set of page links:
 | Route | Page | What it covers |
 | --- | --- | --- |
 | `admin` | Overview | Applications in review, documents still to verify, approved-awaiting-release and released counts, links into each workspace, and recent application activity |
-| `admin-review` | Review queue | SOP steps 2–6: the review queue and the shared application review modal, where documents are verified or rejected and each stage decision is recorded |
+| `admin-review` | Review queue | SOP steps 2–6: the review queue and the shared application review modal, where documents are verified or rejected, the application is handed to endorsement, and each stage decision is recorded |
 | `admin-catalog` | Scholarship catalog | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
 | `admin-release` | Results release | SOP steps 7–8: releasing approved results and exporting the accepted list |
 | `admin-announcements` | Announcements | Publishing office updates and reviewing the published list |
@@ -115,6 +115,12 @@ Splitting these pages does not change any stage authority: every action still
 runs through the same role-scoped transition map and the same
 document-verification gate, and the workspace is still limited to the
 `admissions_office` role.
+
+The Department Chair workspace opens the same application review modal. Its
+**Endorsement** tab appears once an application reaches document verification and
+shows the endorsement record (hand-off and decision), one internal comment
+thread, and the Endorse action. Students never see the thread, and every comment
+stays in the append-only review record.
 
 ## Provisioning staff accounts
 

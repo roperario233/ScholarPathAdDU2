@@ -3,7 +3,7 @@ import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
-import { describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
+import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const queueTone = (status) => {
@@ -18,11 +18,14 @@ export default function DepartmentReviewView({
   queue,
   documents,
   scholarships = [],
+  reviewComments = [],
   onChangeApplication,
   onEndorseApplication,
+  onAddComment,
   onFlagForValidation,
 }) {
   const [selectedId, setSelectedId] = useState(null);
+  const [reviewTab, setReviewTab] = useState(null);
   const selected = queue.find((entry) => entry.id === selectedId);
   const awaitingEndorsement = queue.filter((entry) => entry.status === 'For Endorsement');
   const endorsed = queue.filter((entry) => ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].includes(entry.status));
@@ -77,13 +80,16 @@ export default function DepartmentReviewView({
                       {!ready ? ` · ${outstanding} still need${outstanding === 1 ? 's' : ''} verification` : ''}
                     </span>
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
                       <Button
                         type="button"
-                        disabled={entry.status !== 'For Endorsement' || !ready}
-                        title={!ready ? `${outstanding} document${outstanding === 1 ? '' : 's'} still need${outstanding === 1 ? 's' : ''} verification` : undefined}
-                        onClick={() => onEndorseApplication(entry.id)}
-                      >Send to endorsement</Button>
+                        onClick={() => { setReviewTab(null); setSelectedId(entry.id); }}
+                      >Open review</Button>
+                      {areDocumentsReviewable(entry.status) ? (
+                        <Button
+                          type="button"
+                          onClick={() => { setReviewTab('endorsement'); setSelectedId(entry.id); }}
+                        >Open endorsement</Button>
+                      ) : null}
                       <Button
                         type="button"
                         disabled={!['Submitted', 'Under Review'].includes(entry.status)}
@@ -121,7 +127,10 @@ export default function DepartmentReviewView({
           scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
           role="department_chair"
-          onClose={() => setSelectedId(null)}
+          initialTab={reviewTab}
+          reviewComments={reviewComments}
+          onAddComment={onAddComment}
+          onClose={() => { setSelectedId(null); setReviewTab(null); }}
           onStatusChange={onChangeApplication}
           onEndorse={onEndorseApplication}
         />

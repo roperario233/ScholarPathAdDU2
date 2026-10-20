@@ -24,6 +24,8 @@ export default function AdminReviewQueue({
   onRecordDeliberation,
   onReleaseResults,
   onChangeDocument,
+  reviewComments = [],
+  onAddComment,
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
@@ -150,6 +152,8 @@ export default function AdminReviewQueue({
                       </Button>
                     ) : entry.status === 'For Verification' ? (
                       <Button type="button" onClick={() => openReview(entry.id, 'documents')}>Review documents</Button>
+                    ) : entry.status === 'For Endorsement' ? (
+                      <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>Open endorsement</Button>
                     ) : (
                       <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
                     )}
@@ -182,6 +186,8 @@ export default function AdminReviewQueue({
           onRecordDeliberation={onRecordDeliberation}
           onRelease={onReleaseResults}
           onChangeDocument={onChangeDocument}
+          reviewComments={reviewComments}
+          onAddComment={onAddComment}
         />
       )}
     </div>

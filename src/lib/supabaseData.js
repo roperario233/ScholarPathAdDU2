@@ -90,6 +90,18 @@ const toDepartmentReview = (row) => ({
   createdAt: row.created_at,
 });
 
+// The internal reviewer thread for one application (application_review_comments).
+// Students never receive these rows; the RLS policies scope staff access.
+const toReviewComment = (row) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  authorId: row.author_id,
+  authorRole: row.author_role,
+  authorName: row.author_name,
+  body: row.body,
+  createdAt: row.created_at,
+});
+
 const ensureReady = () => hasSupabaseConfig && supabase;
 
 export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
@@ -181,6 +193,21 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // The internal endorsement thread (application_review_comments, from
+  // 20261023000000). Staff only: a student has no policy on the table. A pending
+  // migration yields no rows rather than failing the whole workspace.
+  let reviewComments = [];
+  if (role !== 'student' && applicationIds.length) {
+    const commentsResult = await supabase
+      .from('application_review_comments')
+      .select('id, application_id, author_id, author_role, author_name, kind, body, created_at')
+      .in('application_id', applicationIds)
+      .order('created_at', { ascending: true });
+    if (!commentsResult.error) {
+      reviewComments = (commentsResult.data || []).map(toReviewComment);
+    }
+  }
+
   return {
     success: true,
     fallback: false,
@@ -191,6 +218,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     announcements: (announcementsResult.data || []).map(toAnnouncement),
     notifications: (notificationsResult.data || []).map(toNotification),
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
+    reviewComments,
     customDeadlines: serverDeadlines,
   };
 };
@@ -263,6 +291,22 @@ export const updateSupabaseApplicationStage = (applicationId, status, stagePatch
     ? supabase.from('applications').update({ status, updated_at: new Date().toISOString(), ...stagePatch }).eq('id', applicationId).then(({ error }) => ({ error }))
     : Promise.resolve({ error: null })
 );
+
+// The internal endorsement thread. The Admissions Office and the Department
+// Chair write into one append-only case file per application; RLS rejects a
+// student and a Chair outside their department, so the browser never decides who
+// may read the thread.
+export const createSupabaseReviewComment = async ({ applicationId, authorId, authorRole, authorName, body }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.from('application_review_comments').insert({
+    application_id: applicationId,
+    author_id: authorId,
+    author_role: authorRole,
+    author_name: authorName || 'Reviewer',
+    body,
+  }).select('*').single();
+  return { ...result, data: result.data ? toReviewComment(result.data) : null };
+};
 
 // Department review records mirror chair decisions for schema-level auditing.
 export const upsertSupabaseDepartmentReview = ({ applicationId, reviewerId, studentName, department, qpi, householdIncome, status, recommendation }) => (

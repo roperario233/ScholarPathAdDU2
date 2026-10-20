@@ -10,7 +10,7 @@ import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordFor
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -1103,6 +1103,44 @@ function App() {
     return { ok: true };
   };
 
+  // The internal endorsement thread. The database RLS policies are the authority;
+  // this guard keeps a student session (or a Chair outside its department) from
+  // attempting a write the server would reject anyway.
+  const addReviewComment = async (applicationId, body) => {
+    if (state.viewerRole === 'student') {
+      return { error: 'Only reviewers can add an internal note.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (state.viewerRole === 'department_chair'
+      && (application.studentDepartment || '') !== (currentProfile.department || '')) {
+      return { error: 'Your department scope does not include this application.' };
+    }
+    const trimmed = String(body || '').trim();
+    if (!trimmed) return { error: 'Write a note before adding it to the case file.' };
+    if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the note could not be saved.' };
+    }
+    const result = await createSupabaseReviewComment({
+      applicationId,
+      authorId: currentProfile.id,
+      authorRole: state.viewerRole,
+      authorName: currentProfile.fullName || 'Reviewer',
+      body: trimmed,
+    });
+    if (result?.error) {
+      return { error: result.error.message || 'The note could not be saved. Confirm the review-comment migration is applied.' };
+    }
+    if (result.data) {
+      setState((previous) => ({
+        ...previous,
+        reviewComments: [...(previous.reviewComments || []), result.data],
+      }));
+    }
+    return { ok: true };
+  };
+
   // SOP step 5 — interview scheduling; the interviewing panel comes from the
   // school where the applicant's program belongs.
   const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
@@ -1840,6 +1878,8 @@ function App() {
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
             />
           )}
 
@@ -1871,8 +1911,10 @@ function App() {
               queue={departmentQueue}
               documents={state.documents}
               scholarships={state.scholarships || []}
+              reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
+              onAddComment={addReviewComment}
               onFlagForValidation={flagApplicationForValidation}
             />
           )}

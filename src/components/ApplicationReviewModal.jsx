@@ -3,8 +3,10 @@ import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
+import EndorsementCasePanel from './EndorsementCasePanel';
+import EndorsementDecisionModal from './EndorsementDecisionModal';
 import { AUTOMATIC_STAGE_STATUSES, documentRejectionReasons, getApplicationStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -122,6 +124,8 @@ export default function ApplicationReviewModal({
   onRecordDeliberation,
   onRelease,
   onChangeDocument,
+  reviewComments = [],
+  onAddComment,
 }) {
   const isAdmissionsOffice = role === 'admissions_office';
   const isWide = useIsWide();
@@ -139,6 +143,10 @@ export default function ApplicationReviewModal({
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
   const documentsUnlocked = areApplicationDocumentsVisible(application.status);
+  // The endorsement tab appears from the document-verification stage on, which
+  // is also where the hand-off becomes available. It stays visible afterwards so
+  // the recorded decision and its discussion remain readable.
+  const endorsementUnlocked = areDocumentsReviewable(application.status);
   const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
   // declared at submit time (the frozen profile snapshot).
@@ -171,6 +179,12 @@ export default function ApplicationReviewModal({
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
   const [actionError, setActionError] = useState('');
+  // The Endorsement tab records the stage decision with a recommendation note;
+  // the dialog never writes status directly.
+  const [endorsementDecision, setEndorsementDecision] = useState(null);
+  const [endorsementBusy, setEndorsementBusy] = useState(false);
+  const [endorsementError, setEndorsementError] = useState('');
+  const [endorsementFeedback, setEndorsementFeedback] = useState('');
   // Re-read from `documents` every render so a Verified/Rejected decision shows
   // in the pane immediately.
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
@@ -188,6 +202,28 @@ export default function ApplicationReviewModal({
   const selectDocument = (doc) => {
     setSelectedDocId(doc.id);
     if (!isWide) previewPaneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // The Endorsement tab records the same stage transition as the action bar, but
+  // captures a recommendation note. The write still goes through
+  // changeApplicationStatus in App.jsx, so role authority and the
+  // document-verification gate are unchanged.
+  const submitEndorsementDecision = async ({ note }) => {
+    if (!endorsementDecision) return;
+    setEndorsementBusy(true);
+    setEndorsementError('');
+    const result = endorsementDecision.mode === 'handoff'
+      ? await onStatusChange?.(application.id, 'For Endorsement', { note })
+      : await onEndorse?.(application.id, note);
+    setEndorsementBusy(false);
+    if (result?.error) {
+      setEndorsementError(result.error);
+      return;
+    }
+    setEndorsementFeedback(endorsementDecision.mode === 'handoff'
+      ? 'The application was sent to the Department Chair for endorsement.'
+      : 'The endorsement decision was recorded.');
+    setEndorsementDecision(null);
   };
 
   // Overview facts: the snapshot values the student certified, compared with
@@ -243,6 +279,15 @@ export default function ApplicationReviewModal({
       label: 'Documents',
       badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
       alert: blockedByDocuments,
+    }] : []),
+    // SOP step 4 in one place: the hand-off/decision record, the internal
+    // thread, and the decision action. It appears from the
+    // document-verification stage on and stays readable afterwards.
+    ...(endorsementUnlocked ? [{
+      key: 'endorsement',
+      label: 'Endorsement',
+      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
+      alert: application.status === 'For Endorsement',
     }] : []),
     { key: 'profile', label: 'Profile snapshot' },
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
@@ -480,6 +525,27 @@ export default function ApplicationReviewModal({
             />
           </Panel>
         )}
+
+        {visibleActiveTab === 'endorsement' && (
+          <div className="grid gap-3">
+            {endorsementFeedback ? (
+              <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
+                {endorsementFeedback}
+              </p>
+            ) : null}
+            <EndorsementCasePanel
+              application={application}
+              documents={documents}
+              comments={reviewComments}
+              role={role}
+              onAddComment={onAddComment}
+              onRequestDecision={() => {
+                setEndorsementError('');
+                setEndorsementDecision({ mode: role === 'department_chair' ? 'endorse' : 'handoff' });
+              }}
+            />
+          </div>
+        )}
       </div>
 
       <footer className="application-review-actions grid shrink-0 gap-3 border-t border-app-border pt-4">
@@ -500,7 +566,7 @@ export default function ApplicationReviewModal({
 
         {readyForEndorsement ? (
           <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
-            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair.
+            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair; the Endorsement tab records the hand-off note.
           </p>
         ) : null}
 
@@ -554,6 +620,16 @@ export default function ApplicationReviewModal({
         ) : <p className="m-0 text-sm text-app-muted">{idleMessage}</p>}
       </footer>
     </ModalShell>
+    {endorsementDecision ? (
+      <EndorsementDecisionModal
+        application={application}
+        mode={endorsementDecision.mode}
+        onConfirm={submitEndorsementDecision}
+        onClose={() => { setEndorsementDecision(null); setEndorsementError(''); }}
+        busy={endorsementBusy}
+        error={endorsementError}
+      />
+    ) : null}
     {rejectReasonOpen ? (
       <ReasonModal
         title="Reject application"

@@ -198,6 +198,22 @@ alter table department_reviews add column if not exists application_id uuid refe
 create unique index if not exists department_reviews_application_reviewer_unique
   on department_reviews (application_id, reviewer_id);
 
+-- Internal reviewer discussion for the endorsement workflow. Staff-only,
+-- append-only, and department-scoped for Department Chairs
+-- (see 20261023000000_add_application_review_comments.sql).
+create table if not exists application_review_comments (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references applications(id) on delete cascade,
+  author_id uuid not null references profiles(user_id) on delete cascade,
+  author_role text not null check (author_role in ('admissions_office', 'department_chair')),
+  author_name text not null,
+  kind text not null default 'note' check (kind in ('note', 'question', 'decision')),
+  body text not null check (char_length(btrim(body)) between 1 and 2000),
+  created_at timestamptz not null default now()
+);
+create index if not exists application_review_comments_application_idx
+  on application_review_comments (application_id, created_at);
+
 alter table profiles enable row level security;
 alter table scholarships enable row level security;
 alter table documents enable row level security;
@@ -206,6 +222,7 @@ alter table application_documents enable row level security;
 alter table announcements enable row level security;
 alter table notifications enable row level security;
 alter table department_reviews enable row level security;
+alter table application_review_comments enable row level security;
 alter table academic_programs enable row level security;
 
 -- Role helpers are security-definer functions so RLS checks do not recurse
@@ -370,6 +387,36 @@ for select using (auth.uid() = reviewer_id);
 create policy "chair_department_reviews_access" on department_reviews
 for all using (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id)
 with check (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id);
+create policy "staff_review_comments_read" on application_review_comments
+for select using (
+  public.current_profile_role() = 'admissions_office'
+  or (
+    public.current_profile_role() = 'department_chair'
+    and exists (
+      select 1 from applications a
+      join profiles p on p.user_id = a.student_id
+      where a.id = application_review_comments.application_id
+        and p.department = public.current_profile_department()
+    )
+  )
+);
+create policy "staff_review_comments_insert" on application_review_comments
+for insert with check (
+  author_id = auth.uid()
+  and author_role = public.current_profile_role()
+  and (
+    public.current_profile_role() = 'admissions_office'
+    or (
+      public.current_profile_role() = 'department_chair'
+      and exists (
+        select 1 from applications a
+        join profiles p on p.user_id = a.student_id
+        where a.id = application_id
+          and p.department = public.current_profile_department()
+      )
+    )
+  )
+);
 create policy "academic_programs_read_all" on academic_programs
 for select using (true);
 create policy "admissions_office_academic_programs_manage" on academic_programs
