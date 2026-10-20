@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
@@ -19,7 +19,11 @@ import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
-import AdminConsolePage from './pages/AdminConsole';
+import AdminOverviewPage from './pages/admin/AdminOverview';
+import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
+import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
+import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
+import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
@@ -227,6 +231,10 @@ function App() {
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
   const [openApplicationId, setOpenApplicationId] = useState(null);
+  // The Admissions Office catalog form is uncontrolled and lives on its own
+  // route, so leaving that route discards the draft. The route reports its own
+  // dirtiness (including required-document edits) for the navigation guard.
+  const [isAdminCatalogDirty, setIsAdminCatalogDirty] = useState(false);
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -546,6 +554,12 @@ function App() {
   // Navigating to the vault clears any upload preset; the My Profile links pass
   // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
+    // Leaving the catalog route discards its uncontrolled form, so ask first.
+    // Clicking the catalog link while already there keeps the draft and the flag.
+    if (state.activeView === 'admin-catalog' && view !== 'admin-catalog') {
+      if (isAdminCatalogDirty && !window.confirm('Discard your unsaved scholarship changes?')) return;
+      setIsAdminCatalogDirty(false);
+    }
     setVaultPreset(view === 'vault'
       ? { attribute: options.attribute || '', documentType: options.documentType || '' }
       : { attribute: '', documentType: '' });
@@ -1481,33 +1495,56 @@ function App() {
     || !studentMatchProfile.citizenship
   );
 
+  // The Admissions Office workspace is split into one route per function, shown
+  // as a labeled group so the page navigation stays scannable.
+  const admissionsWorkspaceItems = state.viewerRole === 'admissions_office'
+    ? [
+      { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
+      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
+      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: true },
+      { view: 'admin-release', label: 'Results release', group: 'Admissions Office', visible: true },
+      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: true },
+    ]
+    : [];
+
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: true },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
-    { view: 'admin', label: 'Admissions Office', visible: state.viewerRole === 'admissions_office' },
+    ...admissionsWorkspaceItems,
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => (
-    <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
-      {navigationItems.map((item) => (
-        <button
-          key={item.view}
-          type="button"
-          className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
-          onClick={() => navigate(item.view)}
-          aria-current={state.activeView === item.view ? 'page' : undefined}
-        >
-          {item.label}
-        </button>
-      ))}
-    </nav>
-  );
+  const renderNavigation = (className = '') => {
+    let renderedGroup = null;
+    return (
+      <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
+        {navigationItems.map((item) => {
+          const groupHeading = item.group && item.group !== renderedGroup ? item.group : null;
+          renderedGroup = item.group || null;
+          return (
+            <Fragment key={item.view}>
+              {groupHeading && (
+                <span className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-app-muted">{groupHeading}</span>
+              )}
+              <button
+                type="button"
+                className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
+                onClick={() => navigate(item.view)}
+                aria-current={state.activeView === item.view ? 'page' : undefined}
+              >
+                {item.label}
+              </button>
+            </Fragment>
+          );
+        })}
+      </nav>
+    );
+  };
 
   if (isBooting) {
     return (
@@ -1687,6 +1724,7 @@ function App() {
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
               onOpenCalendar={() => navigate('calendar')}
               onOpenAdmin={() => navigate('admin')}
+              onOpenAdminReview={() => navigate('admin-review')}
               onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
@@ -1739,21 +1777,48 @@ function App() {
             />
           )}
 
-          {state.activeView === 'admin' && state.viewerRole === 'admissions_office' && (
-            <AdminConsolePage
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin' && (
+            <AdminOverviewPage
+              applications={state.applications}
+              documents={state.documents}
+              onOpenWorkspace={(view) => navigate(view)}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-review' && (
+            <AdminReviewQueuePage
               applications={state.applications}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
-              announcements={state.announcements}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onScheduleInterview={scheduleInterview}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
-              onCreateAnnouncement={addAnnouncement}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-catalog' && (
+            <AdminScholarshipCatalogPage
+              scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
+              onDirtyChange={setIsAdminCatalogDirty}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-release' && (
+            <AdminResultsReleasePage
+              applications={state.applications}
+              onReleaseResults={releaseApplicationResults}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-announcements' && (
+            <AdminAnnouncementsPage
+              announcements={state.announcements}
+              onCreateAnnouncement={addAnnouncement}
             />
           )}
 

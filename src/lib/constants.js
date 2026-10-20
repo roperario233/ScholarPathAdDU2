@@ -70,15 +70,43 @@ export const getStageActionLabel = (status, role) => {
   return stageActionLabels[status] || status;
 };
 
+// The StatusBadge tone used wherever an application status is displayed in the
+// Admissions Office workspace.
+export const getStatusTone = (status) => {
+  if (status === 'Rejected') return 'danger';
+  if (['Released', 'Approved'].includes(status)) return 'success';
+  if (['For Verification', 'Endorsed'].includes(status)) return 'warning';
+  return 'info';
+};
+
+// Every persisted `activeView` the app can render. The Admissions Office
+// workspace is split into one route per function; `admin` stays the landing
+// overview so a session saved before the split still resolves.
+export const pageViewKeys = [
+  'dashboard',
+  'explore',
+  'applications',
+  'vault',
+  'calendar',
+  'admin',
+  'admin-review',
+  'admin-catalog',
+  'admin-release',
+  'admin-announcements',
+  'review',
+  'profile',
+  'settings',
+];
+
 // The Admissions Office review queue: everything that still needs an SOP action.
 // Shared with the dashboard count so the dashboard and the Admissions Office
-// console can never show different numbers for the same data.
+// review route can never show different numbers for the same data.
 export const ADMISSIONS_REVIEW_EXCLUDED_STATUSES = ['Draft', 'Approved', 'Released', 'Rejected'];
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
 //   - Admissions Office: every application awaiting an SOP action (same filter
-//     as the console's review queue).
+//     as the review queue route).
 //   - Department Chair: applications from their department awaiting chair action.
 export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
