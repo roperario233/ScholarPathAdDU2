@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REQUIRED_DOCUMENTS,
+  ENDORSEMENT_BLOCKED_STATUSES,
   buildProfileSnapshot,
+  describeApplicantAcademic,
+  describeStatusActor,
   getApplicationReadiness,
   getCatalogRequirements,
   getDocumentChecklist,
+  getDocumentVerificationReadiness,
+  getLinkedDocuments,
+  getProfileSnapshotSections,
+  getReplaceableRejectedDocuments,
+  getReplacementOptions,
   getRequirementUploadPreset,
   getScholarshipRequirements,
+  isApplicationVerifiedForEndorsement,
   normalizeRequirements,
   pickDefaultAttachments,
 } from '../src/lib/applicationRequirements';
@@ -177,6 +186,107 @@ describe('profile snapshot', () => {
     expect(snapshot.academic).toMatchObject({ credential: 'hsAverage', label: 'Senior high school general average', value: 92 });
     expect(snapshot.yearStandingLabel).toBe('Incoming 1st year');
   });
+
+  const fullProfile = {
+    ...continuingProfile,
+    honorsRank: 'Valedictorian',
+    graduatingClassSize: '120',
+    hasSiblingOnAid: true,
+    ipCommunity: 'Yes',
+    pwd: 'No',
+    employed: 'Part-time',
+    civilStatus: 'Single',
+    religion: 'Roman Catholic',
+    completeAddress: 'Roxas Ave, Davao City',
+    sameAsCompleteAddress: true,
+    residingAddress: '',
+    country: 'Philippines',
+    familyDetails: { fatherName: 'Jose Reyes', fatherOccupation: 'Driver', fatherDeceased: false, motherName: 'Maria Reyes', motherDeceased: true, familyPosition: 'Eldest', numberOfSiblings: '2' },
+    essay: 'My default statement.',
+  };
+
+  it('freezes the eligibility answers, background, personal, address, and family groups', () => {
+    const snapshot = buildProfileSnapshot(fullProfile, { honorsRank: 'Verified', pwd: 'Pending' });
+    expect(snapshot.version).toBe(2);
+    expect(snapshot.eligibility).toEqual({
+      academicStanding: { value: 'good', verification: 'Unverified' },
+      honorsRank: { value: 'Valedictorian', verification: 'Verified' },
+      graduatingClassSize: 120,
+      isOnPrepaidPlan: false,
+      hasSiblingOnAid: true,
+      hasOtherActiveScholarship: false,
+    });
+    expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
+    expect(snapshot.personal).toEqual({ civilStatus: 'Single', religion: 'Roman Catholic' });
+    expect(snapshot.address).toEqual({ completeAddress: 'Roxas Ave, Davao City', residingAddress: 'Roxas Ave, Davao City', country: 'Philippines' });
+    expect(snapshot.family).toMatchObject({ fatherName: 'Jose Reyes', motherDeceased: true, numberOfSiblings: 2 });
+    expect(JSON.stringify(snapshot)).not.toContain('My default statement.');
+  });
+
+  it('adds the strand and ranked program choices only for an incoming first-year', () => {
+    expect(buildProfileSnapshot(fullProfile).eligibility).not.toHaveProperty('programChoices');
+    const incoming = buildProfileSnapshot({ ...incomingProfile, programChoice2: 'BS Accountancy' });
+    expect(incoming.eligibility).toMatchObject({ hsStrand: 'STEM', programChoices: ['BS Accountancy', ''] });
+  });
+});
+
+describe('profile snapshot sections', () => {
+  it('labels every group the student and reviewers see', () => {
+    const { legacy, sections } = getProfileSnapshotSections(buildProfileSnapshot({
+      ...continuingProfile,
+      employed: 'Part-time',
+      familyDetails: { motherName: 'Maria Reyes', motherOccupation: 'Vendor', motherDeceased: true },
+    }, { qpi: 'Verified' }));
+    expect(legacy).toBe(false);
+    expect(sections.map((section) => section.key)).toEqual(['application', 'eligibility', 'background', 'personal', 'family']);
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row]));
+    expect(rows['Annual QPI']).toEqual({ label: 'Annual QPI', value: '3.20', verification: 'Verified' });
+    expect(rows['Household income'].value).toBe('₱180,000');
+    expect(rows['Academic standing'].value).toBe('Good academic standing');
+    expect(rows['Employment status'].value).toBe('Part-time employed');
+    expect(rows['Sibling on AdDU financial aid'].value).toBe('No');
+    expect(rows.Mother.value).toBe('Maria Reyes · Vendor · Deceased');
+  });
+
+  it('shows only the original fields for a snapshot submitted before the extended groups', () => {
+    const current = buildProfileSnapshot(continuingProfile);
+    const legacyKeys = ['capturedAt', 'fullName', 'studentNumber', 'degreeProgram', 'department', 'yearStanding', 'yearStandingLabel', 'academic', 'householdIncome', 'citizenship'];
+    const { legacy, sections } = getProfileSnapshotSections(Object.fromEntries(legacyKeys.map((key) => [key, current[key]])));
+    expect(legacy).toBe(true);
+    expect(sections).toHaveLength(1);
+    expect(sections[0].rows.map((row) => row.label)).toEqual(['Name', 'Student number', 'Program', 'Year standing', 'Annual QPI', 'Household income', 'Citizenship']);
+  });
+
+  it('is empty without a snapshot', () => {
+    expect(getProfileSnapshotSections(null)).toEqual({ legacy: false, sections: [] });
+  });
+});
+
+describe('supporting documents', () => {
+  const requirements = getScholarshipRequirements(gia, continuingProfile);
+  const required = requirements.map((item, index) => doc(`d${index}`, item.documentTypes[0]));
+  const pwdId = doc('pwd-id', 'PWD ID');
+  const extraTranscript = doc('extra-transcript', 'Transcript');
+  const application = { attachedDocuments: [...required, pwdId, extraTranscript].map((entry) => entry.id), statement: 'Statement.' };
+
+  it('lists attached files that match no requirement without changing readiness', () => {
+    const result = getApplicationReadiness({ application, scholarship: gia, documents: [...required, pwdId, extraTranscript], profile: continuingProfile, certified: true });
+    expect(ids(result.supportingDocuments)).toEqual(['pwd-id']);
+    expect(result.ready).toBe(true);
+    expect(result.attachedCount).toBe(result.requiredCount);
+  });
+
+  it('is empty for tracked external entries', () => {
+    expect(getApplicationReadiness({ application, scholarship: external, documents: [pwdId], profile: continuingProfile }).supportingDocuments).toEqual([]);
+  });
+});
+
+describe('applicant academic summary', () => {
+  it('shows the frozen senior high school average for an incoming first-year and the QPI otherwise', () => {
+    expect(describeApplicantAcademic({ studentQpi: null, profileSnapshot: buildProfileSnapshot(incomingProfile) })).toBe('SHS average 92');
+    expect(describeApplicantAcademic({ studentQpi: 3.2, profileSnapshot: buildProfileSnapshot(continuingProfile) })).toBe('QPI 3.2');
+    expect(describeApplicantAcademic({ studentQpi: null })).toBe('QPI —');
+  });
 });
 
 describe('My Profile document checklist', () => {
@@ -230,5 +340,162 @@ describe('My Profile document checklist', () => {
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report', 'Transcript'] })).toEqual({ attribute: '', documentType: 'Transcript' });
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report'] })).toEqual({ attribute: 'qpi', documentType: 'Grade Report' });
     expect(getRequirementUploadPreset({ documentTypes: ['Unknown Type'] })).toEqual({ attribute: '', documentType: '' });
+  });
+});
+
+describe('document verification readiness for endorsement', () => {
+  const application = (attachedDocuments = []) => ({ id: 'app-1', attachedDocuments });
+  const doc = (id, verificationStatus) => ({ id, verificationStatus });
+
+  it('flags the SOP stages that require every attached document verified', () => {
+    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
+    expect(ENDORSEMENT_BLOCKED_STATUSES).not.toContain('Rejected');
+  });
+
+  it('resolves only the attached documents that are loaded', () => {
+    expect(getLinkedDocuments(application(['doc-1', 'doc-missing']), [doc('doc-1', 'Verified')]).map((entry) => entry.id)).toEqual(['doc-1']);
+  });
+
+  it('is ready only when every attached document is Verified', () => {
+    const ready = getDocumentVerificationReadiness(application(['doc-1', 'doc-2']), [
+      doc('doc-1', 'Verified'),
+      doc('doc-2', 'Verified'),
+    ]);
+    expect(ready).toMatchObject({ total: 2, verified: 2, outstanding: 0, ready: true });
+
+    const pending = getDocumentVerificationReadiness(application(['doc-1', 'doc-2']), [
+      doc('doc-1', 'Verified'),
+      doc('doc-2', 'Pending'),
+    ]);
+    expect(pending).toMatchObject({ total: 2, verified: 1, outstanding: 1, ready: false });
+
+    const rejected = getDocumentVerificationReadiness(application(['doc-1']), [doc('doc-1', 'Rejected')]);
+    expect(rejected).toMatchObject({ outstanding: 1, ready: false });
+  });
+
+  it('treats an application with no attached documents as ready', () => {
+    expect(isApplicationVerifiedForEndorsement(application([]), [])).toBe(true);
+    expect(isApplicationVerifiedForEndorsement({}, [])).toBe(true);
+    expect(isApplicationVerifiedForEndorsement(application([]), undefined)).toBe(true);
+  });
+
+  it('blocks endorsement while any attached document is not verified', () => {
+    expect(isApplicationVerifiedForEndorsement(application(['doc-1']), [doc('doc-1', 'Pending')])).toBe(false);
+    expect(isApplicationVerifiedForEndorsement(application(['doc-1']), [doc('doc-1', 'Verified')])).toBe(true);
+  });
+
+  it('tolerates malformed inputs', () => {
+    expect(getDocumentVerificationReadiness(undefined, undefined)).toMatchObject({ total: 0, outstanding: 0, ready: true });
+    expect(getDocumentVerificationReadiness({ attachedDocuments: ['x'] }, 'not an array')).toMatchObject({ total: 0, ready: true });
+  });
+});
+
+
+// An internal catalog entry that is not one of the three in-scope tracks must
+// behave like an external program: no requirement checklist and no submit path.
+describe('out-of-scope internal programs', () => {
+  const villanueva = {
+    id: 'villanueva',
+    title: 'Antonio A. Villanueva Endowment Fund',
+    category: 'Internal Endowment',
+    ruleFamily: 'general-pool',
+    isExternal: false,
+    isActive: true,
+    deadline: '2999-12-31',
+  };
+
+  it('returns no catalog requirements for an out-of-scope internal entry', () => {
+    expect(getCatalogRequirements(villanueva)).toEqual([]);
+  });
+
+  it('does not list the out-of-scope entry in the My Profile document checklist', () => {
+    const checklist = getDocumentChecklist({ scholarships: [gia, villanueva], documents: [], profile: continuingProfile, today: new Date('2026-10-12T00:00:00') });
+    expect(checklist.scholarships.some((item) => item.title === villanueva.title)).toBe(false);
+    expect(checklist.scholarships.some((item) => item.title === gia.title)).toBe(true);
+    expect(checklist.items.every((item) => item.scholarships.every((entry) => entry.title !== villanueva.title))).toBe(true);
+  });
+
+  it('routes an out-of-scope application as tracked-only (no readiness)', () => {
+    const readiness = getApplicationReadiness({
+      application: { id: 'app-v', attachedDocuments: [] },
+      scholarship: villanueva,
+      documents: [],
+      profile: continuingProfile,
+    });
+    expect(readiness.route).toBe('external');
+    expect(readiness.ready).toBe(false);
+    expect(readiness.requirements).toEqual([]);
+  });
+});
+
+
+// The append-only status log (application_status_log) is the trustworthy history;
+// staff see the reviewer's name, a student sees the role, and a system move has
+// no user. describeStatusActor() is the single label used by the review modal,
+// the console activity feed, and the student's detail view.
+describe('describeStatusActor', () => {
+  const logRow = (overrides = {}) => ({ actorRole: 'admissions_office', actorName: null, ...overrides });
+
+  it('shows the reviewer name for staff when the directory resolves it', () => {
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), true)).toBe('Ada Cruz');
+  });
+
+  it('falls back to the humanized role for staff when the name cannot be resolved', () => {
+    expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorRole: 'department_chair', actorName: null }), true)).toBe('Department Chair');
+    expect(describeStatusActor(logRow({ actorRole: 'student', actorName: null }), true)).toBe('Student');
+  });
+
+  it('shows the role (never the name) for a student', () => {
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }))).toBe('Admissions Office');
+  });
+
+  it('labels an automated move as System', () => {
+    expect(describeStatusActor(logRow({ actorRole: 'system', actorName: null }), true)).toBe('System');
+    expect(describeStatusActor(logRow({ actorRole: null, actorName: null }), true)).toBe('System');
+  });
+
+  it('tolerates a missing row', () => {
+    expect(describeStatusActor(null, true)).toBe('Recorded automatically');
+    expect(describeStatusActor(undefined)).toBe('Recorded automatically');
+  });
+});
+
+
+describe('replacing a rejected document on a submitted application', () => {
+  const rejected = { id: 'doc-itr', documentType: 'Income Tax Return', verificationStatus: 'Rejected', uploadedAt: '2026-09-01' };
+  const verifiedCert = { id: 'doc-cert', documentType: 'Certificate of Enrollment', verificationStatus: 'Verified', uploadedAt: '2026-09-02' };
+  const newItr = { id: 'doc-itr-2', documentType: 'Income Tax Return', verificationStatus: 'Pending', uploadedAt: '2026-10-01' };
+  const indigency = { id: 'doc-indigency', documentType: 'Certificate of Indigency', verificationStatus: 'Pending', uploadedAt: '2026-10-02' };
+  const rejectedAgain = { id: 'doc-itr-3', documentType: 'Income Tax Return', verificationStatus: 'Rejected', uploadedAt: '2026-10-03' };
+  const other = { id: 'doc-photo', documentType: 'Photo', verificationStatus: 'Pending', uploadedAt: '2026-10-04' };
+  const documents = [rejected, verifiedCert, newItr, indigency, rejectedAgain, other];
+  const requirements = [
+    { id: 'income', documentTypes: ['Income Tax Return', 'Certificate of Indigency'] },
+    { id: 'enrollment', documentTypes: ['Certificate of Enrollment'] },
+  ];
+
+  it('lists rejected attachments only before endorsement', () => {
+    const application = { status: 'For Verification', attachedDocuments: ['doc-itr', 'doc-cert'] };
+    expect(getReplaceableRejectedDocuments(application, documents).map((doc) => doc.id)).toEqual(['doc-itr']);
+    expect(getReplaceableRejectedDocuments({ ...application, status: 'Draft' }, documents)).toEqual([]);
+    expect(getReplaceableRejectedDocuments({ ...application, status: 'Endorsed' }, documents)).toEqual([]);
+    expect(getReplaceableRejectedDocuments({ ...application, status: 'Rejected' }, documents)).toEqual([]);
+  });
+
+  it('offers non-rejected, unattached files of any type the requirement accepts, newest first', () => {
+    const application = { status: 'Submitted', attachedDocuments: ['doc-itr', 'doc-cert'] };
+    const { documentTypes, candidates } = getReplacementOptions({ application, requirements, rejectedDocument: rejected, documents });
+    expect(documentTypes).toEqual(['Income Tax Return', 'Certificate of Indigency']);
+    expect(candidates.map((doc) => doc.id)).toEqual(['doc-indigency', 'doc-itr-2']);
+  });
+
+  it('falls back to the file\'s own type for a supporting document', () => {
+    const application = { status: 'Submitted', attachedDocuments: ['doc-photo'] };
+    const rejectedPhoto = { ...other, verificationStatus: 'Rejected' };
+    const { documentTypes, candidates } = getReplacementOptions({ application, requirements, rejectedDocument: rejectedPhoto, documents });
+    expect(documentTypes).toEqual(['Photo']);
+    expect(candidates).toEqual([]);
   });
 });

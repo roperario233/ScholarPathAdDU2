@@ -84,6 +84,18 @@ describe('createInitialState', () => {
     expect(createInitialState().activeView).toBe('explore');
   });
 
+  it('restores an Admissions Office workspace route', () => {
+    installStorage({ activeView: 'admin-review' });
+
+    expect(createInitialState().activeView).toBe('admin-review');
+  });
+
+  it('falls back to the dashboard for a view the app cannot render', () => {
+    installStorage({ activeView: 'admin-console-legacy' });
+
+    expect(createInitialState().activeView).toBe('dashboard');
+  });
+
   it('restores persisted custom deadlines', () => {
     installStorage({
       customDeadlines: [

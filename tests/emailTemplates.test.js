@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FROM,
   REMINDER_OFFSET_KEYS,
+  describeApplicationStatusUpdate,
   isEmailEnabledForUser,
   isInAppEnabledForUser,
   isReminderEnabledForUser,
   renderApplicationStatusEmail,
+  renderDocumentRejectionEmail,
   renderReminderEmail,
   renderTestEmail,
   resolveFromAddress,
@@ -151,6 +153,42 @@ describe('renderApplicationStatusEmail', () => {
     expect(html).toContain('GIA Grant');
     expect(html).toContain('For Verification');
     expect(text).toContain('View your applications: https://example.org/?view=applications');
+  });
+});
+
+describe('describeApplicationStatusUpdate', () => {
+  it('tells the applicant their documents are under verification', () => {
+    const message = describeApplicationStatusUpdate('For Verification', 'the Admissions Office');
+    expect(message).toContain('Admissions Office for verification');
+    expect(message).toContain('replacement');
+  });
+
+  it('keeps the generic next-step copy for other statuses', () => {
+    expect(describeApplicationStatusUpdate('Endorsed', 'the Admissions Office'))
+      .toBe('Your application status was updated to Endorsed through the Admissions Office. Sign in to review the next steps.');
+  });
+});
+
+describe('renderDocumentRejectionEmail', () => {
+  it('carries the document, the escaped reason, and the applications that use it', () => {
+    const { subject, html, text } = renderDocumentRejectionEmail({
+      documentTitle: 'Income Tax Return',
+      reason: 'Wrong document type — upload the <BIR 2316>',
+      scholarshipTitles: ['GIA Grant', 'Student Assistant Program'],
+      siteUrl: 'https://example.org/',
+    });
+    expect(subject).toBe('Income Tax Return needs a replacement');
+    expect(html).toContain('&lt;BIR 2316&gt;');
+    expect(html).not.toContain('<BIR 2316>');
+    expect(text).toContain('Reason: Wrong document type — upload the <BIR 2316>');
+    expect(text).toContain('Applications: GIA Grant, Student Assistant Program');
+    expect(text).toContain('replace the file');
+  });
+
+  it('points to the Document Vault when no application uses the file', () => {
+    const { text } = renderDocumentRejectionEmail({ documentTitle: 'Certificate', reason: 'Unreadable', siteUrl: 'https://example.org/' });
+    expect(text).not.toContain('Application:');
+    expect(text).toContain('Upload a corrected file to your Document Vault.');
   });
 });
 

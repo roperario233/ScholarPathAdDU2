@@ -160,6 +160,21 @@ export const renderApplicationStatusSms = ({ scholarshipTitle, status }) => ({
   message: `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status || 'updated'}. Sign in to view details.`,
 });
 
+// Keeps the rejection reason short enough that the text stays within a couple
+// of billable segments; the email and in-app rows carry the full reason.
+export const SMS_REASON_MAX_LENGTH = 120;
+
+/** Renders the text sent when the Admissions Office rejects a Document Vault file. */
+export const renderDocumentRejectionSms = ({ documentTitle, reason }) => {
+  const trimmed = String(reason || '').trim().replace(/\s+/g, ' ');
+  const shortReason = trimmed.length > SMS_REASON_MAX_LENGTH
+    ? `${trimmed.slice(0, SMS_REASON_MAX_LENGTH - 1).trimEnd()}…`
+    : trimmed;
+  return {
+    message: `ScholarPath AdDU: ${documentTitle || 'a document'} was rejected${shortReason ? ` (${shortReason})` : ''}. Sign in to replace the file.`,
+  };
+};
+
 /**
  * Renders the self-service test text used by the Settings page so a signed-in
  * user can confirm real delivery to their own mobile number.

@@ -97,6 +97,25 @@ Admissions Office reads every document, and a Department Chair reads documents
 owned by students in the chair's department. Viewing is always through a
 short-lived signed URL, so no document is ever public.
 
+## Admissions Office workspace
+
+The Admissions Office administrator role works across five focused pages instead
+of one combined console. Each page is its own app route, and the sidebar shows
+them as a grouped set of page links:
+
+| Route | Page | What it covers |
+| --- | --- | --- |
+| `admin` | Overview | Applications in review, documents still to verify, approved-awaiting-release and released counts, links into each workspace, and recent application activity |
+| `admin-review` | Review queue | SOP steps 2–6: the review queue and the shared application review modal, where documents are verified or rejected and each stage decision is recorded |
+| `admin-catalog` | Scholarship catalog | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
+| `admin-release` | Results release | SOP steps 7–8: releasing approved results and exporting the accepted list |
+| `admin-announcements` | Announcements | Publishing office updates and reviewing the published list |
+
+Splitting these pages does not change any stage authority: every action still
+runs through the same role-scoped transition map and the same
+document-verification gate, and the workspace is still limited to the
+`admissions_office` role.
+
 ## Provisioning staff accounts
 
 Public registration cannot grant a privileged role, so the Admissions Office and
@@ -105,7 +124,7 @@ these seeded credentials:
 
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
-| Admissions Office Administrator | `admissions@addu.edu.ph` | `Admissions@2026` | Admissions Office console |
+| Admissions Office Administrator | `admissions@addu.edu.ph` | `Admissions@2026` | Admissions Office overview |
 | Department Chair | `chair@addu.edu.ph` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
@@ -127,8 +146,8 @@ The Department Chair `department` scopes the Department Review queue, so it must
 match the applicant department the chair should see. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
-Office console and Department Review views appear in the sidebar only for those
-roles.
+Office workspace routes and the Department Review view appear in the sidebar only
+for those roles.
 
 
 ## Email notifications (Resend)

@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import { Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import { SelectPicker } from '../pages/LoginScreen';
-import { checkAdduInternalGate, checkUniversalGate } from '../lib/eligibility';
-import { fmtCurrency } from '../lib/formatters';
 import { getAttributeVerificationTone } from '../lib/verification';
 import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
 import {
@@ -36,7 +34,6 @@ import {
 
 const controlClass = 'h-12 py-0';
 const asText = (value) => (value === undefined || value === null ? '' : String(value));
-const optionLabel = (options, value) => options.find((option) => String(option.value) === String(value))?.label || '';
 
 // Shared draft/validate/save lifecycle for one My Profile section. The draft
 // re-syncs whenever the saved profile changes, so a successful save (or a
@@ -207,8 +204,8 @@ const standingNote = (standing) => {
 };
 
 const completenessGroupNotes = {
-  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them as your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
-  details: 'Not required to apply. They complete your record for the Admissions Office, and a mobile number enables SMS reminders.',
+  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them in your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
+  details: 'Not required to apply, but every answer except your mobile number is included in the profile snapshot of each application you submit, which the Admissions Office and your Department Chair review. A mobile number enables SMS reminders.',
 };
 
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
@@ -304,34 +301,11 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
   );
 }
 
-export function ProfileOverview({ profile = {}, role, roleLabel, completeness, documentChecklist = null, onEditSection, onOpenEligibility, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
+export function ProfileOverview({ profile = {}, completeness, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
   // Staff have a single group of personal details, so headings would only add noise.
   const showGroups = completeness.groups.length > 1;
-  const isStudent = role === 'student';
-  const exclusionFlags = isStudent
-    ? [...checkUniversalGate(profile).reasons, ...checkAdduInternalGate(profile).reasons]
-    : [];
-  const initials = (profile.fullName || '')
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0].toUpperCase())
-    .join('') || 'SP';
   return (
     <div className="grid gap-4">
-      <Card title="Account identity">
-        <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center">
-          <span className="grid h-16 w-16 shrink-0 place-items-center rounded-[20px] bg-gradient-to-br from-ateneo to-sky-400 text-xl font-extrabold text-white" aria-hidden="true">{initials}</span>
-          <div className="min-w-0 flex-1">
-            <strong className="block break-words text-lg text-app-text">{profile.fullName}</strong>
-            <span className="mt-1 block text-sm text-app-muted">{roleLabel}{profile.department ? ` · ${profile.department}` : ''}</span>
-            <span className="mt-1 block break-all text-sm text-app-muted">{profile.email}</span>
-          </div>
-          <Button type="button" onClick={() => onEditSection('personal')}>Edit personal information</Button>
-        </div>
-        {profile.bio && <p className="mb-0 mt-4 border-t border-app-border pt-4 text-sm text-app-muted">{profile.bio}</p>}
-      </Card>
-
       <Card title="Profile completeness">
         <div className="flex items-center gap-3">
           <div
@@ -377,31 +351,6 @@ export function ProfileOverview({ profile = {}, role, roleLabel, completeness, d
           onEditSection={onEditSection}
         />
       )}
-      {isStudent && (
-        <Card title="Eligibility snapshot">
-          <p className="-mt-1 mb-4 text-sm text-app-muted">The Smart Eligibility Checker matches scholarships using these saved values.</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ReadOnlyField label="Degree program" value={profile.degreeProgram} />
-            <ReadOnlyField label="Annual QPI" value={asText(profile.qpi) === '' ? '' : Number(profile.qpi).toFixed(2)} />
-            <ReadOnlyField label="Household income" value={asText(profile.householdIncome) === '' ? '' : fmtCurrency(profile.householdIncome)} />
-            <ReadOnlyField label="Year standing" value={optionLabel(yearStandingOptions, deriveYearStanding(profile))} />
-          </div>
-          <div className={`mt-4 rounded-xl border p-4 text-sm ${exclusionFlags.length ? 'border-amber-400/40 bg-amber-500/10' : 'border-emerald-500/30 bg-emerald-500/10'}`}>
-            <strong className="block text-app-text">
-              {exclusionFlags.length ? `Exclusion Flag Hierarchy: ${exclusionFlags.length} flag${exclusionFlags.length === 1 ? '' : 's'} recorded` : 'Exclusion Flag Hierarchy: no flags recorded'}
-            </strong>
-            {exclusionFlags.length > 0 && (
-              <ul className="m-0 mt-2 grid gap-1 pl-5 text-app-muted">
-                {exclusionFlags.map((reason) => <li key={reason}>{reason}</li>)}
-              </ul>
-            )}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Button variant="primary" type="button" onClick={onOpenEligibility}>Check scholarships and eligibility</Button>
-            <Button type="button" onClick={() => onEditSection('financial')}>Review exclusion answers</Button>
-          </div>
-        </Card>
-      )}
     </div>
   );
 }
@@ -424,7 +373,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   const { values, errors, update } = form;
 
   return (
-    <SectionForm title="Personal information" description="How your name and contact details appear across ScholarPath." form={form}>
+    <SectionForm title="Personal information" description={isStudent ? 'How your name and contact details appear across ScholarPath. Your name, religion, and civil status are included in each application you submit.' : 'How your name and contact details appear across ScholarPath.'} form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Full name" error={errors.fullName}>
           <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
@@ -432,7 +381,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField label="Mobile number" hint="Optional. SMS deadline reminders use this Philippine mobile number when SMS notifications are on in Settings." error={errors.phone}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
-        {isStudent && <SelectField label="Religion" value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
+        {isStudent && <SelectField label="Religion" hint="Optional. Included in each application you submit; choose “Prefer not to say” to leave it out." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
         {isStudent && <SelectField label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} />}
       </div>
       <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
@@ -466,7 +415,7 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
   });
   const { values, errors, update } = form;
   return (
-    <SectionForm title="Address" description="Where ScholarPath can reach you for scholarship correspondence." form={form}>
+    <SectionForm title="Address" description="Where ScholarPath can reach you for scholarship correspondence. Your addresses are included in each application you submit." form={form}>
       <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
       </FormField>
@@ -499,7 +448,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   const family = values.familyDetails;
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } });
   return (
-    <SectionForm title="Family details" description="Family composition supports household-income and dependent-based financial aid review." form={form}>
+    <SectionForm title="Family details" description="Family composition supports household-income and dependent-based financial aid review, and is included in each application you submit." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Father's name" error={errors.fatherName}><input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} /></FormField>
         <FormField label="Father's occupation" error={errors.fatherOccupation}><input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} /></FormField>

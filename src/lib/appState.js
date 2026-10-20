@@ -1,4 +1,5 @@
 import { academicPrograms } from './academicPrograms';
+import { pageViewKeys } from './constants';
 
 // The app's local persistence key. It was renamed from the old
 // `scholarpath-addu-demo-state` key when the seeded demo data and the demo
@@ -74,6 +75,12 @@ export const readStoredState = () => {
 };
 
 const createDefaultState = () => ({
+  // The Supabase auth id the persisted state belongs to. It guards the single
+  // localStorage record against leaking one user's data (notifications,
+  // reminders, applications, profile draft) to the next user on a shared
+  // browser: a mismatch discards the session-scoped slices, and logout clears
+  // them outright.
+  ownerId: null,
   isAuthenticated: false,
   hasLoggedInBefore: false,
   showFirstLoginWelcome: false,
@@ -130,7 +137,11 @@ export const createInitialState = () => {
   const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
-  const activeView = stored.activeView === 'eligibility' ? 'explore' : (stored.activeView ?? defaults.activeView);
+  // A retired or unknown view key would render an empty page, so the stored
+  // value is validated against the routes the app can actually render.
+  const activeView = stored.activeView === 'eligibility'
+    ? 'explore'
+    : (pageViewKeys.includes(stored.activeView) ? stored.activeView : defaults.activeView);
   const authUser = stored.authUser
     ? { ...stored.authUser, role: migrateRole(stored.authUser.role) }
     : defaults.authUser;
@@ -171,5 +182,27 @@ export const createInitialState = () => {
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
     academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,
+    ownerId: typeof stored.ownerId === 'string' && stored.ownerId ? stored.ownerId : defaults.ownerId,
   };
+};
+
+// The device-level preferences that are not tied to a signed-in user. They are
+// the only slices kept across a sign-out so a shared browser does not carry the
+// previous user's data (notifications, reminders, applications, profile draft)
+// into the next session.
+//
+// Only non-identifying values belong here. The "remember me" email and role are
+// the previous user's data, so they reset with the rest of the session instead
+// of staying prefilled on a shared testing machine (RA 10173).
+export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore'];
+
+// A fresh state for sign-out: every session-scoped slice resets to its default
+// (including `ownerId`), while the caller's device preferences carry over.
+export const createFreshState = (devicePreferences = {}) => {
+  const defaults = createDefaultState();
+  const kept = {};
+  DEVICE_PREFERENCE_KEYS.forEach((key) => {
+    if (devicePreferences[key] !== undefined) kept[key] = devicePreferences[key];
+  });
+  return { ...defaults, ...kept, ownerId: null };
 };

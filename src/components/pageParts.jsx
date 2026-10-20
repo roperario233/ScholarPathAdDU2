@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Bell, X } from 'lucide-react';
-import { getApplicationProgress, getScholarshipAcademicDisplay, isInternalScholarship } from '../lib/eligibility';
+import { getApplicationProgress, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 import { Button, EmptyState, StatusBadge } from './ui';
 
@@ -34,10 +34,10 @@ export function ScholarshipRow({ scholarship, onApply, profile, compact = false 
           : scholarship.minimumQpi != null
             ? <span><strong>QPI</strong> {scholarship.minimumQpi}+</span>
             : null}
-        <span><strong>Income</strong> ≤ {fmtCurrency(scholarship.maximumIncome)}</span>
+        <span><strong>Income</strong> {scholarship.maximumIncome == null ? 'No limit' : `≤ ${fmtCurrency(scholarship.maximumIncome)}`}</span>
       </div>
       <p className="mt-3 text-sm text-app-muted">{scholarship.coverage}</p>
-      <Button className="mt-2" type="button" onClick={() => onApply(scholarship)}>{isInternalScholarship(scholarship) ? 'Start application' : 'Track this program'}</Button>
+      <Button className="mt-2" type="button" onClick={() => onApply(scholarship)}>{isAdduInternalProgram(scholarship) ? 'Start application' : 'Track this program'}</Button>
     </article>
   );
 }

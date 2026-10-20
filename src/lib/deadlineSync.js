@@ -43,3 +43,22 @@ export const findDeadlinesMissingFromServer = (localDeadlines, serverDeadlines) 
 
   return local.filter((entry) => entry?.id && !serverIds.has(entry.id));
 };
+
+/**
+ * Returns only the local deadlines that belong to the signed-in user.
+ *
+ * Locally created reminders are stamped with the `ownerId` that created them so
+ * a shared browser cannot re-create (backfill) one user's reminder under another
+ * user's account. Entries without an `ownerId` are kept for backward
+ * compatibility with records written before the field existed; an entry
+ * explicitly owned by someone else is dropped.
+ *
+ * @param {Array<{ownerId?: string}>} localDeadlines - Deadlines held in localStorage.
+ * @param {string} ownerId - The signed-in Supabase auth id.
+ * @returns {Array<object>} The local deadlines owned by the signed-in user.
+ */
+export const filterLocalDeadlinesForOwner = (localDeadlines, ownerId) => {
+  const local = Array.isArray(localDeadlines) ? localDeadlines : [];
+  if (!ownerId) return local;
+  return local.filter((entry) => !entry?.ownerId || entry.ownerId === ownerId);
+};

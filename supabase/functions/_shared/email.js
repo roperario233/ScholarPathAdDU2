@@ -194,6 +194,19 @@ export const renderReminderEmail = ({ title, itemTitle, deadline, daysBefore, si
 };
 
 /**
+ * The next-step sentence used by the application status email and in-app row.
+ * "For Verification" is the SOP document-verification stage, so it names the
+ * office holding the files and tells the applicant when to expect the next
+ * message instead of the generic "status changed" copy.
+ */
+export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office') => {
+  if (status === 'For Verification') {
+    return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
+  }
+  return `Your application status was updated to ${status} through ${actorLabel}. Sign in to review the next steps.`;
+};
+
+/**
  * Renders an application status-change email for the application workspace.
  */
 export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, status, siteUrl }) => {
@@ -221,6 +234,50 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
       '',
       `Scholarship: ${scholarshipTitle}`,
       `New status: ${status}`,
+      '',
+      `View your applications: ${link}`,
+      '',
+      'You are receiving this because Email Notifications are enabled in your ScholarPath AdDU settings. You can change this any time under Settings.',
+    ].join('\n'),
+  };
+};
+
+/**
+ * Renders the email sent when the Admissions Office rejects a Document Vault
+ * file. It carries the recorded reason and tells the student where to replace
+ * the file (the application's details, while the application is before
+ * endorsement).
+ */
+export const renderDocumentRejectionEmail = ({ documentTitle, reason, scholarshipTitles = [], siteUrl }) => {
+  const title = documentTitle || 'Your document';
+  const heading = `${title} needs a replacement`;
+  const applications = (Array.isArray(scholarshipTitles) ? scholarshipTitles : []).filter(Boolean);
+  const intro = applications.length
+    ? 'The Admissions Office could not verify this document. Open the application in ScholarPath AdDU and replace the file so your application can continue.'
+    : 'The Admissions Office could not verify this document. Upload a corrected file to your Document Vault.';
+  const link = `${siteUrl}?view=applications`;
+  const rows = [
+    { label: 'Document', value: title },
+    { label: 'Reason', value: reason || 'No reason was recorded.' },
+    ...(applications.length ? [{ label: applications.length === 1 ? 'Application' : 'Applications', value: applications.join(', ') }] : []),
+  ];
+
+  return {
+    subject: heading,
+    html: renderEmailLayout({
+      heading,
+      intro,
+      rows,
+      ctaLabel: 'View your applications',
+      ctaUrl: link,
+      footerNote: 'Document decisions are sent as they are recorded by the Admissions Office.',
+    }),
+    text: [
+      heading,
+      '',
+      intro,
+      '',
+      ...rows.map((row) => `${row.label}: ${row.value}`),
       '',
       `View your applications: ${link}`,
       '',

@@ -6,6 +6,7 @@ import {
   maskPhilippineMobile,
   normalizePhilippineMobile,
   renderApplicationStatusSms,
+  renderDocumentRejectionSms,
   renderReminderSms,
   renderTestSms,
 } from '../supabase/functions/_shared/sms.js';
@@ -109,6 +110,26 @@ describe('renderApplicationStatusSms', () => {
   it('falls back when the scholarship title is unknown', () => {
     expect(renderApplicationStatusSms({ scholarshipTitle: '', status: 'Approved' }).message)
       .toContain('your application for a scholarship is now Approved');
+  });
+});
+
+describe('renderDocumentRejectionSms', () => {
+  it('names the document and the reason', () => {
+    expect(renderDocumentRejectionSms({ documentTitle: 'Income Tax Return', reason: 'Document is incomplete or missing pages' }).message)
+      .toBe('ScholarPath AdDU: Income Tax Return was rejected (Document is incomplete or missing pages). Sign in to replace the file.');
+  });
+
+  it('shortens a long reason and collapses whitespace', () => {
+    const { message } = renderDocumentRejectionSms({ documentTitle: 'ITR', reason: `Line one\n\n${'x'.repeat(300)}` });
+    expect(message).toContain('(Line one x');
+    expect(message).toContain('…)');
+    expect(message).not.toContain('\n');
+    expect(message.length).toBeLessThan(200);
+  });
+
+  it('omits the parentheses when no reason is recorded', () => {
+    expect(renderDocumentRejectionSms({ documentTitle: '', reason: '' }).message)
+      .toBe('ScholarPath AdDU: a document was rejected. Sign in to replace the file.');
   });
 });
 

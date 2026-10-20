@@ -1,16 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
-import { createInitialState, readStoredState, storageKey } from './lib/appState';
+import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
-import { findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
-import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isInternalScholarship, rankScholarships, searchScholarships } from './lib/eligibility';
+import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
+import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStage, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
-import { buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, pickDefaultAttachments } from './lib/applicationRequirements';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -18,7 +19,11 @@ import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
-import AdminConsolePage from './pages/AdminConsole';
+import AdminOverviewPage from './pages/admin/AdminOverview';
+import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
+import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
+import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
+import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
@@ -113,11 +118,13 @@ const prependInAppNotification = (previous, notification) => {
 
 // The in-app alert for a profile attribute whose Document Vault proof went
 // stale, from getOutdatedAttributeAlerts() in src/lib/verification.js.
-const buildOutdatedProofNotification = ({ key, reason, sourceKey }) => {
+const buildOutdatedProofNotification = ({ key, reason, sourceKey }, ownerId = null) => {
   const label = getVerifiableAttributeOption(key)?.label || key;
   return {
     id: `not-${crypto.randomUUID()}`,
     sourceKey,
+    // Stamped so a shared browser never keeps one user's alert for the next.
+    ownerId,
     title: `${label} proof is outdated`,
     channel: 'In-app',
     body: reason === 'year'
@@ -132,11 +139,31 @@ const buildOutdatedProofNotification = ({ key, reason, sourceKey }) => {
 // persisted to Supabase (so server-side reminders can email them). Merge by id
 // so a hydrated session neither drops an unsynced local deadline nor duplicates
 // one that already round-tripped through the database.
-const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
-  const local = Array.isArray(localDeadlines) ? localDeadlines : [];
+const mergeCustomDeadlines = (localDeadlines, serverDeadlines, ownerId) => {
+  const local = filterLocalDeadlinesForOwner(localDeadlines, ownerId);
   const server = Array.isArray(serverDeadlines) ? serverDeadlines : [];
   const localIds = new Set(local.map((entry) => entry.id));
   return [...local, ...server.filter((entry) => !localIds.has(entry.id))];
+};
+
+// Device-level preferences survive an account switch and a sign-out. Every
+// other slice is session-scoped and must not leak between users on a browser
+// that has not signed the previous user out.
+// Only the non-identifying device preferences carry across a sign-out; the
+// "remember me" email/role belong to the previous user and reset with the rest.
+const devicePreferencesOf = (state) => ({
+  theme: state.theme,
+  hasLoggedInBefore: state.hasLoggedInBefore,
+});
+
+// Stamps the persisted state with the signed-in Supabase user. If the record
+// still belongs to a different user (a shared browser where sign-out was
+// skipped), the previous user's session-scoped slices are discarded first.
+const adoptStateOwner = (previous, ownerId) => {
+  if (!ownerId) return previous;
+  return previous.ownerId && previous.ownerId !== ownerId
+    ? { ...createFreshState(devicePreferencesOf(previous)), ownerId }
+    : { ...previous, ownerId };
 };
 
 // After a successful workspace load, push reminders that exist only in this
@@ -146,7 +173,7 @@ const mergeCustomDeadlines = (localDeadlines, serverDeadlines) => {
 const backfillLocalDeadlines = async ({ localDeadlines, serverDeadlines, ownerId, today, onError }) => {
   if (!isRealUserId(ownerId)) return;
 
-  const missing = findDeadlinesMissingFromServer(localDeadlines, serverDeadlines)
+  const missing = findDeadlinesMissingFromServer(filterLocalDeadlinesForOwner(localDeadlines, ownerId), serverDeadlines)
     .filter((entry) => isFutureDeadline(entry.deadline, today));
   if (!missing.length) return;
 
@@ -204,6 +231,10 @@ function App() {
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
   const [openApplicationId, setOpenApplicationId] = useState(null);
+  // The Admissions Office catalog form is uncontrolled and lives on its own
+  // route, so leaving that route discards the draft. The route reports its own
+  // dirtiness (including required-document edits) for the navigation guard.
+  const [isAdminCatalogDirty, setIsAdminCatalogDirty] = useState(false);
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -268,6 +299,8 @@ function App() {
             dueReminders.push({
               id: `not-${crypto.randomUUID()}`,
               sourceKey,
+              // Stamped so the reminder does not follow the browser to another user.
+              ownerId: previous.ownerId ?? previous.authUser?.id ?? null,
               title: `Reminder: "${deadline.title}" due in ${daysBefore} day${daysBefore === 1 ? '' : 's'}`,
               channel: 'In-app',
               body: daysBefore === 1
@@ -331,43 +364,51 @@ function App() {
       const profile = profileResult.profile;
       const profileDetails = await getProfileDetails(user.id);
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
-      updateState((previous) => ({
-        ...previous,
-        isAuthenticated: true,
-        viewerRole: userRole,
-        activeView: landingViewForRole(userRole),
-        authUser: {
-          id: user.id,
-          email: user.email,
-          phone: profile?.phone || '',
-          role: userRole,
-          fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user',
-          department: profile?.department || '',
-          degreeProgram: profile?.degree_program || '',
-          studentNumber: profile?.student_number || user.user_metadata?.student_id || '',
-          qpi: profile?.qpi ?? '',
-          householdIncome: profile?.household_income ?? '',
-          hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
-          bio: profileDetails.bio,
-        },
-        profileDraft: {
-          ...previous.profileDraft,
-          ...profileDetails.eligibilityAttributes,
-          ...profileDetails.profileDetails,
-          ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
-        },
-      }));
+      updateState((previous) => {
+        const base = adoptStateOwner(previous, user.id);
+        return {
+          ...base,
+          isAuthenticated: true,
+          viewerRole: userRole,
+          activeView: landingViewForRole(userRole),
+          authUser: {
+            id: user.id,
+            email: user.email,
+            phone: profile?.phone || '',
+            role: userRole,
+            fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user',
+            department: profile?.department || '',
+            degreeProgram: profile?.degree_program || '',
+            studentNumber: profile?.student_number || user.user_metadata?.student_id || '',
+            qpi: profile?.qpi ?? '',
+            householdIncome: profile?.household_income ?? '',
+            hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
+            bio: profileDetails.bio,
+          },
+          profileDraft: {
+            ...base.profileDraft,
+            ...profileDetails.eligibilityAttributes,
+            ...profileDetails.profileDetails,
+            ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
+          },
+        };
+      });
       const workspace = await loadSupabaseWorkspace({ role: userRole, userId: user.id, department: profile?.department || '' });
       if (active && workspace.success) {
-        updateState((previous) => ({
-          ...previous,
-          ...workspace,
-          // The Supabase workspace is authoritative for server-backed notifications,
-          // but locally generated deadline reminders only exist in localStorage.
-          // Merge instead of replacing so hydrated sessions cannot wipe them.
-          notifications: mergeNotifications(previous.notifications, workspace.notifications),
-          customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
-        }));
+        updateState((previous) => {
+          const base = adoptStateOwner(previous, user.id);
+          return {
+            ...base,
+            ...workspace,
+            // The Supabase workspace is authoritative for server-backed notifications,
+            // but locally generated deadline reminders only exist in localStorage.
+            // Merge instead of replacing so hydrated sessions cannot wipe them, and
+            // scope the merge to this user so a shared browser cannot carry over the
+            // previous user's reminders.
+            notifications: mergeNotifications(base.notifications, workspace.notifications, { ownerId: user.id }),
+            customDeadlines: mergeCustomDeadlines(base.customDeadlines, workspace.customDeadlines, user.id),
+          };
+        });
         setIsSupabaseWorkspaceLoaded(true);
         // Push any reminder that only exists in this browser so it can be emailed.
         backfillLocalDeadlines({
@@ -472,7 +513,7 @@ function App() {
     if (!alerts.length) return;
     setState((previous) => {
       const notifications = alerts.reduce(
-        (current, alert) => prependInAppNotification({ ...previous, notifications: current }, buildOutdatedProofNotification(alert)),
+        (current, alert) => prependInAppNotification({ ...previous, notifications: current }, buildOutdatedProofNotification(alert, previous.ownerId ?? previous.authUser?.id ?? null)),
         previous.notifications,
       );
       return notifications === previous.notifications ? previous : { ...previous, notifications };
@@ -490,13 +531,35 @@ function App() {
   const stats = useMemo(() => ({
     totalPrograms: scholarshipCatalog.length,
     eligibleMatches: eligibleScholarships.length,
-    openApplications: studentApplications.filter((entry) => entry.status !== 'Rejected' && entry.status !== 'Approved').length,
+    // Role-aware so the dashboard agrees with the review queues: a student sees
+    // their own live applications, the Admissions Office sees everything
+    // awaiting an SOP action, and a Department Chair sees their department's
+    // pending queue.
+    openApplications: countApplicationsToReview(state.applications, {
+      role: state.viewerRole,
+      studentId: currentProfile.id,
+      department: currentProfile.department,
+    }),
     unreadNotifications: unreadNotifications.length,
-  }), [eligibleScholarships.length, scholarshipCatalog.length, studentApplications, unreadNotifications.length]);
+  }), [
+    eligibleScholarships.length,
+    scholarshipCatalog.length,
+    state.applications,
+    state.viewerRole,
+    currentProfile.id,
+    currentProfile.department,
+    unreadNotifications.length,
+  ]);
 
   // Navigating to the vault clears any upload preset; the My Profile links pass
   // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
+    // Leaving the catalog route discards its uncontrolled form, so ask first.
+    // Clicking the catalog link while already there keeps the draft and the flag.
+    if (state.activeView === 'admin-catalog' && view !== 'admin-catalog') {
+      if (isAdminCatalogDirty && !window.confirm('Discard your unsaved scholarship changes?')) return;
+      setIsAdminCatalogDirty(false);
+    }
     setVaultPreset(view === 'vault'
       ? { attribute: options.attribute || '', documentType: options.documentType || '' }
       : { attribute: '', documentType: '' });
@@ -520,47 +583,53 @@ function App() {
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const accountId = authResult.user?.id;
       const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
-      updateState((previous) => ({
-        ...previous,
-        isAuthenticated: true,
-        hasLoggedInBefore: true,
-        showFirstLoginWelcome: !previous.hasLoggedInBefore,
-        viewerRole: resolvedRole,
-        activeView: landingViewForRole(resolvedRole),
-        authUser: {
-          id: accountId,
-          email: credentials.email,
-          role: resolvedRole,
-          fullName: displayName,
-          department: profile?.department || '',
-          degreeProgram: profile?.degree_program || '',
-          studentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '',
-          qpi: profile?.qpi ?? '',
-          householdIncome: profile?.household_income ?? '',
-          ...(profile ? {
-            phone: profile.phone || '',
-            hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
-            bio: profileDetails.bio,
-          } : {}),
-        },
-        rememberMe: credentials.rememberMe || false,
-        savedEmail: credentials.rememberMe ? credentials.email : previous.savedEmail,
-        savedRole: credentials.rememberMe ? resolvedRole : previous.savedRole,
-        profileDraft: {
-          ...previous.profileDraft,
-          ...profileDetails.eligibilityAttributes,
-          ...profileDetails.profileDetails,
-          ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
-        },
-      }));
+      updateState((previous) => {
+        const base = adoptStateOwner(previous, accountId);
+        return {
+          ...base,
+          isAuthenticated: true,
+          hasLoggedInBefore: true,
+          showFirstLoginWelcome: !base.hasLoggedInBefore,
+          viewerRole: resolvedRole,
+          activeView: landingViewForRole(resolvedRole),
+          authUser: {
+            id: accountId,
+            email: credentials.email,
+            role: resolvedRole,
+            fullName: displayName,
+            department: profile?.department || '',
+            degreeProgram: profile?.degree_program || '',
+            studentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '',
+            qpi: profile?.qpi ?? '',
+            householdIncome: profile?.household_income ?? '',
+            ...(profile ? {
+              phone: profile.phone || '',
+              hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
+              bio: profileDetails.bio,
+            } : {}),
+          },
+          rememberMe: credentials.rememberMe || false,
+          savedEmail: credentials.rememberMe ? credentials.email : base.savedEmail,
+          savedRole: credentials.rememberMe ? resolvedRole : base.savedRole,
+          profileDraft: {
+            ...base.profileDraft,
+            ...profileDetails.eligibilityAttributes,
+            ...profileDetails.profileDetails,
+            ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
+          },
+        };
+      });
       const workspace = await loadSupabaseWorkspace({ role: resolvedRole, userId: accountId, department: profile?.department || '' });
       if (workspace.success) {
-        updateState((previous) => ({
-          ...previous,
-          ...workspace,
-          notifications: mergeNotifications(previous.notifications, workspace.notifications),
-          customDeadlines: mergeCustomDeadlines(previous.customDeadlines, workspace.customDeadlines),
-        }));
+        updateState((previous) => {
+          const base = adoptStateOwner(previous, accountId);
+          return {
+            ...base,
+            ...workspace,
+            notifications: mergeNotifications(base.notifications, workspace.notifications, { ownerId: accountId }),
+            customDeadlines: mergeCustomDeadlines(base.customDeadlines, workspace.customDeadlines, accountId),
+          };
+        });
         setIsSupabaseWorkspaceLoaded(true);
         // Push any reminder that only exists in this browser so it can be emailed.
         backfillLocalDeadlines({
@@ -634,16 +703,16 @@ function App() {
 
   const logout = async () => {
     await signOutFromSupabase();
-    updateState((previous) => ({
-      ...previous,
-      isAuthenticated: false,
-      showFirstLoginWelcome: false,
-      authUser: null,
-      viewerRole: 'student',
-      activeView: 'dashboard',
-    }));
+    // Replace the whole state rather than clearing a few flags: the previous
+    // user's notifications, reminders, applications, documents, and profile
+    // draft must not survive into the next session on a shared browser. Only
+    // device-level preferences (theme, remember-me) carry over. The state
+    // persistence effect then overwrites the stored record with the cleared
+    // state, so the next page load starts clean too.
+    setState(createFreshState(devicePreferencesOf(state)));
     setProfileOnboarding(null);
     setIsSupabaseWorkspaceLoaded(false);
+    setDeadlineSync(null);
   };
 
   const saveAcademicProfile = async (profileValues) => {
@@ -724,7 +793,9 @@ function App() {
   // student already uploaded; an external or government-linked entry is tracked
   // only, because the student applies through the provider.
   const applyToScholarship = async (scholarship, qualificationProfile = studentMatchProfile) => {
-    const isInternal = isInternalScholarship(scholarship);
+    // Only the three in-scope AdDU tracks can be applied to; any other internal
+    // catalog entry is tracked only, exactly like an external program.
+    const isInternal = isAdduInternalProgram(scholarship);
     if (isInternal) {
       const gateResult = evaluateApplicationGate(qualificationProfile, scholarship);
       if (!gateResult.allowed) return gateResult;
@@ -799,12 +870,14 @@ function App() {
     return application;
   };
 
-  const setApplicationAttachments = (applicationId, update) => setState((previous) => ({
+  // `touch: false` keeps `updatedAt` faithful when the server row is not being
+  // written (a rejected-file replacement swaps only the link, 20261021000000).
+  const setApplicationAttachments = (applicationId, update, { touch = true } = {}) => setState((previous) => ({
     ...previous,
     applications: previous.applications.map((entry) => entry.id === applicationId ? {
       ...entry,
       attachedDocuments: update(entry.attachedDocuments || []),
-      updatedAt: new Date().toISOString().slice(0, 10),
+      ...(touch ? { updatedAt: new Date().toISOString().slice(0, 10) } : {}),
     } : entry),
   }));
 
@@ -865,10 +938,11 @@ function App() {
     if (!readiness.ready) return { error: readiness.blockers[0], blockers: readiness.blockers };
 
     const submittedAt = new Date().toISOString();
+    const supportingCount = readiness.supportingDocuments.length;
     const submitEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: 'Submitted',
-      note: `Student certified and submitted the application with ${readiness.attachedCount} of ${readiness.requiredCount} required documents attached.`,
+      note: `Student certified and submitted the application with ${readiness.attachedCount} of ${readiness.requiredCount} required documents attached${supportingCount ? ` and ${supportingCount} supporting ${supportingCount === 1 ? 'document' : 'documents'}` : ''}.`,
       actor: 'Student',
       at: submittedAt.slice(0, 10),
     };
@@ -881,7 +955,10 @@ function App() {
       certifiedAt: submittedAt,
     });
     if (result?.error) return { error: result.error.message || 'The application could not be submitted.' };
-    // Send the status alert only after the submission is persisted.
+    // The database trigger is the primary sender; this browser call is a retry
+    // that covers a tab closing between the status write and the trigger. It
+    // sends only the idempotent channels — the trigger owns SMS (see
+    // supabase/functions/notify-application-status/index.ts).
     notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
 
     setState((previous) => ({
@@ -900,47 +977,57 @@ function App() {
     return { ok: true };
   };
 
-  const changeApplicationStatus = (applicationId, status, options = {}) => {
+  // Every reviewer stage transition goes through this one function. It awaits
+  // the Supabase write before touching local state so a failed write can never
+  // leave the queue showing a stage the database never recorded, and it returns
+  // { ok } / { error } so the review surface can report the outcome.
+  const changeApplicationStatus = async (applicationId, status, options = {}) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application) return;
-    if (state.viewerRole === 'department_chair') {
-      const allowedChairTransition = status === 'Endorsed'
-        ? application.status === 'For Verification'
-        : status === 'For Verification' && ['Submitted', 'Under Review'].includes(application.status);
-      if (!allowedChairTransition) return;
-    } else if (state.viewerRole === 'admissions_office') {
-      const allowedStatuses = {
-        Submitted: ['Under Review', 'For Verification', 'Rejected'],
-        'Under Review': ['For Verification', 'Rejected'],
-        'For Verification': ['Rejected'],
-        Endorsed: ['Rejected'],
-        Interview: ['Rejected'],
-        Recommended: ['Approved', 'Rejected'],
-        Approved: ['Released'],
-      };
-      if (!allowedStatuses[application.status]?.includes(status)) return;
+    if (!application) return { error: 'The application could not be found.' };
+    // Manuscript 3.3.3: forward stages require every attached Document Vault
+    // file to be Verified. The reviewer UI disables these actions and the
+    // database trigger repeats the rule, so this guard only stops a stale
+    // client from optimistically advancing an application it should not.
+    if (ENDORSEMENT_BLOCKED_STATUSES.includes(status)
+      && !isApplicationVerifiedForEndorsement(application, state.documents)) {
+      return { error: 'Every attached document must be Verified before this stage.' };
+    }
+    // Stage authority lives once in getNextApplicationStatuses
+    // (src/lib/constants.js), so this guard and the role maps cannot drift apart.
+    if (state.viewerRole !== 'student') {
+      const allowedStatuses = getNextApplicationStatuses(application.status, state.viewerRole);
+      if (!allowedStatuses.includes(status)) {
+        return { error: 'Your role cannot move this application to that stage.' };
+      }
     }
     const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'Admissions Office';
+    const defaultNote = status === 'For Verification'
+      ? (state.viewerRole === 'department_chair'
+        ? 'Flagged for central document validation.'
+        : 'Continued to document verification. Attached files are queued for Admissions Office review.')
+      : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
-      note: options?.note || `Application moved to ${status}.`,
+      note: options?.note || defaultNote,
       actor,
       at: new Date().toISOString().slice(0, 10),
     };
     const { note: _note, ...stageFields } = options || {};
-    if (isSupabaseWorkspaceLoaded) {
-      // Chain rather than fire-and-forget so the Edge Function reads the new
-      // status after its status, SOP payload, and timeline are persisted.
-      Promise.resolve(updateSupabaseApplicationStatus(
-        applicationId,
-        status,
-        [...(application.timeline || []), stageEvent],
-        stageFields,
-      )).then((result) => {
-        if (!result?.error) return notifySupabaseApplicationStatus(applicationId);
-        return undefined;
-      }).catch(() => undefined);
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the stage change could not be saved.' };
+    }
+    const result = await updateSupabaseApplicationStatus(
+      applicationId,
+      status,
+      [...(application.timeline || []), stageEvent],
+      stageFields,
+    );
+    if (result?.error) {
+      return {
+        error: result.error.message
+          || 'The application status could not be saved. Confirm Supabase is configured and apply pending migrations.',
+      };
     }
     setState((previous) => ({
       ...previous,
@@ -952,29 +1039,52 @@ function App() {
         timeline: [...(entry.timeline || []), stageEvent],
       } : entry),
     }));
+    // The database trigger (20261014000003) is the primary sender; this is the
+    // retry for a tab that closed first and only sends the idempotent in-app and
+    // email channels. The trigger owns the SMS channel.
+    notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+    return { ok: true };
   };
 
   // A Department Chair flags submitted applications for central validation by
   // moving them to For Verification and recording the reason in the timeline.
-  const flagApplicationForValidation = (applicationId) => {
+  const flagApplicationForValidation = (applicationId) => (
     changeApplicationStatus(applicationId, 'For Verification', {
       note: 'Flagged for central document validation.',
-    });
-  };
+    })
+  );
 
   // SOP step 4 — the Department Chair endorses qualified applications to the
   // next stage (interview and other evaluation).
-  const endorseApplication = (applicationId, note = '') => {
-    if (state.viewerRole !== 'department_chair') return;
+  const endorseApplication = async (applicationId, note = '') => {
+    if (state.viewerRole !== 'department_chair') {
+      return { error: 'Only the Department Chair can endorse at this stage.' };
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'For Verification') return;
+    if (!application || application.status !== 'For Verification') {
+      return { error: 'This application is not awaiting endorsement.' };
+    }
+    // Manuscript 3.3.3: never record an endorsement for an application whose
+    // attached documents are not all Verified. The status write refuses that
+    // change too, so checking first keeps a department_reviews row from being
+    // written against an application that never advanced.
+    if (!isApplicationVerifiedForEndorsement(application, state.documents)) {
+      return { error: 'Every attached document must be Verified before endorsement.' };
+    }
     const record = {
       reviewedBy: currentProfile.fullName || 'Department Chair',
       decision: 'Endorsed',
       note: note || 'Endorsed based on academic standing and verified documents.',
       decidedAt: new Date().toISOString().slice(0, 10),
     };
+    const result = await changeApplicationStatus(applicationId, 'Endorsed', {
+      note: record.note,
+      endorsement: record,
+    });
+    if (result?.error) return result;
     if (isSupabaseWorkspaceLoaded) {
+      // The endorsement itself is the authoritative write; the department review
+      // row is an auxiliary audit record, so a failure there does not roll it back.
       upsertSupabaseDepartmentReview({
         applicationId,
         reviewerId: currentProfile.id,
@@ -984,20 +1094,21 @@ function App() {
         householdIncome: application.studentHouseholdIncome,
         status: 'Endorsed',
         recommendation: record.note,
-      });
+      }).catch(() => undefined);
     }
-    changeApplicationStatus(applicationId, 'Endorsed', {
-      note: record.note,
-      endorsement: record,
-    });
+    return { ok: true };
   };
 
   // SOP step 5 — interview scheduling; the interviewing panel comes from the
   // school where the applicant's program belongs.
   const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
-    if (state.viewerRole !== 'admissions_office') return;
+    if (state.viewerRole !== 'admissions_office') {
+      return Promise.resolve({ error: 'Only the Admissions Office can schedule an interview.' });
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Endorsed') return;
+    if (!application || application.status !== 'Endorsed') {
+      return Promise.resolve({ error: 'This application is not awaiting an interview.' });
+    }
     const record = {
       scheduledAt: scheduledAt || null,
       panel: panel || `${application.studentDepartment || 'Department'} Scholarship Panel`,
@@ -1005,7 +1116,7 @@ function App() {
       note,
       outcome: null,
     };
-    changeApplicationStatus(applicationId, 'Interview', {
+    return changeApplicationStatus(applicationId, 'Interview', {
       note: `Interview scheduled for ${record.scheduledAt || 'an upcoming date'} with the ${record.panel}.`,
       interview: record,
     });
@@ -1014,9 +1125,13 @@ function App() {
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
   const recordDeliberation = (applicationId, decision, note = '') => {
-    if (state.viewerRole !== 'admissions_office') return;
+    if (state.viewerRole !== 'admissions_office') {
+      return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Interview') return;
+    if (!application || application.status !== 'Interview') {
+      return Promise.resolve({ error: 'This application is not awaiting a deliberation.' });
+    }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
     const record = {
       decidedBy: 'School Scholarship Sub-committee',
@@ -1024,7 +1139,7 @@ function App() {
       note,
       decidedAt: new Date().toISOString().slice(0, 10),
     };
-    changeApplicationStatus(applicationId, nextStatus, {
+    return changeApplicationStatus(applicationId, nextStatus, {
       note: note || `Sub-committee deliberation recorded as ${nextStatus}.`,
       deliberation: record,
     });
@@ -1033,70 +1148,86 @@ function App() {
   // SOP steps 7 and 8 — the scholarship committee approves and the result is
   // released to the applicant through the Admissions Office.
   const releaseApplicationResults = (applicationId) => {
-    if (state.viewerRole !== 'admissions_office') return;
+    if (state.viewerRole !== 'admissions_office') {
+      return Promise.resolve({ error: 'Only the Admissions Office can release results.' });
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'Approved') return;
+    if (!application || application.status !== 'Approved') {
+      return Promise.resolve({ error: 'This application is not awaiting release.' });
+    }
     const record = {
       releasedTo: 'Admissions Office',
       releasedAt: new Date().toISOString().slice(0, 10),
       reference: `OAA-${applicationId.slice(0, 8).toUpperCase()}`,
     };
-    const stageEvent = {
-      id: `ev-${crypto.randomUUID()}`,
-      stage: 'Released',
+    // Routed through changeApplicationStatus so the release honours the same
+    // document-verification guard, timeline, and persistence path as every other
+    // stage — instead of writing status, stage payload, and local state directly.
+    return changeApplicationStatus(applicationId, 'Released', {
       note: `Result released to the applicant through the Admissions Office (${record.reference}).`,
-      actor: 'Admissions Office',
-      at: new Date().toISOString().slice(0, 10),
-    };
-    if (isSupabaseWorkspaceLoaded) {
-      Promise.resolve(updateSupabaseApplicationStage(applicationId, 'Released', {
-        release: record,
-        timeline: [...(application.timeline || []), stageEvent],
-      })).then((result) => {
-        if (!result?.error) return notifySupabaseApplicationStatus(applicationId);
-        return undefined;
-      }).catch(() => undefined);
-    }
-    setState((previous) => ({
-      ...previous,
-      applications: previous.applications.map((entry) => entry.id === applicationId ? {
-        ...entry,
-        status: 'Released',
-        release: record,
-        updatedAt: new Date().toISOString().slice(0, 10),
-        timeline: [...(entry.timeline || []), stageEvent],
-      } : entry),
-    }));
+      release: record,
+    });
   };
 
   // The Admissions Office verifies or rejects a vault document here. Because an
   // attribute's state is derived from its linked proof documents
   // (src/lib/verification.js), verifying the file also verifies the attributes it
-  // proves. A verified or rejected decision notifies the owner, deduped by a
-  // stable source key.
-  const changeDocumentStatus = (documentId, verificationStatus) => {
-    const document = state.documents.find((entry) => entry.id === documentId);
-    if (isSupabaseWorkspaceLoaded) updateSupabaseDocumentStatus(documentId, verificationStatus);
+  // proves. A rejection must carry a recorded reason (ReasonModal in
+  // ApplicationReviewModal); the database enforces the same rule. The student is
+  // notified server-side by notify-document-verification, which the database
+  // trigger calls; the browser call below is a retry for the idempotent channels.
+  const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
+    const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
+    if (verificationStatus === 'Rejected' && !reason) return;
+    if (isSupabaseWorkspaceLoaded) {
+      const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
+      if (result.error) {
+        window.alert(result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.');
+        return;
+      }
+      if (['Verified', 'Rejected'].includes(verificationStatus)) {
+        notifySupabaseDocumentVerification(documentId).catch(() => undefined);
+      }
+    }
     setState((previous) => ({
       ...previous,
       documents: previous.documents.map((entry) => entry.id === documentId ? {
         ...entry,
         verificationStatus,
+        rejectionReason: reason,
       } : entry),
-      notifications: document && ['Verified', 'Rejected'].includes(verificationStatus)
-        ? prependInAppNotification(previous, {
-            id: `not-${crypto.randomUUID()}`,
-            sourceKey: `document-verification-${documentId}-${verificationStatus}`,
-            title: verificationStatus === 'Verified' ? `${document.title} verified` : `${document.title} needs attention`,
-            channel: 'In-app',
-            body: verificationStatus === 'Verified'
-              ? `The Admissions Office verified “${document.title}”. Any profile attributes it proves are now verified.`
-              : `The Admissions Office could not verify “${document.title}”. Upload a replacement to complete verification.`,
-            status: 'Unread',
-            createdAt: new Date().toISOString().slice(0, 10),
-          })
-        : previous.notifications,
     }));
+  };
+
+  // A Rejected file on a submitted, pre-endorsement application can be swapped
+  // for another vault file or a new upload (which lands in the vault first, as
+  // in the workspace). The status does not change; the new file arrives Pending
+  // for the Admissions Office. The server repeats every check
+  // (replace_rejected_application_document).
+  const replaceRejectedDocument = async (applicationId, oldDocumentId, { documentId = '', file = null, documentType = '' } = {}) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    const oldDocument = studentDocuments.find((doc) => doc.id === oldDocumentId);
+    if (!application || application.studentId !== currentProfile.id || !DOCUMENT_REPLACEMENT_STATUSES.includes(application.status)) {
+      return { error: 'Documents can be replaced only before the application is endorsed.' };
+    }
+    if (!oldDocument || oldDocument.verificationStatus !== 'Rejected' || !(application.attachedDocuments || []).includes(oldDocumentId)) {
+      return { error: 'Only a rejected document attached to this application can be replaced.' };
+    }
+    let replacementId = documentId;
+    if (file) {
+      const upload = await uploadVaultDocument({ file, documentType });
+      if (upload.error) return upload;
+      replacementId = upload.document.id;
+    }
+    if (!replacementId) return { error: 'Choose a replacement file.' };
+    const result = await replaceSupabaseApplicationDocument(applicationId, oldDocumentId, replacementId);
+    if (result.error) {
+      return { error: file
+        ? `The file was saved to your Document Vault but could not replace the rejected one: ${result.error.message || 'please try again.'}`
+        : result.error.message || 'The document could not be replaced.' };
+    }
+    setApplicationAttachments(applicationId, (ids) => [...ids.filter((id) => id !== oldDocumentId && id !== replacementId), replacementId], { touch: false });
+    return { ok: true };
   };
 
   const deleteDocument = async (documentId) => {
@@ -1272,11 +1403,16 @@ function App() {
       return;
     }
 
+    const ownerId = state.authUser?.id || currentProfile.id;
+
     const newDeadline = {
       id: `custom-${crypto.randomUUID()}`,
       title,
       deadline: deadline,
       createdAt: new Date().toISOString().slice(0, 10),
+      // Stamped so the reminder cannot be backfilled into another user's
+      // account on a shared browser.
+      ownerId: isRealUserId(ownerId) ? ownerId : null,
     };
 
     // The calendar updates immediately. The server save is reported separately,
@@ -1287,7 +1423,6 @@ function App() {
       customDeadlines: [newDeadline, ...previous.customDeadlines],
     }));
 
-    const ownerId = state.authUser?.id || currentProfile.id;
 
     if (!isSupabaseWorkspaceLoaded || !isRealUserId(ownerId)) {
       setDeadlineSync({
@@ -1399,33 +1534,56 @@ function App() {
     || !studentMatchProfile.citizenship
   );
 
+  // The Admissions Office workspace is split into one route per function, shown
+  // as a labeled group so the page navigation stays scannable.
+  const admissionsWorkspaceItems = state.viewerRole === 'admissions_office'
+    ? [
+      { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
+      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
+      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: true },
+      { view: 'admin-release', label: 'Results release', group: 'Admissions Office', visible: true },
+      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: true },
+    ]
+    : [];
+
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: true },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
-    { view: 'admin', label: 'Admissions Office', visible: state.viewerRole === 'admissions_office' },
+    ...admissionsWorkspaceItems,
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => (
-    <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
-      {navigationItems.map((item) => (
-        <button
-          key={item.view}
-          type="button"
-          className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
-          onClick={() => navigate(item.view)}
-          aria-current={state.activeView === item.view ? 'page' : undefined}
-        >
-          {item.label}
-        </button>
-      ))}
-    </nav>
-  );
+  const renderNavigation = (className = '') => {
+    let renderedGroup = null;
+    return (
+      <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
+        {navigationItems.map((item) => {
+          const groupHeading = item.group && item.group !== renderedGroup ? item.group : null;
+          renderedGroup = item.group || null;
+          return (
+            <Fragment key={item.view}>
+              {groupHeading && (
+                <span className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-app-muted">{groupHeading}</span>
+              )}
+              <button
+                type="button"
+                className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
+                onClick={() => navigate(item.view)}
+                aria-current={state.activeView === item.view ? 'page' : undefined}
+              >
+                {item.label}
+              </button>
+            </Fragment>
+          );
+        })}
+      </nav>
+    );
+  };
 
   if (isBooting) {
     return (
@@ -1605,6 +1763,7 @@ function App() {
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
               onOpenCalendar={() => navigate('calendar')}
               onOpenAdmin={() => navigate('admin')}
+              onOpenAdminReview={() => navigate('admin-review')}
               onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
@@ -1636,6 +1795,7 @@ function App() {
               onAttach={attachDocumentToApplication}
               onDetach={detachDocumentFromApplication}
               onUploadAndAttach={uploadAndAttachDocument}
+              onReplaceDocument={replaceRejectedDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
               onSaveProfile={saveProfile}
@@ -1650,26 +1810,54 @@ function App() {
               profile={studentMatchProfile}
               onUpload={addDocument}
               onDelete={deleteDocument}
+              onResolveDocument={(applicationId) => navigate('applications', { applicationId })}
               presetAttribute={vaultPreset.attribute}
               presetDocumentType={vaultPreset.documentType}
             />
           )}
 
-          {state.activeView === 'admin' && state.viewerRole === 'admissions_office' && (
-            <AdminConsolePage
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin' && (
+            <AdminOverviewPage
+              applications={state.applications}
+              documents={state.documents}
+              onOpenWorkspace={(view) => navigate(view)}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-review' && (
+            <AdminReviewQueuePage
               applications={state.applications}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
-              announcements={state.announcements}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onScheduleInterview={scheduleInterview}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
-              onCreateAnnouncement={addAnnouncement}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-catalog' && (
+            <AdminScholarshipCatalogPage
+              scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
+              onDirtyChange={setIsAdminCatalogDirty}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-release' && (
+            <AdminResultsReleasePage
+              applications={state.applications}
+              onReleaseResults={releaseApplicationResults}
+            />
+          )}
+
+          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-announcements' && (
+            <AdminAnnouncementsPage
+              announcements={state.announcements}
+              onCreateAnnouncement={addAnnouncement}
             />
           )}
 
@@ -1696,7 +1884,6 @@ function App() {
               onSaveProfile={saveProfile}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
-              onOpenEligibility={() => navigate('explore')}
               attributeVerifications={attributeVerifications}
               scholarships={scholarshipCatalog}
               documents={studentDocuments}

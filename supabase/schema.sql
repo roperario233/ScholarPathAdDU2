@@ -103,6 +103,13 @@ alter table documents add column if not exists linked_attributes text[] not null
 -- `{"qpi": 3.2}`); a proof whose value no longer matches the profile, or an
 -- annual proof from an earlier academic year, reads as Outdated.
 alter table documents add column if not exists attested_values jsonb not null default '{}'::jsonb;
+-- Why the Admissions Office rejected the file; required on the move into
+-- Rejected and cleared when the file leaves it
+-- (see 20261020000000_add_document_rejection_reason.sql).
+alter table documents add column if not exists rejection_reason text;
+-- When the current verification decision was made; keys the per-decision
+-- student notification (see 20261021000000_replace_rejected_application_documents.sql).
+alter table documents add column if not exists verification_decided_at timestamptz;
 
 create table if not exists applications (
   id uuid primary key default gen_random_uuid(),
@@ -377,7 +384,20 @@ for all using (public.current_profile_role() = 'admissions_office') with check (
 --   * submission needs an AdDU internal scholarship that is still open, a
 --     certification, a statement, and a non-rejected vault file attached for
 --     every required document that applies to the student's year standing.
+--
+-- "In scope" is decided by the scholarship *title* (is_addu_in_scope_track),
+-- never by rule_family alone: other internal catalog entries can share those
+-- values without being GIA, Jubilee, or SA. Mirrors isAdduInternalProgram() in
+-- src/lib/eligibility.js.
 -- ---------------------------------------------------------------------------
+create or replace function public.is_addu_in_scope_track(p_title text)
+returns boolean
+language sql
+immutable
+as $$
+  select lower(btrim(coalesce(p_title, ''))) ~ 'jubilee|grant[ -]?in[ -]?aid|(^|[^a-z])gia([^a-z]|$)|student assistant|working scholar';
+$$;
+
 create or replace function public.enforce_student_application_update()
 returns trigger
 language plpgsql
@@ -396,6 +416,16 @@ begin
   if tg_op = 'INSERT' then
     if new.status <> 'Draft' then
       raise exception 'New applications start as drafts.' using errcode = '42501';
+    end if;
+    -- An internal catalog entry that is not one of the three in-scope tracks
+    -- cannot even be started. External/government-linked entries are tracked
+    -- only, so a Draft row there is allowed.
+    select * into v_scholarship from public.scholarships where id = new.scholarship_id;
+    if found
+      and coalesce(v_scholarship.is_external, false) = false
+      and coalesce(v_scholarship.rule_family, '') in ('general-pool', 'honors', 'work-study')
+      and not public.is_addu_in_scope_track(v_scholarship.title) then
+      raise exception 'Only the AdDU internal scholarship tracks are in scope: Grant-in-Aid (GIA), Jubilee, and the Student Assistant Program.' using errcode = '23514';
     end if;
     return new;
   end if;
@@ -418,6 +448,9 @@ begin
     or v_scholarship.is_external
     or coalesce(v_scholarship.rule_family, '') not in ('general-pool', 'honors', 'work-study') then
     raise exception 'External programs are tracked only. Apply through the provider.' using errcode = '23514';
+  end if;
+  if not public.is_addu_in_scope_track(v_scholarship.title) then
+    raise exception 'Only the AdDU internal scholarship tracks are in scope: Grant-in-Aid (GIA), Jubilee, and the Student Assistant Program.' using errcode = '23514';
   end if;
   if not v_scholarship.is_active
     or (v_scholarship.deadline is not null and v_scholarship.deadline < (now() at time zone 'Asia/Manila')::date) then
@@ -459,6 +492,49 @@ create trigger enforce_student_application_update
   before insert or update on public.applications
   for each row execute function public.enforce_student_application_update();
 
+-- Manuscript Section 3.3.3: an application linked to a Pending or Rejected
+-- document cannot proceed to interview or subcommittee evaluation. The
+-- Admissions Office role has `for all` access to applications, so the gate is
+-- enforced here and not only in the reviewer UI. Rejection is always allowed.
+-- Mirrors isApplicationVerifiedForEndorsement() in
+-- src/lib/applicationRequirements.js.
+create or replace function public.enforce_document_verification_before_progress()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_outstanding integer;
+begin
+  if new.status = old.status then
+    return new;
+  end if;
+  if new.status not in ('Endorsed', 'Interview', 'Recommended', 'Approved', 'Released') then
+    return new;
+  end if;
+
+  select count(*)
+    into v_outstanding
+    from public.application_documents ad
+    join public.documents d on d.id = ad.document_id
+    where ad.application_id = new.id
+      and d.verification_status <> 'Verified';
+
+  if v_outstanding > 0 then
+    raise exception 'All attached documents must be verified before this application can be endorsed or advance to a later stage. % document(s) still need verification.', v_outstanding
+      using errcode = '23514';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_document_verification_before_progress on public.applications;
+create trigger enforce_document_verification_before_progress
+  before update on public.applications
+  for each row execute function public.enforce_document_verification_before_progress();
+
 -- A student may not delete a vault file that a submitted application relies on;
 -- the foreign-key cascade would otherwise silently unlink it from the review.
 create or replace function public.protect_submitted_application_documents()
@@ -485,6 +561,94 @@ create trigger protect_submitted_application_documents
   before delete on public.documents
   for each row execute function public.protect_submitted_application_documents();
 
+-- ---------------------------------------------------------------------------
+-- Append-only application status log (RQ2 audit trail).
+--
+-- `applications.timeline` (JSON) is browser-written with a role label as the
+-- actor, and Admissions Office staff have `for all` access to applications, so
+-- it is not a trustworthy record of who changed a status. Every status change
+-- is recorded here from an AFTER UPDATE trigger instead: actor_id is auth.uid()
+-- and actor_role comes from current_profile_role(); a system move carries a null
+-- actor_id and actor_role 'system'. Nothing may update or delete a row, and only
+-- the security-definer trigger inserts.
+-- ---------------------------------------------------------------------------
+create table if not exists public.application_status_log (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references public.applications(id),
+  from_status text,
+  to_status text not null,
+  actor_id uuid,
+  actor_role text,
+  reason text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists application_status_log_application_id_idx
+  on public.application_status_log (application_id, created_at);
+
+create or replace function public.log_application_status_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_reason text;
+begin
+  if new.status is distinct from old.status then
+    select e.value ->> 'note'
+      into v_reason
+      from jsonb_array_elements(coalesce(new.timeline, '[]'::jsonb)) with ordinality as e(value, ord)
+      where e.value ->> 'stage' = new.status
+      order by e.ord desc
+      limit 1;
+
+    insert into public.application_status_log (application_id, from_status, to_status, actor_id, actor_role, reason)
+    values (
+      new.id,
+      old.status,
+      new.status,
+      auth.uid(),
+      coalesce(public.current_profile_role(), 'system'),
+      v_reason
+    );
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists log_application_status_change on public.applications;
+create trigger log_application_status_change
+  after update on public.applications
+  for each row execute function public.log_application_status_change();
+
+alter table public.application_status_log enable row level security;
+
+drop policy if exists "status_log_staff_read" on public.application_status_log;
+create policy "status_log_staff_read" on public.application_status_log
+for select using (
+  public.current_profile_role() = 'admissions_office'
+  or (
+    public.current_profile_role() = 'department_chair'
+    and exists (
+      select 1 from public.applications a
+      join public.profiles p on p.user_id = a.student_id
+      where a.id = application_status_log.application_id
+        and p.department = public.current_profile_department()
+    )
+  )
+);
+
+drop policy if exists "status_log_student_read" on public.application_status_log;
+create policy "status_log_student_read" on public.application_status_log
+for select using (
+  exists (
+    select 1 from public.applications a
+    where a.id = application_status_log.application_id
+      and a.student_id = auth.uid()
+  )
+);
+
 -- Students own their vault rows (documents_self_access is FOR ALL), but the
 -- review fields belong to the Admissions Office: a student cannot mark a file
 -- Verified, relink it, rewrite the value it attests, or backdate it into the
@@ -502,10 +666,14 @@ begin
   end if;
   if tg_op = 'INSERT' then
     new.verification_status := 'Pending';
+    new.rejection_reason := null;
+    new.verification_decided_at := null;
     new.uploaded_at := now();
     return new;
   end if;
   if new.verification_status is distinct from old.verification_status
+    or new.rejection_reason is distinct from old.rejection_reason
+    or new.verification_decided_at is distinct from old.verification_decided_at
     or new.linked_attributes is distinct from old.linked_attributes
     or new.attested_values is distinct from old.attested_values
     or new.uploaded_at is distinct from old.uploaded_at
@@ -520,6 +688,143 @@ drop trigger if exists protect_document_review_fields on public.documents;
 create trigger protect_document_review_fields
   before insert or update on public.documents
   for each row execute function public.protect_document_review_fields();
+
+-- A file cannot move into Rejected without a recorded reason, and the reason is
+-- cleared once the file leaves Rejected. The check runs on the transition only,
+-- so a file rejected before the column existed stays editable
+-- (see 20261020000000_add_document_rejection_reason.sql).
+create or replace function public.require_document_rejection_reason()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if new.verification_status is distinct from old.verification_status then
+    new.verification_decided_at := now();
+  end if;
+  if new.verification_status is distinct from 'Rejected' then
+    new.rejection_reason := null;
+    return new;
+  end if;
+  new.rejection_reason := nullif(btrim(new.rejection_reason), '');
+  if old.verification_status is distinct from 'Rejected' and new.rejection_reason is null then
+    raise exception 'A reason is required to reject a document.' using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists require_document_rejection_reason on public.documents;
+create trigger require_document_rejection_reason
+  before update on public.documents
+  for each row execute function public.require_document_rejection_reason();
+
+-- A student may swap a Rejected file attached to their own pre-endorsement
+-- application (Submitted, Under Review, For Verification) for another of their
+-- non-rejected vault files of the same kind. The status does not change and the
+-- new file arrives Pending. application_documents links are otherwise Draft-only
+-- for students (see 20261021000000_replace_rejected_application_documents.sql;
+-- mirrors replaceRejectedDocument() in src/App.jsx).
+create or replace function public.replace_rejected_application_document(
+  p_application_id uuid,
+  p_old_document_id uuid,
+  p_new_document_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_application public.applications%rowtype;
+  v_old public.documents%rowtype;
+  v_new public.documents%rowtype;
+  v_required jsonb;
+begin
+  select * into v_application
+    from public.applications
+    where id = p_application_id and student_id = auth.uid();
+  if not found then
+    raise exception 'Application not found.' using errcode = '42501';
+  end if;
+  if v_application.status not in ('Submitted', 'Under Review', 'For Verification') then
+    raise exception 'Documents can be replaced only before the application is endorsed.' using errcode = '23514';
+  end if;
+
+  select d.* into v_old
+    from public.documents d
+    join public.application_documents ad on ad.document_id = d.id and ad.application_id = p_application_id
+    where d.id = p_old_document_id;
+  if not found or v_old.verification_status <> 'Rejected' then
+    raise exception 'Only a rejected document attached to this application can be replaced.' using errcode = '23514';
+  end if;
+
+  select * into v_new
+    from public.documents
+    where id = p_new_document_id and owner_id = auth.uid();
+  if not found or v_new.verification_status = 'Rejected' then
+    raise exception 'Choose a document from your vault that has not been rejected.' using errcode = '23514';
+  end if;
+  if exists (
+    select 1 from public.application_documents
+    where application_id = p_application_id and document_id = p_new_document_id
+  ) then
+    raise exception 'That document is already attached to this application.' using errcode = '23514';
+  end if;
+
+  if v_new.document_type is distinct from v_old.document_type then
+    select coalesce(s.required_documents, '[]'::jsonb) into v_required
+      from public.scholarships s
+      where s.id = v_application.scholarship_id;
+    if not exists (
+      select 1
+      from jsonb_array_elements(coalesce(v_required, '[]'::jsonb)) item
+      where (item -> 'documentTypes') ? v_old.document_type
+        and (item -> 'documentTypes') ? v_new.document_type
+    ) then
+      raise exception 'The replacement must be the same kind of document as the rejected file.' using errcode = '23514';
+    end if;
+  end if;
+
+  delete from public.application_documents
+    where application_id = p_application_id and document_id = p_old_document_id;
+  insert into public.application_documents (application_id, document_id)
+    values (p_application_id, p_new_document_id);
+end;
+$$;
+
+revoke all on function public.replace_rejected_application_document(uuid, uuid, uuid) from public, anon;
+grant execute on function public.replace_rejected_application_document(uuid, uuid, uuid) to authenticated;
+
+-- A Verified file that a live application already relies on cannot be
+-- un-verified, because the document-verification gate would then strand that
+-- application. The staff revert the application first.
+create or replace function public.protect_verified_documents_on_progress()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.verification_status = 'Verified' and new.verification_status is distinct from 'Verified' then
+    if exists (
+      select 1
+      from public.application_documents ad
+      join public.applications a on a.id = ad.application_id
+      where ad.document_id = new.id
+        and a.status in ('Endorsed', 'Interview', 'Recommended', 'Approved', 'Released')
+    ) then
+      raise exception 'This document is verified and an application that relies on it has already advanced. Revert that application before changing its verification status.' using errcode = '23514';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_verified_documents_on_progress on public.documents;
+create trigger protect_verified_documents_on_progress
+  before update on public.documents
+  for each row execute function public.protect_verified_documents_on_progress();
 
 -- ---------------------------------------------------------------------------
 -- Document Vault storage.
@@ -665,4 +970,90 @@ for select using (auth.uid() = user_id);
 --   );
 --   $$
 -- );
+
+-- ---------------------------------------------------------------------------
+-- Database-triggered status notification (pg_net) — Chapter 3, Section 3.3.4.
+--
+-- Fires notify-application-status whenever applications.status changes, so the
+-- alert is sent even if the browser closes between the status write and its own
+-- call. The function is idempotent on `application-status-<id>-<status>`, so the
+-- browser call becomes a retry.
+--
+-- Applied to the deployed project by the migration
+-- supabase/migrations/20261014000003_notify_application_status_from_database.sql;
+-- the block below stays as the documented, project-ref-agnostic reference.
+--
+-- Setup: replace <project-ref> and <REMINDER_CRON_SECRET> with the deployed
+-- values, then run the statements. notify-application-status must be deployed
+-- with verify_jwt disabled (like process-deadline-reminders): it authenticates
+-- the shared secret itself and still validates a signed-in user's JWT.
+-- ---------------------------------------------------------------------------
+-- create extension if not exists pg_net;
+--
+-- create or replace function public.notify_application_status_change()
+-- returns trigger
+-- language plpgsql
+-- security definer
+-- set search_path = public, net
+-- as $$
+-- begin
+--   if new.status is distinct from old.status then
+--     perform net.http_post(
+--       url := 'https://<project-ref>.supabase.co/functions/v1/notify-application-status',
+--       headers := jsonb_build_object(
+--         'Authorization', 'Bearer <REMINDER_CRON_SECRET>',
+--         'Content-Type', 'application/json'
+--       ),
+--       body := jsonb_build_object('applicationId', new.id)
+--     );
+--   end if;
+--   return new;
+-- end;
+-- $$;
+--
+-- drop trigger if exists notify_application_status_change on public.applications;
+-- create trigger notify_application_status_change
+--   after update on public.applications
+--   for each row execute function public.notify_application_status_change();
+
+-- ---------------------------------------------------------------------------
+-- Document verification notifications from the database (pg_net).
+--
+-- When the Admissions Office verifies or rejects a Document Vault file, this
+-- trigger calls notify-document-verification, which writes the student's in-app
+-- row and, for a rejection, emails and texts the reason. The function dedupes
+-- on `document-verification-<documentId>-<status>-<decidedAtEpoch>`, so the
+-- browser's call after the write is a retry.
+--
+-- Applied to the deployed project by the migration
+-- supabase/migrations/20261021000001_notify_document_verification_from_database.sql.
+-- Setup: replace <project-ref> and <REMINDER_CRON_SECRET>, and deploy the
+-- function with verify_jwt disabled.
+-- ---------------------------------------------------------------------------
+-- create or replace function public.notify_document_verification_change()
+-- returns trigger
+-- language plpgsql
+-- security definer
+-- set search_path = public, net
+-- as $$
+-- begin
+--   if new.verification_status is distinct from old.verification_status
+--     and new.verification_status in ('Verified', 'Rejected') then
+--     perform net.http_post(
+--       url := 'https://<project-ref>.supabase.co/functions/v1/notify-document-verification',
+--       headers := jsonb_build_object(
+--         'Authorization', 'Bearer <REMINDER_CRON_SECRET>',
+--         'Content-Type', 'application/json'
+--       ),
+--       body := jsonb_build_object('documentId', new.id)
+--     );
+--   end if;
+--   return new;
+-- end;
+-- $$;
+--
+-- drop trigger if exists notify_document_verification_change on public.documents;
+-- create trigger notify_document_verification_change
+--   after update on public.documents
+--   for each row execute function public.notify_document_verification_change();
 
