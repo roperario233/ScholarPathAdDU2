@@ -1,15 +1,12 @@
 import { useState } from 'react';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, verificationStatuses, sopStages, sopStageIndex, getDocumentTypeLabel } from '../lib/constants';
-import { getVerifiableAttributeOption } from '../lib/profile';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, sopStages, sopStageIndex } from '../lib/constants';
 import { AnnouncementItem, StatCard } from '../components/pageParts';
 import { describeStatusActor } from '../components/ApplicationParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
-import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import RequiredDocumentsEditor from '../components/RequiredDocumentsEditor';
-import { describeApplicantAcademic, normalizeRequirements } from '../lib/applicationRequirements';
-import { getProofStaleReason } from '../lib/verification';
-import { fmtCurrency, fmtDate } from '../lib/formatters';
+import { describeApplicantAcademic, getDocumentVerificationReadiness, normalizeRequirements } from '../lib/applicationRequirements';
+import { fmtDate } from '../lib/formatters';
 
 const stageTone = (status) => {
   if (status === 'Rejected') return 'danger';
@@ -17,18 +14,6 @@ const stageTone = (status) => {
   if (['For Verification', 'Endorsed'].includes(status)) return 'warning';
   return 'info';
 };
-
-// Renders a declared attribute value: the value a proof was uploaded to attest
-// (any verifiable attribute) or the student's current QPI and household income
-// from the staff directory.
-const formatDeclaredValue = (key, value) => {
-  if (value == null || value === '') return 'not provided';
-  if (key === 'qpi') return Number(value).toFixed(2);
-  if (key === 'householdIncome') return fmtCurrency(Number(value));
-  return String(value);
-};
-
-const hasAttestedValue = (doc, key) => Boolean(doc.attestedValues) && Object.prototype.hasOwnProperty.call(doc.attestedValues, key);
 
 // Standard Procedure stage track rendered above each queue entry.
 function SopStageTrack({ status }) {
@@ -64,7 +49,6 @@ export default function AdminConsole({
   onSaveScholarship,
 }) {
   const [selectedId, setSelectedId] = useState(null);
-  const [previewDoc, setPreviewDoc] = useState(null);
   const [catalogError, setCatalogError] = useState('');
   const [editingScholarship, setEditingScholarship] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
@@ -171,22 +155,24 @@ export default function AdminConsole({
         <div className="page-title-copy">
           <span className="page-section-label">Admissions Office workspace</span>
           <h2>Scholarship application operations</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Coordinate application operations, verify documents, track sub-committee recommendations, and release results through the Admissions Office.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Coordinate application operations, verify application documents, track sub-committee recommendations, and release results through the Admissions Office.</p>
         </div>
         <StatusBadge tone="info">Internal operations</StatusBadge>
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-        <StatCard label="Documents for review" value={blockingDocuments.length} note="Attached files still Pending" />
+        <StatCard label="Documents for review" value={blockingDocuments.length} note="Attached files still Pending — review inside each application" />
         <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for the Admissions Office" />
         <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid gap-4">
         <Card title="Application review queue" action={<StatusBadge tone={reviewApplications.length ? 'warning' : 'success'}>{reviewApplications.length} awaiting action</StatusBadge>}>
           <div className="grid max-h-[540px] gap-3 overflow-y-auto pr-1">
-            {reviewApplications.length ? reviewApplications.map((entry) => (
+            {reviewApplications.length ? reviewApplications.map((entry) => {
+              const { outstanding } = getDocumentVerificationReadiness(entry, documents);
+              return (
               <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
                 <div className="flex min-w-0 items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
@@ -199,76 +185,14 @@ export default function AdminConsole({
                 <SopStageTrack status={entry.status} />
                 <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
                   <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
+                  {outstanding ? <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge> : null}
                 </div>
               </article>
-            )) : <EmptyState title="No applications in review" description="Submitted applications will appear here for central office review." />}
+              );
+            }) : <EmptyState title="No applications in review" description="Submitted applications will appear here for central office review." />}
           </div>
         </Card>
 
-        <Card title="Document verification" action={<StatusBadge tone={pendingDocuments.length ? 'warning' : 'success'}>{pendingDocuments.length} pending</StatusBadge>}>
-          <div className="grid max-h-[540px] gap-3 overflow-y-auto pr-1">
-            {pendingDocuments.length ? pendingDocuments.map((doc) => {
-              const owner = students[doc.ownerId] || null;
-              const attached = applications.find((entry) => entry.attachedDocuments?.includes(doc.id));
-              const ownerName = owner?.fullName || doc.ownerName || attached?.studentName || '';
-              const ownerSchool = owner?.department || doc.ownerDepartment || attached?.studentDepartment || '';
-              // The declared value a staff member can compare the file against,
-              // read from the profiles directory first and the attached
-              // application second.
-              const declaredFor = (key) => {
-                if (key === 'qpi') return owner?.qpi ?? attached?.studentQpi ?? null;
-                if (key === 'householdIncome') return owner?.householdIncome ?? attached?.studentHouseholdIncome ?? null;
-                return null;
-              };
-              return (
-                <article key={doc.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4">
-                  <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h3>{doc.title}</h3>
-                      <p className="mt-1 text-sm text-app-muted">{doc.fileName} · {getDocumentTypeLabel(doc.documentType)}</p>
-                      <p className="mt-1 text-xs text-app-muted">Owner {ownerName || 'Student applicant'}{ownerSchool ? ` · ${ownerSchool}` : ''}</p>
-                    </div>
-                    <StatusBadge tone="warning">Pending</StatusBadge>
-                  </div>
-                  {Array.isArray(doc.linkedAttributes) && doc.linkedAttributes.length ? (
-                    <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-                      <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
-                      {doc.linkedAttributes.map((key) => {
-                        const declared = declaredFor(key);
-                        const hasDeclared = declared != null && declared !== '';
-                        const attested = hasAttestedValue(doc, key);
-                        // The directory only carries QPI and household income, so the
-                        // value check runs for those; the academic-year check runs for all.
-                        const staleReason = getProofStaleReason(doc, key, {
-                          profile: hasDeclared && ['qpi', 'householdIncome'].includes(key) ? { [key]: declared } : null,
-                        });
-                        return (
-                          <span key={key} className="inline-flex flex-wrap items-center gap-1">
-                            <StatusBadge tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>
-                            {attested
-                              ? <span className="text-xs text-app-muted">Declared at upload: {formatDeclaredValue(key, doc.attestedValues[key])}</span>
-                              : hasDeclared ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span> : null}
-                            {staleReason === 'value' && <span className="text-xs text-app-muted">Profile now: {formatDeclaredValue(key, declared)}</span>}
-                            {staleReason && <StatusBadge tone="danger">{staleReason === 'year' ? 'Outdated · earlier academic year' : 'Outdated · profile changed'}</StatusBadge>}
-                          </span>
-                        );
-                      })}
-                      {!doc.linkedAttributes.some((key) => hasAttestedValue(doc, key) || declaredFor(key) != null) && (
-                        <span className="text-xs text-app-muted">Declared values are in the student’s My Profile.</span>
-                      )}
-                    </div>
-                  ) : null}
-                  <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-                    <Button type="button" onClick={() => setPreviewDoc(doc)}>View</Button>
-                    {verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
-                      <Button key={status} type="button" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
-                    ))}
-                  </div>
-                </article>
-              );
-            }) : <EmptyState title="All documents are verified" description="Pending files will show up here when students upload support documents." />}
-          </div>
-        </Card>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
@@ -415,6 +339,7 @@ export default function AdminConsole({
           application={selected}
           scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
+          students={students}
           role="admissions_office"
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
@@ -426,7 +351,6 @@ export default function AdminConsole({
         />
       )}
 
-      {previewDoc ? <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
     </div>
   );
 }

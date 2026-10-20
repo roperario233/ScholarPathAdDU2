@@ -4,9 +4,10 @@ import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, describeStatusActor
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { getDocumentTypeLabel } from '../lib/constants';
-import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
-import { fmtDate } from '../lib/formatters';
+import { getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
+import { getVerifiableAttributeOption } from '../lib/profile';
+import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
+import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 // Shared read-only pieces of an application: the required-document checklist,
 // the supporting documents, and the self-reported profile snapshot. The
@@ -101,6 +102,78 @@ export function SupportingDocumentList({ documents = [], onPreview }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+// Renders a declared attribute value: the value a proof was uploaded to attest
+// (any verifiable attribute) or the student's current QPI and household income
+// from the staff directory.
+const formatDeclaredValue = (key, value) => {
+  if (value == null || value === '') return 'not provided';
+  if (key === 'qpi') return Number(value).toFixed(2);
+  if (key === 'householdIncome') return fmtCurrency(Number(value));
+  return String(value);
+};
+
+const hasAttestedValue = (doc, key) => Boolean(doc.attestedValues) && Object.prototype.hasOwnProperty.call(doc.attestedValues, key);
+
+// One attached Document Vault file in the staff review modal: what it proves,
+// the value declared at upload against the student's current value, and, for
+// the Admissions Office (when `onChangeDocument` is passed), the verification
+// actions. Department Chairs get the same details read-only.
+export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument }) {
+  // The declared value a staff member can compare the file against, read from
+  // the profiles directory first and the application second.
+  const declaredFor = (key) => {
+    if (key === 'qpi') return owner?.qpi ?? application?.studentQpi ?? null;
+    if (key === 'householdIncome') return owner?.householdIncome ?? application?.studentHouseholdIncome ?? null;
+    return null;
+  };
+  const linkedAttributes = Array.isArray(doc.linkedAttributes) ? doc.linkedAttributes : [];
+  return (
+    <li className="grid gap-2 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
+      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <span className="block text-sm text-app-text">{doc.title}</span>
+          <span className="block text-xs text-app-muted">{doc.fileName ? `${doc.fileName} · ` : ''}{getDocumentTypeLabel(doc.documentType)}</span>
+        </div>
+        <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
+      </div>
+      {linkedAttributes.length ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
+          {linkedAttributes.map((key) => {
+            const declared = declaredFor(key);
+            const hasDeclared = declared != null && declared !== '';
+            const attested = hasAttestedValue(doc, key);
+            // The directory only carries QPI and household income, so the value
+            // check runs for those; the academic-year check runs for all.
+            const staleReason = getProofStaleReason(doc, key, {
+              profile: hasDeclared && ['qpi', 'householdIncome'].includes(key) ? { [key]: declared } : null,
+            });
+            return (
+              <span key={key} className="inline-flex flex-wrap items-center gap-1">
+                <StatusBadge tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>
+                {attested
+                  ? <span className="text-xs text-app-muted">Declared at upload: {formatDeclaredValue(key, doc.attestedValues[key])}</span>
+                  : hasDeclared ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span> : null}
+                {staleReason === 'value' && <span className="text-xs text-app-muted">Profile now: {formatDeclaredValue(key, declared)}</span>}
+                {staleReason && <StatusBadge tone="danger">{staleReason === 'year' ? 'Outdated · earlier academic year' : 'Outdated · profile changed'}</StatusBadge>}
+              </span>
+            );
+          })}
+          {!linkedAttributes.some((key) => hasAttestedValue(doc, key) || declaredFor(key) != null) && (
+            <span className="text-xs text-app-muted">Declared values are in the student’s My Profile.</span>
+          )}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-1">
+        {onPreview ? <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button> : null}
+        {onChangeDocument && verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
+          <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
+        ))}
+      </div>
+    </li>
   );
 }
 

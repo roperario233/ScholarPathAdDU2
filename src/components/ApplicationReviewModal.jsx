@@ -2,8 +2,8 @@ import { useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
-import { ProfileSnapshotList, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from './ApplicationParts';
-import { getNextApplicationStatuses, getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
+import { DocumentVerificationItem, ProfileSnapshotList, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from './ApplicationParts';
+import { getNextApplicationStatuses } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, getApplicationReadiness, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { getApplicationProgress } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
@@ -20,6 +20,7 @@ export default function ApplicationReviewModal({
   application,
   scholarship,
   documents,
+  students = {},
   role,
   onClose,
   onStatusChange,
@@ -111,32 +112,32 @@ export default function ApplicationReviewModal({
             <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
           </Panel>
 
-          <Panel className="grid gap-2">
-            <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Linked vault documents</h4>
-            {linkedDocuments.length ? (
-              <ul className="grid gap-2">
-                {linkedDocuments.map((doc) => (
-                  <li key={doc.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                    <span className="min-w-0 text-sm text-app-text">{doc.title} <span className="text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
-                    <span className="flex items-center gap-2">
-                      <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => setPreviewDoc(doc)}>View</Button>
-                      <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
-                      {isAdmissionsOffice && onChangeDocument && (
-                        <span className="flex gap-1">
-                          {verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
-                            <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
-                          ))}
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            ) : <p className="text-sm text-app-muted">No documents attached yet.</p>}
-          </Panel>
         </section>
 
         <section className="grid content-start gap-4">
+          <Panel className="grid gap-3">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+              <h4 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Document verification</h4>
+              {linkedDocuments.length ? (
+                <StatusBadge tone={blockedByDocuments ? 'warning' : 'success'}>{blockedByDocuments ? `${outstandingDocuments} to verify` : 'All verified'}</StatusBadge>
+              ) : null}
+            </div>
+            {linkedDocuments.length ? (
+              <ul className="m-0 grid gap-3 p-0">
+                {linkedDocuments.map((doc) => (
+                  <DocumentVerificationItem
+                    key={doc.id}
+                    doc={doc}
+                    application={application}
+                    owner={students[doc.ownerId] || null}
+                    onPreview={setPreviewDoc}
+                    onChangeDocument={isAdmissionsOffice ? onChangeDocument : undefined}
+                  />
+                ))}
+              </ul>
+            ) : <p className="m-0 text-sm text-app-muted">No documents attached yet.</p>}
+          </Panel>
+
           {application.endorsement && (
             <Panel className="grid gap-1">
               <h4 className="text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Endorsement · SOP step 4</h4>
