@@ -124,22 +124,36 @@ these seeded credentials:
 
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
-| Admissions Office Administrator | `admissions@addu.edu.ph` | `Admissions@2026` | Admissions Office overview |
-| Department Chair | `chair@addu.edu.ph` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
+| Admissions Office Administrator | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office overview |
+| Department Chair | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
-any real deployment. To provision or reset either account, create the auth user
-with a confirmed email address, then set the role and department on the matching
-`profiles` row:
+any real deployment. The addresses deliberately sit on Gmail rather than
+`addu.edu.ph`: real AdDU mailboxes must never receive test mail, password
+resets, or status notifications sent from the prototype.
+
+Each account's address is stored twice, and both copies have to change together:
+`auth.users.email` is the sign-in identity (and where password recovery goes),
+while `public.profiles.email` is what the Edge Functions deliver to
+(`send-test-email` and `notify-application-status` both select it, and the
+`handle_new_user()` trigger only copies it on insert). Change the auth address
+through the Auth Admin API (`updateUserById(id, { email, email_confirm: true })`)
+or under Authentication -> Users in the dashboard, then write the same address to
+the matching `profiles` row. Do not use a user-initiated email change: while
+Secure Email Change is enabled it mails a confirmation to the old address, and
+changing only the auth identity leaves delivery pointed at the previous mailbox.
+
+To provision or reset either account, create the auth user with a confirmed
+email address, then set the role and department on the matching `profiles` row:
 
 ```sql
 update public.profiles
 set role = 'admissions_office', department = 'Office of Admissions'
-where email = 'admissions@addu.edu.ph';
+where email = 'scholarpath.admissions@gmail.com';
 
 update public.profiles
 set role = 'department_chair', department = 'College of Computer Studies (CCS)'
-where email = 'chair@addu.edu.ph';
+where email = 'scholarpath.chair@gmail.com';
 ```
 
 The Department Chair `department` scopes the Department Review queue, so it must
