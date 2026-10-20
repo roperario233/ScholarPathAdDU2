@@ -5,12 +5,12 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
 import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -856,12 +856,14 @@ function App() {
     return application;
   };
 
-  const setApplicationAttachments = (applicationId, update) => setState((previous) => ({
+  // `touch: false` keeps `updatedAt` faithful when the server row is not being
+  // written (a rejected-file replacement swaps only the link, 20261021000000).
+  const setApplicationAttachments = (applicationId, update, { touch = true } = {}) => setState((previous) => ({
     ...previous,
     applications: previous.applications.map((entry) => entry.id === applicationId ? {
       ...entry,
       attachedDocuments: update(entry.attachedDocuments || []),
-      updatedAt: new Date().toISOString().slice(0, 10),
+      ...(touch ? { updatedAt: new Date().toISOString().slice(0, 10) } : {}),
     } : entry),
   }));
 
@@ -1117,31 +1119,62 @@ function App() {
   // The Admissions Office verifies or rejects a vault document here. Because an
   // attribute's state is derived from its linked proof documents
   // (src/lib/verification.js), verifying the file also verifies the attributes it
-  // proves. A verified or rejected decision notifies the owner, deduped by a
-  // stable source key.
-  const changeDocumentStatus = (documentId, verificationStatus) => {
-    const document = state.documents.find((entry) => entry.id === documentId);
-    if (isSupabaseWorkspaceLoaded) updateSupabaseDocumentStatus(documentId, verificationStatus);
+  // proves. A rejection must carry a recorded reason (ReasonModal in
+  // ApplicationReviewModal); the database enforces the same rule. The student is
+  // notified server-side by notify-document-verification, which the database
+  // trigger calls; the browser call below is a retry for the idempotent channels.
+  const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
+    const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
+    if (verificationStatus === 'Rejected' && !reason) return;
+    if (isSupabaseWorkspaceLoaded) {
+      const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
+      if (result.error) {
+        window.alert(result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.');
+        return;
+      }
+      if (['Verified', 'Rejected'].includes(verificationStatus)) {
+        notifySupabaseDocumentVerification(documentId).catch(() => undefined);
+      }
+    }
     setState((previous) => ({
       ...previous,
       documents: previous.documents.map((entry) => entry.id === documentId ? {
         ...entry,
         verificationStatus,
+        rejectionReason: reason,
       } : entry),
-      notifications: document && ['Verified', 'Rejected'].includes(verificationStatus)
-        ? prependInAppNotification(previous, {
-            id: `not-${crypto.randomUUID()}`,
-            sourceKey: `document-verification-${documentId}-${verificationStatus}`,
-            title: verificationStatus === 'Verified' ? `${document.title} verified` : `${document.title} needs attention`,
-            channel: 'In-app',
-            body: verificationStatus === 'Verified'
-              ? `The Admissions Office verified “${document.title}”. Any profile attributes it proves are now verified.`
-              : `The Admissions Office could not verify “${document.title}”. Upload a replacement to complete verification.`,
-            status: 'Unread',
-            createdAt: new Date().toISOString().slice(0, 10),
-          })
-        : previous.notifications,
     }));
+  };
+
+  // A Rejected file on a submitted, pre-endorsement application can be swapped
+  // for another vault file or a new upload (which lands in the vault first, as
+  // in the workspace). The status does not change; the new file arrives Pending
+  // for the Admissions Office. The server repeats every check
+  // (replace_rejected_application_document).
+  const replaceRejectedDocument = async (applicationId, oldDocumentId, { documentId = '', file = null, documentType = '' } = {}) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    const oldDocument = studentDocuments.find((doc) => doc.id === oldDocumentId);
+    if (!application || application.studentId !== currentProfile.id || !DOCUMENT_REPLACEMENT_STATUSES.includes(application.status)) {
+      return { error: 'Documents can be replaced only before the application is endorsed.' };
+    }
+    if (!oldDocument || oldDocument.verificationStatus !== 'Rejected' || !(application.attachedDocuments || []).includes(oldDocumentId)) {
+      return { error: 'Only a rejected document attached to this application can be replaced.' };
+    }
+    let replacementId = documentId;
+    if (file) {
+      const upload = await uploadVaultDocument({ file, documentType });
+      if (upload.error) return upload;
+      replacementId = upload.document.id;
+    }
+    if (!replacementId) return { error: 'Choose a replacement file.' };
+    const result = await replaceSupabaseApplicationDocument(applicationId, oldDocumentId, replacementId);
+    if (result.error) {
+      return { error: file
+        ? `The file was saved to your Document Vault but could not replace the rejected one: ${result.error.message || 'please try again.'}`
+        : result.error.message || 'The document could not be replaced.' };
+    }
+    setApplicationAttachments(applicationId, (ids) => [...ids.filter((id) => id !== oldDocumentId && id !== replacementId), replacementId], { touch: false });
+    return { ok: true };
   };
 
   const deleteDocument = async (documentId) => {
@@ -1685,6 +1718,7 @@ function App() {
               onAttach={attachDocumentToApplication}
               onDetach={detachDocumentFromApplication}
               onUploadAndAttach={uploadAndAttachDocument}
+              onReplaceDocument={replaceRejectedDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
               onSaveProfile={saveProfile}
@@ -1699,6 +1733,7 @@ function App() {
               profile={studentMatchProfile}
               onUpload={addDocument}
               onDelete={deleteDocument}
+              onResolveDocument={(applicationId) => navigate('applications', { applicationId })}
               presetAttribute={vaultPreset.attribute}
               presetDocumentType={vaultPreset.documentType}
             />

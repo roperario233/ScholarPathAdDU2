@@ -110,6 +110,25 @@ export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents',
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 
+// Statuses in which a student may replace a Rejected file on a submitted
+// application. After For Verification every attached file is Verified, so a
+// rejected file cannot exist there. Mirrors replace_rejected_application_document
+// (20261021000000).
+export const DOCUMENT_REPLACEMENT_STATUSES = ['Submitted', 'Under Review', 'For Verification'];
+
+// Preset reasons the Admissions Office picks from when rejecting a Document
+// Vault file. "Other" carries no preset text, so its note is required.
+export const documentRejectionReasons = [
+  { value: 'illegible', label: 'File is blurry, cropped, or unreadable' },
+  { value: 'incomplete', label: 'Document is incomplete or missing pages' },
+  { value: 'wrong-type', label: 'Wrong document type for this requirement' },
+  { value: 'outdated', label: 'Document is expired or not for the current academic year' },
+  { value: 'name-mismatch', label: 'Name on the document does not match the applicant' },
+  { value: 'value-mismatch', label: 'Document does not support the value declared in the profile' },
+  { value: 'not-certified', label: 'Not signed, stamped, or issued by the proper office' },
+  { value: 'other', label: 'Other', requiresNotes: true },
+];
+
 // Profile-attribute verification states. An attribute is verified when the
 // Admissions Office verifies a Document Vault file that declares it as proof
 // (see src/lib/verification.js). The state is derived per attribute from the

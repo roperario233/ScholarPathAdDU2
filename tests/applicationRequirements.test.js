@@ -11,6 +11,8 @@ import {
   getDocumentVerificationReadiness,
   getLinkedDocuments,
   getProfileSnapshotSections,
+  getReplaceableRejectedDocuments,
+  getReplacementOptions,
   getRequirementUploadPreset,
   getScholarshipRequirements,
   isApplicationVerifiedForEndorsement,
@@ -460,3 +462,40 @@ describe('describeStatusActor', () => {
   });
 });
 
+
+describe('replacing a rejected document on a submitted application', () => {
+  const rejected = { id: 'doc-itr', documentType: 'Income Tax Return', verificationStatus: 'Rejected', uploadedAt: '2026-09-01' };
+  const verifiedCert = { id: 'doc-cert', documentType: 'Certificate of Enrollment', verificationStatus: 'Verified', uploadedAt: '2026-09-02' };
+  const newItr = { id: 'doc-itr-2', documentType: 'Income Tax Return', verificationStatus: 'Pending', uploadedAt: '2026-10-01' };
+  const indigency = { id: 'doc-indigency', documentType: 'Certificate of Indigency', verificationStatus: 'Pending', uploadedAt: '2026-10-02' };
+  const rejectedAgain = { id: 'doc-itr-3', documentType: 'Income Tax Return', verificationStatus: 'Rejected', uploadedAt: '2026-10-03' };
+  const other = { id: 'doc-photo', documentType: 'Photo', verificationStatus: 'Pending', uploadedAt: '2026-10-04' };
+  const documents = [rejected, verifiedCert, newItr, indigency, rejectedAgain, other];
+  const requirements = [
+    { id: 'income', documentTypes: ['Income Tax Return', 'Certificate of Indigency'] },
+    { id: 'enrollment', documentTypes: ['Certificate of Enrollment'] },
+  ];
+
+  it('lists rejected attachments only before endorsement', () => {
+    const application = { status: 'For Verification', attachedDocuments: ['doc-itr', 'doc-cert'] };
+    expect(getReplaceableRejectedDocuments(application, documents).map((doc) => doc.id)).toEqual(['doc-itr']);
+    expect(getReplaceableRejectedDocuments({ ...application, status: 'Draft' }, documents)).toEqual([]);
+    expect(getReplaceableRejectedDocuments({ ...application, status: 'Endorsed' }, documents)).toEqual([]);
+    expect(getReplaceableRejectedDocuments({ ...application, status: 'Rejected' }, documents)).toEqual([]);
+  });
+
+  it('offers non-rejected, unattached files of any type the requirement accepts, newest first', () => {
+    const application = { status: 'Submitted', attachedDocuments: ['doc-itr', 'doc-cert'] };
+    const { documentTypes, candidates } = getReplacementOptions({ application, requirements, rejectedDocument: rejected, documents });
+    expect(documentTypes).toEqual(['Income Tax Return', 'Certificate of Indigency']);
+    expect(candidates.map((doc) => doc.id)).toEqual(['doc-indigency', 'doc-itr-2']);
+  });
+
+  it('falls back to the file\'s own type for a supporting document', () => {
+    const application = { status: 'Submitted', attachedDocuments: ['doc-photo'] };
+    const rejectedPhoto = { ...other, verificationStatus: 'Rejected' };
+    const { documentTypes, candidates } = getReplacementOptions({ application, requirements, rejectedDocument: rejectedPhoto, documents });
+    expect(documentTypes).toEqual(['Photo']);
+    expect(candidates).toEqual([]);
+  });
+});

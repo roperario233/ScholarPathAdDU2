@@ -1,4 +1,4 @@
-import { generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
 import { fmtCurrency } from './formatters';
 import {
@@ -125,6 +125,30 @@ const byNewest = (left, right) => String(right.uploadedAt || '').localeCompare(S
 export const getMatchingVaultDocuments = (requirement, documents = []) => (
   documents.filter((doc) => requirement.documentTypes.includes(doc.documentType)).sort(byNewest)
 );
+
+// The Rejected files a student can still replace on a submitted application:
+// only before endorsement (DOCUMENT_REPLACEMENT_STATUSES), mirroring
+// replace_rejected_application_document (20261021000000).
+export const getReplaceableRejectedDocuments = (application, documents = []) => (
+  DOCUMENT_REPLACEMENT_STATUSES.includes(application?.status)
+    ? getLinkedDocuments(application, documents).filter((doc) => doc.verificationStatus === 'Rejected')
+    : []
+);
+
+// What can stand in for a rejected file: the types of every requirement that
+// file satisfies (or its own type for a supporting file), then the student's
+// non-rejected vault files of those types that the application does not
+// already use. The server accepts the same type or a type sharing a requirement.
+export const getReplacementOptions = ({ application, requirements = [], rejectedDocument, documents = [] }) => {
+  const types = [...new Set(requirements
+    .filter((requirement) => requirement.documentTypes.includes(rejectedDocument.documentType))
+    .flatMap((requirement) => requirement.documentTypes))];
+  const documentTypes = types.length ? types : [rejectedDocument.documentType];
+  const attachedIds = application?.attachedDocuments || [];
+  const candidates = getMatchingVaultDocuments({ documentTypes }, documents)
+    .filter((doc) => doc.verificationStatus !== 'Rejected' && !attachedIds.includes(doc.id));
+  return { documentTypes, candidates };
+};
 
 // Vault files to attach when a draft is created: the newest non-rejected file
 // for each requirement, so a student who already uploaded a document does not

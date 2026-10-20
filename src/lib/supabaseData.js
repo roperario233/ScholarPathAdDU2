@@ -28,6 +28,7 @@ const toDocument = (row) => ({
   fileName: row.file_name,
   documentType: row.document_type,
   verificationStatus: row.verification_status,
+  rejectionReason: row.rejection_reason ?? '',
   linkedAttributes: row.linked_attributes || [],
   attestedValues: row.attested_values || {},
   storagePath: row.storage_path,
@@ -310,6 +311,19 @@ export const attachSupabaseApplicationDocument = (applicationId, documentId) => 
     : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
 );
 
+// Swaps a Rejected file on a submitted, pre-endorsement application for another
+// vault file (replace_rejected_application_document, 20261021000000). The
+// server re-checks ownership, status, and the document type.
+export const replaceSupabaseApplicationDocument = (applicationId, oldDocumentId, newDocumentId) => (
+  ensureReady()
+    ? supabase.rpc('replace_rejected_application_document', {
+        p_application_id: applicationId,
+        p_old_document_id: oldDocumentId,
+        p_new_document_id: newDocumentId,
+      }).then(({ error }) => ({ error }))
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
+);
+
 export const detachSupabaseApplicationDocument = (applicationId, documentId) => (
   ensureReady()
     ? supabase.from('application_documents').delete().eq('application_id', applicationId).eq('document_id', documentId).then(({ error }) => ({ error }))
@@ -384,9 +398,23 @@ export const deleteSupabaseDocument = async (documentId, storagePath) => {
   return { error: null };
 };
 
-export const updateSupabaseDocumentStatus = (documentId, verificationStatus) => (
-  ensureReady() ? supabase.from('documents').update({ verification_status: verificationStatus }).eq('id', documentId) : Promise.resolve({ error: null })
-);
+// A rejection carries its required reason; any other status clears it.
+export const updateSupabaseDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
+  if (!ensureReady()) return { error: null };
+  const patch = {
+    verification_status: verificationStatus,
+    rejection_reason: verificationStatus === 'Rejected' ? rejectionReason : null,
+  };
+  const result = await supabase.from('documents').update(patch).eq('id', documentId);
+  // A project with the rejection-reason migration pending has no such column.
+  // Verifying or resetting still works without it, but a rejection is refused
+  // so its reason is never silently dropped.
+  if (result.error && verificationStatus !== 'Rejected'
+    && (result.error.code === 'PGRST204' || /rejection_reason/.test(result.error.message || ''))) {
+    return supabase.from('documents').update({ verification_status: verificationStatus }).eq('id', documentId);
+  }
+  return result;
+};
 
 export const createSupabaseAnnouncement = ({ title, body, audience, createdBy }) => (
   ensureReady() ? supabase.from('announcements').insert({ title, body, audience, created_by: createdBy }).select().single() : Promise.resolve({ data: null, error: null })
@@ -449,3 +477,7 @@ export const sendSupabaseTestEmail = () => invokeEmailFunction('send-test-email'
 export const sendSupabaseTestSms = () => invokeEmailFunction('send-test-sms');
 
 export const notifySupabaseApplicationStatus = (applicationId) => invokeEmailFunction('notify-application-status', { applicationId });
+
+// Browser retry for the document-verification notification; the database
+// trigger (20261021000001) is the primary sender and owns the SMS channel.
+export const notifySupabaseDocumentVerification = (documentId) => invokeEmailFunction('notify-document-verification', { documentId });

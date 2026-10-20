@@ -3,7 +3,7 @@ import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
-import { getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
+import { documentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -160,9 +160,20 @@ export default function ApplicationReviewModal({
   const [deliberationNote, setDeliberationNote] = useState('');
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
+  const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
   // Re-read from `documents` every render so a Verified/Rejected decision shows
   // in the pane immediately.
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
+
+  // A document rejection must carry a recorded reason, so it opens the reason
+  // dialog; Verified and Pending apply directly.
+  const changeDocument = (documentId, status) => {
+    if (status === 'Rejected') {
+      setDocumentRejectTarget(linkedDocuments.find((doc) => doc.id === documentId) || null);
+      return;
+    }
+    onChangeDocument?.(documentId, status);
+  };
 
   const selectDocument = (doc) => {
     setSelectedDocId(doc.id);
@@ -369,7 +380,7 @@ export default function ApplicationReviewModal({
                       application={application}
                       owner={students[selectedDoc.ownerId] || null}
                       onPreview={isWide ? undefined : setPreviewDoc}
-                      onChangeDocument={isAdmissionsOffice ? onChangeDocument : undefined}
+                      onChangeDocument={isAdmissionsOffice && onChangeDocument ? changeDocument : undefined}
                     />
                     {isWide ? (
                       <DocumentPreview
@@ -475,7 +486,22 @@ export default function ApplicationReviewModal({
         onClose={() => setRejectReasonOpen(false)}
       />
     ) : null}
-    {previewDoc ? <DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
+    {documentRejectTarget ? (
+      <ReasonModal
+        title="Reject document"
+        label="Reason for rejection"
+        hint={`The student sees this reason for “${documentRejectTarget.title}” so they can upload a correct replacement.`}
+        options={documentRejectionReasons}
+        notesHint="Add details, such as which page or value needs correcting."
+        confirmLabel="Reject document"
+        onConfirm={(reason) => {
+          onChangeDocument?.(documentRejectTarget.id, 'Rejected', reason);
+          setDocumentRejectTarget(null);
+        }}
+        onClose={() => setDocumentRejectTarget(null)}
+      />
+    ) : null}
+    {previewDoc ?<DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
     </>
   );
 }

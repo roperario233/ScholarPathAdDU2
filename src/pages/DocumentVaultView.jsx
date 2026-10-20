@@ -3,8 +3,9 @@ import { Card, EmptyState } from '../components/pageParts';
 import { Button, StatusBadge } from '../components/ui';
 import { SelectPicker } from './LoginScreen';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
+import { DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
-import { generalDocumentTypeOptions, getDocumentTypeLabel } from '../lib/constants';
+import { generalDocumentTypeOptions, getDocumentTypeLabel, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import {
   buildDocumentPickerOptions,
@@ -15,6 +16,7 @@ import {
   getVerifiableAttributeOption,
 } from '../lib/profile';
 import { getOutdatedProofAttributes } from '../lib/verification';
+import { isAdduInternalProgram } from '../lib/eligibility';
 
 // The upload form uses one grouped picker, mirroring the program/course picker
 // in My Profile: each profile attribute is a group header with the document
@@ -40,7 +42,7 @@ const outdatedProofMessage = ({ key, reason }) => {
     : `Your ${label} in My Profile changed after this upload. Upload a new proof.`;
 };
 
-export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, presetAttribute = '', presetDocumentType = '' }) {
+export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '' }) {
   const [selection, setSelection] = useState(() => initialSelection(presetAttribute, presetDocumentType));
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -60,6 +62,23 @@ export default function DocumentVaultView({ documents, applications = [], profil
       if (entry.status !== 'Draft' && !usage[id].lockedBy) usage[id].lockedBy = entry.scholarshipTitle;
     }));
     return usage;
+  }, [applications]);
+  // A Rejected file the student can still replace: the applications that attach
+  // it and are still before endorsement. The vault links straight to them, so a
+  // rejected file that is locked by a submitted application is never a dead end.
+  const replaceableApplicationsByDocument = useMemo(() => {
+    const map = {};
+    applications.forEach((entry) => {
+      if (!DOCUMENT_REPLACEMENT_STATUSES.includes(entry.status)) return;
+      // Only the in-scope AdDU tracks can be acted on; a tracked-only catalog
+      // entry has no replace flow, so do not offer a dead-end link.
+      if (!isAdduInternalProgram({ title: entry.scholarshipTitle })) return;
+      (entry.attachedDocuments || []).forEach((id) => {
+        map[id] = map[id] || [];
+        map[id].push(entry);
+      });
+    });
+    return map;
   }, [applications]);
   // A proof goes stale when the student changes the value it attests or, for
   // annual attributes, when a new academic year starts (src/lib/verification.js).
@@ -148,6 +167,9 @@ export default function DocumentVaultView({ documents, applications = [], profil
           {filtered.length ? filtered.map((doc) => {
             const usage = usageByDocument[doc.id] || { count: 0, lockedBy: null };
             const outdated = outdatedByDocument[doc.id] || [];
+            const replacementApplications = doc.verificationStatus === 'Rejected'
+              ? replaceableApplicationsByDocument[doc.id] || []
+              : [];
             return (
             <article key={doc.id} className="document-result-card group grid gap-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-app">
               <div className="flex min-w-0 items-start justify-between gap-4">
@@ -164,6 +186,21 @@ export default function DocumentVaultView({ documents, applications = [], profil
                   <span><strong>Proof for</strong> {doc.linkedAttributes.map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
                 ) : null}
               </div>
+              <DocumentRejectionReason doc={doc} />
+              {onResolveDocument && replacementApplications.length ? (
+                <div className="grid gap-2 rounded-xl border border-rose-400/40 p-3">
+                  <p className="m-0 text-sm text-app-text">
+                    Replace this file in the application it is attached to so the review can continue.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {replacementApplications.map((entry) => (
+                      <Button key={entry.id} variant="primary" type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onResolveDocument(entry.id)}>
+                        Open {entry.scholarshipTitle}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {outdated.length ? (
                 <div className="grid gap-2 rounded-xl border border-rose-400/30 bg-rose-500/5 p-3">
                   {outdated.map((entry) => (
