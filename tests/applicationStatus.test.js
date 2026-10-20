@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, applicationStatuses, countApplicationsToReview, getNextApplicationStatuses } from '../src/lib/constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, applicationStatuses, countApplicationsToReview, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
@@ -18,8 +18,9 @@ describe('role-aware application stage actions', () => {
 
   it('reserves verification, interview, approval, and release actions for Admissions Office', () => {
     expect(getNextApplicationStatuses('For Verification', 'admissions_office')).toEqual(['Rejected']);
-    expect(getNextApplicationStatuses('Endorsed', 'admissions_office')).toEqual(['Rejected']);
-    expect(getNextApplicationStatuses('Interview', 'admissions_office')).toContain('Rejected');
+    // scheduleInterview and recordDeliberation in App.jsx pass through this map.
+    expect(getNextApplicationStatuses('Endorsed', 'admissions_office')).toEqual(['Interview', 'Rejected']);
+    expect(getNextApplicationStatuses('Interview', 'admissions_office')).toEqual(['Recommended', 'Rejected']);
     expect(getNextApplicationStatuses('Recommended', 'admissions_office')).toContain('Approved');
     expect(getNextApplicationStatuses('Approved', 'admissions_office')).toEqual(['Released']);
   });
@@ -108,6 +109,22 @@ describe('transition map completeness', () => {
         next.forEach((target) => expect(applicationStatuses).toContain(target));
       });
     });
+  });
+
+  it('labels every permitted transition for the review action bar', () => {
+    applicationStatuses.forEach((status) => {
+      roles.forEach((role) => {
+        getNextApplicationStatuses(status, role).forEach((target) => {
+          const label = getStageActionLabel(target, role);
+          // A real verb, not the raw status falling through.
+          expect(label).toBeTruthy();
+          expect(label).not.toBe(target);
+        });
+      });
+    });
+    expect(getStageActionLabel('For Verification', 'department_chair')).toBe('Flag for central validation');
+    expect(getStageActionLabel('For Verification', 'admissions_office')).toBe('Move to verification');
+    expect(getStageActionLabel('Interview', 'admissions_office')).toBe('Schedule interview');
   });
 
   it('never lets a role advance out of a terminal status', () => {

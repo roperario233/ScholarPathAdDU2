@@ -4,7 +4,7 @@ import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, describeStatusActor
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { getDocumentTypeLabel, verificationStatuses } from '../lib/constants';
+import { getDocumentTypeLabel, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
 import { getVerifiableAttributeOption } from '../lib/profile';
 import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -14,6 +14,25 @@ import { fmtCurrency, fmtDate } from '../lib/formatters';
 // application workspace, the student's submitted-application view, and the
 // staff review modal all render them, so the three never describe the same
 // application differently.
+
+// Standard Procedure stage track, shown on each Admissions Office queue entry and
+// in the staff review modal header.
+export function SopStageTrack({ status }) {
+  const currentIndex = sopStageIndex(status);
+  if (currentIndex == null) {
+    return <StatusBadge tone="neutral">Draft — not yet in the SOP pipeline</StatusBadge>;
+  }
+  return (
+    <ol className="flex flex-wrap gap-1" aria-label="Standard Procedure stage track">
+      {sopStages.map((stage, index) => (
+        <li
+          key={stage}
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-ateneo-strong/50 bg-ateneo/15 text-ateneo-strong dark:border-blue-400/50 dark:bg-blue-500/15 dark:text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
+        >{stage}</li>
+      ))}
+    </ol>
+  );
+}
 
 export function RequirementStateBadge({ state }) {
   const entry = REQUIREMENT_STATE_LABELS[state] || REQUIREMENT_STATE_LABELS.missing;
@@ -120,8 +139,9 @@ const hasAttestedValue = (doc, key) => Boolean(doc.attestedValues) && Object.pro
 // One attached Document Vault file in the staff review modal: what it proves,
 // the value declared at upload against the student's current value, and, for
 // the Admissions Office (when `onChangeDocument` is passed), the verification
-// actions. Department Chairs get the same details read-only.
-export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument }) {
+// actions. Department Chairs get the same details read-only. `as` lets the
+// review modal's preview pane render it outside a list.
+export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument, as: Element = 'li' }) {
   // The declared value a staff member can compare the file against, read from
   // the profiles directory first and the application second.
   const declaredFor = (key) => {
@@ -131,7 +151,7 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
   };
   const linkedAttributes = Array.isArray(doc.linkedAttributes) ? doc.linkedAttributes : [];
   return (
-    <li className="grid gap-2 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
+    <Element className="grid gap-2 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <span className="block text-sm text-app-text">{doc.title}</span>
@@ -173,7 +193,7 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
           <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{status}</Button>
         ))}
       </div>
-    </li>
+    </Element>
   );
 }
 

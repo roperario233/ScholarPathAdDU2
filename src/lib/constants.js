@@ -27,8 +27,11 @@ const roleNextStatusMap = {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
     'For Verification': ['Rejected'],
-    Endorsed: ['Rejected'],
-    Interview: ['Rejected'],
+    // SOP steps 5 and 6: the Admissions Office schedules the interview and
+    // records the sub-committee recommendation (scheduleInterview and
+    // recordDeliberation in App.jsx read this map through their status guard).
+    Endorsed: ['Interview', 'Rejected'],
+    Interview: ['Recommended', 'Rejected'],
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },
@@ -45,6 +48,26 @@ export const getNextApplicationStatuses = (status, role) => {
   if (role === 'department_chair') return roleNextStatusMap.department_chair[status] || [];
   if (role === 'admissions_office') return roleNextStatusMap.admissions_office[status] || [];
   return nextStatusMap[status] || [];
+};
+
+// The verb a reviewer sees for each transition in the review modal's action
+// bar. Authority still comes only from getNextApplicationStatuses; this maps a
+// permitted target status to its button label.
+const stageActionLabels = {
+  Submitted: 'Submit',
+  'Under Review': 'Mark under review',
+  'For Verification': 'Move to verification',
+  Endorsed: 'Endorse',
+  Interview: 'Schedule interview',
+  Recommended: 'Recommend for approval',
+  Approved: 'Approve',
+  Released: 'Release results',
+  Rejected: 'Reject…',
+};
+
+export const getStageActionLabel = (status, role) => {
+  if (status === 'For Verification' && role === 'department_chair') return 'Flag for central validation';
+  return stageActionLabels[status] || status;
 };
 
 // The Admissions Office review queue: everything that still needs an SOP action.

@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, sopStages, sopStageIndex } from '../lib/constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES } from '../lib/constants';
 import { AnnouncementItem, StatCard } from '../components/pageParts';
-import { describeStatusActor } from '../components/ApplicationParts';
+import { SopStageTrack, describeStatusActor } from '../components/ApplicationParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../components/ui';
 import RequiredDocumentsEditor from '../components/RequiredDocumentsEditor';
@@ -14,24 +14,6 @@ const stageTone = (status) => {
   if (['For Verification', 'Endorsed'].includes(status)) return 'warning';
   return 'info';
 };
-
-// Standard Procedure stage track rendered above each queue entry.
-function SopStageTrack({ status }) {
-  const currentIndex = sopStageIndex(status);
-  if (currentIndex == null) {
-    return <StatusBadge tone="neutral">Draft — not yet in the SOP pipeline</StatusBadge>;
-  }
-  return (
-    <ol className="flex flex-wrap gap-1" aria-label="Standard Procedure stage track">
-      {sopStages.map((stage, index) => (
-        <li
-          key={stage}
-          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-ateneo-strong/50 bg-ateneo/15 text-ateneo-strong dark:border-blue-400/50 dark:bg-blue-500/15 dark:text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
-        >{stage}</li>
-      ))}
-    </ol>
-  );
-}
 
 export default function AdminConsole({
   applications,
