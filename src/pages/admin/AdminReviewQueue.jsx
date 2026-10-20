@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { X } from 'lucide-react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { SopStageTrack } from '../../components/ApplicationParts';
@@ -25,6 +26,8 @@ export default function AdminReviewQueue({
   onChangeDocument,
 }) {
   const [selectedId, setSelectedId] = useState(null);
+  const [reviewTab, setReviewTab] = useState(null);
+  const [feedback, setFeedback] = useState(null);
   const selected = applications.find((entry) => entry.id === selectedId);
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
   const blockingDocuments = useMemo(
@@ -36,6 +39,36 @@ export default function AdminReviewQueue({
     [reviewApplications],
   );
 
+  // Open the shared review surface, optionally straight on its Documents tab so
+  // a queued file is one click away instead of something the reviewer has to
+  // find by opening the application and switching tabs.
+  const openReview = (applicationId, tab = null) => {
+    setReviewTab(tab);
+    setSelectedId(applicationId);
+  };
+  const closeReview = () => {
+    setSelectedId(null);
+    setReviewTab(null);
+  };
+
+  // "Continue to verification" is a real stage transition: confirm it only after
+  // the write succeeds, and report how many attached files just entered the
+  // document review queue.
+  const handleStatusChange = async (applicationId, status, options) => {
+    const result = await onChangeApplication?.(applicationId, status, options);
+    if (!result?.error && status === 'For Verification') {
+      const entry = applications.find((item) => item.id === applicationId);
+      const { outstanding } = getDocumentVerificationReadiness(entry, documents);
+      setFeedback({
+        tone: 'success',
+        message: outstanding
+          ? `Application continued to verification. ${outstanding} attached document${outstanding === 1 ? ' is' : 's are'} now in the review queue.`
+          : 'Application continued to verification. No attached documents are awaiting verification.',
+      });
+    }
+    return result;
+  };
+
   return (
     <div className="grid gap-5">
       <AdminPageHeader
@@ -44,6 +77,27 @@ export default function AdminReviewQueue({
         badge={`${reviewApplications.length} awaiting action`}
         badgeTone={reviewApplications.length ? 'warning' : 'success'}
       />
+
+      {feedback?.message && (
+        <div
+          className={`flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border p-3 text-sm ${
+            feedback.tone === 'error'
+              ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200'
+              : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+          }`}
+          role="status"
+        >
+          <span className="min-w-0">{feedback.message}</span>
+          <button
+            type="button"
+            className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+            onClick={() => setFeedback(null)}
+            aria-label="Dismiss stage change message"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       <section className="grid gap-3 sm:grid-cols-3">
         <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
@@ -68,7 +122,10 @@ export default function AdminReviewQueue({
                   </div>
                   <SopStageTrack status={entry.status} />
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-                    <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
+                    <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
+                    {outstanding ? (
+                      <Button type="button" onClick={() => openReview(entry.id, 'documents')}>Review documents</Button>
+                    ) : null}
                     {outstanding ? <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge> : null}
                   </div>
                 </article>
@@ -85,8 +142,9 @@ export default function AdminReviewQueue({
           documents={documents}
           students={students}
           role="admissions_office"
-          onClose={() => setSelectedId(null)}
-          onStatusChange={onChangeApplication}
+          initialTab={reviewTab}
+          onClose={closeReview}
+          onStatusChange={handleStatusChange}
           onEndorse={onEndorseApplication}
           onScheduleInterview={onScheduleInterview}
           onRecordDeliberation={onRecordDeliberation}

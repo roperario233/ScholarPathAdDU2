@@ -194,6 +194,19 @@ export const renderReminderEmail = ({ title, itemTitle, deadline, daysBefore, si
 };
 
 /**
+ * The next-step sentence used by the application status email and in-app row.
+ * "For Verification" is the SOP document-verification stage, so it names the
+ * office holding the files and tells the applicant when to expect the next
+ * message instead of the generic "status changed" copy.
+ */
+export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office') => {
+  if (status === 'For Verification') {
+    return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
+  }
+  return `Your application status was updated to ${status} through ${actorLabel}. Sign in to review the next steps.`;
+};
+
+/**
  * Renders an application status-change email for the application workspace.
  */
 export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, status, siteUrl }) => {

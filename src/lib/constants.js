@@ -56,7 +56,7 @@ export const getNextApplicationStatuses = (status, role) => {
 const stageActionLabels = {
   Submitted: 'Submit',
   'Under Review': 'Mark under review',
-  'For Verification': 'Move to verification',
+  'For Verification': 'Continue to verification',
   Endorsed: 'Endorse',
   Interview: 'Schedule interview',
   Recommended: 'Recommend for approval',
@@ -69,6 +69,24 @@ export const getStageActionLabel = (status, role) => {
   if (status === 'For Verification' && role === 'department_chair') return 'Flag for central validation';
   return stageActionLabels[status] || status;
 };
+
+// Student-facing next-step copy for the application workspace. The card and
+// the detail modal show this instead of the static creation note, so a student
+// always knows what the current stage means and whether they need to act.
+const applicationStatusGuidance = {
+  Draft: 'Continue your application by attaching the required documents, writing your statement, and certifying it.',
+  Submitted: 'Your application is submitted and waiting for the Admissions Office to begin review. No action is needed right now.',
+  'Under Review': 'The Admissions Office is reviewing your application and its attached documents. We will notify you if anything needs correction.',
+  'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
+  Endorsed: 'Your application has been endorsed and is moving to the next evaluation stage.',
+  Interview: 'An interview has been scheduled. Watch your notifications for the date and panel details.',
+  Recommended: 'The School Scholarship Sub-committee has recommended your application for approval.',
+  Approved: 'Your application has been approved and is awaiting release of results.',
+  Released: 'Your results have been released. Open the application to review the recorded outcome.',
+  Rejected: 'Your application did not proceed. The recorded reason is available in the status history.',
+};
+
+export const getApplicationStatusGuidance = (status) => applicationStatusGuidance[status] || '';
 
 // The StatusBadge tone used wherever an application status is displayed in the
 // Admissions Office workspace.

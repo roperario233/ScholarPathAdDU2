@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_FROM,
   REMINDER_OFFSET_KEYS,
+  describeApplicationStatusUpdate,
   isEmailEnabledForUser,
   isInAppEnabledForUser,
   isReminderEnabledForUser,
@@ -152,6 +153,19 @@ describe('renderApplicationStatusEmail', () => {
     expect(html).toContain('GIA Grant');
     expect(html).toContain('For Verification');
     expect(text).toContain('View your applications: https://example.org/?view=applications');
+  });
+});
+
+describe('describeApplicationStatusUpdate', () => {
+  it('tells the applicant their documents are under verification', () => {
+    const message = describeApplicationStatusUpdate('For Verification', 'the Admissions Office');
+    expect(message).toContain('Admissions Office for verification');
+    expect(message).toContain('replacement');
+  });
+
+  it('keeps the generic next-step copy for other statuses', () => {
+    expect(describeApplicationStatusUpdate('Endorsed', 'the Admissions Office'))
+      .toBe('Your application status was updated to Endorsed through the Admissions Office. Sign in to review the next steps.');
   });
 });
 

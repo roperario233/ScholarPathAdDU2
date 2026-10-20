@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, applicationStatuses, countApplicationsToReview, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
+import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
@@ -123,8 +123,16 @@ describe('transition map completeness', () => {
       });
     });
     expect(getStageActionLabel('For Verification', 'department_chair')).toBe('Flag for central validation');
-    expect(getStageActionLabel('For Verification', 'admissions_office')).toBe('Move to verification');
+    expect(getStageActionLabel('For Verification', 'admissions_office')).toBe('Continue to verification');
     expect(getStageActionLabel('Interview', 'admissions_office')).toBe('Schedule interview');
+  });
+
+  it('gives every status a student-facing next step', () => {
+    applicationStatuses.forEach((status) => {
+      expect(getApplicationStatusGuidance(status)).toBeTruthy();
+    });
+    expect(getApplicationStatusGuidance('For Verification')).toContain('verification');
+    expect(getApplicationStatusGuidance('For Verification')).toContain('replacement');
   });
 
   it('never lets a role advance out of a terminal status', () => {
