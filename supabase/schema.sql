@@ -140,7 +140,7 @@ alter table applications add column if not exists certified_at timestamptz;
 -- (Endorsed, Interview, Recommended, Released) additively.
 alter table applications drop constraint if exists applications_status_check;
 alter table applications add constraint applications_status_check
-  check (status in ('Draft', 'Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'));
+  check (status in ('Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'));
 
 create table if not exists application_documents (
   application_id uuid not null references applications(id) on delete cascade,
@@ -334,7 +334,7 @@ for update using (
 create policy "chair_applications_endorse" on applications
 for update using (
   public.current_profile_role() = 'department_chair'
-  and status = 'For Verification'
+  and status = 'For Endorsement'
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 ) with check (
   public.current_profile_role() = 'department_chair'
@@ -510,7 +510,7 @@ begin
   if new.status = old.status then
     return new;
   end if;
-  if new.status not in ('Endorsed', 'Interview', 'Recommended', 'Approved', 'Released') then
+  if new.status not in ('For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released') then
     return new;
   end if;
 
@@ -812,7 +812,7 @@ begin
       from public.application_documents ad
       join public.applications a on a.id = ad.application_id
       where ad.document_id = new.id
-        and a.status in ('Endorsed', 'Interview', 'Recommended', 'Approved', 'Released')
+        and a.status in ('For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released')
     ) then
       raise exception 'This document is verified and an application that relies on it has already advanced. Revert that application before changing its verification status.' using errcode = '23514';
     end if;

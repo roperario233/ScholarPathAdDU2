@@ -1,19 +1,21 @@
 export const coverageTypes = ['all', 'Full Tuition', 'Partial Tuition', 'Allowance'];
-export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
+export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
 
 // Standard Procedure for Scholarship Applications stage sequence (SOP steps 3-8).
 // Step 2 (Submission) maps to `Submitted`, step 3 (Document Verification) maps to
-// `For Verification`, step 4 (Endorsement) maps to `Endorsed`, step 5 (Interview)
+// `For Verification`, the Admissions Office's hand-off to the Department Chair is
+// `For Endorsement`, step 4 (Endorsement) maps to `Endorsed`, step 5 (Interview)
 // maps to `Interview`, step 6 (Evaluation and Deliberation) maps to `Recommended`,
 // step 7 (Recommendation and Approval) maps to `Approved`, and step 8 (Release of
 // Results) maps to `Released`.
-export const sopStages = ['Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+export const sopStages = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 
 const nextStatusMap = {
   Draft: ['Submitted'],
   Submitted: ['Under Review', 'For Verification', 'Rejected'],
   'Under Review': ['For Verification', 'Rejected'],
-  'For Verification': ['Endorsed', 'Rejected'],
+  'For Verification': ['For Endorsement', 'Rejected'],
+  'For Endorsement': ['Endorsed', 'Rejected'],
   Endorsed: ['Interview', 'Rejected'],
   Interview: ['Recommended', 'Rejected'],
   Recommended: ['Approved', 'Rejected'],
@@ -26,7 +28,9 @@ const roleNextStatusMap = {
   admissions_office: {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
-    'For Verification': ['Rejected'],
+    // The Admissions Office finishes document verification and hands the
+    // application to the Department Chair for endorsement (SOP step 4).
+    'For Verification': ['For Endorsement', 'Rejected'],
     // SOP steps 5 and 6: the Admissions Office schedules the interview and
     // records the sub-committee recommendation (scheduleInterview and
     // recordDeliberation in App.jsx read this map through their status guard).
@@ -39,8 +43,8 @@ const roleNextStatusMap = {
     // A Chair may flag a live application for central validation...
     Submitted: ['For Verification'],
     'Under Review': ['For Verification'],
-    // ...and endorse it once the Admissions Office has verified its documents.
-    'For Verification': ['Endorsed'],
+    // ...and endorses it once the Admissions Office has sent it to endorsement.
+    'For Endorsement': ['Endorsed'],
   },
 };
 
@@ -70,7 +74,8 @@ const stageActionLabels = {
   Submitted: 'Submit',
   'Under Review': 'Mark under review',
   'For Verification': 'Continue to verification',
-  Endorsed: 'Send to endorsement',
+  'For Endorsement': 'Send to endorsement',
+  Endorsed: 'Endorse',
   Interview: 'Schedule interview',
   Recommended: 'Recommend for approval',
   Approved: 'Approve',
@@ -91,6 +96,7 @@ const applicationStatusGuidance = {
   Submitted: 'Your application is submitted and waiting for the Admissions Office to begin review. No action is needed right now.',
   'Under Review': 'The Admissions Office has opened your application for review. We will notify you if anything needs correction.',
   'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
+  'For Endorsement': 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.',
   Endorsed: 'Your application is in the endorsement phase. The Department Chair has endorsed it, and the Admissions Office will schedule the interview next.',
   Interview: 'An interview has been scheduled. Watch your notifications for the date and panel details.',
   Recommended: 'The School Scholarship Sub-committee has recommended your application for approval.',
@@ -106,7 +112,7 @@ export const getApplicationStatusGuidance = (status) => applicationStatusGuidanc
 export const getStatusTone = (status) => {
   if (status === 'Rejected') return 'danger';
   if (['Released', 'Approved'].includes(status)) return 'success';
-  if (['For Verification', 'Endorsed'].includes(status)) return 'warning';
+  if (['For Verification', 'For Endorsement', 'Endorsed'].includes(status)) return 'warning';
   return 'info';
 };
 
@@ -149,7 +155,7 @@ export const countApplicationsToReview = (applications = [], { role, studentId, 
   if (role === 'department_chair') {
     return list.filter((entry) => (
       (entry.studentDepartment || '') === (department || '')
-      && ['Submitted', 'Under Review', 'For Verification'].includes(entry.status)
+      && ['Submitted', 'Under Review', 'For Endorsement'].includes(entry.status)
     )).length;
   }
 

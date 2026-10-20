@@ -184,6 +184,12 @@ describe('describeApplicationStatusUpdate', () => {
     expect(message).toContain('endorsement phase');
     expect(message).toContain('interview');
   });
+
+  it('describes the hand-off to the Department Chair for For Endorsement', () => {
+    const message = describeApplicationStatusUpdate('For Endorsement', 'the Admissions Office');
+    expect(message).toContain('Department Chair for endorsement');
+    expect(message).toContain('No action');
+  });
 });
 
 describe('renderDocumentRejectionEmail', () => {

@@ -205,6 +205,9 @@ export const describeApplicationStatusUpdate = (status, actorLabel = 'the review
   if (status === 'For Verification') {
     return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
   }
+  if (status === 'For Endorsement') {
+    return 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.';
+  }
   if (status === 'Endorsed') {
     return 'Your application is in the endorsement phase: the Department Chair has endorsed it, and the Admissions Office will schedule the interview next.';
   }

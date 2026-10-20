@@ -9,7 +9,7 @@ import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatu
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
 
-const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
+const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', 'For Endorsement': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
 

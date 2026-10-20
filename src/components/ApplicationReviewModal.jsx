@@ -263,9 +263,8 @@ export default function ApplicationReviewModal({
   const showInterviewFields = isAdmissionsOffice && nextStatuses.includes('Interview');
   const showDeliberationField = isAdmissionsOffice && nextStatuses.includes('Recommended');
   const hasBlockedForward = blockedByDocuments && forwardStatuses.some((status) => ENDORSEMENT_BLOCKED_STATUSES.includes(status));
-  // At verification the Admissions Office has no forward stage action (the
-  // Department Chair endorses once the files pass), so say so instead of leaving
-  // a lone Reject button with no explanation.
+  // The Admissions Office finishes verification and hands the application to the
+  // Department Chair, so at this point the only forward action is that hand-off.
   const readyForEndorsement = isAdmissionsOffice
     && application.status === 'For Verification'
     && totalDocuments > 0
@@ -501,7 +500,7 @@ export default function ApplicationReviewModal({
 
         {readyForEndorsement ? (
           <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
-            All attached documents are verified. This application is ready for Department Chair endorsement.
+            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair.
           </p>
         ) : null}
 

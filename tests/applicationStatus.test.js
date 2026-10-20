@@ -11,13 +11,13 @@ const application = (overrides = {}) => ({
 
 describe('role-aware application stage actions', () => {
   it('lets the Department Chair endorse but not conduct central review decisions', () => {
-    expect(getNextApplicationStatuses('For Verification', 'department_chair')).toEqual(['Endorsed']);
+    expect(getNextApplicationStatuses('For Endorsement', 'department_chair')).toEqual(['Endorsed']);
     expect(getNextApplicationStatuses('Endorsed', 'department_chair')).toEqual([]);
     expect(getNextApplicationStatuses('Interview', 'department_chair')).toEqual([]);
   });
 
   it('reserves verification, interview, approval, and release actions for Admissions Office', () => {
-    expect(getNextApplicationStatuses('For Verification', 'admissions_office')).toEqual(['Rejected']);
+    expect(getNextApplicationStatuses('For Verification', 'admissions_office')).toEqual(['For Endorsement', 'Rejected']);
     // scheduleInterview and recordDeliberation in App.jsx pass through this map.
     expect(getNextApplicationStatuses('Endorsed', 'admissions_office')).toEqual(['Interview', 'Rejected']);
     expect(getNextApplicationStatuses('Interview', 'admissions_office')).toEqual(['Recommended', 'Rejected']);
@@ -26,7 +26,7 @@ describe('role-aware application stage actions', () => {
   });
 
   it('preserves the generic legacy status map when no role is supplied', () => {
-    expect(getNextApplicationStatuses('For Verification')).toEqual(['Endorsed', 'Rejected']);
+    expect(getNextApplicationStatuses('For Verification')).toEqual(['For Endorsement', 'Rejected']);
   });
 });
 
@@ -50,7 +50,7 @@ describe('countApplicationsToReview', () => {
     application({ id: 'a-draft', studentId: 'student-1', status: 'Draft' }),
     application({ id: 'a-submitted', studentId: 'student-1', status: 'Submitted' }),
     application({ id: 'a-review', studentId: 'student-1', status: 'Under Review' }),
-    application({ id: 'a-verify', studentId: 'student-1', status: 'For Verification' }),
+    application({ id: 'a-verify', studentId: 'student-1', status: 'For Endorsement' }),
     application({ id: 'a-approved', studentId: 'student-1', status: 'Approved' }),
     application({ id: 'a-released', studentId: 'student-1', status: 'Released' }),
     application({ id: 'a-rejected', studentId: 'student-1', status: 'Rejected' }),
@@ -58,7 +58,7 @@ describe('countApplicationsToReview', () => {
       id: 'a-other-dept',
       studentId: 'student-2',
       studentDepartment: 'School of Business and Governance (SBG)',
-      status: 'For Verification',
+      status: 'For Endorsement',
     }),
   ];
 
@@ -106,8 +106,9 @@ describe('department chair transition map', () => {
     expect(getNextApplicationStatuses('Under Review', 'department_chair')).toEqual(['For Verification']);
   });
 
-  it('lets a Chair endorse only a For Verification application', () => {
-    expect(getNextApplicationStatuses('For Verification', 'department_chair')).toEqual(['Endorsed']);
+  it('lets a Chair endorse only an application sent to endorsement', () => {
+    expect(getNextApplicationStatuses('For Verification', 'department_chair')).toEqual([]);
+    expect(getNextApplicationStatuses('For Endorsement', 'department_chair')).toEqual(['Endorsed']);
     expect(getNextApplicationStatuses('Endorsed', 'department_chair')).toEqual([]);
     expect(getNextApplicationStatuses('Approved', 'department_chair')).toEqual([]);
   });
@@ -128,8 +129,9 @@ describe('transition map completeness', () => {
       .forEach((status) => expect(getApplicationStatusLabel(status)).toBe(status));
   });
 
-  it('labels the chair action as sending the application to endorsement', () => {
-    expect(getStageActionLabel('Endorsed', 'department_chair')).toBe('Send to endorsement');
+  it('labels the Admissions Office hand-off as sending the application to endorsement', () => {
+    expect(getStageActionLabel('For Endorsement', 'admissions_office')).toBe('Send to endorsement');
+    expect(getStageActionLabel('Endorsed', 'department_chair')).toBe('Endorse');
   });
 
   it('returns only known statuses for every role and status pair', () => {

@@ -27,13 +27,14 @@ describe('getReviewQueue', () => {
       application({ id: 'submitted', status: 'Submitted' }),
       application({ id: 'review', status: 'Under Review' }),
       application({ id: 'verification', status: 'For Verification' }),
+      application({ id: 'for-endorsement', status: 'For Endorsement' }),
       application({ id: 'endorsed', status: 'Endorsed' }),
       application({ id: 'approved', status: 'Approved' }),
       application({ id: 'released', status: 'Released' }),
       application({ id: 'rejected', status: 'Rejected' }),
     ]);
 
-    expect(queue.map((entry) => entry.id)).toEqual(['submitted', 'review', 'verification', 'endorsed']);
+    expect(queue.map((entry) => entry.id)).toEqual(['submitted', 'review', 'verification', 'for-endorsement', 'endorsed']);
   });
 
   it('tolerates a missing collection', () => {

@@ -1005,9 +1005,11 @@ function App() {
       ? (state.viewerRole === 'department_chair'
         ? 'Flagged for central document validation.'
         : 'Continued to document verification. Attached files are queued for Admissions Office review.')
-      : status === 'Under Review'
-        ? 'The Admissions Office opened this application for review. Attached documents are reviewed at the verification stage.'
-        : `Application moved to ${status}.`;
+      : status === 'For Endorsement'
+        ? 'Sent to endorsement. The application is now with the Department Chair for endorsement.'
+        : status === 'Under Review'
+          ? 'The Admissions Office opened this application for review. Attached documents are reviewed at the verification stage.'
+          : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
@@ -1063,7 +1065,7 @@ function App() {
       return { error: 'Only the Department Chair can endorse at this stage.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'For Verification') {
+    if (!application || application.status !== 'For Endorsement') {
       return { error: 'This application is not awaiting endorsement.' };
     }
     // Manuscript 3.3.3: never record an endorsement for an application whose

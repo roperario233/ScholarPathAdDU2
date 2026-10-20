@@ -24,7 +24,7 @@ export default function DepartmentReviewView({
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const selected = queue.find((entry) => entry.id === selectedId);
-  const awaitingEndorsement = queue.filter((entry) => entry.status === 'For Verification');
+  const awaitingEndorsement = queue.filter((entry) => entry.status === 'For Endorsement');
   const endorsed = queue.filter((entry) => ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].includes(entry.status));
   const interviews = queue.filter((entry) => entry.status === 'Interview');
 
@@ -40,7 +40,7 @@ export default function DepartmentReviewView({
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Qualified applicants to endorse" />
+        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Sent to endorsement by the Admissions Office" />
         <StatCard label="Department recommendations" value={endorsed.length} note="Applications routed to the next SOP stage" />
         <StatCard label="Interviews scheduled" value={interviews.length} note="Panels from the applicant school" />
         <StatCard label="Department scope" value={profile.department || 'Unassigned'} note="Endorsement boundary" />
@@ -64,7 +64,12 @@ export default function DepartmentReviewView({
                     <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
                   </div>
                   <div className="rounded-xl bg-app-card/60 p-3 text-sm text-app-muted">
-                    {entry.endorsement?.note || 'No recommendation has been recorded.'}
+                    {entry.endorsement?.note
+                      || (entry.status === 'For Verification'
+                        ? 'With the Admissions Office for document verification. Your endorsement action opens once the office sends it to endorsement.'
+                        : entry.status === 'For Endorsement'
+                          ? 'Sent to endorsement by the Admissions Office. Ready for your endorsement decision.'
+                          : 'No recommendation has been recorded.')}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
                     <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
@@ -75,7 +80,7 @@ export default function DepartmentReviewView({
                       <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
                       <Button
                         type="button"
-                        disabled={entry.status !== 'For Verification' || !ready}
+                        disabled={entry.status !== 'For Endorsement' || !ready}
                         title={!ready ? `${outstanding} document${outstanding === 1 ? '' : 's'} still need${outstanding === 1 ? 's' : ''} verification` : undefined}
                         onClick={() => onEndorseApplication(entry.id)}
                       >Send to endorsement</Button>

@@ -350,7 +350,7 @@ describe('document verification readiness for endorsement', () => {
   const doc = (id, verificationStatus) => ({ id, verificationStatus });
 
   it('flags the SOP stages that require every attached document verified', () => {
-    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
+    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
     expect(ENDORSEMENT_BLOCKED_STATUSES).not.toContain('Rejected');
   });
 
@@ -403,7 +403,7 @@ describe('document review stage gate', () => {
   });
 
   it('stays unlocked for every stage after verification', () => {
-    ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].forEach((status) => {
+    ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].forEach((status) => {
       expect(areDocumentsReviewable(status)).toBe(true);
     });
   });
