@@ -9,6 +9,7 @@
 // log all read `Endorsed`.
 export const APPLICATION_STATUS_LABELS = {
   Endorsed: 'Endorsement',
+  'For Endorsement': 'Awaiting Endorsement',
 };
 
 export const getApplicationStatusLabel = (status) => APPLICATION_STATUS_LABELS[status] || status;

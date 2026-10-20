@@ -118,14 +118,16 @@ describe('transition map completeness', () => {
   const roles = ['student', 'admissions_office', 'department_chair'];
 
   // Stored statuses stay as the database records them; the surfaces show the
-  // Standard Procedure phase instead (`Endorsed` reads "Endorsement").
+  // Standard Procedure phase instead (`Endorsed` reads "Endorsement", and the
+  // hand-off stage reads "Awaiting Endorsement" so the pair is not confused).
   it('shows the endorsement phase for the stored Endorsed status', () => {
     expect(getApplicationStatusLabel('Endorsed')).toBe('Endorsement');
+    expect(getApplicationStatusLabel('For Endorsement')).toBe('Awaiting Endorsement');
   });
 
   it('keeps every other status label identical to the stored value', () => {
     applicationStatuses
-      .filter((status) => status !== 'Endorsed')
+      .filter((status) => !['Endorsed', 'For Endorsement'].includes(status))
       .forEach((status) => expect(getApplicationStatusLabel(status)).toBe(status));
   });
 

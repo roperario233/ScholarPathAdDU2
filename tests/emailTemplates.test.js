@@ -165,6 +165,16 @@ describe('renderApplicationStatusEmail', () => {
     expect(html).toContain('Endorsement');
     expect(text).toContain('New status: Endorsement');
   });
+
+  it('names the hand-off stage as awaiting endorsement', () => {
+    const { subject, text } = renderApplicationStatusEmail({
+      scholarshipTitle: 'GIA Grant',
+      status: 'For Endorsement',
+      siteUrl: 'https://example.org/',
+    });
+    expect(subject).toBe('Application update: Awaiting Endorsement');
+    expect(text).toContain('New status: Awaiting Endorsement');
+  });
 });
 
 describe('describeApplicationStatusUpdate', () => {
