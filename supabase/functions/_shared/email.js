@@ -1,12 +1,13 @@
 /**
  * Shared email rendering and delivery-preference helpers.
  *
- * Like `_shared/reminders.js`, this module is intentionally dependency-free
- * plain JavaScript so it can be imported by both the Supabase Edge Functions
- * (Deno) and the vitest test suite. It renders Resend-compatible HTML (table
- * layouts, inline longhand styles, no images, no JavaScript) alongside a
- * plain-text alternative.
+ * Like `_shared/reminders.js`, this module is intentionally plain JavaScript
+ * with no third-party dependencies, so it can be imported by both the Supabase
+ * Edge Functions (Deno) and the vitest test suite. It renders Resend-compatible
+ * HTML (table layouts, inline longhand styles, no images, no JavaScript)
+ * alongside a plain-text alternative.
  */
+import { getApplicationStatusLabel } from './applicationStatus.js';
 
 // Ateneo blue visual identity, matching the app's theme primitives.
 const PRIMARY = '#0b2d5c';
@@ -197,21 +198,29 @@ export const renderReminderEmail = ({ title, itemTitle, deadline, daysBefore, si
  * The next-step sentence used by the application status email and in-app row.
  * "For Verification" is the SOP document-verification stage, so it names the
  * office holding the files and tells the applicant when to expect the next
- * message instead of the generic "status changed" copy.
+ * message instead of the generic "status changed" copy. "Endorsed" is stored as
+ * the chair's decision but shown as the step-4 endorsement phase.
  */
 export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office') => {
   if (status === 'For Verification') {
     return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
   }
-  return `Your application status was updated to ${status} through ${actorLabel}. Sign in to review the next steps.`;
+  if (status === 'For Endorsement') {
+    return 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.';
+  }
+  if (status === 'Endorsed') {
+    return 'Your application is in the endorsement phase: the Department Chair has endorsed it, and the Admissions Office will schedule the interview next.';
+  }
+  return `Your application status was updated to ${getApplicationStatusLabel(status)} through ${actorLabel}. Sign in to review the next steps.`;
 };
 
 /**
  * Renders an application status-change email for the application workspace.
  */
 export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, status, siteUrl }) => {
-  const heading = subject || `Application update: ${status}`;
-  const intro = body || `Your application status was updated to ${status}.`;
+  const statusLabel = getApplicationStatusLabel(status);
+  const heading = subject || `Application update: ${statusLabel}`;
+  const intro = body || `Your application status was updated to ${statusLabel}.`;
   const link = `${siteUrl}?view=applications`;
 
   return {
@@ -221,7 +230,7 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
       intro,
       rows: [
         { label: 'Scholarship', value: scholarshipTitle },
-        { label: 'New status', value: status },
+        { label: 'New status', value: statusLabel },
       ],
       ctaLabel: 'View your applications',
       ctaUrl: link,
@@ -233,7 +242,7 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
       intro,
       '',
       `Scholarship: ${scholarshipTitle}`,
-      `New status: ${status}`,
+      `New status: ${statusLabel}`,
       '',
       `View your applications: ${link}`,
       '',

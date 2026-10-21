@@ -3,13 +3,13 @@ import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import { DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
+import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
-import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getDocumentTypeLabel } from '../lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
 
-const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
+const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', 'For Endorsement': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
 
@@ -74,7 +74,7 @@ export default function ApplicationsView({
       '',
       `Application: ${entry.scholarshipTitle}`,
       `ID: ${entry.id}`,
-      `Status: ${entry.status}`,
+      `Status: ${getApplicationStatusLabel(entry.status)}`,
       `Progress: ${toPercent(getApplicationProgress(entry.status))}`,
       `Deadline: ${scholarship ? fmtDate(scholarship.deadline) : 'N/A'}`,
       `Submitted: ${entry.submittedAt ? fmtDate(entry.submittedAt) : 'Not yet'}`,
@@ -124,15 +124,22 @@ export default function ApplicationsView({
     ? getReplaceableRejectedDocuments(selected, documents)
     : [];
 
-  // The reason shown under an attached file in the lists. The replace controls
-  // live in the action panel above, so the file rows stay compact.
+  // The reason and the review record shown under an attached file in the lists.
+  // The replace controls live in the action panel above, so the file rows stay
+  // compact. The student sees the Admissions Office lane, never the reviewer's
+  // name.
   const renderAttachmentNote = function AttachmentNote(doc) {
-    return <DocumentRejectionReason doc={doc} />;
+    return (
+      <>
+        <DocumentRejectionReason doc={doc} />
+        <DocumentDecisionRecord doc={doc} showReviewer={false} />
+      </>
+    );
   };
 
   return <div className="blue-action-view grid gap-4">
     <Card title="Your applications" className="application-list-card">
-      <div className="grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4"><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find an application</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search applications" aria-label="Search applications" /></label><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Application status</span><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter applications by status"><option value="all">All statuses</option>{applicationStatuses.map((item) => <option key={item}>{item}</option>)}</select></label></div>
+      <div className="grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4"><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find an application</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search applications" aria-label="Search applications" /></label><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Application status</span><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter applications by status"><option value="all">All statuses</option>{applicationStatuses.map((item) => <option key={item} value={item}>{getApplicationStatusLabel(item)}</option>)}</select></label></div>
       <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3"><p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'application' : 'applications'} found</p><span className="text-xs text-app-muted">Attach the required documents, then submit</span></div>
       <div className="mt-4 grid max-h-[560px] gap-4 overflow-y-auto pr-2">
         {filtered.length ? filtered.map((entry) => {
@@ -144,7 +151,7 @@ export default function ApplicationsView({
           // For Verification) is the next thing they must do.
           const needsReplacement = !isTracked && getReplaceableRejectedDocuments(entry, documents).length > 0;
           return <article key={entry.id} className="application-result-card grid grid-rows-[auto_auto_1fr_auto] items-stretch gap-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-app">
-            <div className="flex min-w-0 items-start justify-between gap-4"><div className="min-w-0 flex-1"><h3>{entry.scholarshipTitle}</h3><p>{scholarship?.category || 'Scholarship'} · Updated {fmtDate(entry.updatedAt)}</p></div><StatusBadge className="max-w-full shrink-0" tone={isTracked ? 'neutral' : statusTone[entry.status] || 'info'}>{isTracked ? 'Tracked' : entry.status}</StatusBadge></div>
+            <div className="flex min-w-0 items-start justify-between gap-4"><div className="min-w-0 flex-1"><h3>{entry.scholarshipTitle}</h3><p>{scholarship?.category || 'Scholarship'} · Updated {fmtDate(entry.updatedAt)}</p></div><StatusBadge className="max-w-full shrink-0" tone={isTracked ? 'neutral' : statusTone[entry.status] || 'info'}>{isTracked ? 'Tracked' : getApplicationStatusLabel(entry.status)}</StatusBadge></div>
             <div className="h-2 overflow-hidden rounded-full bg-app-muted-surface"><div className="h-full rounded-full bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright" style={{ width: `${isDraft ? Math.round((readiness.attachedCount / Math.max(readiness.requiredCount, 1)) * 100) : getApplicationProgress(entry.status)}%` }} /></div>
             <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-app-border/60 pt-3 text-sm text-app-muted">
               {isTracked
@@ -167,7 +174,7 @@ export default function ApplicationsView({
     {selected && selectedReadiness && (
       <ModalShell title={selected.scholarshipTitle} onClose={() => setSelectedId(null)} className="application-detail-modal">
         <div className="application-detail-modal-body grid content-start gap-4">
-          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted"><span><strong>Status</strong> {selectedReadiness.route === 'external' ? 'Tracked' : selected.status}</span><span><strong>Submitted</strong> {selected.submittedAt ? fmtDate(selected.submittedAt) : 'Not yet'}</span>{selected.certifiedAt ? <span><strong>Certified</strong> {fmtDate(selected.certifiedAt)}</span> : null}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted"><span><strong>Status</strong> {selectedReadiness.route === 'external' ? 'Tracked' : getApplicationStatusLabel(selected.status)}</span><span><strong>Submitted</strong> {selected.submittedAt ? fmtDate(selected.submittedAt) : 'Not yet'}</span>{selected.certifiedAt ? <span><strong>Certified</strong> {fmtDate(selected.certifiedAt)}</span> : null}</div>
           {selectedReadiness.route !== 'external' && getApplicationStatusGuidance(selected.status) ? (
             <p className="m-0 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-app-text">
               {getApplicationStatusGuidance(selected.status)}

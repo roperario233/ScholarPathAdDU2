@@ -1,19 +1,25 @@
-import { ADMISSIONS_REVIEW_EXCLUDED_STATUSES } from './constants';
-import { describeStatusActor } from './applicationRequirements';
+import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from './constants';
+import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 
 // The Admissions Office workspace is split into one route per function
 // (overview, application review, catalog management, results release, and
-// announcements). These selectors keep every derivation out of the pages so the
+// announcements) and two accountability lanes: Staff prepare a case, the Head
+// decides it. These selectors keep every derivation out of the pages so the
 // queues, the overview metrics, and the dashboard count all read one source and
 // can be unit-tested without a DOM.
 
 const asList = (value) => (Array.isArray(value) ? value : []);
 
-// Applications that still need an SOP action. It reads the same exclusion list
-// as countApplicationsToReview(), so the overview, the review queue, and the
-// dashboard can never show different numbers for the same data.
+// Applications that still need a Staff or Department Chair action. It reads the
+// same exclusion list as countApplicationsToReview(), so the overview, the
+// review queue, and the dashboard can never show different numbers for the same
+// data. Approval and release leave this queue for the Head's lane.
 export const getReviewQueue = (applications = []) => asList(applications)
-  .filter((entry) => !ADMISSIONS_REVIEW_EXCLUDED_STATUSES.includes(entry.status));
+  .filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status));
+
+// SOP step 7: recommendations the Admissions Office Head approves.
+export const getApprovalQueue = (applications = []) => asList(applications)
+  .filter((entry) => entry.status === 'Recommended');
 
 // Applications whose result can be released (SOP steps 7-8).
 export const getReleaseQueue = (applications = []) => {
@@ -28,9 +34,12 @@ export const getReleaseQueue = (applications = []) => {
 // (manuscript 3.3.3). Document Vault verification itself happens inside each
 // application's review modal, so this is a count, not a separate review list.
 export const getDocumentsAwaitingReview = (applications = [], documents = []) => {
-  const attachedDocumentIds = new Set(asList(applications).flatMap((entry) => (
-    Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments : []
-  )));
+  // Only applications that have reached the SOP verification stage can have
+  // their files reviewed, so a Pending file attached to a Submitted or
+  // Under Review application is not counted yet.
+  const attachedDocumentIds = new Set(asList(applications)
+    .filter((entry) => areDocumentsReviewable(entry.status))
+    .flatMap((entry) => (Array.isArray(entry.attachedDocuments) ? entry.attachedDocuments : [])));
   return asList(documents).filter((entry) => (
     entry.verificationStatus === 'Pending' && attachedDocumentIds.has(entry.id)
   ));
@@ -56,7 +65,7 @@ export const getRecentApplicationActivity = (applications = [], limit = 5) => as
       ? log.map((event) => ({
         id: event.id,
         stage: event.toStatus,
-        note: event.reason || `Application moved to ${event.toStatus}.`,
+        note: event.reason || `Application moved to ${getApplicationStatusLabel(event.toStatus)}.`,
         actor: describeStatusActor(event, true),
         at: event.at,
       }))
@@ -64,7 +73,7 @@ export const getRecentApplicationActivity = (applications = [], limit = 5) => as
     return (events.length ? events : [{
       id: `current-${application.id}`,
       stage: application.status,
-      note: `Application is currently ${application.status}.`,
+      note: `Application is currently ${getApplicationStatusLabel(application.status)}.`,
       actor: 'Application workspace',
       at: application.updatedAt,
     }]).map((event) => ({ ...event, application }));
@@ -79,7 +88,7 @@ export const getRecentApplicationActivity = (applications = [], limit = 5) => as
 export const buildAcceptedApplicantsReport = (applications = []) => {
   const lines = ['SCHOLARPATH ADDU — ACCEPTED APPLICANTS FOR THE ADMISSIONS OFFICE', ''];
   asList(applications).forEach((entry) => {
-    lines.push(`${entry.studentName} · ${entry.scholarshipTitle} · ${entry.status} · Reference ${entry.release?.reference || 'Pending release'}`);
+    lines.push(`${entry.studentName} · ${entry.scholarshipTitle} · ${getApplicationStatusLabel(entry.status)} · Reference ${entry.release?.reference || 'Pending release'}`);
   });
   return lines.join('\n');
 };

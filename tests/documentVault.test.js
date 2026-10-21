@@ -44,6 +44,8 @@ describe('getDocumentTitle', () => {
   it('uses the document type label alone for a general document', () => {
     expect(getDocumentTitle({ documentType: 'Income Proof' })).toBe('Income Doc');
     expect(getDocumentTitle({ attributeKey: '', documentType: 'Application Form' })).toBe('Application Form');
+    expect(getDocumentTitle({ documentType: 'Applicant Photo' })).toBe('2x2 ID Photo');
+    expect(getDocumentTitle({ documentType: 'Photos of Residence' })).toBe('Photos of Residence');
   });
 });
 
@@ -52,6 +54,9 @@ describe('document type vocabulary', () => {
     const generalValues = generalDocumentTypeOptions.map((option) => option.value);
     expect(generalValues).toContain('Application Form');
     expect(generalValues).toContain('Good Moral Character');
+    // The two camera-capable photo types are general documents, not attribute proofs.
+    expect(generalValues).toContain('Applicant Photo');
+    expect(generalValues).toContain('Photos of Residence');
     // Attribute-proof-only types are not offered as general documents.
     expect(generalValues).not.toContain('PWD ID');
   });

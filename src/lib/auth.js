@@ -217,7 +217,7 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
     const metadata = authUser.user_metadata || {};
     const role = metadata.role === 'osa_admin'
       ? 'admissions_office'
-      : ['student', 'admissions_office', 'department_chair'].includes(metadata.role)
+      : ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(metadata.role)
         ? metadata.role
         : 'student';
     const fullName = metadata.full_name?.trim() || authUser.email?.split('@')[0] || 'ScholarPath user';
@@ -319,6 +319,48 @@ export const getProfileDetails = async (userId) => {
     return { ...base, profileDetails };
   } catch {
     return empty;
+  }
+};
+
+// The avatar path is added by 20261026000000_add_profile_avatar.sql, so it is
+// read in its own query: a project with the migration pending still loads the
+// rest of the profile (the same reason profile_details is read separately).
+// Never add avatar_path to getUserProfile's select, which would fail the whole
+// profile load when the column is missing.
+export const getProfileAvatar = async (userId) => {
+  if (!hasSupabaseConfig || !supabase || !userId) return { avatarPath: '', fallback: true, synced: false };
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('avatar_path')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) return { avatarPath: '', fallback: false, synced: false };
+    return { avatarPath: data?.avatar_path || '', fallback: false, synced: true };
+  } catch {
+    return { avatarPath: '', fallback: false, synced: false };
+  }
+};
+
+// `avatarPath` is the stored object key, or null to remove the photo. The
+// storage object is uploaded/deleted by src/lib/supabaseData.js; this only
+// records which object is the current avatar.
+export const updateProfileAvatar = async (userId, avatarPath) => {
+  if (!hasSupabaseConfig || !supabase || !userId) return { success: true, fallback: true };
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ avatar_path: avatarPath || null, updated_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .select('user_id');
+    if (error && isMissingColumnError(error)) return { success: true, fallback: false, synced: false };
+    if (error) return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile photo.') };
+    if (!data?.length) return { success: false, fallback: false, message: 'Your profile record was not found. Please sign in again.' };
+    return { success: true, fallback: false, synced: true };
+  } catch (error) {
+    return { success: false, fallback: false, message: getAuthErrorMessage(error, 'Unable to save your profile photo.') };
   }
 };
 

@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Circle, CircleCheck, TriangleAlert } from 'lucide-react';
+import { Camera, Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
+import ProfileAvatar from './ProfileAvatar';
+import PhotoCaptureModal from './PhotoCaptureModal';
+import { AVATAR_ACCEPT } from '../lib/avatarStorage';
 import { SelectPicker } from '../pages/LoginScreen';
 import { getAttributeVerificationTone } from '../lib/verification';
 import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
@@ -192,8 +195,13 @@ function SelectField({ label, hint, error, value, onChange, options, placeholder
 const assignmentNote = {
   student: 'Set automatically from your degree program in Academic profile.',
   department_chair: 'Your assigned department scopes the Department Review queue and is managed by the Admissions Office.',
-  admissions_office: 'Central Admissions Office operations role.',
+  admissions_office: 'Admissions Office Staff lane: application preparation and document verification.',
+  admissions_head: 'Full Admissions Office authority: preparation, verification, approval, release, catalog, and announcements.',
 };
+
+// Both Admissions Office lanes belong to the central office, so the read-only
+// field reads "Office" for either of them.
+const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'admissions_head';
 
 // The year standing decides which answers an application reads, so the
 // overview says which credential the student is matched on.
@@ -355,7 +363,86 @@ export function ProfileOverview({ profile = {}, completeness, documentChecklist 
   );
 }
 
-export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChange }) {
+// The profile photo applies immediately instead of joining the Personal
+// information draft: it is a stored object (avatars bucket + profiles.avatar_path),
+// not one of the text fields the section saves together. The note keeps it
+// distinct from the verified application photo requirements.
+function ProfilePhotoCard({ fullName = '', avatar = {}, isSaving = false, onChangeAvatar, onRemoveAvatar }) {
+  const [status, setStatus] = useState({ tone: '', message: '' });
+  const [busy, setBusy] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+
+  const applyPhoto = async (file) => {
+    setBusy(true);
+    setStatus({ tone: '', message: '' });
+    const result = await onChangeAvatar?.(file);
+    setBusy(false);
+    const success = Boolean(result?.success);
+    setStatus({ tone: success ? 'success' : 'error', message: result?.message || (success ? 'Profile photo updated.' : 'Your photo could not be saved.') });
+    return success ? { ok: true } : { error: result?.message || 'Your photo could not be saved.' };
+  };
+
+  const handleFile = (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) applyPhoto(file);
+  };
+
+  const removePhoto = async () => {
+    setBusy(true);
+    setStatus({ tone: '', message: '' });
+    const result = await onRemoveAvatar?.();
+    setBusy(false);
+    setStatus({ tone: result?.success ? 'success' : 'error', message: result?.message || 'Your profile photo could not be removed.' });
+  };
+
+  const working = busy || isSaving;
+
+  return (
+    <section className="grid gap-3 rounded-xl border border-app-border bg-app-surface/70 p-4" aria-label="Profile photo">
+      <div className="flex min-w-0 flex-wrap items-start gap-4">
+        <ProfileAvatar src={avatar.url} name={fullName} size="xl" />
+        <div className="grid min-w-0 flex-1 gap-2">
+          <div className="grid gap-1">
+            <strong className="text-sm font-bold text-app-text">Profile photo</strong>
+            <p className="m-0 text-sm text-app-muted">
+              This photo appears in your header and on My Profile. It is not sent with your applications: each application has its own 2x2 ID photo requirement, which the Admissions Office verifies.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={() => setCameraOpen(true)} disabled={working}>
+              <Camera size={16} aria-hidden="true" /> Take photo
+            </Button>
+            <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-app-border bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${working ? 'pointer-events-none opacity-60' : ''}`}>
+              Upload photo
+              <input type="file" accept={AVATAR_ACCEPT} className="sr-only" onChange={handleFile} disabled={working} />
+            </label>
+            {avatar.path ? (
+              <Button type="button" variant="ghost" onClick={removePhoto} disabled={working}>Remove</Button>
+            ) : null}
+          </div>
+          {status.message ? (
+            <p className={`m-0 text-sm ${status.tone === 'success' ? 'text-emerald-600 dark:text-emerald-300' : 'text-rose-600 dark:text-rose-300'}`} role="status" aria-live="polite">
+              {status.message}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {cameraOpen ? (
+        <PhotoCaptureModal
+          title="Take your profile photo"
+          mode="portrait"
+          fileNamePrefix="profile-photo"
+          showGuide={false}
+          onUsePhoto={applyPhoto}
+          onClose={() => setCameraOpen(false)}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChange, avatar = {}, onChangeAvatar, onRemoveAvatar }) {
   const isStudent = role === 'student';
   const form = useSectionForm({
     initialValues: {
@@ -374,6 +461,13 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
 
   return (
     <SectionForm title="Personal information" description={isStudent ? 'How your name and contact details appear across ScholarPath. Your name, religion, and civil status are included in each application you submit.' : 'How your name and contact details appear across ScholarPath.'} form={form}>
+      <ProfilePhotoCard
+        fullName={values.fullName || profile.fullName}
+        avatar={avatar}
+        isSaving={avatar.isSaving}
+        onChangeAvatar={onChangeAvatar}
+        onRemoveAvatar={onRemoveAvatar}
+      />
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Full name" error={errors.fullName}>
           <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
@@ -395,7 +489,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       <div className="grid gap-3 md:grid-cols-2">
         <ReadOnlyField label="Sign-in email" value={profile.email} note="Managed by your sign-in account." className="md:col-span-2" />
         <ReadOnlyField label="Role" value={roleLabel} />
-        <ReadOnlyField label={role === 'admissions_office' ? 'Office' : 'School / Department'} value={profile.department} note={assignmentNote[role]} />
+        <ReadOnlyField label={isAdmissionsRole(role) ? 'Office' : 'School / Department'} value={profile.department} note={assignmentNote[role]} />
       </div>
     </SectionForm>
   );

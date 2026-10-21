@@ -1,5 +1,6 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
 import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
+import { AVATAR_BUCKET, buildAvatarStoragePath } from './avatarStorage';
 
 const toScholarship = (row) => ({
   ...row,
@@ -34,6 +35,13 @@ const toDocument = (row) => ({
   storagePath: row.storage_path,
   sharedWith: row.shared_with || [],
   uploadedAt: row.uploaded_at,
+  // The current review decision: when it was made and which Admissions Office
+  // account recorded it (stamped by the trigger, see
+  // 20261027000000_add_document_decision_actor.sql). A Pending file carries no
+  // decision; a file decided before that migration carries none either.
+  decidedAt: row.verification_decided_at ?? null,
+  reviewedBy: row.reviewed_by ?? null,
+  reviewedByRole: row.reviewed_by_role ?? null,
 });
 
 const toApplication = (row, scholarshipById, documentIdsByApplication, studentById = {}, statusLogByApplication = {}) => {
@@ -90,6 +98,18 @@ const toDepartmentReview = (row) => ({
   createdAt: row.created_at,
 });
 
+// The internal reviewer thread for one application (application_review_comments).
+// Students never receive these rows; the RLS policies scope staff access.
+const toReviewComment = (row) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  authorId: row.author_id,
+  authorRole: row.author_role,
+  authorName: row.author_name,
+  body: row.body,
+  createdAt: row.created_at,
+});
+
 const ensureReady = () => hasSupabaseConfig && supabase;
 
 export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
@@ -138,6 +158,10 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     ...entry,
     ownerName: studentById[entry.ownerId]?.full_name || 'Student applicant',
     ownerDepartment: studentById[entry.ownerId]?.department || '',
+    // The reviewer's name resolves for staff (staff_read_profiles) but not for a
+    // student, whose profile read is scoped to their own row; the UI then falls
+    // back to the recorded role, never the name.
+    reviewedByName: studentById[entry.reviewedBy]?.full_name || null,
   }));
   const documentIdsByApplication = {};
   const applicationIds = (applicationsResult.data || []).map((entry) => entry.id);
@@ -181,6 +205,21 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // The internal endorsement thread (application_review_comments, from
+  // 20261023000000). Staff only: a student has no policy on the table. A pending
+  // migration yields no rows rather than failing the whole workspace.
+  let reviewComments = [];
+  if (role !== 'student' && applicationIds.length) {
+    const commentsResult = await supabase
+      .from('application_review_comments')
+      .select('id, application_id, author_id, author_role, author_name, kind, body, created_at')
+      .in('application_id', applicationIds)
+      .order('created_at', { ascending: true });
+    if (!commentsResult.error) {
+      reviewComments = (commentsResult.data || []).map(toReviewComment);
+    }
+  }
+
   return {
     success: true,
     fallback: false,
@@ -191,6 +230,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     announcements: (announcementsResult.data || []).map(toAnnouncement),
     notifications: (notificationsResult.data || []).map(toNotification),
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
+    reviewComments,
     customDeadlines: serverDeadlines,
   };
 };
@@ -264,6 +304,22 @@ export const updateSupabaseApplicationStage = (applicationId, status, stagePatch
     : Promise.resolve({ error: null })
 );
 
+// The internal endorsement thread. The Admissions Office and the Department
+// Chair write into one append-only case file per application; RLS rejects a
+// student and a Chair outside their department, so the browser never decides who
+// may read the thread.
+export const createSupabaseReviewComment = async ({ applicationId, authorId, authorRole, authorName, body }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.from('application_review_comments').insert({
+    application_id: applicationId,
+    author_id: authorId,
+    author_role: authorRole,
+    author_name: authorName || 'Reviewer',
+    body,
+  }).select('*').single();
+  return { ...result, data: result.data ? toReviewComment(result.data) : null };
+};
+
 // Department review records mirror chair decisions for schema-level auditing.
 export const upsertSupabaseDepartmentReview = ({ applicationId, reviewerId, studentName, department, qpi, householdIncome, status, recommendation }) => (
   ensureReady()
@@ -282,7 +338,7 @@ export const upsertSupabaseDepartmentReview = ({ applicationId, reviewerId, stud
 
 const recommendationNote = (status) => (
   status === 'Endorsed'
-    ? 'Endorsed to the next evaluation stage by the Department Chair.'
+    ? 'Sent to endorsement by the Department Chair.'
     : 'Returned for central document validation.'
 );
 
@@ -396,6 +452,36 @@ export const deleteSupabaseDocument = async (documentId, storagePath) => {
   if (result.error) return { error: result.error };
   if (storagePath) await supabase.storage.from(DOCUMENT_BUCKET).remove([storagePath]);
   return { error: null };
+};
+
+// Profile photos live in their own private bucket, keyed by the owner's user id
+// (`<ownerId>/<timestamp>-<file>`) so the owner-only policy scopes the object
+// without a documents row. The caller deletes the previous object only after the
+// profiles.avatar_path write succeeds, so a failed save never loses the old
+// photo.
+export const uploadSupabaseAvatar = async ({ ownerId, file }) => {
+  if (!ensureReady()) return { path: null, error: { message: 'Supabase is not configured.' } };
+  if (!ownerId || !file) return { path: null, error: { message: 'Choose a photo to upload.' } };
+  const storagePath = buildAvatarStoragePath({ ownerId, fileName: file.name || 'avatar.jpg' });
+  const upload = await supabase.storage
+    .from(AVATAR_BUCKET)
+    .upload(storagePath, file, { contentType: file.type || 'image/jpeg', upsert: false });
+  if (upload.error) return { path: null, error: upload.error };
+  return { path: storagePath, error: null };
+};
+
+// Short-lived signed URL for the private avatar object. The app keeps it in
+// memory only; an expired URL falls back to the initials avatar.
+export const getSupabaseAvatarUrl = async (storagePath, expiresIn = 3600) => {
+  if (!ensureReady() || !storagePath) return { url: null, error: null };
+  const { data, error } = await supabase.storage.from(AVATAR_BUCKET).createSignedUrl(storagePath, expiresIn);
+  return { url: data?.signedUrl || null, error };
+};
+
+export const deleteSupabaseAvatar = async (storagePath) => {
+  if (!ensureReady() || !storagePath) return { error: null };
+  const { error } = await supabase.storage.from(AVATAR_BUCKET).remove([storagePath]);
+  return { error };
 };
 
 // A rejection carries its required reason; any other status clears it.

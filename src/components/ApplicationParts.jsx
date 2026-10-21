@@ -1,12 +1,16 @@
 import { Fragment, useState } from 'react';
+import { Camera, Clock } from 'lucide-react';
 import { Button, StatusBadge } from './ui';
-import { REQUIREMENT_STATE_LABELS, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
+import PhotoCaptureModal from './PhotoCaptureModal';
+import PhotoGuide from './PhotoGuide';
+import { PHOTO_ACCEPT } from '../lib/photoGuide';
+import { REQUIREMENT_STATE_LABELS, describeDocumentDecision, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { getDocumentTypeLabel, sopStageIndex, sopStages, verificationStatuses } from '../lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
 import { getVerifiableAttributeOption } from '../lib/profile';
 import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -30,7 +34,7 @@ export function SopStageTrack({ status }) {
         <li
           key={stage}
           className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${index < currentIndex ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300' : index === currentIndex ? 'border-ateneo-strong/50 bg-ateneo/15 text-ateneo-strong dark:border-blue-400/50 dark:bg-blue-500/15 dark:text-sky-200' : 'border-app-border bg-app-surface text-app-muted'}`}
-        >{stage}</li>
+        >{getApplicationStatusLabel(stage)}</li>
       ))}
     </ol>
   );
@@ -83,7 +87,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
         <ol className="m-0 grid gap-2 pl-5">
           {statusLog.map((event) => (
             <li key={event.id} className="text-sm text-app-muted">
-              <strong className="text-app-text">{event.fromStatus || 'New'} → {event.toStatus}</strong>
+              <strong className="text-app-text">{event.fromStatus ? getApplicationStatusLabel(event.fromStatus) : 'New'} → {getApplicationStatusLabel(event.toStatus)}</strong>
               {event.reason ? <span> · {event.reason}</span> : null}
               <span className="block text-xs">{describeStatusActor(event, showActorName)} · {fmtDate(event.at)}</span>
             </li>
@@ -98,7 +102,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
       <ol className="m-0 grid gap-2 pl-5">
         {timeline.map((event) => (
           <li key={event.id} className="text-sm text-app-muted">
-            <strong className="text-app-text">{event.stage}</strong> · {event.note}
+            <strong className="text-app-text">{getApplicationStatusLabel(event.stage)}</strong> · {event.note}
             <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
           </li>
         ))}
@@ -123,6 +127,26 @@ export function DocumentRejectionReason({ doc, className = '' }) {
   );
 }
 
+// Who decided a Document Vault file, from which Admissions Office lane, and
+// when. The record is stamped by the database when the decision is written, so
+// it is shown read-only everywhere: the reviewer pane, the Department Chair's
+// pane, the student's Document Vault card, and the student's application
+// details. `showReviewer` is false on student surfaces, which see the role only.
+export function DocumentDecisionRecord({ doc, showReviewer = true, className = '' }) {
+  if (!doc) return null;
+  const pending = !doc.verificationStatus || doc.verificationStatus === 'Pending';
+  // A student surface already shows the status badge, so the line only earns its
+  // space once there is a decision to attribute. The reviewer pane states that a
+  // file still has no decision.
+  if (pending && !showReviewer) return null;
+  return (
+    <p className={`m-0 flex min-w-0 flex-wrap items-center gap-1.5 text-xs ${pending ? 'text-app-muted' : 'text-app-text'} ${className}`}>
+      <Clock size={13} aria-hidden="true" className="shrink-0 text-app-muted" />
+      <span>{describeDocumentDecision(doc, { showName: showReviewer })}</span>
+    </p>
+  );
+}
+
 // Lets a student swap a rejected file on a submitted, pre-endorsement
 // application: pick another vault file or upload a new one (it lands in the
 // Document Vault first). `options` comes from getReplacementOptions() in
@@ -133,6 +157,10 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
   const [uploadType, setUploadType] = useState(documentTypes[0]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const photoType = isPhotoDocumentType(uploadType)
+    ? uploadType
+    : documentTypes.length === 1 && isPhotoDocumentType(documentTypes[0]) ? documentTypes[0] : '';
 
   const run = async (payload) => {
     setBusy(true);
@@ -151,6 +179,13 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
       return;
     }
     run({ file, documentType: uploadType });
+  };
+
+  // A replacement photo is normalized by the capture modal, then uploaded into
+  // the vault first (the same path as a file-picker replacement).
+  const useCameraPhoto = (file) => {
+    run({ file, documentType: photoType });
+    return { ok: true };
   };
 
   return (
@@ -188,14 +223,35 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
                 {documentTypes.map((type) => <option key={type} value={type}>{getDocumentTypeLabel(type)}</option>)}
               </select>
             ) : null}
-            <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-              {busy ? 'Working…' : 'Upload file'}
-              <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
-            </label>
+            {photoType ? (
+              <>
+                <Button type="button" onClick={() => setCameraOpen(true)} disabled={busy}>
+                  <Camera size={16} aria-hidden="true" /> Take photo
+                </Button>
+                <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                  {busy ? 'Working...' : 'Upload photo'}
+                  <input type="file" accept={PHOTO_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+                </label>
+              </>
+            ) : (
+              <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                {busy ? 'Working...' : 'Upload file'}
+                <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+              </label>
+            )}
           </div>
         </div>
       </div>
+      {photoType ? <PhotoGuide documentType={photoType} defaultOpen /> : null}
       {error ? <p className="form-error m-0" role="alert">{error}</p> : null}
+      {cameraOpen ? (
+        <PhotoCaptureModal
+          title={photoType === 'Photos of Residence' ? 'Take a replacement photo of your residence' : 'Take your 2x2 ID photo'}
+          documentType={photoType}
+          onUsePhoto={useCameraPhoto}
+          onClose={() => setCameraOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -230,9 +286,6 @@ const formatDeclaredValue = (key, value) => {
   return String(value);
 };
 
-// Verification buttons read as actions; the status they set stays the same.
-const documentActionLabels = { Rejected: 'Reject' };
-
 const hasAttestedValue =(doc, key) => Boolean(doc.attestedValues) && Object.prototype.hasOwnProperty.call(doc.attestedValues, key);
 
 // One attached Document Vault file in the staff review modal: what it proves,
@@ -249,6 +302,10 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
     return null;
   };
   const linkedAttributes = Array.isArray(doc.linkedAttributes) ? doc.linkedAttributes : [];
+  // A decision can be corrected (reset to Pending) only while the application is
+  // still before endorsement; protect_verified_documents_on_progress refuses it
+  // once the file has carried the application past verification.
+  const canReset = DOCUMENT_REPLACEMENT_STATUSES.includes(application?.status);
   return (
     <Element className="grid gap-2 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
@@ -259,6 +316,14 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
         <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
       </div>
       <DocumentRejectionReason doc={doc} />
+      <DocumentDecisionRecord doc={doc} />
+      {isPhotoDocumentType(doc.documentType) ? (
+        <p className="m-0 rounded-xl border border-sky-400/30 bg-sky-500/5 px-3 py-2 text-xs text-app-muted">
+          {doc.documentType === 'Photos of Residence'
+            ? 'Check that the photos show the residence clearly, inside and out, with no people in the frame and no signs of editing.'
+            : "Check that the photo is recent, sharp, and unobstructed, with a plain background and the applicant's whole face visible."}
+        </p>
+      ) : null}
       {linkedAttributes.length ? (
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
@@ -289,9 +354,19 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
       ) : null}
       <div className="flex flex-wrap items-center gap-1">
         {onPreview ? <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button> : null}
-        {onChangeDocument && verificationStatuses.filter((status) => status !== doc.verificationStatus).map((status) => (
-          <Button key={status} type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, status)}>{documentActionLabels[status] || status}</Button>
-        ))}
+        {onChangeDocument ? (
+          <>
+            {doc.verificationStatus !== 'Verified' ? (
+              <Button variant="primary" type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Verified')}>Verify document</Button>
+            ) : null}
+            {doc.verificationStatus !== 'Rejected' ? (
+              <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Rejected')}>Reject</Button>
+            ) : null}
+            {doc.verificationStatus !== 'Pending' && canReset ? (
+              <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Pending')}>Reset to pending</Button>
+            ) : null}
+          </>
+        ) : null}
       </div>
     </Element>
   );

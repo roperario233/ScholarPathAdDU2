@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_REQUIRED_DOCUMENTS,
   ENDORSEMENT_BLOCKED_STATUSES,
+  areApplicationDocumentsVisible,
+  areDocumentsReviewable,
   buildProfileSnapshot,
   describeApplicantAcademic,
   describeStatusActor,
+  describeDocumentDecision,
   getApplicationReadiness,
   getCatalogRequirements,
   getDocumentChecklist,
@@ -20,6 +23,7 @@ import {
   pickDefaultAttachments,
 } from '../src/lib/applicationRequirements';
 import { documentTypeOptions } from '../src/lib/constants';
+import { fmtDate } from '../src/lib/formatters';
 
 const continuingProfile = {
   fullName: 'Ana Reyes',
@@ -65,6 +69,17 @@ describe('scholarship requirements', () => {
     Object.values(DEFAULT_REQUIRED_DOCUMENTS).flat().forEach((item) => {
       item.documentTypes.forEach((type) => expect(known.has(type)).toBe(true));
     });
+  });
+
+  it('asks for the applicant photo and residence photos on every in-scope track', () => {
+    const known = new Set(documentTypeOptions.map((option) => option.value));
+    Object.values(DEFAULT_REQUIRED_DOCUMENTS).forEach((items) => {
+      const byId = Object.fromEntries(items.map((item) => [item.id, item]));
+      expect(byId['applicant-photo']).toMatchObject({ documentTypes: ['Applicant Photo'], standing: 'all' });
+      expect(byId['residence-photos']).toMatchObject({ documentTypes: ['Photos of Residence'], standing: 'all' });
+    });
+    expect(known.has('Applicant Photo')).toBe(true);
+    expect(known.has('Photos of Residence')).toBe(true);
   });
 
   it('filters the defaults by year standing', () => {
@@ -113,6 +128,25 @@ describe('application readiness', () => {
   const requirements = getScholarshipRequirements(gia, continuingProfile);
   const allDocs = requirements.map((item, index) => doc(`d${index}`, item.documentTypes[0]));
   const complete = { attachedDocuments: allDocs.map((entry) => entry.id), statement: 'I need support to continue my studies.' };
+
+  it('blocks submission until the applicant photo and residence photos are attached', () => {
+    const requirements = getScholarshipRequirements(gia, continuingProfile);
+    expect(ids(requirements)).toEqual(expect.arrayContaining(['applicant-photo', 'residence-photos']));
+    const photoIds = ['applicant-photo', 'residence-photos'];
+    const partialDocs = requirements
+      .filter((item) => !photoIds.includes(item.id))
+      .map((item, index) => doc(`partial-${index}`, item.documentTypes[0]));
+    const result = getApplicationReadiness({
+      application: { attachedDocuments: partialDocs.map((entry) => entry.id), statement: 'I need support to continue my studies.' },
+      scholarship: gia,
+      documents: partialDocs,
+      profile: continuingProfile,
+      certified: true,
+    });
+    expect(result.ready).toBe(false);
+    expect(result.requirements.find((item) => item.id === 'applicant-photo').state).toBe('missing');
+    expect(result.requirements.find((item) => item.id === 'residence-photos').state).toBe('missing');
+  });
 
   it('is ready once every requirement is attached, the statement is written, and the student certifies', () => {
     const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
@@ -300,7 +334,7 @@ describe('My Profile document checklist', () => {
   it('merges the open internal scholarships into one list per document', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa, closed, inactive, external], profile: continuingProfile, today });
     expect(checklist.scholarships.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
-    expect(ids(checklist.items)).toEqual(['application-form', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
+    expect(ids(checklist.items)).toEqual(['application-form', 'applicant-photo', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
     expect(keyOf(checklist.items, 'application-form').askedByAll).toBe(true);
     expect(keyOf(checklist.items, 'income-proof').scholarships.map((item) => item.id)).toEqual(['gia', 'sa']);
     expect(keyOf(checklist.items, 'income-proof').notAskedBy).toEqual([{ id: 'jubilee', title: jubilee.title }]);
@@ -322,6 +356,7 @@ describe('My Profile document checklist', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa], profile: continuingProfile, documents, today });
     expect(Object.fromEntries(checklist.items.map((item) => [item.id, item.state]))).toEqual({
       'application-form': 'verified',
+      'applicant-photo': 'missing',
       'college-grades': 'attached',
       'income-proof': 'rejected',
       'residence-photos': 'missing',
@@ -329,7 +364,7 @@ describe('My Profile document checklist', () => {
       'certificate-of-award': 'missing',
     });
     // A pending file counts, a rejected one does not: the same bar as submitting.
-    expect([checklist.ready, checklist.total]).toEqual([2, 6]);
+    expect([checklist.ready, checklist.total]).toEqual([2, 7]);
   });
 
   it('is empty when no internal scholarship is open', () => {
@@ -339,6 +374,8 @@ describe('My Profile document checklist', () => {
   it('preselects a general vault type, falling back to the attribute that accepts a proof-only type', () => {
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report', 'Transcript'] })).toEqual({ attribute: '', documentType: 'Transcript' });
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report'] })).toEqual({ attribute: 'qpi', documentType: 'Grade Report' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Applicant Photo'] })).toEqual({ attribute: '', documentType: 'Applicant Photo' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Photos of Residence'] })).toEqual({ attribute: '', documentType: 'Photos of Residence' });
     expect(getRequirementUploadPreset({ documentTypes: ['Unknown Type'] })).toEqual({ attribute: '', documentType: '' });
   });
 });
@@ -348,7 +385,7 @@ describe('document verification readiness for endorsement', () => {
   const doc = (id, verificationStatus) => ({ id, verificationStatus });
 
   it('flags the SOP stages that require every attached document verified', () => {
-    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
+    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
     expect(ENDORSEMENT_BLOCKED_STATUSES).not.toContain('Rejected');
   });
 
@@ -387,6 +424,38 @@ describe('document verification readiness for endorsement', () => {
   it('tolerates malformed inputs', () => {
     expect(getDocumentVerificationReadiness(undefined, undefined)).toMatchObject({ total: 0, outstanding: 0, ready: true });
     expect(getDocumentVerificationReadiness({ attachedDocuments: ['x'] }, 'not an array')).toMatchObject({ total: 0, ready: true });
+  });
+});
+
+// The Document Vault review is gated to the SOP verification stage: an
+// application's files cannot be verified or rejected before it gets there.
+describe('document review stage gate', () => {
+  it('keeps documents locked until the application reaches verification', () => {
+    expect(areDocumentsReviewable('Draft')).toBe(false);
+    expect(areDocumentsReviewable('Submitted')).toBe(false);
+    expect(areDocumentsReviewable('Under Review')).toBe(false);
+    expect(areDocumentsReviewable('For Verification')).toBe(true);
+  });
+
+  it('stays unlocked for every stage after verification', () => {
+    ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].forEach((status) => {
+      expect(areDocumentsReviewable(status)).toBe(true);
+    });
+  });
+
+  it('treats a terminal or unknown status as locked', () => {
+    expect(areDocumentsReviewable('Rejected')).toBe(false);
+    expect(areDocumentsReviewable('')).toBe(false);
+    expect(areDocumentsReviewable(undefined)).toBe(false);
+  });
+
+  it('keeps a rejected application readable for its recorded decision', () => {
+    // The review surface uses this broader predicate: a rejected application has
+    // no stage action left, but its files must stay inspectable.
+    expect(areApplicationDocumentsVisible('Rejected')).toBe(true);
+    expect(areApplicationDocumentsVisible('For Verification')).toBe(true);
+    expect(areApplicationDocumentsVisible('Submitted')).toBe(false);
+    expect(areApplicationDocumentsVisible('Under Review')).toBe(false);
   });
 });
 
@@ -441,14 +510,15 @@ describe('describeStatusActor', () => {
   });
 
   it('falls back to the humanized role for staff when the name cannot be resolved', () => {
-    expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office Staff');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: null }), true)).toBe('Admissions Office Head');
     expect(describeStatusActor(logRow({ actorRole: 'department_chair', actorName: null }), true)).toBe('Department Chair');
     expect(describeStatusActor(logRow({ actorRole: 'student', actorName: null }), true)).toBe('Student');
   });
 
   it('shows the role (never the name) for a student', () => {
-    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office');
-    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }))).toBe('Admissions Office');
+    expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office Staff');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: 'Ada Cruz' }))).toBe('Admissions Office Head');
   });
 
   it('labels an automated move as System', () => {
@@ -462,6 +532,54 @@ describe('describeStatusActor', () => {
   });
 });
 
+
+describe('describeDocumentDecision', () => {
+  const decidedAt = '2026-10-21T03:42:00.000Z';
+  const on = fmtDate(decidedAt);
+  const verified = {
+    verificationStatus: 'Verified',
+    decidedAt,
+    reviewedBy: 'staff-1',
+    reviewedByRole: 'admissions_office',
+    reviewedByName: 'Juan Dela Cruz',
+  };
+
+  it('names the reviewer, lane, and date for staff surfaces', () => {
+    expect(describeDocumentDecision(verified, { showName: true }))
+      .toBe(`Verified by Juan Dela Cruz · Admissions Office Staff · ${on}`);
+  });
+
+  it('shows the lane and date to a student, never the reviewer name', () => {
+    expect(describeDocumentDecision(verified)).toBe(`Verified by Admissions Office Staff · ${on}`);
+  });
+
+  it('labels the Head lane and a rejection', () => {
+    const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_head', reviewedByName: 'Ada Cruz' };
+    expect(describeDocumentDecision(rejected, { showName: true }))
+      .toBe(`Rejected by Ada Cruz · Admissions Office Head · ${on}`);
+  });
+
+  it('treats a reset file as awaiting review', () => {
+    expect(describeDocumentDecision({ verificationStatus: 'Pending', decidedAt: null, reviewedBy: null, reviewedByRole: null }))
+      .toBe('Awaiting review — no decision recorded yet.');
+  });
+
+  it('states when reviewer details were not kept rather than inventing them', () => {
+    expect(describeDocumentDecision({ verificationStatus: 'Verified' }))
+      .toBe('Verified · recorded before reviewer details were kept.');
+    expect(describeDocumentDecision({ verificationStatus: 'Rejected', rejectionReason: 'Blurry' }))
+      .toBe('Rejected · recorded before reviewer details were kept.');
+  });
+
+  it('falls back to the Admissions Office lane when no role was recorded', () => {
+    expect(describeDocumentDecision({ verificationStatus: 'Verified', decidedAt, reviewedByName: 'Juan Dela Cruz' }, { showName: true }))
+      .toBe(`Verified by Juan Dela Cruz · Admissions Office · ${on}`);
+  });
+
+  it('tolerates a missing document', () => {
+    expect(describeDocumentDecision(null)).toBe('No review decision recorded.');
+  });
+});
 
 describe('replacing a rejected document on a submitted application', () => {
   const rejected = { id: 'doc-itr', documentType: 'Income Tax Return', verificationStatus: 'Rejected', uploadedAt: '2026-09-01' };

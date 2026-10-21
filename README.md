@@ -41,7 +41,7 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Section | Who sees it | What it covers |
 | --- | --- | --- |
 | Overview | Everyone | Identity card and a profile completeness checklist that also surfaces each verifiable attribute's Document Vault verification state |
-| Personal information | Everyone | Full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
+| Personal information | Everyone | Profile photo (take one with the camera or choose an existing image), full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
 | Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
@@ -55,7 +55,7 @@ optionally upload proof documents for these attributes in the Document Vault,
 and the Admissions Office verifies the file and the linked attribute together;
 verification is informational and never blocks eligibility matching or applying.
 
-Department Chairs and Admissions Office administrators can edit only their name,
+Department Chairs and both Admissions Office lanes can edit only their name,
 mobile number, and bio. Department assignment is never self-editable, because it
 scopes the Department Review queue.
 
@@ -88,6 +88,19 @@ ride along in `profiles.eligibility_attributes`. Until the migration is applied,
 these fields stay on the device and the rest of the profile still saves. Fresh
 projects get the column from `supabase/schema.sql`.
 
+Profile photos add `profiles.avatar_path` and the private `avatars` bucket through
+`supabase/migrations/20261026000000_add_profile_avatar.sql`. Until it is applied,
+the rest of My Profile still loads and saves (the path is read in its own query),
+and the profile photo controls report that the server profile cannot store the
+photo yet. Fresh projects get the column and the bucket from
+`supabase/schema.sql`.
+
+The two application photo requirements are backfilled by
+`supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`. It adds
+`applicant-photo` and `residence-photos` to the in-scope catalog rows that do not
+already list them; existing Draft applications must attach both before they can
+be submitted, while already-submitted applications are unaffected.
+
 Document Vault files are stored in a private Supabase Storage bucket named
 `documents` (10 MB limit; PDF, JPG, and PNG only). The bucket, its storage RLS
 policies, and the department-scoped `chair_documents_read` policy come from
@@ -97,24 +110,71 @@ Admissions Office reads every document, and a Department Chair reads documents
 owned by students in the chair's department. Viewing is always through a
 short-lived signed URL, so no document is ever public.
 
+Profile photos use a separate private `avatars` bucket (5 MB limit; JPG, PNG, or
+WebP), with only an owner policy, plus a `profiles.avatar_path` column. They come
+from `supabase/migrations/20261026000000_add_profile_avatar.sql`. A profile photo
+is personal: it appears in the signed-in user's header and My Profile only, is
+never sent with an application, and has no photo guidelines. The app resolves a
+signed URL in memory and falls back to the user's initials when it expires.
+
+### Photos submitted with applications
+
+Every in-scope AdDU track (Grant-in-Aid, Jubilee, and the Student Assistant
+Program) asks for two verifiable photo requirements:
+
+- **Applicant photo** (`Applicant Photo`, shown as *2x2 ID Photo*): a recent
+  square ID photo of the applicant.
+- **Photos of residence** (`Photos of Residence`): exterior and interior photos
+  of the student's home; one requirement can hold several attached files.
+
+Students can take either with the device camera or choose an existing image, from
+the application workspace, the Document Vault, or a rejected-file replacement.
+The camera opens from a tap, supports switching between the front and rear
+camera, and falls back to an existing photo or the native device camera when
+permission is blocked or unavailable. Captures are normalized to a JPEG: the ID
+photo is cropped square at 1024 px, residence photos keep their aspect ratio at
+1600 px on the long edge. A bullet-point guide (clean, presentable, well lit, face
+unobstructed, recent, no filters) is shown beside the camera and in the upload
+card, and it applies **only to application photos** — the profile photo has no
+such rules.
+
+Both are ordinary Document Vault files, so the Admissions Office verifies them at
+Standard Procedure step 3 like any other required document, rejects them with a
+recorded reason (including photo-specific reasons), and the student can replace a
+rejected file with another capture or upload. The two requirements come from the
+default lists in `src/lib/applicationRequirements.js`; existing catalog rows get
+them from `supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
+
 ## Admissions Office workspace
 
-The Admissions Office administrator role works across five focused pages instead
-of one combined console. Each page is its own app route, and the sidebar shows
-them as a grouped set of page links:
+The Admissions Office is one office with two accountability lanes. **Admissions
+Office Staff** (`admissions_office`) prepare a case and **Admissions Office Head**
+(`admissions_head`) has full office authority: the Head can run every Staff stage
+and also decides approval and release. Both lanes share the overview and the
+review queue; only the Head sees the approval/release, catalog, and announcement
+pages.
 
-| Route | Page | What it covers |
-| --- | --- | --- |
-| `admin` | Overview | Applications in review, documents still to verify, approved-awaiting-release and released counts, links into each workspace, and recent application activity |
-| `admin-review` | Review queue | SOP steps 2–6: the review queue and the shared application review modal, where documents are verified or rejected and each stage decision is recorded |
-| `admin-catalog` | Scholarship catalog | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
-| `admin-release` | Results release | SOP steps 7–8: releasing approved results and exporting the accepted list |
-| `admin-announcements` | Announcements | Publishing office updates and reviewing the published list |
+| Route | Page | Lane | What it covers |
+| --- | --- | --- | --- |
+| `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, interviews, and the sub-committee recommendation |
+| `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
+| `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
+| `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
 
-Splitting these pages does not change any stage authority: every action still
-runs through the same role-scoped transition map and the same
-document-verification gate, and the workspace is still limited to the
-`admissions_office` role.
+Stage authority is role-scoped: Staff may move an application through
+`Submitted`, `Under Review`, `For Verification`, `For Endorsement` (hand-off),
+`Endorsed` → `Interview` → `Recommended`, but cannot approve or release. The Head
+can perform all of those Staff moves and also `Recommended → Approved →
+Released`. The same rule is repeated in the database
+(`enforce_admissions_office_lane_transitions`) and in the role-scoped transition
+map, so a client-side bug cannot let Staff approve or release.
+
+The Department Chair workspace opens the same application review modal. Its
+**Endorsement** tab appears once an application reaches document verification and
+shows the endorsement record (hand-off and decision), one internal comment
+thread, and the Endorse action. Students never see the thread, and every comment
+stays in the append-only review record.
 
 ## Provisioning staff accounts
 
@@ -124,30 +184,51 @@ these seeded credentials:
 
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
-| Admissions Office Administrator | `admissions@addu.edu.ph` | `Admissions@2026` | Admissions Office overview |
-| Department Chair | `chair@addu.edu.ph` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
+| Admissions Office Staff | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
+| Admissions Office Head | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
+| Department Chair | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
-any real deployment. To provision or reset either account, create the auth user
-with a confirmed email address, then set the role and department on the matching
-`profiles` row:
+any real deployment. The addresses deliberately sit on Gmail rather than
+`addu.edu.ph`: real AdDU mailboxes must never receive test mail, password
+resets, or status notifications sent from the prototype.
+
+Each account's address is stored twice, and both copies have to change together:
+`auth.users.email` is the sign-in identity (and where password recovery goes),
+while `public.profiles.email` is what the Edge Functions deliver to
+(`send-test-email` and `notify-application-status` both select it, and the
+`handle_new_user()` trigger only copies it on insert). Change the auth address
+through the Auth Admin API (`updateUserById(id, { email, email_confirm: true })`)
+or under Authentication -> Users in the dashboard, then write the same address to
+the matching `profiles` row. Do not use a user-initiated email change: while
+Secure Email Change is enabled it mails a confirmation to the old address, and
+changing only the auth identity leaves delivery pointed at the previous mailbox.
+
+To provision or reset an account, create the auth user with a confirmed
+email address, then set the role and department on the matching `profiles` row.
+The Admissions Office Head shares the Office of Admissions department with the
+Staff lane; the role value, not the department, decides what the account may do:
 
 ```sql
 update public.profiles
 set role = 'admissions_office', department = 'Office of Admissions'
-where email = 'admissions@addu.edu.ph';
+where email = 'scholarpath.admissions@gmail.com';
+
+update public.profiles
+set role = 'admissions_head', department = 'Office of Admissions'
+where email = 'scholarpath.admissionshead@gmail.com';
 
 update public.profiles
 set role = 'department_chair', department = 'College of Computer Studies (CCS)'
-where email = 'chair@addu.edu.ph';
+where email = 'scholarpath.chair@gmail.com';
 ```
 
 The Department Chair `department` scopes the Department Review queue, so it must
 match the applicant department the chair should see. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
-Office workspace routes and the Department Review view appear in the sidebar only
-for those roles.
+Office Staff and Head routes, and the Department Review view, appear in the
+sidebar only for those roles.
 
 
 ## Email notifications (Resend)

@@ -1,12 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Camera } from 'lucide-react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, StatusBadge } from '../components/ui';
 import { SelectPicker } from './LoginScreen';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import { DocumentRejectionReason } from '../components/ApplicationParts';
+import PhotoCaptureModal from '../components/PhotoCaptureModal';
+import PhotoGuide from '../components/PhotoGuide';
+import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
-import { generalDocumentTypeOptions, getDocumentTypeLabel, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
+import { generalDocumentTypeOptions, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
+import { PHOTO_ACCEPT, PHOTO_MIME_TYPES, getPhotoGuide } from '../lib/photoGuide';
 import {
   buildDocumentPickerOptions,
   decodeDocumentSelection,
@@ -49,7 +53,14 @@ export default function DocumentVaultView({ documents, applications = [], profil
   const [formError, setFormError] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [preview, setPreview] = useState(null);
+  // The chosen file is held in state (not read from the form on submit) so a
+  // camera capture can satisfy the upload just like a file-picker choice.
+  const [file, setFile] = useState(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const fileInputRef = useRef(null);
   const { attributeKey, documentType } = decodeDocumentSelection(selection);
+  const isPhoto = isPhotoDocumentType(documentType);
+  const photoGuide = getPhotoGuide(documentType);
   const derivedTitle = getDocumentTitle({ attributeKey, documentType });
   // Usage is derived from the applications that attach each file, so the count
   // always matches the application workspace. A file a submitted application
@@ -99,16 +110,49 @@ export default function DocumentVaultView({ documents, applications = [], profil
     setSelection(initialSelection(presetAttribute, presetDocumentType));
   }, [presetAttribute, presetDocumentType]);
 
+  const resetPickedFile = () => {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Switching the picker clears the chosen file: a PDF picked for one type is
+  // not a valid photo for another.
+  const handleSelection = (value) => {
+    setSelection(value);
+    setFormError('');
+    resetPickedFile();
+  };
+
+  const handleFileChange = (event) => {
+    const picked = event.target.files?.[0] || null;
+    setFormError('');
+    if (!picked) { setFile(null); return; }
+    if (picked.size > DOCUMENT_MAX_BYTES) { setFile(null); setFormError('Files must be 10 MB or smaller.'); return; }
+    if (isPhoto && !PHOTO_MIME_TYPES.includes(picked.type)) {
+      setFile(null);
+      setFormError('Choose a JPG or PNG photo, or take one with the camera.');
+      return;
+    }
+    setFile(picked);
+  };
+
+  // The capture modal already normalizes (square for an ID photo, native aspect
+  // for residence photos) and returns a JPEG File.
+  const useCameraPhoto = (photo) => {
+    setFile(photo);
+    setFormError('');
+    return { ok: true };
+  };
+
   const handleSubmit = async (event) => {
     event.preventDefault();
-    const file = event.currentTarget.documentFile.files[0];
     if (!documentType || !file) { setFormError('Choose a document type and a file.'); return; }
     if (file.size > DOCUMENT_MAX_BYTES) { setFormError('Files must be 10 MB or smaller.'); return; }
     setFormError('');
     setIsUploading(true);
     let result;
     try {
-      result = await onUpload(event);
+      result = await onUpload({ file, documentType, attributeKey });
     } catch {
       setFormError('The document could not be uploaded.');
       return;
@@ -116,6 +160,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
       setIsUploading(false);
     }
     if (result?.error) { setFormError(result.error); return; }
+    resetPickedFile();
     setSelection(initialSelection(''));
   };
 
@@ -133,18 +178,36 @@ export default function DocumentVaultView({ documents, applications = [], profil
           <SelectPicker
             label="Document type"
             value={selection}
-            onChange={setSelection}
+            onChange={handleSelection}
             options={documentPickerOptions}
             idPrefix="vault-document-type"
           />
           <small className="field-hint -mt-1">Each attribute lists the document types it accepts; General documents are not a profile proof.</small>
-          <input type="hidden" name="documentAttribute" value={attributeKey} />
-          <input type="hidden" name="documentType" value={documentType} />
-          <label>
-            <span>File</span>
-            <input name="documentFile" required type="file" accept={DOCUMENT_ACCEPT} />
-            <small className="field-hint">PDF, JPG, or PNG · up to 10 MB</small>
-          </label>
+          {isPhoto ? (
+            <div className="grid gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" onClick={() => setCameraOpen(true)} disabled={isUploading}>
+                  <Camera size={16} aria-hidden="true" /> Take photo
+                </Button>
+                <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-app-border bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${isUploading ? 'pointer-events-none opacity-60' : ''}`}>
+                  Upload an existing photo
+                  <input ref={fileInputRef} type="file" accept={PHOTO_ACCEPT} className="sr-only" onChange={handleFileChange} disabled={isUploading} />
+                </label>
+                {file ? <span className="min-w-0 text-xs text-app-muted">Selected: <strong className="[overflow-wrap:anywhere]">{file.name}</strong></span> : null}
+              </div>
+              <small className="field-hint">
+                JPG or PNG, up to 10 MB.{photoGuide ? ` ${photoGuide.summary}` : ''}
+                {documentType === 'Photos of Residence' ? ' Upload one file at a time to attach several photos.' : ''}
+              </small>
+              <PhotoGuide documentType={documentType} defaultOpen />
+            </div>
+          ) : (
+            <label>
+              <span>File</span>
+              <input ref={fileInputRef} type="file" accept={DOCUMENT_ACCEPT} onChange={handleFileChange} disabled={isUploading} />
+              <small className="field-hint">PDF, JPG, or PNG | up to 10 MB</small>
+            </label>
+          )}
           <p className="field-hint m-0">The Admissions Office and your Department Chair can view the files in your vault to verify them and review your applications. Each application also lists the files you attach to it.</p>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p>
@@ -187,6 +250,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
                 ) : null}
               </div>
               <DocumentRejectionReason doc={doc} />
+              <DocumentDecisionRecord doc={doc} showReviewer={false} />
               {onResolveDocument && replacementApplications.length ? (
                 <div className="grid gap-2 rounded-xl border border-rose-400/40 p-3">
                   <p className="m-0 text-sm text-app-text">
@@ -224,6 +288,14 @@ export default function DocumentVaultView({ documents, applications = [], profil
       </Card>
 
       {preview ? <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} /> : null}
+      {cameraOpen ? (
+        <PhotoCaptureModal
+          title={documentType === 'Photos of Residence' ? 'Take a photo of your residence' : 'Take your 2x2 ID photo'}
+          documentType={documentType}
+          onUsePhoto={useCameraPhoto}
+          onClose={() => setCameraOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }

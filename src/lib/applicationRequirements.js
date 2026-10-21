@@ -1,6 +1,6 @@
-import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel, sopStageIndex } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
-import { fmtCurrency } from './formatters';
+import { fmtCurrency, fmtDate } from './formatters';
 import {
   VERIFIABLE_ATTRIBUTE_OPTIONS,
   academicStandingOptions,
@@ -41,34 +41,45 @@ export const REQUIREMENT_STANDINGS = [
 ];
 
 const APPLICATION_FORM = { id: 'application-form', label: 'Application Form', documentTypes: ['Application Form'], standing: 'all' };
+const APPLICANT_PHOTO = { id: 'applicant-photo', label: 'Recent 2x2 ID photo of the applicant', documentTypes: ['Applicant Photo'], standing: 'all' };
+const RESIDENCE_PHOTOS = { id: 'residence-photos', label: 'Photos of residence', documentTypes: ['Photos of Residence'], standing: 'all' };
 const GOOD_MORAL = { id: 'good-moral', label: 'Certificate of Good Moral Character', documentTypes: ['Good Moral Character'], standing: 'all' };
 const INCOME_PROOF = { id: 'income-proof', label: 'Financial income documents of parents / legal guardians', documentTypes: ['Income Proof', 'Certificate of Indigency'], standing: 'all' };
 const HS_REPORT_CARD = { id: 'hs-report-card', label: 'Senior high school report card', documentTypes: ['HS Report Card'], standing: 'incoming' };
 const COLLEGE_GRADES = { id: 'college-grades', label: 'Latest grade report or transcript', documentTypes: ['Grade Report', 'Transcript'], standing: 'continuing' };
 
+// Every in-scope track asks for a recent photo of the applicant and photos of
+// their residence. Both are ordinary Document Vault files, so the Admissions
+// Office verifies them like any other required submission; a student can take
+// them with the camera or upload an existing photo (src/lib/photoGuide.js).
 export const DEFAULT_REQUIRED_DOCUMENTS = {
   'general-pool': [
     APPLICATION_FORM,
+    APPLICANT_PHOTO,
     { id: 'entrance-exam', label: 'Entrance exam result with ACCEPTED remark', documentTypes: ['Entrance Exam Result'], standing: 'incoming' },
     { ...HS_REPORT_CARD, label: 'Senior high school report card with at least 85% average' },
     COLLEGE_GRADES,
     { id: 'recommendation', label: 'Recommendation from Homeroom Moderator', documentTypes: ['Recommendation Letter'], standing: 'incoming' },
     INCOME_PROOF,
-    { id: 'residence-photos', label: 'Photos of residence', documentTypes: ['Photos of Residence'], standing: 'all' },
+    RESIDENCE_PHOTOS,
     GOOD_MORAL,
   ],
   honors: [
     APPLICATION_FORM,
+    APPLICANT_PHOTO,
     { id: 'certificate-of-award', label: 'Certificate of Award as Rank 1 or 2', documentTypes: ['Certificate of Award'], standing: 'all' },
     HS_REPORT_CARD,
     COLLEGE_GRADES,
+    RESIDENCE_PHOTOS,
     GOOD_MORAL,
   ],
   'work-study': [
     APPLICATION_FORM,
+    APPLICANT_PHOTO,
     INCOME_PROOF,
     HS_REPORT_CARD,
     COLLEGE_GRADES,
+    RESIDENCE_PHOTOS,
     GOOD_MORAL,
   ],
 };
@@ -292,7 +303,27 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 // Verified. Manuscript Section 3.3.3: an application linked to a Pending or
 // Rejected document cannot proceed to interview or subcommittee evaluation, so
 // the endorsement and every later stage are blocked. Rejection is always allowed.
-export const ENDORSEMENT_BLOCKED_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+export const ENDORSEMENT_BLOCKED_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+
+// Document Vault review starts at the SOP document-verification stage. Before
+// that the reviewer is still deciding whether to continue the application, so
+// its attached files stay out of reach. `ApplicationReviewModal` keeps the
+// Documents tab locked until this is true, and `getDocumentsAwaitingReview()`
+// (src/lib/admissionsOffice.js) counts only the files this unlocks so the
+// Admissions Office metrics never promise work the stage does not allow.
+export const areDocumentsReviewable = (status) => {
+  const current = sopStageIndex(status);
+  const from = sopStageIndex('For Verification');
+  return current != null && from != null && current >= from;
+};
+
+// A terminal Rejected application has left the SOP pipeline, but its attached
+// files stay inspectable so the recorded decision can be read back. The review
+// surface gates on this; the verification queue and its metrics use
+// `areDocumentsReviewable` alone, since no document decision is pending there.
+export const areApplicationDocumentsVisible = (status) => (
+  status === 'Rejected' || areDocumentsReviewable(status)
+);
 
 // The vault files attached to an application, resolved against the loaded
 // documents. Attached ids whose document is not loaded are skipped.
@@ -327,18 +358,43 @@ export const isApplicationVerifiedForEndorsement = (application, documents = [])
 // humanized (the log stores `admissions_office`, `department_chair`, `student`,
 // or `system`). Kept here (not in a component) so it is unit-testable.
 const ACTOR_ROLE_LABELS = {
-  admissions_office: 'Admissions Office',
+  admissions_office: 'Admissions Office Staff',
+  admissions_head: 'Admissions Office Head',
   department_chair: 'Department Chair',
   student: 'Student',
   system: 'System',
 };
 
+export const getActorRoleLabel = (role) => ACTOR_ROLE_LABELS[role]
+  || String(role || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+
 export const describeStatusActor = (event, showName = false) => {
   if (!event) return 'Recorded automatically';
   const name = showName ? event.actorName : null;
-  const roleLabel = ACTOR_ROLE_LABELS[event.actorRole]
-    || String(event.actorRole || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
-  return name || roleLabel || 'System';
+  return name || getActorRoleLabel(event.actorRole) || 'System';
+};
+
+
+// The current Document Vault review decision, phrased once so the reviewer pane,
+// the Department Chair's read-only pane, the student's Document Vault card, and
+// the student's application details cannot describe the same decision
+// differently. The date and the reviewing account are stamped by the database
+// trigger (20261027000000_add_document_decision_actor.sql), never sent by the
+// client. Staff see the reviewer's name when the directory resolves it; a
+// student sees the role only, exactly like describeStatusActor. A file decided
+// before that migration keeps its status and reads as recorded without reviewer
+// details rather than implying a date.
+export const describeDocumentDecision = (doc, { showName = false } = {}) => {
+  if (!doc) return 'No review decision recorded.';
+  const status = doc.verificationStatus;
+  if (!status || status === 'Pending') return 'Awaiting review — no decision recorded yet.';
+  const verb = status === 'Rejected' ? 'Rejected' : 'Verified';
+  if (!doc.decidedAt && !doc.reviewedBy && !doc.reviewedByRole) {
+    return `${verb} · recorded before reviewer details were kept.`;
+  }
+  const roleLabel = getActorRoleLabel(doc.reviewedByRole) || 'Admissions Office';
+  const actor = showName && doc.reviewedByName ? `${doc.reviewedByName} · ${roleLabel}` : roleLabel;
+  return doc.decidedAt ? `${verb} by ${actor} · ${fmtDate(doc.decidedAt)}` : `${verb} by ${actor}`;
 };
 
 // Version 2 adds the eligibility answers, background, personal, address, and

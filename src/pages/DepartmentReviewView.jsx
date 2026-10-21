@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
-import { describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
+import { getApplicationStatusLabel } from '../lib/constants';
+import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const queueTone = (status) => {
@@ -17,13 +18,16 @@ export default function DepartmentReviewView({
   queue,
   documents,
   scholarships = [],
+  reviewComments = [],
   onChangeApplication,
   onEndorseApplication,
+  onAddComment,
   onFlagForValidation,
 }) {
   const [selectedId, setSelectedId] = useState(null);
+  const [reviewTab, setReviewTab] = useState(null);
   const selected = queue.find((entry) => entry.id === selectedId);
-  const awaitingEndorsement = queue.filter((entry) => entry.status === 'For Verification');
+  const awaitingEndorsement = queue.filter((entry) => entry.status === 'For Endorsement');
   const endorsed = queue.filter((entry) => ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].includes(entry.status));
   const interviews = queue.filter((entry) => entry.status === 'Interview');
 
@@ -39,7 +43,7 @@ export default function DepartmentReviewView({
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Qualified applicants to endorse" />
+        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Sent to endorsement by the Admissions Office" />
         <StatCard label="Department recommendations" value={endorsed.length} note="Applications routed to the next SOP stage" />
         <StatCard label="Interviews scheduled" value={interviews.length} note="Panels from the applicant school" />
         <StatCard label="Department scope" value={profile.department || 'Unassigned'} note="Endorsement boundary" />
@@ -60,10 +64,15 @@ export default function DepartmentReviewView({
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram}</p>
                       <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
                     </div>
-                    <StatusBadge tone={queueTone(entry.status)}>{entry.status}</StatusBadge>
+                    <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
                   </div>
                   <div className="rounded-xl bg-app-card/60 p-3 text-sm text-app-muted">
-                    {entry.endorsement?.note || 'No recommendation has been recorded.'}
+                    {entry.endorsement?.note
+                      || (entry.status === 'For Verification'
+                        ? 'With the Admissions Office for document verification. Your endorsement action opens once the office sends it to endorsement.'
+                        : entry.status === 'For Endorsement'
+                          ? 'Sent to endorsement by the Admissions Office. Ready for your endorsement decision.'
+                          : 'No recommendation has been recorded.')}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
                     <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
@@ -71,13 +80,16 @@ export default function DepartmentReviewView({
                       {!ready ? ` · ${outstanding} still need${outstanding === 1 ? 's' : ''} verification` : ''}
                     </span>
                     <div className="flex flex-wrap gap-2">
-                      <Button type="button" onClick={() => setSelectedId(entry.id)}>Open review</Button>
                       <Button
                         type="button"
-                        disabled={entry.status !== 'For Verification' || !ready}
-                        title={!ready ? `${outstanding} document${outstanding === 1 ? '' : 's'} still need${outstanding === 1 ? 's' : ''} verification` : undefined}
-                        onClick={() => onEndorseApplication(entry.id)}
-                      >Endorse</Button>
+                        onClick={() => { setReviewTab(null); setSelectedId(entry.id); }}
+                      >Open review</Button>
+                      {areDocumentsReviewable(entry.status) ? (
+                        <Button
+                          type="button"
+                          onClick={() => { setReviewTab('endorsement'); setSelectedId(entry.id); }}
+                        >Open endorsement</Button>
+                      ) : null}
                       <Button
                         type="button"
                         disabled={!['Submitted', 'Under Review'].includes(entry.status)}
@@ -115,7 +127,10 @@ export default function DepartmentReviewView({
           scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
           role="department_chair"
-          onClose={() => setSelectedId(null)}
+          initialTab={reviewTab}
+          reviewComments={reviewComments}
+          onAddComment={onAddComment}
+          onClose={() => { setSelectedId(null); setReviewTab(null); }}
           onStatusChange={onChangeApplication}
           onEndorse={onEndorseApplication}
         />

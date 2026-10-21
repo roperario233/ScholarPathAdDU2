@@ -2,9 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
+import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
-import { documentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import EndorsementCasePanel from './EndorsementCasePanel';
+import EndorsementDecisionModal from './EndorsementDecisionModal';
+import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -114,6 +117,7 @@ export default function ApplicationReviewModal({
   documents,
   students = {},
   role,
+  reviewerName = '',
   initialTab = null,
   onClose,
   onStatusChange,
@@ -122,8 +126,14 @@ export default function ApplicationReviewModal({
   onRecordDeliberation,
   onRelease,
   onChangeDocument,
+  reviewComments = [],
+  onAddComment,
 }) {
-  const isAdmissionsOffice = role === 'admissions_office';
+  // Both Admissions Office lanes can run the preparation stages; the Head is a
+  // superset and also decides approval and release. Department Chairs keep their
+  // endorsement-only lane.
+  const isAdmissionsHead = isAdmissionsHeadRole(role);
+  const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const isWide = useIsWide();
   const previewPaneRef = useRef(null);
   const nextStatuses = getNextApplicationStatuses(application.status, role);
@@ -135,6 +145,14 @@ export default function ApplicationReviewModal({
   // explains why.
   const { outstanding: outstandingDocuments, verified: verifiedDocuments, total: totalDocuments } = getDocumentVerificationReadiness(application, documents);
   const blockedByDocuments = outstandingDocuments > 0;
+  // SOP step 3 gates the Document Vault review: an application's attached files
+  // stay out of reach until it reaches the verification stage, and a rejected
+  // application keeps them readable for its recorded decision.
+  const documentsUnlocked = areApplicationDocumentsVisible(application.status);
+  // The endorsement tab appears from the document-verification stage on, which
+  // is also where the hand-off becomes available. It stays visible afterwards so
+  // the recorded decision and its discussion remain readable.
+  const endorsementUnlocked = areDocumentsReviewable(application.status);
   const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
   // declared at submit time (the frozen profile snapshot).
@@ -152,9 +170,11 @@ export default function ApplicationReviewModal({
   ]);
   const otherDocuments = [...supportingDocuments, ...linkedDocuments.filter((doc) => !listedIds.has(doc.id))];
 
-  const [activeTab, setActiveTab] = useState(
-    initialTab || (isAdmissionsOffice && blockedByDocuments ? 'documents' : 'overview'),
-  );
+  const [activeTab, setActiveTab] = useState(() => {
+    if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
+    if (initialTab) return initialTab;
+    return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
+  });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
   ));
@@ -164,24 +184,81 @@ export default function ApplicationReviewModal({
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
+  // Verification is attributed to the signed-in Admissions Office account and
+  // dated by the database, so it is confirmed before it is written.
+  const [verifyTarget, setVerifyTarget] = useState(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
   const [actionError, setActionError] = useState('');
+  // The Endorsement tab records the stage decision with a recommendation note;
+  // the dialog never writes status directly.
+  const [endorsementDecision, setEndorsementDecision] = useState(null);
+  const [endorsementBusy, setEndorsementBusy] = useState(false);
+  const [endorsementError, setEndorsementError] = useState('');
+  const [endorsementFeedback, setEndorsementFeedback] = useState('');
   // Re-read from `documents` every render so a Verified/Rejected decision shows
   // in the pane immediately.
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
 
   // A document rejection must carry a recorded reason, so it opens the reason
-  // dialog; Verified and Pending apply directly.
+  // dialog; a verification is attributed to the reviewer, so it opens the
+  // confirmation dialog. A reset to Pending is a quiet correction and applies
+  // directly.
   const changeDocument = (documentId, status) => {
+    const target = linkedDocuments.find((doc) => doc.id === documentId) || null;
     if (status === 'Rejected') {
-      setDocumentRejectTarget(linkedDocuments.find((doc) => doc.id === documentId) || null);
+      setDocumentRejectTarget(target);
+      return;
+    }
+    if (status === 'Verified') {
+      setVerifyError('');
+      setVerifyTarget(target);
       return;
     }
     onChangeDocument?.(documentId, status);
   };
 
+  const confirmVerification = async () => {
+    if (!verifyTarget) return;
+    setVerifyBusy(true);
+    setVerifyError('');
+    const result = await onChangeDocument?.(verifyTarget.id, 'Verified');
+    setVerifyBusy(false);
+    if (result?.error) {
+      setVerifyError(result.error);
+      return;
+    }
+    setVerifyTarget(null);
+  };
+
   const selectDocument = (doc) => {
     setSelectedDocId(doc.id);
     if (!isWide) previewPaneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  // The Endorsement tab records the same stage transition as the action bar, but
+  // captures a recommendation note. The write still goes through
+  // changeApplicationStatus in App.jsx, so role authority and the
+  // document-verification gate are unchanged.
+  const submitEndorsementDecision = async ({ note }) => {
+    if (!endorsementDecision) return;
+    setEndorsementBusy(true);
+    setEndorsementError('');
+    const result = endorsementDecision.mode === 'handoff'
+      ? await onStatusChange?.(application.id, 'For Endorsement', { note })
+      : await onEndorse?.(application.id, note);
+    setEndorsementBusy(false);
+    if (result?.error) {
+      setEndorsementError(result.error);
+      return;
+    }
+    setEndorsementFeedback(endorsementDecision.mode === 'handoff'
+      ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
+      : 'The endorsement decision was recorded.');
+    setEndorsementDecision(null);
+    // Stay on the Endorsement tab either way: the recorded hand-off or decision
+    // is the confirmation, and closing the review surface would hide it.
+    setActiveTab('endorsement');
   };
 
   // Overview facts: the snapshot values the student certified, compared with
@@ -229,19 +306,58 @@ export default function ApplicationReviewModal({
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
-    { key: 'documents', label: 'Documents', badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length, alert: blockedByDocuments },
+    // The frozen profile snapshot sits beside the overview so a reviewer reads
+    // the applicant's self-reported answers before the attached proofs.
     { key: 'profile', label: 'Profile snapshot' },
+    // The Documents tab appears only once the application reaches the SOP
+    // verification stage; before that the gate is explained in the action bar
+    // rather than by a tab that cannot be opened.
+    ...(documentsUnlocked ? [{
+      key: 'documents',
+      label: 'Documents',
+      badge: isAdmissionsReviewer && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
+      alert: isAdmissionsReviewer && blockedByDocuments,
+    }] : []),
+    // SOP step 4 in one place: the hand-off/decision record, the internal
+    // thread, and the decision action. It appears from the
+    // document-verification stage on and stays readable afterwards.
+    ...(endorsementUnlocked ? [{
+      key: 'endorsement',
+      label: 'Endorsement',
+      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
+      alert: application.status === 'For Endorsement',
+    }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
+  // A selection pointing at a tab that is not shown (for example right after a
+  // status write) falls back to the overview instead of an empty panel.
+  const visibleActiveTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : 'overview';
 
   // Action bar: one button per transition the role may take, read once from
   // getNextApplicationStatuses. Rejection sits apart on the left; when several
-  // forward moves are allowed, the furthest one is the primary action.
-  const forwardStatuses = nextStatuses.filter((status) => status !== 'Rejected');
+  // forward moves are allowed, the furthest one is the primary action. Moves the
+  // surface performs itself (opening an application starts its review) never
+  // render as buttons.
+  const forwardStatuses = nextStatuses.filter((status) => (
+    status !== 'Rejected' && !AUTOMATIC_STAGE_STATUSES.includes(status)
+  ));
   const canReject = nextStatuses.includes('Rejected');
-  const showInterviewFields = isAdmissionsOffice && nextStatuses.includes('Interview');
-  const showDeliberationField = isAdmissionsOffice && nextStatuses.includes('Recommended');
+  const showInterviewFields = isAdmissionsReviewer && nextStatuses.includes('Interview');
+  const showDeliberationField = isAdmissionsReviewer && nextStatuses.includes('Recommended');
   const hasBlockedForward = blockedByDocuments && forwardStatuses.some((status) => ENDORSEMENT_BLOCKED_STATUSES.includes(status));
+  // Both Admissions Office lanes finish verification and hand the application to
+  // the Department Chair, so at this point the forward action is that hand-off.
+  const readyForEndorsement = isAdmissionsReviewer
+    && application.status === 'For Verification'
+    && totalDocuments > 0
+    && !blockedByDocuments;
+  // Why the Documents tab is not shown yet, phrased for the role that is reading
+  // it. It appears with the action guidance at the verification gate.
+  const lockedDocumentsMessage = !isAdmissionsReviewer
+    ? 'Supporting documents become available once the Admissions Office continues this application to verification. You can still flag it for central validation from the action bar.'
+    : linkedDocuments.length
+      ? `Supporting documents are reviewed at Standard Procedure step 3. Continue this application to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
+      : 'This application has no attached files. Continue it to verification to begin the document stage.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
     if (status === 'Interview' && !interviewDate) return 'Enter the interview date first';
@@ -251,6 +367,15 @@ export default function ApplicationReviewModal({
     if (status === 'Rejected') {
       // A rejection must carry a recorded reason, so it opens the reason dialog.
       setRejectReasonOpen(true);
+      return;
+    }
+    // The hand-off to the Department Chair records an optional note, so the
+    // action bar and the Endorsement tab open the same decision dialog. The
+    // review surface stays open afterwards instead of closing on the reviewer
+    // before they can read the recorded hand-off.
+    if (status === 'For Endorsement' && isAdmissionsReviewer) {
+      setEndorsementError('');
+      setEndorsementDecision({ mode: 'handoff' });
       return;
     }
     setActionError('');
@@ -280,13 +405,23 @@ export default function ApplicationReviewModal({
       setActionError(result.error);
       return;
     }
+    if (status === 'For Verification' && isAdmissionsReviewer) {
+      // The document queue opens in place: closing the modal would hide the work
+      // the review just queued.
+      setActiveTab('documents');
+      return;
+    }
     onClose();
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
-    : role === 'department_chair'
-      ? 'The next action at this stage belongs to the Admissions Office.'
-      : 'No stage action is available to your role at this stage.';
+    : application.status === 'For Endorsement' && isAdmissionsReviewer
+      ? 'This application is with the Department Chair for endorsement. The hand-off record stays available in the Endorsement tab and the status history.'
+      : isAdmissionsHead
+        ? 'No stage action is available at this stage.'
+        : role === 'department_chair'
+          ? 'The next action at this stage belongs to the Admissions Office.'
+          : 'No stage action is available to your role at this stage.';
 
   return (
     <>
@@ -297,27 +432,31 @@ export default function ApplicationReviewModal({
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
             <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentDepartment || 'Department on file'}</p>
           </div>
-          <StatusBadge tone={statusTone(application.status)}>{application.status}</StatusBadge>
+          <StatusBadge tone={statusTone(application.status)}>{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
         {sopStageIndex(application.status) != null ? <SopStageTrack status={application.status} /> : null}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-app-muted">
           <span>Submitted {application.submittedAt ? fmtDate(application.submittedAt) : 'not yet'}</span>
           <span>Certified {application.certifiedAt ? fmtDate(application.certifiedAt) : 'not yet'}</span>
           {totalDocuments ? (
-            <StatusBadge tone={blockedByDocuments ? 'warning' : 'success'}>{verifiedDocuments}/{totalDocuments} documents verified</StatusBadge>
+            documentsUnlocked ? (
+              <StatusBadge tone={blockedByDocuments ? 'warning' : 'success'}>{verifiedDocuments}/{totalDocuments} documents verified</StatusBadge>
+            ) : (
+              <StatusBadge tone="neutral">{totalDocuments} document{totalDocuments === 1 ? '' : 's'} attached · reviewed at verification</StatusBadge>
+            )
           ) : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
         </div>
       </header>
 
-      <ReviewTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
+      <ReviewTabs tabs={tabs} active={visibleActiveTab} onChange={setActiveTab} />
 
       <div
         className="application-review-modal-body pt-4"
         role="tabpanel"
-        id={`review-panel-${activeTab}`}
-        aria-labelledby={`review-tab-${activeTab}`}
+        id={`review-panel-${visibleActiveTab}`}
+        aria-labelledby={`review-tab-${visibleActiveTab}`}
       >
-        {activeTab === 'overview' && (
+        {visibleActiveTab === 'overview' && (
           <div className="grid content-start gap-4">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <FactTile {...academicFact} />
@@ -349,7 +488,7 @@ export default function ApplicationReviewModal({
           </div>
         )}
 
-        {activeTab === 'documents' && (
+        {visibleActiveTab === 'documents' && (
           linkedDocuments.length || requirements.length ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
               <div className="grid content-start gap-4">
@@ -392,7 +531,7 @@ export default function ApplicationReviewModal({
                   <Panel className="grid content-start gap-3 lg:sticky lg:top-0">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                       <h4 className={sectionHeading}>Document verification</h4>
-                      {!isAdmissionsOffice ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office</span> : null}
+                      {!isAdmissionsReviewer ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office</span> : null}
                     </div>
                     <DocumentVerificationItem
                       as="div"
@@ -400,7 +539,7 @@ export default function ApplicationReviewModal({
                       application={application}
                       owner={students[selectedDoc.ownerId] || null}
                       onPreview={isWide ? undefined : setPreviewDoc}
-                      onChangeDocument={isAdmissionsOffice && onChangeDocument ? changeDocument : undefined}
+                      onChangeDocument={isAdmissionsReviewer && onChangeDocument ? changeDocument : undefined}
                     />
                     {isWide ? (
                       <DocumentPreview
@@ -419,32 +558,65 @@ export default function ApplicationReviewModal({
           ) : <p className="m-0 text-sm text-app-muted">No documents attached yet.</p>
         )}
 
-        {activeTab === 'profile' && (
+        {visibleActiveTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
             <ProfileSnapshotList snapshot={application.profileSnapshot} />
           </Panel>
         )}
 
-        {activeTab === 'history' && (
+        {visibleActiveTab === 'history' && (
           <Panel className="grid gap-2">
             <h4 className={sectionHeading}>Status history</h4>
             <StatusHistoryList
               statusLog={statusLog}
               timeline={application.timeline}
-              showActorName={isAdmissionsOffice || role === 'department_chair'}
+              showActorName={isAdmissionsReviewer || role === 'department_chair'}
             />
           </Panel>
+        )}
+
+        {visibleActiveTab === 'endorsement' && (
+          <div className="grid gap-3">
+            {endorsementFeedback ? (
+              <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
+                {endorsementFeedback}
+              </p>
+            ) : null}
+            <EndorsementCasePanel
+              application={application}
+              documents={documents}
+              comments={reviewComments}
+              role={role}
+              onAddComment={onAddComment}
+              onRequestDecision={() => {
+                setEndorsementError('');
+                setEndorsementDecision({ mode: role === 'department_chair' ? 'endorse' : 'handoff' });
+              }}
+            />
+          </div>
         )}
       </div>
 
       <footer className="application-review-actions grid shrink-0 gap-3 border-t border-app-border pt-4">
+        {!documentsUnlocked ? (
+          <p className="m-0 rounded-[14px] border border-app-border bg-app-surface px-3 py-2 text-sm text-app-muted">
+            {lockedDocumentsMessage}
+          </p>
+        ) : null}
+
         {hasBlockedForward ? (
           <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200" role="status">
             <span>{documentBlockReason} before this application can be endorsed or advance to a later stage.</span>
-            {activeTab !== 'documents' ? (
+            {visibleActiveTab !== 'documents' ? (
               <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setActiveTab('documents')}>Review documents</button>
             ) : null}
+          </p>
+        ) : null}
+
+        {readyForEndorsement ? (
+          <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
+            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair; the hand-off note is recorded in the Endorsement tab and the status history.
           </p>
         ) : null}
 
@@ -498,6 +670,16 @@ export default function ApplicationReviewModal({
         ) : <p className="m-0 text-sm text-app-muted">{idleMessage}</p>}
       </footer>
     </ModalShell>
+    {endorsementDecision ? (
+      <EndorsementDecisionModal
+        application={application}
+        mode={endorsementDecision.mode}
+        onConfirm={submitEndorsementDecision}
+        onClose={() => { setEndorsementDecision(null); setEndorsementError(''); }}
+        busy={endorsementBusy}
+        error={endorsementError}
+      />
+    ) : null}
     {rejectReasonOpen ? (
       <ReasonModal
         title="Reject application"
@@ -517,7 +699,7 @@ export default function ApplicationReviewModal({
         title="Reject document"
         label="Reason for rejection"
         hint={`The student sees this reason for “${documentRejectTarget.title}” so they can upload a correct replacement.`}
-        options={documentRejectionReasons}
+        options={getDocumentRejectionReasons(documentRejectTarget.documentType)}
         notesHint="Add details, such as which page or value needs correcting."
         confirmLabel="Reject document"
         onConfirm={(reason) => {
@@ -528,6 +710,22 @@ export default function ApplicationReviewModal({
       />
     ) : null}
     {previewDoc ?<DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
+    {verifyTarget ? (
+      <VerifyDocumentModal
+        doc={verifyTarget}
+        application={application}
+        reviewerName={reviewerName}
+        reviewerRole={role}
+        busy={verifyBusy}
+        error={verifyError}
+        onConfirm={confirmVerification}
+        onClose={() => {
+          if (verifyBusy) return;
+          setVerifyTarget(null);
+          setVerifyError('');
+        }}
+      />
+    ) : null}
     </>
   );
 }

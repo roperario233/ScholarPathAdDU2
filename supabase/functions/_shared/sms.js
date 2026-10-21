@@ -17,6 +17,7 @@
  */
 
 import { formatDeadlineLabel } from './email.js';
+import { getApplicationStatusLabel } from './applicationStatus.js';
 
 export const IPROGSMS_ENDPOINT = 'https://www.iprogsms.com/api/v1/sms_messages';
 
@@ -157,7 +158,7 @@ export const renderReminderSms = ({ title, itemTitle, deadline, daysBefore }) =>
 
 /** Renders an application status-change text message for the application workspace. */
 export const renderApplicationStatusSms = ({ scholarshipTitle, status }) => ({
-  message: `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status || 'updated'}. Sign in to view details.`,
+  message: `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
 });
 
 // Keeps the rejection reason short enough that the text stays within a couple

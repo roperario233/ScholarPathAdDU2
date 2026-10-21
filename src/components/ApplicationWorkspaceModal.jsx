@@ -1,10 +1,14 @@
 import { useMemo, useState } from 'react';
+import { Camera } from 'lucide-react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
+import PhotoCaptureModal from './PhotoCaptureModal';
+import PhotoGuide from './PhotoGuide';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
-import { getDocumentTypeLabel } from '../lib/constants';
+import { getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
+import { PHOTO_ACCEPT, photoRequirementNeedsCamera } from '../lib/photoGuide';
 import { ESSAY_MAX_LENGTH } from '../lib/profile';
 import { fmtDate } from '../lib/formatters';
 
@@ -21,16 +25,32 @@ const PROFILE_STEP_INDEX = STEPS.findIndex((entry) => entry.key === 'profile');
 // with the reviewers who handle it.
 const CERTIFICATION_TEXT = 'I certify that the information and documents I provided are true and complete, and I agree to share them with the Admissions Office and my Department Chair for this application.';
 
-// One required document: what it accepts, what is attached, and the two ways to
-// satisfy it — reuse a Document Vault file or upload a new one into the vault.
+// One required document: what it accepts, what is attached, and the ways to
+// satisfy it - reuse a Document Vault file, upload a new one into the vault, or
+// take a photo with the camera when the requirement accepts a photo type.
 function RequirementRow({ requirement, documents, attachedIds, busy, error, onAttach, onDetach, onUpload, onPreview }) {
   const [uploadType, setUploadType] = useState(requirement.documentTypes[0]);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const reusable = getMatchingVaultDocuments(requirement, documents).filter((doc) => !attachedIds.includes(doc.id));
-
+  // A single-type photo requirement (the applicant photo and the residence
+  // photos) can be satisfied with the camera; a mixed list offers it only for the
+  // photo type currently selected.
+  const photoType = isPhotoDocumentType(uploadType)
+    ? uploadType
+    : requirement.documentTypes.length === 1 && photoRequirementNeedsCamera(requirement)
+      ? requirement.documentTypes[0]
+      : '';
   const handleFile = (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (file) onUpload(requirement, { file, documentType: uploadType });
+  };
+
+  // A camera capture is already a normalized JPEG. The upload runs through the
+  // same vault-first path as a file-picker choice, so it stays reusable.
+  const useCameraPhoto = (file) => {
+    onUpload(requirement, { file, documentType: photoType });
+    return { ok: true };
   };
 
   return (
@@ -77,21 +97,42 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
           </select>
         </label>
         <div className="grid content-start gap-1 text-xs font-semibold text-app-muted">
-          <span>{requirement.state === 'rejected' ? 'Upload a replacement' : 'Or upload a new file'}</span>
+          <span>{requirement.state === 'rejected' ? 'Upload a replacement' : photoType ? 'Or take or upload a photo' : 'Or upload a new file'}</span>
           <div className="flex min-w-0 flex-wrap gap-2">
             {requirement.documentTypes.length > 1 ? (
               <select className="min-w-0 flex-1" value={uploadType} onChange={(event) => setUploadType(event.target.value)} aria-label={`Document type for ${requirement.label}`} disabled={busy}>
                 {requirement.documentTypes.map((type) => <option key={type} value={type}>{getDocumentTypeLabel(type)}</option>)}
               </select>
             ) : null}
-            <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-              {busy ? 'Working…' : 'Upload file'}
-              <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
-            </label>
+            {photoType ? (
+              <>
+                <Button type="button" onClick={() => setCameraOpen(true)} disabled={busy}>
+                  <Camera size={16} aria-hidden="true" /> Take photo
+                </Button>
+                <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                  {busy ? 'Working...' : 'Upload photo'}
+                  <input type="file" accept={PHOTO_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+                </label>
+              </>
+            ) : (
+              <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
+                {busy ? 'Working...' : 'Upload file'}
+                <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
+              </label>
+            )}
           </div>
         </div>
       </div>
+      {photoType ? <PhotoGuide documentType={photoType} defaultOpen={requirement.state !== 'attached' && requirement.state !== 'verified'} /> : null}
       {error ? <p className="form-error m-0" role="alert">{error}</p> : null}
+      {cameraOpen ? (
+        <PhotoCaptureModal
+          title={photoType === 'Photos of Residence' ? 'Take a photo of your residence' : 'Take your 2x2 ID photo'}
+          documentType={photoType}
+          onUsePhoto={useCameraPhoto}
+          onClose={() => setCameraOpen(false)}
+        />
+      ) : null}
     </li>
   );
 }

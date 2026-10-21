@@ -11,9 +11,10 @@
 // the database caller presents the shared REMINDER_CRON_SECRET rather than a
 // JWT (the platform-level JWT check rejects service role keys). Authorization is
 // enforced here instead: the caller must present the cron secret, or be an
-// Admissions Office administrator, the Department Chair responsible for the
-// student's department, or the student who owns the application (which covers a
-// self-service submission). A repeated call is idempotent via the source key.
+// Admissions Office Staff or Head account, the Department Chair responsible for
+// the student's department, or the student who owns the application (which
+// covers a self-service submission). A repeated call is idempotent via the
+// source key.
 //
 // A record is written to notification_email_log keyed by
 // `application-status-<applicationId>-<status>` so a repeated save never
@@ -24,6 +25,7 @@
 // IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { getApplicationStatusLabel } from '../_shared/applicationStatus.js';
 import { describeApplicationStatusUpdate, isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
 import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, sendSms } from '../_shared/sms.js';
@@ -116,7 +118,9 @@ Deno.serve(async (req) => {
   ]);
 
   const callerRole = callerProfile?.role;
-  const isAdmissionsOffice = callerRole === 'admissions_office' || callerRole === 'osa_admin';
+  // Both Admissions Office lanes can trigger the retry: Staff write the earlier
+  // stages, the Head writes approval and release.
+  const isAdmissionsOffice = ['admissions_office', 'admissions_head', 'osa_admin'].includes(callerRole);
   const isOwningChair = callerRole === 'department_chair'
     && Boolean(studentProfile?.department)
     && callerProfile?.department === studentProfile?.department;
@@ -175,14 +179,17 @@ Deno.serve(async (req) => {
     databaseActorRole = logRow?.actor_role ?? null;
   }
 
+  const officeActorLabel = (role) => (role === 'admissions_head'
+    ? 'the Admissions Office Head'
+    : 'the Admissions Office Staff');
   const actorLabel = isOwner
     ? 'your submission'
     : isAdmissionsOffice
-      ? 'the Admissions Office'
+      ? officeActorLabel(callerRole)
       : isOwningChair
         ? 'your Department Chair'
-        : databaseActorRole === 'admissions_office'
-          ? 'the Admissions Office'
+        : databaseActorRole === 'admissions_office' || databaseActorRole === 'admissions_head'
+          ? officeActorLabel(databaseActorRole)
           : databaseActorRole === 'department_chair'
             ? 'your Department Chair'
             : databaseActorRole === 'student'
@@ -196,7 +203,7 @@ Deno.serve(async (req) => {
   const message = renderApplicationStatusEmail({
     subject: status === 'For Verification'
       ? 'Application update: documents under verification'
-      : `Application status: ${status}`,
+      : `Application status: ${getApplicationStatusLabel(status)}`,
     body: statusUpdate,
     scholarshipTitle: scholarship?.title || 'Scholarship application',
     status,

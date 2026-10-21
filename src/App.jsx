@@ -5,14 +5,17 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses } from './lib/constants';
-import { getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileFields, updateUserProfile } from './lib/auth';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole } from './lib/constants';
+import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseDocument, detachSupabaseApplicationDocument, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, upsertSupabaseDepartmentReview } from './lib/supabaseData';
+import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
+import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
+import ProfileAvatar from './components/ProfileAvatar';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
 import DashboardViewPage from './pages/DashboardView';
@@ -32,14 +35,15 @@ import logoImage from '../pictures/logo.png';
 
 const roleLabels = {
   student: 'Student',
-  admissions_office: 'Admissions Office Administrator',
+  admissions_office: 'Admissions Office Staff',
+  admissions_head: 'Admissions Office Head',
   department_chair: 'Department Chair',
 };
 
 // The identity rows (sidebar panel and mobile header) should not repeat a staff
 // member's name as its own role label, or echo a department whose words are
 // already in the name. The central office's seeded name is literally
-// "Admissions Office Administrator" and its department is "Office of
+// "Admissions Office Staff" and its department is "Office of
 // Admissions", which otherwise prints the same phrase three times. Parts whose
 // significant words are all covered by the name are dropped.
 const identityStopwords = new Set(['of', 'the', 'and', 'for']);
@@ -61,18 +65,19 @@ const identitySubtitle = (name, ...parts) => {
     .join(' · ');
 };
 
-const normalizeRole = (role) => role === 'osa_admin' || role === 'admissions_office'
-  ? 'admissions_office'
-  : role === 'department_chair' ? 'department_chair' : 'student';
+// The Admissions Office is two lanes: `admissions_office` (Staff) prepares a
+// case and `admissions_head` decides it. The retired `osa_admin` value and any
+// unknown value resolve to the staff lane / student respectively.
+const normalizeRole = (role) => {
+  if (role === 'osa_admin') return 'admissions_office';
+  return ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(role) ? role : 'student';
+};
 
-const landingViewForRole = (role) => normalizeRole(role) === 'admissions_office' ? 'admin' : normalizeRole(role) === 'department_chair' ? 'review' : 'dashboard';
-
-const getInitials = (fullName = '') => fullName
-  .split(/\s+/)
-  .filter(Boolean)
-  .slice(0, 2)
-  .map((part) => part[0].toUpperCase())
-  .join('') || 'SP';
+const landingViewForRole = (role) => (isAdmissionsStaffRole(role)
+  ? 'admin-review'
+  : isAdmissionsHeadRole(role)
+    ? 'admin'
+    : role === 'department_chair' ? 'review' : 'dashboard');
 
 // A student profile is complete enough for matching once the core academic
 // fields and the onboarding eligibility essentials are all recorded. `profile`
@@ -235,6 +240,10 @@ function App() {
   // route, so leaving that route discards the draft. The route reports its own
   // dirtiness (including required-document edits) for the navigation guard.
   const [isAdminCatalogDirty, setIsAdminCatalogDirty] = useState(false);
+  // The signed avatar URL expires, so it is kept in memory only; the stored
+  // avatarPath (profiles.avatar_path) is what rides along in app state.
+  const [avatarPreview, setAvatarPreview] = useState({ path: '', url: '' });
+  const [isSavingAvatar, setIsSavingAvatar] = useState(false);
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -363,6 +372,7 @@ function App() {
       const profileResult = await getUserProfile(user.id);
       const profile = profileResult.profile;
       const profileDetails = await getProfileDetails(user.id);
+      const profileAvatar = await getProfileAvatar(user.id);
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
       updateState((previous) => {
         const base = adoptStateOwner(previous, user.id);
@@ -384,6 +394,7 @@ function App() {
             householdIncome: profile?.household_income ?? '',
             hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
             bio: profileDetails.bio,
+            avatarPath: profileAvatar.avatarPath || '',
           },
           profileDraft: {
             ...base.profileDraft,
@@ -393,6 +404,16 @@ function App() {
           },
         };
       });
+      // Resolve a short-lived URL for the stored avatar; the persisted value is
+      // only the object path, never an expiring URL.
+      if (active) {
+        if (profileAvatar.avatarPath) {
+          const { url } = await getSupabaseAvatarUrl(profileAvatar.avatarPath);
+          if (active) setAvatarPreview({ path: profileAvatar.avatarPath, url: url || '' });
+        } else {
+          setAvatarPreview({ path: '', url: '' });
+        }
+      }
       const workspace = await loadSupabaseWorkspace({ role: userRole, userId: user.id, department: profile?.department || '' });
       if (active && workspace.success) {
         updateState((previous) => {
@@ -455,6 +476,7 @@ function App() {
     householdIncome: '',
     hasActiveGovernmentGrant: false,
     bio: '',
+    avatarPath: '',
   };
 
   const currentProfile = {
@@ -713,6 +735,8 @@ function App() {
     setProfileOnboarding(null);
     setIsSupabaseWorkspaceLoaded(false);
     setDeadlineSync(null);
+    // The signed avatar URL and its stored path are session state too.
+    setAvatarPreview({ path: '', url: '' });
   };
 
   const saveAcademicProfile = async (profileValues) => {
@@ -1000,12 +1024,20 @@ function App() {
         return { error: 'Your role cannot move this application to that stage.' };
       }
     }
-    const actor = state.viewerRole === 'department_chair' ? 'Department Chair' : 'Admissions Office';
+    const actor = state.viewerRole === 'department_chair'
+      ? 'Department Chair'
+      : roleLabels[state.viewerRole] || 'Admissions Office';
     const defaultNote = status === 'For Verification'
       ? (state.viewerRole === 'department_chair'
         ? 'Flagged for central document validation.'
         : 'Continued to document verification. Attached files are queued for Admissions Office review.')
-      : `Application moved to ${status}.`;
+      : status === 'For Endorsement'
+        ? 'Sent to endorsement. The application is now with the Department Chair for endorsement.'
+        : status === 'Under Review'
+          ? `${actor} opened this application for review. Attached documents are reviewed at the verification stage.`
+          : status === 'Approved'
+            ? 'Recommendation approved by the Admissions Office Head.'
+            : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
       stage: status,
@@ -1061,7 +1093,7 @@ function App() {
       return { error: 'Only the Department Chair can endorse at this stage.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'For Verification') {
+    if (!application || application.status !== 'For Endorsement') {
       return { error: 'This application is not awaiting endorsement.' };
     }
     // Manuscript 3.3.3: never record an endorsement for an application whose
@@ -1074,7 +1106,7 @@ function App() {
     const record = {
       reviewedBy: currentProfile.fullName || 'Department Chair',
       decision: 'Endorsed',
-      note: note || 'Endorsed based on academic standing and verified documents.',
+      note: note || 'Sent to endorsement based on academic standing and verified documents.',
       decidedAt: new Date().toISOString().slice(0, 10),
     };
     const result = await changeApplicationStatus(applicationId, 'Endorsed', {
@@ -1099,10 +1131,49 @@ function App() {
     return { ok: true };
   };
 
+  // The internal endorsement thread. The database RLS policies are the authority;
+  // this guard keeps a student session (or a Chair outside its department) from
+  // attempting a write the server would reject anyway.
+  const addReviewComment = async (applicationId, body) => {
+    if (state.viewerRole === 'student') {
+      return { error: 'Only reviewers can add an internal note.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (state.viewerRole === 'department_chair'
+      && (application.studentDepartment || '') !== (currentProfile.department || '')) {
+      return { error: 'Your department scope does not include this application.' };
+    }
+    const trimmed = String(body || '').trim();
+    if (!trimmed) return { error: 'Write a note before adding it to the case file.' };
+    if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the note could not be saved.' };
+    }
+    const result = await createSupabaseReviewComment({
+      applicationId,
+      authorId: currentProfile.id,
+      authorRole: state.viewerRole,
+      authorName: currentProfile.fullName || 'Reviewer',
+      body: trimmed,
+    });
+    if (result?.error) {
+      return { error: result.error.message || 'The note could not be saved. Confirm the review-comment migration is applied.' };
+    }
+    if (result.data) {
+      setState((previous) => ({
+        ...previous,
+        reviewComments: [...(previous.reviewComments || []), result.data],
+      }));
+    }
+    return { ok: true };
+  };
+
   // SOP step 5 — interview scheduling; the interviewing panel comes from the
-  // school where the applicant's program belongs.
+  // school where the applicant's program belongs. Planning the interview is a
+  // Staff action; the Head's lane starts at the approval decision.
   const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
-    if (state.viewerRole !== 'admissions_office') {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
       return Promise.resolve({ error: 'Only the Admissions Office can schedule an interview.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
@@ -1125,7 +1196,7 @@ function App() {
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
   const recordDeliberation = (applicationId, decision, note = '') => {
-    if (state.viewerRole !== 'admissions_office') {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
       return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
@@ -1145,11 +1216,25 @@ function App() {
     });
   };
 
-  // SOP steps 7 and 8 — the scholarship committee approves and the result is
-  // released to the applicant through the Admissions Office.
+  // SOP step 7 — the Admissions Office Head approves the sub-committee's
+  // recommendation. Staff prepare the case but never sign it off.
+  const approveApplication = (applicationId, note = '') => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office Head can approve a recommendation.' });
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || application.status !== 'Recommended') {
+      return Promise.resolve({ error: 'This application is not awaiting approval.' });
+    }
+    return changeApplicationStatus(applicationId, 'Approved', {
+      note: note || 'Recommendation approved by the Admissions Office Head.',
+    });
+  };
+
+  // SOP step 8 — the Head releases the approved result to the applicant.
   const releaseApplicationResults = (applicationId) => {
-    if (state.viewerRole !== 'admissions_office') {
-      return Promise.resolve({ error: 'Only the Admissions Office can release results.' });
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office Head can release results.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Approved') {
@@ -1173,17 +1258,29 @@ function App() {
   // attribute's state is derived from its linked proof documents
   // (src/lib/verification.js), verifying the file also verifies the attributes it
   // proves. A rejection must carry a recorded reason (ReasonModal in
-  // ApplicationReviewModal); the database enforces the same rule. The student is
+  // ApplicationReviewModal); the database enforces the same rule. Verification is
+  // confirmed first (VerifyDocumentModal) because the review is attributed to the
+  // signed-in account: the trigger stamps reviewed_by, reviewed_by_role, and
+  // verification_decided_at, and a reset to Pending clears them. The student is
   // notified server-side by notify-document-verification, which the database
   // trigger calls; the browser call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
+    // Reviewing a vault file belongs to the Admissions Office. Staff verify
+    // documents; the Head has the same authority as a superset.
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      const message = 'Only the Admissions Office can verify or reject a document.';
+      window.alert(message);
+      return { error: message };
+    }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
-    if (verificationStatus === 'Rejected' && !reason) return;
+    if (verificationStatus === 'Rejected' && !reason) return { error: 'A reason is required to reject a document.' };
+    const decidedAt = new Date().toISOString();
     if (isSupabaseWorkspaceLoaded) {
       const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
       if (result.error) {
-        window.alert(result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.');
-        return;
+        const message = result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.';
+        window.alert(message);
+        return { error: message };
       }
       if (['Verified', 'Rejected'].includes(verificationStatus)) {
         notifySupabaseDocumentVerification(documentId).catch(() => undefined);
@@ -1195,8 +1292,15 @@ function App() {
         ...entry,
         verificationStatus,
         rejectionReason: reason,
+        // Mirrors the database trigger: a decision records its date and the
+        // reviewing account; a reset to Pending carries no decision.
+        decidedAt: verificationStatus === 'Pending' ? null : decidedAt,
+        reviewedBy: verificationStatus === 'Pending' ? null : (previous.authUser?.id || null),
+        reviewedByRole: verificationStatus === 'Pending' ? null : state.viewerRole,
+        reviewedByName: verificationStatus === 'Pending' ? null : (previous.authUser?.fullName || null),
       } : entry),
     }));
+    return { ok: true };
   };
 
   // A Rejected file on a submitted, pre-endorsement application can be swapped
@@ -1324,22 +1428,15 @@ function App() {
     return { ok: true, document: { ...nextDocument, storagePath: result.data?.storage_path ?? null } };
   };
 
-  const addDocument = async (event) => {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const result = await uploadVaultDocument({
-      file: formData.get('documentFile'),
-      documentType: formData.get('documentType'),
-      attributeKey: formData.get('documentAttribute'),
-    });
-    if (result.error) return result;
-    form.reset();
-    return { ok: true };
-  };
+  // The vault upload form holds its chosen file (including a camera capture) and
+  // passes it here, so a photo never has to round-trip through FormData.
+  const addDocument = async ({ file, documentType, attributeKey = '' } = {}) => (
+    uploadVaultDocument({ file, documentType, attributeKey })
+  );
 
   const addAnnouncement = (event) => {
     event.preventDefault();
+    if (!isAdmissionsHeadRole(state.viewerRole)) return;
     const formData = new FormData(event.currentTarget);
     const title = String(formData.get('announcementTitle') || '').trim();
     const body = String(formData.get('announcementBody') || '').trim();
@@ -1365,6 +1462,10 @@ function App() {
   };
 
   const saveScholarship = async (scholarship) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      window.alert('Only the Admissions Office Head can publish catalog entries.');
+      return false;
+    }
     if (!scholarship?.title || !scholarship?.coverage || !['general-pool', 'honors', 'work-study'].includes(scholarship.ruleFamily)) return;
     if (!isSupabaseWorkspaceLoaded) {
       window.alert('Supabase is not configured, so the scholarship could not be saved.');
@@ -1510,6 +1611,74 @@ function App() {
     };
   };
 
+  // Profile photo: normalize to a square JPEG, upload it to the private avatars
+  // bucket, record its path on the profile, then remove the previous object. The
+  // signed URL is memory-only and falls back to the initials avatar on error.
+  const saveProfileAvatar = async (file) => {
+    if (!(file instanceof File)) return { success: false, message: 'Choose a photo to use.' };
+    if (!isSupabaseWorkspaceLoaded) return { success: false, message: 'Supabase is not configured, so your profile photo could not be saved.' };
+    const userId = state.authUser?.id || currentProfile.id;
+    if (!userId) return { success: false, message: 'Sign in again to change your profile photo.' };
+
+    setIsSavingAvatar(true);
+    try {
+      const normalized = await normalizeImageFile(file, {
+        mode: 'portrait',
+        fileName: buildPhotoFileName({ prefix: 'profile-photo' }),
+      });
+      if (normalized.size > AVATAR_MAX_BYTES) return { success: false, message: 'Choose a photo smaller than 5 MB.' };
+
+      const previousPath = state.authUser?.avatarPath || '';
+      const upload = await uploadSupabaseAvatar({ ownerId: userId, file: normalized });
+      if (upload.error || !upload.path) {
+        return { success: false, message: upload.error?.message || 'Your photo could not be uploaded.' };
+      }
+      const saved = await updateProfileAvatar(userId, upload.path);
+      if (!saved.success) {
+        // The row still points at the old photo (or none), so do not leave the
+        // new object orphaned in the bucket.
+        await deleteSupabaseAvatar(upload.path);
+        return { success: false, message: saved.message || 'Your photo could not be saved.' };
+      }
+      if (previousPath && previousPath !== upload.path) await deleteSupabaseAvatar(previousPath);
+
+      const { url } = await getSupabaseAvatarUrl(upload.path);
+      setAvatarPreview({ path: upload.path, url: url || '' });
+      updateState((previous) => ({ authUser: { ...previous.authUser, avatarPath: upload.path } }));
+      return {
+        success: true,
+        message: saved.synced === false
+          ? 'Saved. Your photo is stored, but the server profile is missing the avatar column (apply the pending migration).'
+          : 'Profile photo updated.',
+      };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Your photo could not be saved.' };
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
+  const removeProfileAvatar = async () => {
+    const userId = state.authUser?.id || currentProfile.id;
+    const previousPath = state.authUser?.avatarPath || '';
+    if (!userId) return { success: false, message: 'Sign in again to change your profile photo.' };
+    if (!previousPath) return { success: true, message: 'No profile photo to remove.' };
+
+    setIsSavingAvatar(true);
+    try {
+      const saved = await updateProfileAvatar(userId, null);
+      if (!saved.success) return { success: false, message: saved.message || 'Your profile photo could not be removed.' };
+      await deleteSupabaseAvatar(previousPath);
+      setAvatarPreview({ path: '', url: '' });
+      updateState((previous) => ({ authUser: { ...previous.authUser, avatarPath: '' } }));
+      return { success: true, message: 'Profile photo removed.' };
+    } catch (error) {
+      return { success: false, message: error?.message || 'Your profile photo could not be removed.' };
+    } finally {
+      setIsSavingAvatar(false);
+    }
+  };
+
   const changeAccountPassword = (password) => updateAccountPassword({ password });
   const requestOwnPasswordReset = () => requestPasswordReset({ email: currentIdentity.email || '' });
 
@@ -1535,14 +1704,17 @@ function App() {
   );
 
   // The Admissions Office workspace is split into one route per function, shown
-  // as a labeled group so the page navigation stays scannable.
-  const admissionsWorkspaceItems = state.viewerRole === 'admissions_office'
+  // as a labeled group so the page navigation stays scannable. Both lanes read
+  // the overview and the review queue; only the Head manages the catalog,
+  // announcements, and the approval/release decisions.
+  const isAdmissionsHead = isAdmissionsHeadRole(state.viewerRole);
+  const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
       { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
-      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: true },
-      { view: 'admin-release', label: 'Results release', group: 'Admissions Office', visible: true },
-      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: true },
+      { view: 'admin-release', label: 'Recommendation and release', group: 'Admissions Office', visible: isAdmissionsHead },
+      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: isAdmissionsHead },
+      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: isAdmissionsHead },
     ]
     : [];
 
@@ -1659,7 +1831,7 @@ function App() {
               aria-label="Open My Profile"
               onClick={() => navigate('profile')}
             >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-gradient-to-br from-ateneo to-sky-400 text-xs font-extrabold text-white" aria-hidden="true">{getInitials(state.authUser.fullName)}</span>
+              <ProfileAvatar src={avatarPreview.url} name={state.authUser.fullName} size="sm" />
               <span className="hidden min-w-0 max-w-[12rem] leading-tight sm:grid">
                 <strong className="truncate">{state.authUser.fullName}</strong>
                 {identityRoleLine && <span className="text-xs text-app-muted">{identityRoleLine}</span>}
@@ -1718,7 +1890,7 @@ function App() {
       <main className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
           <div className="flex items-center gap-4 border-b border-app-border pb-4">
-            <div className="grid h-[50px] w-[50px] shrink-0 place-items-center rounded-[18px] bg-gradient-to-br from-blue-500/90 to-sky-500/50 text-lg font-extrabold text-white">{currentIdentity.fullName.slice(0, 1)}</div>
+            <ProfileAvatar src={avatarPreview.url} name={currentIdentity.fullName} size="lg" rounded="rounded-[18px]" className="!h-[50px] !w-[50px]" />
             <div className="min-w-0">
               <h2 className="m-0 text-base font-semibold text-app-text">{currentIdentity.fullName}</h2>
               {identityDetailLine && <p className="mt-1 text-sm text-app-muted">{identityDetailLine}</p>}
@@ -1764,6 +1936,7 @@ function App() {
               onOpenCalendar={() => navigate('calendar')}
               onOpenAdmin={() => navigate('admin')}
               onOpenAdminReview={() => navigate('admin-review')}
+              onOpenRelease={() => navigate('admin-release')}
               onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
@@ -1816,30 +1989,35 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin' && (
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin' && (
             <AdminOverviewPage
               applications={state.applications}
               documents={state.documents}
+              role={state.viewerRole}
               onOpenWorkspace={(view) => navigate(view)}
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-review' && (
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-review' && (
             <AdminReviewQueuePage
               applications={state.applications}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onScheduleInterview={scheduleInterview}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-catalog' && (
+          {isAdmissionsHead && state.activeView === 'admin-catalog' && (
             <AdminScholarshipCatalogPage
               scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
@@ -1847,14 +2025,19 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-release' && (
+          {isAdmissionsHead && state.activeView === 'admin-release' && (
             <AdminResultsReleasePage
               applications={state.applications}
+              documents={state.documents}
+              students={state.students}
+              scholarships={state.scholarships || []}
+              onChangeApplication={changeApplicationStatus}
+              onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
             />
           )}
 
-          {state.viewerRole === 'admissions_office' && state.activeView === 'admin-announcements' && (
+          {isAdmissionsHead && state.activeView === 'admin-announcements' && (
             <AdminAnnouncementsPage
               announcements={state.announcements}
               onCreateAnnouncement={addAnnouncement}
@@ -1867,8 +2050,10 @@ function App() {
               queue={departmentQueue}
               documents={state.documents}
               scholarships={state.scholarships || []}
+              reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
+              onAddComment={addReviewComment}
               onFlagForValidation={flagApplicationForValidation}
             />
           )}
@@ -1882,6 +2067,9 @@ function App() {
               academicProgramCategories={activeAcademicProgramCategories}
               initialSection={profilePresetSection}
               onSaveProfile={saveProfile}
+              avatar={{ url: avatarPreview.url, path: state.authUser?.avatarPath || '', isSaving: isSavingAvatar }}
+              onChangeAvatar={saveProfileAvatar}
+              onRemoveAvatar={removeProfileAvatar}
               onChangePassword={changeAccountPassword}
               onRequestPasswordReset={requestOwnPasswordReset}
               attributeVerifications={attributeVerifications}

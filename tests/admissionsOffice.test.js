@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAcceptedApplicantsReport,
+  getApprovalQueue,
   getDocumentsAwaitingReview,
   getInternalCatalogEntries,
   getRecentApplicationActivity,
@@ -27,18 +28,38 @@ describe('getReviewQueue', () => {
       application({ id: 'submitted', status: 'Submitted' }),
       application({ id: 'review', status: 'Under Review' }),
       application({ id: 'verification', status: 'For Verification' }),
+      application({ id: 'for-endorsement', status: 'For Endorsement' }),
       application({ id: 'endorsed', status: 'Endorsed' }),
+      application({ id: 'recommended', status: 'Recommended' }),
       application({ id: 'approved', status: 'Approved' }),
       application({ id: 'released', status: 'Released' }),
       application({ id: 'rejected', status: 'Rejected' }),
     ]);
 
-    expect(queue.map((entry) => entry.id)).toEqual(['submitted', 'review', 'verification', 'endorsed']);
+    expect(queue.map((entry) => entry.id)).toEqual(['submitted', 'review', 'verification', 'for-endorsement', 'endorsed']);
   });
 
   it('tolerates a missing collection', () => {
     expect(getReviewQueue(undefined)).toEqual([]);
     expect(getReviewQueue(null)).toEqual([]);
+  });
+});
+
+describe('getApprovalQueue', () => {
+  it('keeps only the recommendations the Admissions Office Head decides', () => {
+    const queue = getApprovalQueue([
+      application({ id: 'submitted', status: 'Submitted' }),
+      application({ id: 'recommended-a', status: 'Recommended' }),
+      application({ id: 'approved', status: 'Approved' }),
+      application({ id: 'recommended-b', status: 'Recommended' }),
+    ]);
+
+    expect(queue.map((entry) => entry.id)).toEqual(['recommended-a', 'recommended-b']);
+  });
+
+  it('tolerates a missing collection', () => {
+    expect(getApprovalQueue(undefined)).toEqual([]);
+    expect(getApprovalQueue(null)).toEqual([]);
   });
 });
 
@@ -51,11 +72,24 @@ describe('getDocumentsAwaitingReview', () => {
 
   it('counts only Pending files an application actually attaches', () => {
     const result = getDocumentsAwaitingReview(
-      [application({ attachedDocuments: ['doc-attached-pending', 'doc-attached-verified'] })],
+      [application({ status: 'For Verification', attachedDocuments: ['doc-attached-pending', 'doc-attached-verified'] })],
       documents,
     );
 
     expect(result.map((entry) => entry.id)).toEqual(['doc-attached-pending']);
+  });
+
+  it('waits for the verification stage before counting an application\'s files', () => {
+    const attached = ['doc-attached-pending'];
+
+    // Files are only reviewable from the SOP verification stage on, so a
+    // Submitted or Under Review application does not put work in the queue yet.
+    expect(getDocumentsAwaitingReview([application({ status: 'Submitted', attachedDocuments: attached })], documents)).toEqual([]);
+    expect(getDocumentsAwaitingReview([application({ status: 'Under Review', attachedDocuments: attached })], documents)).toEqual([]);
+    expect(getDocumentsAwaitingReview(
+      [application({ status: 'For Verification', attachedDocuments: attached })],
+      documents,
+    ).map((entry) => entry.id)).toEqual(['doc-attached-pending']);
   });
 
   it('ignores applications without an attachment list', () => {
@@ -158,6 +192,15 @@ describe('getRecentApplicationActivity', () => {
       stage: 'For Verification',
       note: 'Application is currently For Verification.',
       actor: 'Application workspace',
+    });
+  });
+
+  it('shows the endorsement phase in the fallback note', () => {
+    const activity = getRecentApplicationActivity([application({ status: 'Endorsed' })]);
+
+    expect(activity[0]).toMatchObject({
+      stage: 'Endorsed',
+      note: 'Application is currently Endorsement.',
     });
   });
 

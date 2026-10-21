@@ -154,6 +154,27 @@ describe('renderApplicationStatusEmail', () => {
     expect(html).toContain('For Verification');
     expect(text).toContain('View your applications: https://example.org/?view=applications');
   });
+
+  it('shows the endorsement phase label for the stored Endorsed status', () => {
+    const { subject, html, text } = renderApplicationStatusEmail({
+      scholarshipTitle: 'GIA Grant',
+      status: 'Endorsed',
+      siteUrl: 'https://example.org/',
+    });
+    expect(subject).toBe('Application update: Endorsement');
+    expect(html).toContain('Endorsement');
+    expect(text).toContain('New status: Endorsement');
+  });
+
+  it('names the hand-off stage as awaiting endorsement', () => {
+    const { subject, text } = renderApplicationStatusEmail({
+      scholarshipTitle: 'GIA Grant',
+      status: 'For Endorsement',
+      siteUrl: 'https://example.org/',
+    });
+    expect(subject).toBe('Application update: Awaiting Endorsement');
+    expect(text).toContain('New status: Awaiting Endorsement');
+  });
 });
 
 describe('describeApplicationStatusUpdate', () => {
@@ -164,8 +185,20 @@ describe('describeApplicationStatusUpdate', () => {
   });
 
   it('keeps the generic next-step copy for other statuses', () => {
-    expect(describeApplicationStatusUpdate('Endorsed', 'the Admissions Office'))
-      .toBe('Your application status was updated to Endorsed through the Admissions Office. Sign in to review the next steps.');
+    expect(describeApplicationStatusUpdate('Interview', 'the Admissions Office'))
+      .toBe('Your application status was updated to Interview through the Admissions Office. Sign in to review the next steps.');
+  });
+
+  it('describes the endorsement phase for the stored Endorsed status', () => {
+    const message = describeApplicationStatusUpdate('Endorsed', 'the Department Chair');
+    expect(message).toContain('endorsement phase');
+    expect(message).toContain('interview');
+  });
+
+  it('describes the hand-off to the Department Chair for For Endorsement', () => {
+    const message = describeApplicationStatusUpdate('For Endorsement', 'the Admissions Office');
+    expect(message).toContain('Department Chair for endorsement');
+    expect(message).toContain('No action');
   });
 });
 
