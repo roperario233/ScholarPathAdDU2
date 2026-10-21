@@ -3,11 +3,13 @@ import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
+import StudentInterviewCard from '../components/StudentInterviewCard';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { getApplicantPhotoDocument, getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
+import { describeInterviewForStudent, summarizeInterview } from '../lib/interview';
 
 const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', 'For Endorsement': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
 
@@ -99,6 +101,11 @@ export default function ApplicationsView({
       'STATEMENT',
       entry.statement || '(none)',
       '',
+      ...(entry.interview ? [
+        'INTERVIEW',
+        `- ${describeInterviewForStudent(entry.interview)?.stateLabel || 'Scheduled'}: ${summarizeInterview(entry.interview)}`,
+        '',
+      ] : []),
       entry.notes || '',
     ].join('\n');
     const link = document.createElement('a');
@@ -163,6 +170,9 @@ export default function ApplicationsView({
               <span><strong>Deadline</strong> {scholarship ? fmtDate(scholarship.deadline) : 'N/A'}</span>
             </div>
             <p className="m-0 text-sm text-app-muted">{needsReplacement ? 'Action needed: replace the rejected document so your application can continue.' : isDraft ? (readiness.requirements.some((item) => item.state === 'missing' || item.state === 'rejected') ? 'Next: attach the remaining required documents.' : 'Next: review your statement, certify, and submit.') : (isTracked ? entry.notes : getApplicationStatusGuidance(entry.status) || entry.notes)}</p>
+            {entry.status === 'Interview' && entry.interview ? (
+              <p className="m-0 text-sm font-semibold text-app-text">Interview: {summarizeInterview(entry.interview)}</p>
+            ) : null}
             <div className="flex flex-wrap items-center gap-3 border-t border-app-border/60 pt-3">
               {isDraft
                 ? <Button variant="primary" type="button" onClick={() => onOpenApplication(entry.id)}>Continue application</Button>
@@ -204,6 +214,7 @@ export default function ApplicationsView({
                   ))}
                 </Panel>
               ) : null}
+              {selected.interview ? <StudentInterviewCard application={selected} scholarshipTitle={selected.scholarshipTitle} /> : null}
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>

@@ -110,6 +110,44 @@ const toReviewComment = (row) => ({
   createdAt: row.created_at,
 });
 
+// SOP step 5 (20261029000000_overhaul_interview_stage.sql). Locations are read by
+// the Admissions Office; panel membership and evaluation notes are staff-only,
+// and the RLS policies scope a Department Chair to their own department.
+const toInterviewLocation = (row) => ({
+  id: row.id,
+  name: row.name,
+  building: row.building || '',
+  room: row.room || '',
+  notes: row.notes || '',
+  isActive: row.is_active !== false,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+
+const toInterviewPanelist = (row, nameById = {}) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  profileId: row.profile_id || null,
+  guestName: row.guest_name || '',
+  guestEmail: row.guest_email || '',
+  isLead: Boolean(row.is_lead),
+  removedAt: row.removed_at || null,
+  name: row.profile_id ? (nameById[row.profile_id] || 'Department Chair') : (row.guest_name || 'Faculty guest'),
+});
+
+const toInterviewNote = (row, nameById = {}) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  authorId: row.author_id,
+  authorRole: row.author_role,
+  authorName: nameById[row.author_id] || null,
+  rating: row.rating ?? null,
+  body: row.body,
+  createdAt: row.created_at,
+});
+
+const STAFF_ROLES = ['admissions_office', 'admissions_head', 'department_chair'];
+
 const ensureReady = () => hasSupabaseConfig && supabase;
 
 export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
@@ -127,7 +165,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId),
     // Staff queues need applicant context. students_read is limited to their own
     // profile by RLS, so this select is safe for every role.
-    supabase.from('profiles').select('user_id, full_name, department, degree_program, qpi, household_income'),
+    supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income'),
   ]);
   const failed = [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, profilesResult].find((result) => result.error);
   if (failed) return { success: false, fallback: false, message: failed.error.message };
@@ -220,6 +258,34 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // SOP step 5 interview data. Staff only; a pending migration yields empty
+  // lists rather than failing the whole workspace.
+  const nameById = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, entry.full_name || '']));
+  // The staff accounts visible to this session: the interview panel picker reads
+  // the Department Chairs of the applicant's school from it (SOP 5a).
+  const staffDirectory = (profilesResult.data || [])
+    .filter((entry) => STAFF_ROLES.includes(entry.role))
+    .map((entry) => ({ userId: entry.user_id, fullName: entry.full_name || 'Staff member', role: entry.role, department: entry.department || '' }));
+  let interviewLocations = [];
+  let interviewPanelists = [];
+  let interviewNotes = [];
+  if (role !== 'student') {
+    const [locationsResult, panelistsResult, notesResult] = await Promise.all([
+      role === 'department_chair'
+        ? Promise.resolve({ data: [], error: null })
+        : supabase.from('interview_locations').select('*').order('name', { ascending: true }),
+      applicationIds.length
+        ? supabase.from('application_interview_panelists').select('*').in('application_id', applicationIds).is('removed_at', null)
+        : Promise.resolve({ data: [], error: null }),
+      applicationIds.length
+        ? supabase.from('application_interview_notes').select('*').in('application_id', applicationIds).order('created_at', { ascending: true })
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (!locationsResult.error) interviewLocations = (locationsResult.data || []).map(toInterviewLocation);
+    if (!panelistsResult.error) interviewPanelists = (panelistsResult.data || []).map((row) => toInterviewPanelist(row, nameById));
+    if (!notesResult.error) interviewNotes = (notesResult.data || []).map((row) => toInterviewNote(row, nameById));
+  }
+
   return {
     success: true,
     fallback: false,
@@ -231,6 +297,10 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     notifications: (notificationsResult.data || []).map(toNotification),
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
     reviewComments,
+    staffDirectory,
+    interviewLocations,
+    interviewPanelists,
+    interviewNotes,
     customDeadlines: serverDeadlines,
   };
 };
@@ -318,6 +388,71 @@ export const createSupabaseReviewComment = async ({ applicationId, authorId, aut
     body,
   }).select('*').single();
   return { ...result, data: result.data ? toReviewComment(result.data) : null };
+};
+
+// Interview locations are managed by the Admissions Office Head; RLS refuses
+// every other role. Archiving (isActive false) replaces deletion.
+export const saveSupabaseInterviewLocation = async (location) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const row = {
+    name: String(location.name || '').trim(),
+    building: String(location.building || '').trim() || null,
+    room: String(location.room || '').trim() || null,
+    notes: String(location.notes || '').trim() || null,
+    is_active: location.isActive !== false,
+  };
+  const query = location.id
+    ? supabase.from('interview_locations').update({ ...row, updated_at: new Date().toISOString() }).eq('id', location.id)
+    : supabase.from('interview_locations').insert(row);
+  const result = await query.select('*').single();
+  return { ...result, data: result.data ? toInterviewLocation(result.data) : null };
+};
+
+// Replaces an application's interview panel. The previous members are
+// soft-removed (removed_at) rather than deleted, so who sat on an earlier panel
+// stays on record; the database checks each account panelist against the
+// applicant's school (validate_interview_panelist, SOP 5a).
+export const replaceSupabaseInterviewPanel = async (applicationId, panel = [], nameById = {}) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const removed = await supabase
+    .from('application_interview_panelists')
+    .update({ removed_at: new Date().toISOString() })
+    .eq('application_id', applicationId)
+    .is('removed_at', null);
+  if (removed.error) return { data: null, error: removed.error };
+  if (!panel.length) return { data: [], error: null };
+  const inserted = await supabase
+    .from('application_interview_panelists')
+    .insert(panel.map((member) => ({
+      application_id: applicationId,
+      profile_id: member.profileId || null,
+      guest_name: member.profileId ? null : (member.guestName || null),
+      guest_email: member.profileId ? null : (member.guestEmail || null),
+      is_lead: Boolean(member.isLead),
+    })))
+    .select('*');
+  return { data: (inserted.data || []).map((row) => toInterviewPanelist(row, nameById)), error: inserted.error };
+};
+
+// The panel (or the Admissions Office on its behalf) records attendance through
+// record_interview_outcome, which checks the caller and returns the updated
+// public interview record.
+export const recordSupabaseInterviewOutcome = async (applicationId, outcome) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const { data, error } = await supabase.rpc('record_interview_outcome', { p_application_id: applicationId, p_outcome: outcome });
+  return { data: data || null, error };
+};
+
+export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, rating, body }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.from('application_interview_notes').insert({
+    application_id: applicationId,
+    author_id: authorId,
+    author_role: authorRole,
+    rating: rating ?? null,
+    body,
+  }).select('*').single();
+  return { ...result, data: result.data ? toInterviewNote(result.data, { [authorId]: authorName }) : null };
 };
 
 // Department review records mirror chair decisions for schema-level auditing.
@@ -564,6 +699,15 @@ export const sendSupabaseTestEmail = () => invokeEmailFunction('send-test-email'
 export const sendSupabaseTestSms = () => invokeEmailFunction('send-test-sms');
 
 export const notifySupabaseApplicationStatus = (applicationId) => invokeEmailFunction('notify-application-status', { applicationId });
+
+// Browser retry for the interview schedule notification; the database trigger
+// (20261029000001) is the primary sender and owns the SMS channel.
+export const notifySupabaseInterviewUpdate = (applicationId) => invokeEmailFunction('notify-interview-update', { applicationId });
+
+// Optional Google Calendar and Meet integration (manage-interview-event). It
+// answers { configured: false } when the office Google account is not set up,
+// so the schedule form falls back to a pasted meeting link.
+export const invokeSupabaseInterviewEvent = (body) => invokeEmailFunction('manage-interview-event', body);
 
 // Browser retry for the document-verification notification; the database
 // trigger (20261021000001) is the primary sender and owns the SMS channel.

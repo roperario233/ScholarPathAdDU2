@@ -149,7 +149,7 @@ export default function DashboardView({ profile, isFirstLogin, stats, applicatio
           <div className="page-title-copy">
             <span className="page-section-label">Department Chair workspace</span>
             <h2>{profile.department || 'Department'} endorsements</h2>
-            <p>Screen applicants assigned to your department, convene the interview panel, and record department-level recommendations.</p>
+            <p>Screen applicants assigned to your department, endorse verified applications, and sit on the interview panel the Admissions Office schedules for your school.</p>
           </div>
           <button type="button" onClick={onOpenReview} className="inline-flex min-h-11 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-5 py-2 text-sm font-bold text-white">Open review queue <ArrowRight className="ml-2" size={16} /></button>
         </section>

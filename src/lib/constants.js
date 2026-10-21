@@ -46,10 +46,12 @@ const roleNextStatusMap = {
     // The Admissions Office Staff finish document verification and hand the
     // application to the Department Chair for endorsement (SOP step 4).
     'For Verification': ['For Endorsement', 'Rejected'],
-    // SOP steps 5 and 6: staff schedule the interview and record the
-    // sub-committee recommendation (scheduleInterview and recordDeliberation in
-    // App.jsx read this map through their status guard). Approval and release
-    // are not staff decisions.
+    // SOP steps 5 and 6: staff coordinate the interview (its panel comes from
+    // the applicant's school, SOP 5a) and record the sub-committee
+    // recommendation (scheduleInterview and recordDeliberation in App.jsx read
+    // this map through their status guard). Approval and release are not staff
+    // decisions. A Chair on the interview panel records attendance and notes
+    // without any status move, so the Chair map below is unchanged.
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
   },
@@ -123,8 +125,8 @@ const applicationStatusGuidance = {
   'Under Review': 'The Admissions Office has opened your application for review. We will notify you if anything needs correction.',
   'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
   'For Endorsement': 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.',
-  Endorsed: 'Your application is in the endorsement phase. The Department Chair has endorsed it, and the Admissions Office will schedule the interview next.',
-  Interview: 'An interview has been scheduled. Watch your notifications for the date and panel details.',
+  Endorsed: 'Your application is in the endorsement phase. The Department Chair has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.',
+  Interview: 'Your interview is scheduled. Open the application for the date, time, and location or meeting link, and add it to your calendar.',
   Recommended: 'The School Scholarship Sub-committee has recommended your application for approval.',
   Approved: 'Your application has been approved and is awaiting release of results.',
   Released: 'Your results have been released. Open the application to review the recorded outcome.',

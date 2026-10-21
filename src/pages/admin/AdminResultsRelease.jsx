@@ -19,6 +19,7 @@ export default function AdminResultsRelease({
   onChangeApplication,
   onApproveApplication,
   onReleaseResults,
+  interviewWorkspace = null,
 }) {
   const [approvalId, setApprovalId] = useState(null);
   const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
@@ -108,6 +109,7 @@ export default function AdminResultsRelease({
           onClose={() => setApprovalId(null)}
           onStatusChange={handleStatusChange}
           onRelease={onReleaseResults}
+          interviewWorkspace={interviewWorkspace}
         />
       )}
     </div>

@@ -92,7 +92,7 @@ Deno.serve(async (req) => {
 
   const { data: application, error: applicationError } = await supabaseAdmin
     .from('applications')
-    .select('id, student_id, scholarship_id, status')
+    .select('id, student_id, scholarship_id, status, interview')
     .eq('id', applicationId)
     .maybeSingle();
   if (applicationError) {
@@ -199,7 +199,10 @@ Deno.serve(async (req) => {
   const env = Deno.env.toObject();
   const resend = getResendConfig(env);
   const sms = getSmsConfig(env);
-  const statusUpdate = describeApplicationStatusUpdate(status, actorLabel);
+  // The first interview schedule rides this notification (SOP step 5), so the
+  // Interview message carries the date, mode, and location or meeting link.
+  const interview = status === 'Interview' ? application.interview : null;
+  const statusUpdate = describeApplicationStatusUpdate(status, actorLabel, { interview });
   const message = renderApplicationStatusEmail({
     subject: status === 'For Verification'
       ? 'Application update: documents under verification'
@@ -208,6 +211,7 @@ Deno.serve(async (req) => {
     scholarshipTitle: scholarship?.title || 'Scholarship application',
     status,
     siteUrl: resolveSiteUrl(env),
+    interview,
   });
 
   let inAppSent = false;
@@ -252,6 +256,7 @@ Deno.serve(async (req) => {
         message: renderApplicationStatusSms({
           scholarshipTitle: scholarship?.title,
           status,
+          interview,
         }).message,
         provider: sms.provider,
       })
