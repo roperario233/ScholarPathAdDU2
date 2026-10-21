@@ -32,6 +32,46 @@
 -- unaffected because the submit gate runs only on Draft -> Submitted.
 -- ---------------------------------------------------------------------------
 
+-- Preflight: the columns and helpers this migration builds on come from earlier
+-- migrations. Stop with the name of the missing one instead of failing halfway.
+do $$
+declare
+  v_missing text[] := '{}'::text[];
+begin
+  if to_regprocedure('public.current_profile_role()') is null then
+    v_missing := array_append(v_missing, 'public.current_profile_role() (base schema)');
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'profiles' and column_name = 'eligibility_attributes') then
+    v_missing := array_append(v_missing, 'profiles.eligibility_attributes (20261005140000_add_profile_details.sql)');
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'documents' and column_name = 'linked_attributes') then
+    v_missing := array_append(v_missing, 'documents.linked_attributes (20261007000000_add_document_linked_attributes.sql)');
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'scholarships' and column_name = 'required_documents') then
+    v_missing := array_append(v_missing, 'scholarships.required_documents (20261012000000_add_application_requirements.sql)');
+  end if;
+  if not exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'documents' and column_name = 'attested_values') then
+    v_missing := array_append(v_missing, 'documents.attested_values (20261013000000_add_document_attested_values.sql)');
+  end if;
+  if to_regclass('public.application_documents') is null then
+    v_missing := array_append(v_missing, 'public.application_documents (base schema)');
+  end if;
+  if cardinality(v_missing) > 0 then
+    raise exception 'Apply the earlier migrations first. Missing: %', array_to_string(v_missing, '; ');
+  end if;
+end;
+$$;
+
+-- The in-scope title rule from 20261014000001, redefined here unchanged so this
+-- migration also runs on a project where that one is still pending.
+create or replace function public.is_addu_in_scope_track(p_title text)
+returns boolean
+language sql
+immutable
+as $$
+  select lower(btrim(coalesce(p_title, ''))) ~ 'jubilee|grant[ -]?in[ -]?aid|(^|[^a-z])gia([^a-z]|$)|student assistant|working scholar';
+$$;
+
 -- A valid year standing value, or '' when unset.
 create or replace function public.profile_year_standing(p_profile jsonb)
 returns text
