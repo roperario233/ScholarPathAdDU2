@@ -32,9 +32,16 @@ const stageEvents = (application) => {
   return asList(application?.timeline);
 };
 
-export const findStageEvent = (application, stage) => (
-  [...stageEvents(application)].reverse().find((event) => event.stage === stage) || null
-);
+export const findStageEvent = (application, stage) => {
+  const logged = [...stageEvents(application)].reverse().find((event) => event.stage === stage);
+  if (logged) return logged;
+  // A status change is written to the browser timeline before the append-only
+  // status log reaches the next workspace load. Fall back to that timeline event
+  // so the hand-off or decision recorded in this session stays readable.
+  const log = asList(application?.statusLog);
+  if (!log.length) return null;
+  return [...asList(application?.timeline)].reverse().find((event) => event.stage === stage) || null;
+};
 
 export const getEndorsementHandoff = (application) => findStageEvent(application, 'For Endorsement');
 export const getEndorsementDecisionEvent = (application) => findStageEvent(application, 'Endorsed');

@@ -15,14 +15,12 @@ const workspaces = [
   {
     view: 'admin-review',
     label: 'Application review queue',
-    note: 'SOP steps 2-6',
     description: 'Start application reviews, verify attached documents at the verification stage, and schedule interviews.',
     action: 'Open review queue',
   },
   {
     view: 'admin-catalog',
     label: 'AdDU internal scholarship catalog',
-    note: 'Catalog management',
     description: 'Publish and update AdDU internal entries and the documents each one requires.',
     action: 'Open catalog',
     headOnly: true,
@@ -30,7 +28,6 @@ const workspaces = [
   {
     view: 'admin-release',
     label: 'Recommendation and results release',
-    note: 'SOP steps 7-8',
     description: 'Approve sub-committee recommendations, release approved results, and export the accepted list.',
     action: 'Open recommendation and release',
     headOnly: true,
@@ -38,7 +35,6 @@ const workspaces = [
   {
     view: 'admin-announcements',
     label: 'Office announcements',
-    note: 'Communications',
     description: 'Publish application windows, answers to inquiries, and office notices.',
     action: 'Open announcements',
     headOnly: true,
@@ -98,7 +94,6 @@ export default function AdminOverview({ applications = [], documents = [], role 
               <article key={workspace.view} className="grid content-start gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
                 <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
                   <strong className="min-w-0 text-sm text-app-text">{workspace.label}</strong>
-                  <StatusBadge tone="neutral">{workspace.note}</StatusBadge>
                 </div>
                 <p className="m-0 text-sm text-app-muted">{workspace.description}</p>
                 <div>

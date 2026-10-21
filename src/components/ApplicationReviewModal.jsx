@@ -253,9 +253,12 @@ export default function ApplicationReviewModal({
       return;
     }
     setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-      ? 'The application was sent to the Department Chair for endorsement.'
+      ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
       : 'The endorsement decision was recorded.');
     setEndorsementDecision(null);
+    // Stay on the Endorsement tab either way: the recorded hand-off or decision
+    // is the confirmation, and closing the review surface would hide it.
+    setActiveTab('endorsement');
   };
 
   // Overview facts: the snapshot values the student certified, compared with
@@ -366,6 +369,15 @@ export default function ApplicationReviewModal({
       setRejectReasonOpen(true);
       return;
     }
+    // The hand-off to the Department Chair records an optional note, so the
+    // action bar and the Endorsement tab open the same decision dialog. The
+    // review surface stays open afterwards instead of closing on the reviewer
+    // before they can read the recorded hand-off.
+    if (status === 'For Endorsement' && isAdmissionsReviewer) {
+      setEndorsementError('');
+      setEndorsementDecision({ mode: 'handoff' });
+      return;
+    }
     setActionError('');
     // The transition writes the stage and its timeline note. "For Verification"
     // routes the attached files into the Admissions Office document queue, so
@@ -403,13 +415,13 @@ export default function ApplicationReviewModal({
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
-    : isAdmissionsHead
-      ? (application.status === 'For Endorsement'
-        ? 'The next action at this stage belongs to the Department Chair.'
-        : 'No stage action is available at this stage.')
-      : role === 'department_chair'
-        ? 'The next action at this stage belongs to the Admissions Office.'
-        : 'No stage action is available to your role at this stage.';
+    : application.status === 'For Endorsement' && isAdmissionsReviewer
+      ? 'This application is with the Department Chair for endorsement. The hand-off record stays available in the Endorsement tab and the status history.'
+      : isAdmissionsHead
+        ? 'No stage action is available at this stage.'
+        : role === 'department_chair'
+          ? 'The next action at this stage belongs to the Admissions Office.'
+          : 'No stage action is available to your role at this stage.';
 
   return (
     <>
@@ -604,7 +616,7 @@ export default function ApplicationReviewModal({
 
         {readyForEndorsement ? (
           <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
-            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair; the Endorsement tab records the hand-off note.
+            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair; the hand-off note is recorded in the Endorsement tab and the status history.
           </p>
         ) : null}
 

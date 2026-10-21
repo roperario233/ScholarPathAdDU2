@@ -57,6 +57,27 @@ describe('endorsement record and timing', () => {
     });
   });
 
+  // The hand-off is written to the timeline before the append-only status log
+  // reaches the next workspace load, so the record must stay readable in the
+  // same session the reviewer sent it.
+  it('falls back to the browser timeline while the status log catches up', () => {
+    const handoff = getEndorsementHandoff(application({
+      statusLog: [statusLogFor()[0]],
+      timeline: [{
+        id: 'ev-handoff',
+        stage: 'For Endorsement',
+        actor: 'Admissions Office Staff',
+        note: 'Documents are verified and consistent with the submission.',
+        at: '2026-10-01',
+      }],
+    }));
+
+    expect(handoff).toMatchObject({
+      actor: 'Admissions Office Staff',
+      note: 'Documents are verified and consistent with the submission.',
+    });
+  });
+
   it('reads the endorsement decision event', () => {
     const decision = getEndorsementDecisionEvent(application({ status: 'Endorsed', statusLog: statusLogFor('Endorsed') }));
 

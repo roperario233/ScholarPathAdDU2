@@ -65,7 +65,7 @@ export default function AdminReviewQueue({
     })).then((result) => {
       setStartingReviewId((current) => (current === applicationId ? null : current));
       if (result?.error) {
-        setFeedback({ tone: 'error', message: `Review could not be started: ${result.error}` });
+        setFeedback({ message: `Review could not be started: ${result.error}` });
       }
     });
   };
@@ -74,23 +74,12 @@ export default function AdminReviewQueue({
     setReviewTab(null);
   };
 
-  // "Continue to verification" is a real stage transition: confirm it only after
-  // the write succeeds, and report how many attached files just entered the
-  // document review queue.
-  const handleStatusChange = async (applicationId, status, options) => {
-    const result = await onChangeApplication?.(applicationId, status, options);
-    if (!result?.error && status === 'For Verification') {
-      const entry = applications.find((item) => item.id === applicationId);
-      const { outstanding } = getDocumentVerificationReadiness(entry, documents);
-      setFeedback({
-        tone: 'success',
-        message: outstanding
-          ? `Application continued to verification. ${outstanding} attached document${outstanding === 1 ? ' is' : 's are'} now in the review queue.`
-          : 'Application continued to verification. No attached documents are awaiting verification.',
-      });
-    }
-    return result;
-  };
+  // "Continue to verification" is a real stage transition. The review modal
+  // switches itself to the newly unlocked Documents tab, so the queue reports
+  // only failures in its banner instead of confirming the unlock twice.
+  const handleStatusChange = async (applicationId, status, options) => (
+    onChangeApplication?.(applicationId, status, options)
+  );
 
   return (
     <div className="grid gap-5">
@@ -105,12 +94,8 @@ export default function AdminReviewQueue({
 
       {feedback?.message && (
         <div
-          className={`flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border p-3 text-sm ${
-            feedback.tone === 'error'
-              ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200'
-              : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
-          }`}
-          role="status"
+          className="flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-200"
+          role="alert"
         >
           <span className="min-w-0">{feedback.message}</span>
           <button
