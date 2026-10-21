@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   deriveAttributeStatus,
   deriveAttributeVerifications,
+  describeAttributeVerification,
   getAttributeProofDocuments,
   getAttributeVerificationTone,
   getDocumentLinkedAttributes,
@@ -9,8 +10,9 @@ import {
   getOutdatedAttributeAlerts,
   getOutdatedProofAttributes,
   getProofStaleReason,
+  isAttributeProofSettled,
 } from '../src/lib/verification';
-import { VERIFIABLE_ATTRIBUTE_KEYS } from '../src/lib/profile';
+import { VERIFIABLE_ATTRIBUTE_KEYS, getProofSkipReason, isProofRequired } from '../src/lib/profile';
 import { normalizeDocument } from '../src/lib/appState';
 
 const doc = (overrides) => ({ id: 'doc-x', linkedAttributes: [], verificationStatus: 'Pending', ...overrides });
@@ -179,14 +181,54 @@ describe('type-derived proof links', () => {
   });
 });
 
-describe('Not needed', () => {
-  it('reads Not needed when the answer claims nothing, whatever the vault holds', () => {
+describe('answers that need no proof', () => {
+  it('reads Not applicable when the answer is not read for the year standing', () => {
+    expect(deriveAttributeStatus([], 'qpi', { profile: { yearStanding: 'incoming-1st' } })).toBe('Not applicable');
+    expect(deriveAttributeStatus([], 'hsAverage', { profile: { yearStanding: '2nd' } })).toBe('Not applicable');
+    // The same answers flip with the standing, so the state never claims a
+    // mandatory answer is unnecessary.
+    expect(deriveAttributeStatus([], 'qpi', { profile: { yearStanding: '2nd' } })).toBe('Unverified');
+    expect(deriveAttributeStatus([], 'hsAverage', { profile: { yearStanding: 'incoming-1st', hsAverage: 94 } })).toBe('Unverified');
+  });
+
+  it('keeps a mandatory senior high school average provable for an incoming first-year', () => {
+    // Regression: the field is asked of an incoming first-year, so it must read
+    // Unverified/Pending/Verified rather than any skip state.
+    expect(isProofRequired('hsAverage', { yearStanding: 'incoming-1st' })).toBe(true);
+    expect(getProofSkipReason('hsAverage', { yearStanding: 'incoming-1st' })).toBeNull();
+    expect(getProofSkipReason('hsAverage', { yearStanding: '2nd' })).toBe('standing');
+    expect(getProofSkipReason('qpi', { yearStanding: 'incoming-1st' })).toBe('standing');
+  });
+
+  it('reads No proof needed when the recorded answer claims nothing, whatever the vault holds', () => {
     const pwdProof = doc({ documentType: 'PWD ID', linkedAttributes: ['pwd'], attestedValues: { pwd: 'Yes' }, verificationStatus: 'Verified' });
-    expect(deriveAttributeStatus([pwdProof], 'pwd', { profile: { pwd: 'No' } })).toBe('Not needed');
+    expect(deriveAttributeStatus([pwdProof], 'pwd', { profile: { pwd: 'No' } })).toBe('No proof needed');
     expect(deriveAttributeStatus([pwdProof], 'pwd', { profile: { pwd: 'Yes' } })).toBe('Verified');
-    expect(deriveAttributeStatus([], 'ipCommunity', { profile: { ipCommunity: 'No' } })).toBe('Not needed');
-    expect(deriveAttributeStatus([], 'qpi', { profile: { yearStanding: 'incoming-1st' } })).toBe('Not needed');
-    expect(getAttributeVerificationTone('Not needed')).toBe('neutral');
+    expect(deriveAttributeStatus([], 'ipCommunity', { profile: { ipCommunity: 'No' } })).toBe('No proof needed');
+    expect(deriveAttributeStatus([], 'employed', { profile: { employed: 'Not employed' } })).toBe('No proof needed');
+    // Blank honors is the recorded answer "None", not an unanswered question.
+    expect(deriveAttributeStatus([], 'honorsRank', { profile: { honorsRank: '' } })).toBe('No proof needed');
+  });
+
+  it('reads Not answered while an optional answer is still Not specified', () => {
+    expect(deriveAttributeStatus([], 'pwd', { profile: { pwd: '' } })).toBe('Not answered');
+    expect(deriveAttributeStatus([], 'ipCommunity', { profile: {} })).toBe('Not answered');
+    expect(deriveAttributeStatus([], 'employed', { profile: { employed: '' } })).toBe('Not answered');
+    // With no year standing chosen the senior high school average is unanswered,
+    // not inapplicable.
+    expect(deriveAttributeStatus([], 'hsAverage', { profile: {} })).toBe('Not answered');
+  });
+
+  it('gives every skip state a neutral badge, no proof request, and its own reason', () => {
+    ['Not applicable', 'No proof needed', 'Not answered', 'Not needed'].forEach((status) => {
+      expect(getAttributeVerificationTone(status)).toBe('neutral');
+      expect(isAttributeProofSettled(status)).toBe(true);
+      expect(describeAttributeVerification(status)).toBeTruthy();
+    });
+    expect(isAttributeProofSettled('Verified')).toBe(true);
+    expect(isAttributeProofSettled('Unverified')).toBe(false);
+    expect(isAttributeProofSettled('Outdated')).toBe(false);
+    expect(describeAttributeVerification('Not applicable')).not.toBe(describeAttributeVerification('No proof needed'));
   });
 
   it('never flags a proof Outdated once its answer needs no proof', () => {

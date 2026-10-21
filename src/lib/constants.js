@@ -239,8 +239,16 @@ export const photoRejectionReasonValues = ['photo-quality', 'not-recent'];
 // Admissions Office verifies a Document Vault file that declares it as proof
 // (see src/lib/verification.js). The state is derived per attribute from the
 // linked documents, so it is distinct from a document's own verificationStatus.
-// `Not needed` marks an answer that claims nothing and so needs no proof.
-export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected', 'Outdated', 'Not needed'];
+// An answer that needs no proof names its reason: `Not applicable` (not read for
+// the student's year standing), `No proof needed` (the recorded answer claims
+// nothing), or `Not answered` (the optional answer is still "Not specified").
+// `Not needed` is the single neutral state used before those reasons were
+// separated; new derivations never produce it, but a profile snapshot submitted
+// earlier keeps rendering the badge it was frozen with.
+export const attributeVerificationStatuses = [
+  'Unverified', 'Pending', 'Verified', 'Rejected', 'Outdated',
+  'Not applicable', 'No proof needed', 'Not answered', 'Not needed',
+];
 
 // Standard Procedure submission types (step 2 required documents) plus the
 // generic fallbacks. These are the types offered when a vault file is a general

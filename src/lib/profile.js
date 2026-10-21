@@ -110,9 +110,18 @@ export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_
 // academic standing. An unset standing accepts every listed type.
 //
 // `proofRequired(profile, standing)` says whether the current answer needs proof
-// at all. Answers that claim nothing (IP community "No", PWD "No", "Not
-// employed", no honors) need no document, so the attribute reads `Not needed`
-// instead of `Unverified`. An attribute without the rule always needs proof.
+// at all. An attribute without the rule always needs proof. `skipReason` says
+// why an answer needs none, and each reason reads as its own verification state
+// (deriveAttributeStatus in src/lib/verification.js) instead of one blanket
+// "Not needed" that could not tell them apart:
+//   - `standing`: the answer is not read for this year standing, so a QPI for an
+//     incoming first-year (and a senior high school average for an enrolled
+//     student) reads `Not applicable`.
+//   - `claim`: the answer is recorded and claims nothing (IP community "No", PWD
+//     "No", "Not employed", no honors), so it reads `No proof needed`.
+//   - `unanswered`: the optional answer is still "Not specified", so no rule is
+//     decided yet and it reads `Not answered`.
+// An option without `skipReason` falls back to `claim`.
 // `claimLabel` names the extra requirement row an application gains when the
 // answer is a claim (getClaimProofRequirements in applicationRequirements.js).
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
@@ -121,6 +130,7 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     acceptedDocumentTypes: ['Grade Report', 'Transcript'],
     typeStanding: { 'Grade Report': 'continuing', Transcript: 'continuing' },
     proofRequired: (_profile, standing) => !standing.isIncomingFirstYear,
+    skipReason: 'standing',
     hint: 'Upload your grade report or transcript showing your annual QPI.',
   },
   {
@@ -128,6 +138,9 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     acceptedDocumentTypes: ['HS Report Card'],
     typeStanding: { 'HS Report Card': 'incoming' },
     proofRequired: (profile, standing) => standing.isIncomingFirstYear || (!standing.yearStanding && !isBlank(profile.hsAverage)),
+    // Only a continuing year skips it; with no standing chosen the answer is
+    // merely unanswered, not inapplicable.
+    skipReason: (profile, standing) => (standing.yearStanding ? 'standing' : 'unanswered'),
     hint: 'Upload your senior high school report card showing your general average.',
   },
   {
@@ -141,6 +154,7 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     key: 'employed', label: 'Employment status', section: 'financial',
     acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'],
     proofRequired: (profile) => !isBlank(profile.employed) && profile.employed !== 'Not employed',
+    skipReason: (profile) => (isBlank(profile.employed) ? 'unanswered' : 'claim'),
     claimLabel: 'Proof of employment',
     hint: 'Upload a certificate of employment or your latest payslip.',
   },
@@ -148,6 +162,9 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     key: 'honorsRank', label: 'Graduation honors', section: 'background',
     acceptedDocumentTypes: ['Certificate of Award'],
     proofRequired: (profile) => !isBlank(profile.honorsRank),
+    // "None" is the recorded answer for blank honors, so it needs no proof rather
+    // than reading as unanswered.
+    skipReason: 'claim',
     claimLabel: 'Proof of graduation honors',
     hint: 'Upload your Certificate of Award for your honors standing.',
   },
@@ -156,6 +173,7 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     key: 'ipCommunity', label: 'Indigenous People (IP) community', section: 'background',
     acceptedDocumentTypes: ['Certificate of Tribal Membership'],
     proofRequired: (profile) => profile.ipCommunity === 'Yes',
+    skipReason: (profile) => (isBlank(profile.ipCommunity) ? 'unanswered' : 'claim'),
     claimLabel: 'Proof of IP community membership',
     hint: 'Upload your NCIP certificate of tribal membership or equivalent.',
   },
@@ -163,6 +181,7 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     key: 'pwd', label: 'Person with Disability (PWD)', section: 'background',
     acceptedDocumentTypes: ['PWD ID', 'Medical Certificate'],
     proofRequired: (profile) => profile.pwd === 'Yes',
+    skipReason: (profile) => (isBlank(profile.pwd) ? 'unanswered' : 'claim'),
     claimLabel: 'Proof of PWD status',
     hint: 'Upload your PWD ID or medical certificate of disability.',
   },
@@ -205,6 +224,19 @@ export const isProofRequired = (key, profile = {}) => {
   if (!option.proofRequired) return true;
   const source = profile && typeof profile === 'object' ? profile : {};
   return Boolean(option.proofRequired(source, getStandingRequirements(source)));
+};
+
+// Why the current answer needs no proof: 'standing' when the answer is not read
+// for the student's year standing, 'unanswered' while an optional answer is still
+// "Not specified", and 'claim' once it is recorded and asserts nothing. Null
+// while proof is required, or for a key that is not a verifiable attribute.
+export const getProofSkipReason = (key, profile = {}) => {
+  const option = getVerifiableAttributeOption(key);
+  if (!option || isProofRequired(key, profile)) return null;
+  const source = profile && typeof profile === 'object' ? profile : {};
+  const rule = option.skipReason;
+  if (typeof rule === 'function') return rule(source, getStandingRequirements(source));
+  return rule || 'claim';
 };
 
 // The claim-style attributes the student's answers currently assert (IP

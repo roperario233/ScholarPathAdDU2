@@ -38,8 +38,8 @@ const statusClasses = {
   neutral: 'border-app-border bg-app-surface text-app-text',
 };
 
-export function StatusBadge({ tone = 'neutral', children, className = '' }) {
-  return <span className={clsx('inline-flex w-fit items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold', statusClasses[tone] || statusClasses.neutral, className)}>{children}</span>;
+export function StatusBadge({ tone = 'neutral', title, children, className = '' }) {
+  return <span className={clsx('inline-flex w-fit items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold', statusClasses[tone] || statusClasses.neutral, className)} title={title || undefined}>{children}</span>;
 }
 
 export function FormField({ label, hint, error, labelAdornment, children, className = '' }) {
