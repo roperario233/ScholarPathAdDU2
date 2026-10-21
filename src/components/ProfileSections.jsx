@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Camera, Circle, CircleCheck, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import { AVATAR_ACCEPT } from '../lib/avatarStorage';
 import { SelectPicker } from '../pages/LoginScreen';
-import { getAttributeVerificationTone } from '../lib/verification';
+import { describeAttributeVerification, deriveAttributeVerifications, getAttributeVerificationTone, isAttributeProofSettled } from '../lib/verification';
 import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
 import {
   ADDRESS_MAX_LENGTH,
@@ -172,14 +172,16 @@ function ReadOnlyField({ label, value, note, className = '' }) {
 // proof document in the Document Vault when it is not verified yet. The state is
 // derived from the student's linked proof documents (src/lib/verification.js).
 // It never blocks eligibility matching; an application needs a current proof
-// attached before it is submitted. An answer that claims nothing reads
-// `Not needed` and asks for no document.
+// attached before it is submitted. An answer that needs no proof reads its own
+// reason instead of a request for a document: `Not applicable` when it is not
+// read for the student's year standing, `No proof needed` when the answer claims
+// nothing, or `Not answered` while the optional answer is still "Not specified".
 function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
   const status = attributeVerifications[attributeKey] || 'Unverified';
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
-      <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
-      {status !== 'Verified' && status !== 'Not needed' && onAttachProof && (
+      <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>
+      {!isAttributeProofSettled(status) && onAttachProof && (
         <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>{status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
       )}
     </span>
@@ -224,7 +226,7 @@ const completenessGroupNotes = {
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
   // A verification badge only means something once the answer is filled in.
   const showStatus = item.done && status !== undefined;
-  const showAttachProof = showStatus && status !== 'Verified' && status !== 'Not needed' && onAttachProof;
+  const showAttachProof = showStatus && !isAttributeProofSettled(status) && onAttachProof;
   return (
     <li className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
       <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
@@ -232,7 +234,7 @@ function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
           ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
           : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
         <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
-        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>}
+        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>}
       </span>
       <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {showAttachProof && (
@@ -562,7 +564,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function AcademicSection({ profile, academicPrograms, academicProgramCategories, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
+export function AcademicSection({ profile, academicPrograms, academicProgramCategories, documents = [], onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       studentNumber: asText(profile.studentNumber),
@@ -582,6 +584,19 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   });
   const { values, errors, update } = form;
   const standing = getStandingRequirements(values.yearStanding);
+  // The QPI and the senior high school general average are each read for one
+  // standing, so their badges follow the standing this form is showing instead
+  // of the saved one: changing the year standing would otherwise label the field
+  // that just appeared with the other standing's derived state (the mandatory
+  // senior high school average reading `Not applicable` for a student who has
+  // not saved the incoming standing yet). Only the standing is overridden — the
+  // saved values still drive the Outdated check, so the unsaved-edit warning
+  // from previewProofImpact is not duplicated here.
+  const standingVerifications = useMemo(
+    () => deriveAttributeVerifications(documents, ['qpi', 'hsAverage'], { profile: { ...profile, yearStanding: values.yearStanding } }),
+    [documents, profile, values.yearStanding],
+  );
+  const verifications = { ...attributeVerifications, ...standingVerifications };
   const selectedProgram = academicPrograms.find((program) => program.value === values.degreeProgram);
   const programOptions = academicProgramCategories.flatMap((category) => [
     { value: `group-${category}`, label: category, isGroup: true },
@@ -607,10 +622,10 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates automatically when you change your degree program." />
       {standing.requiresProgramChoices && <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once across your 1st, 2nd, and 3rd choices.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>}
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
+        <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} onAttachProof={onAttachProof} />} />
+        {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
-      {standing.requiresHsStanding && <div className="grid gap-4 md:grid-cols-2"><SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} /><FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField></div>}
+      {standing.requiresHsStanding && <div className="grid gap-4 md:grid-cols-2"><SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} /><FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField></div>}
     </SectionForm>
   );
 }

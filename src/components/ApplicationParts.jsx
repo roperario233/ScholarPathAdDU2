@@ -12,7 +12,7 @@ import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
 import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
-import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
+import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtDate } from '../lib/formatters';
 
 // Shared read-only pieces of an application: the required-document checklist,
@@ -351,7 +351,7 @@ const SnapshotRow = ({ label, value, verification }) => (
     <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{label}</span>
     <span className="flex min-w-0 flex-wrap items-center gap-2">
       <strong className="text-sm text-app-text">{value || 'Not encoded'}</strong>
-      {verification ? <StatusBadge tone={getAttributeVerificationTone(verification)}>{getAttributeVerificationLabel(verification)}</StatusBadge> : null}
+      {verification ? <StatusBadge tone={getAttributeVerificationTone(verification)} title={describeAttributeVerification(getAttributeVerificationLabel(verification))}>{getAttributeVerificationLabel(verification)}</StatusBadge> : null}
     </span>
   </div>
 );

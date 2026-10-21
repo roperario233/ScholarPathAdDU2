@@ -119,7 +119,7 @@ export default function ProfileView({
           {activeSection === 'address' && isStudent && <AddressSection {...sectionProps} />}
           {activeSection === 'family' && isStudent && <FamilySection {...sectionProps} />}
           {activeSection === 'academic' && isStudent && (
-            <AcademicSection {...sectionProps} academicPrograms={academicPrograms} academicProgramCategories={academicProgramCategories} />
+            <AcademicSection {...sectionProps} documents={documents} academicPrograms={academicPrograms} academicProgramCategories={academicProgramCategories} />
           )}
           {activeSection === 'financial' && isStudent && <FinancialSection {...sectionProps} />}
           {activeSection === 'background' && isStudent && <BackgroundSection {...sectionProps} />}
