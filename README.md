@@ -33,6 +33,18 @@ Optional: set `VITE_SITE_URL` in the deployed environment (see `.env.example`)
 to make every build return to one canonical origin. Leave it unset locally so
 local development signs in against `http://localhost:5173`.
 
+### Opening the prototype from another device
+
+`npm run dev` binds to every network interface, so Vite prints both a local URL
+and one or more `Network:` URLs. Open a `Network:` URL (for example
+`http://192.168.1.20:5173`) from a phone or another computer on the same Wi-Fi.
+Add that same origin to Supabase **Authentication → URL Configuration → Redirect
+URLs** (for example `http://192.168.1.20:5173/**`) if Google sign-in or email
+links should return to the LAN address; otherwise Supabase falls back to the
+project Site URL. Camera capture is unavailable on a plain-HTTP LAN address
+because browsers only allow it in a secure context, so take photos on
+`localhost` or over HTTPS.
+
 ## My Profile
 
 Every role has a **My Profile** page (sidebar → My Profile, or the avatar in the
