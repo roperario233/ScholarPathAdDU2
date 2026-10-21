@@ -4,6 +4,7 @@ import {
   getApplicationProfileGate,
   getClaimedAttributes,
   getCurrentAcademicYear,
+  getProgramChoiceOptions,
   isProofRequired,
   getProfileCompleteness,
   normalizeAttestedValue,
@@ -131,13 +132,56 @@ describe('section validators', () => {
 
   it('validates ranked program choices for incoming first-years', () => {
     const base = { degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' };
-    const ok = validateAcademicSection({ ...base, programChoice2: 'BS Computer Science' }, programs);
-    // Only the one seeded program is known to the validator; an unknown choice fails.
-    expect(ok.errors.programChoice2).toBeTruthy();
-    // A duplicate of the 1st choice is rejected.
-    expect(validateAcademicSection({ ...base, programChoice2: 'BS Information Technology' }, programs).errors.programChoice2).toBeTruthy();
-    // A continuing student is not asked for program choices.
-    expect(validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology' }, programs).errors.programChoice2).toBeUndefined();
+    const choices = [
+      ...programs,
+      { value: 'BS Computer Science', label: 'BS Computer Science', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' },
+      { value: 'BS Accountancy', label: 'BS Accountancy', department: 'School of Business and Governance (SBG)', category: 'Business' },
+    ];
+    // Only a known program can be chosen.
+    expect(validateAcademicSection({ ...base, programChoice2: 'BS Unknown' }, choices).errors.programChoice2).toBeTruthy();
+    // Each ranked choice must differ from the ones before it.
+    expect(validateAcademicSection({ ...base, programChoice2: 'BS Information Technology' }, choices).errors.programChoice2).toBeTruthy();
+    expect(validateAcademicSection({ ...base, programChoice2: 'BS Computer Science', programChoice3: 'BS Information Technology' }, choices).errors.programChoice3).toBeTruthy();
+    expect(validateAcademicSection({ ...base, programChoice2: 'BS Computer Science', programChoice3: 'BS Computer Science' }, choices).errors.programChoice3).toBeTruthy();
+    // A padded duplicate is still a duplicate.
+    expect(validateAcademicSection({ ...base, programChoice2: '  BS Information Technology  ' }, choices).errors.programChoice2).toBeTruthy();
+    // Three distinct choices pass.
+    const ranked = validateAcademicSection({ ...base, programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' }, choices);
+    expect(ranked.errors).toEqual({});
+    expect(ranked.values).toMatchObject({ programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' });
+    // A continuing student is not asked for program choices, so an inherited
+    // ranked list is cleared instead of saved through My Profile.
+    const continuing = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology', programChoice3: 'BS Accountancy' }, choices);
+    expect(continuing.errors.programChoice2).toBeUndefined();
+    expect(continuing.values).toMatchObject({ programChoice2: '', programChoice3: '' });
+  });
+
+  it('offers only the programs not already chosen in another slot', () => {
+    const options = [
+      { value: 'group-Computer Studies', label: 'Computer Studies', isGroup: true },
+      { value: 'BS Information Technology', label: 'BS Information Technology' },
+      { value: 'BS Computer Science', label: 'BS Computer Science' },
+      { value: 'group-Business', label: 'Business', isGroup: true },
+      { value: 'BS Accountancy', label: 'BS Accountancy' },
+    ];
+    const selections = { degreeProgram: 'BS Information Technology', programChoice2: 'BS Computer Science', programChoice3: '' };
+    const valuesOf = (list) => list.filter((option) => !option.isGroup).map((option) => option.value);
+
+    // The 2nd and 3rd choice hide the program already used as the 1st choice.
+    expect(valuesOf(getProgramChoiceOptions(options, { slot: 'programChoice2', ...selections }))).toEqual(['BS Computer Science', 'BS Accountancy']);
+    expect(valuesOf(getProgramChoiceOptions(options, { slot: 'programChoice3', ...selections }))).toEqual(['BS Accountancy']);
+    // The 1st choice hides the program already used as the 2nd choice.
+    expect(valuesOf(getProgramChoiceOptions(options, { slot: 'degreeProgram', ...selections }))).toEqual(['BS Information Technology', 'BS Accountancy']);
+    // A slot always keeps its own current value, so the picker never shows the
+    // wrong program while the field is being corrected.
+    const corrected = { degreeProgram: 'BS Information Technology', programChoice2: 'BS Information Technology', programChoice3: '' };
+    expect(valuesOf(getProgramChoiceOptions(options, { slot: 'programChoice2', ...corrected }))).toEqual(['BS Information Technology', 'BS Computer Science', 'BS Accountancy']);
+    // Group headings survive only when one of their programs is still selectable.
+    expect(getProgramChoiceOptions(options, { slot: 'programChoice3', degreeProgram: 'BS Information Technology', programChoice2: 'BS Computer Science', programChoice3: '' }).map((option) => option.value)).toEqual(['group-Business', 'BS Accountancy']);
+    // With no other choices made, a slot still lists every program.
+    expect(valuesOf(getProgramChoiceOptions(options, { slot: 'programChoice3' }))).toHaveLength(3);
+    // Once all three slots are filled, each slot keeps only its own value.
+    expect(valuesOf(getProgramChoiceOptions(options, { slot: 'programChoice3', degreeProgram: 'BS Information Technology', programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' }))).toEqual(['BS Accountancy']);
   });
 
   it('keeps financial flags boolean so the Exclusion Flag Hierarchy reads them directly', () => {
@@ -325,6 +369,11 @@ describe('validateOnboardingEssentials', () => {
     const ranked = validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Information Technology', programChoice3: '' }, programs);
     // The 1st choice cannot repeat as the 2nd choice.
     expect(ranked.errors.programChoice2).toBeTruthy();
+
+    // A choice cannot repeat in a later slot either; three distinct programs pass.
+    const rankedPrograms = [...programs, { value: 'BS Computer Science', label: 'BS Computer Science', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' }];
+    expect(validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Computer Science', programChoice3: 'BS Computer Science' }, rankedPrograms).errors.programChoice3).toBeTruthy();
+    expect(validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Computer Science', programChoice3: '' }, rankedPrograms).errors).toEqual({});
 
     const clean = validateOnboardingEssentials({ ...incoming, programChoice2: '', programChoice3: '' }, programs);
     expect(clean.errors).toEqual({});
