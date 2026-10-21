@@ -350,7 +350,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
               </div>
             )}
             <button className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 full-width" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Signing inâ¦' : 'Sign in'}
+              {isSubmitting ? 'Signing in...' : 'Sign in'}
             </button>
              <div className="flex items-center gap-3 text-sm text-app-muted before:h-px before:flex-1 before:bg-app-border after:h-px after:flex-1 after:bg-app-border">
                <span>or</span>
