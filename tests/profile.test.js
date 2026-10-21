@@ -5,6 +5,7 @@ import {
   getClaimedAttributes,
   getCurrentAcademicYear,
   getProgramChoiceOptions,
+  getProofSkipReason,
   isProofRequired,
   getProfileCompleteness,
   normalizeAttestedValue,
@@ -441,6 +442,33 @@ describe('isProofRequired', () => {
   it('lists the claims a profile makes', () => {
     expect(getClaimedAttributes({ ipCommunity: 'Yes', pwd: 'No', employed: 'Full-time', honorsRank: '' })).toEqual(['employed', 'ipCommunity']);
     expect(getClaimedAttributes({})).toEqual([]);
+  });
+});
+
+describe('getProofSkipReason', () => {
+  it('names why an answer needs no proof', () => {
+    expect(getProofSkipReason('qpi', { yearStanding: 'incoming-1st' })).toBe('standing');
+    expect(getProofSkipReason('hsAverage', { yearStanding: '2nd' })).toBe('standing');
+    expect(getProofSkipReason('ipCommunity', { ipCommunity: 'No' })).toBe('claim');
+    expect(getProofSkipReason('employed', { employed: 'Not employed' })).toBe('claim');
+    expect(getProofSkipReason('honorsRank', { honorsRank: '' })).toBe('claim');
+  });
+
+  it('separates an unanswered optional answer from one that claims nothing', () => {
+    expect(getProofSkipReason('ipCommunity', { ipCommunity: '' })).toBe('unanswered');
+    expect(getProofSkipReason('pwd', { pwd: '' })).toBe('unanswered');
+    expect(getProofSkipReason('employed', { employed: '' })).toBe('unanswered');
+    // No standing chosen yet: the senior high school average is unanswered rather
+    // than inapplicable, so it never reads as something the student does not need.
+    expect(getProofSkipReason('hsAverage', {})).toBe('unanswered');
+  });
+
+  it('is null while a proof is required, and for an unknown attribute', () => {
+    expect(getProofSkipReason('hsAverage', { yearStanding: 'incoming-1st' })).toBeNull();
+    expect(getProofSkipReason('qpi', { yearStanding: '2nd' })).toBeNull();
+    expect(getProofSkipReason('ipCommunity', { ipCommunity: 'Yes' })).toBeNull();
+    expect(getProofSkipReason('householdIncome', {})).toBeNull();
+    expect(getProofSkipReason('not-an-attribute', {})).toBeNull();
   });
 });
 

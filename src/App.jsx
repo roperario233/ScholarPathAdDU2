@@ -1832,6 +1832,7 @@ function App() {
           initialHasActiveGovernmentGrant={profileOnboarding.initialHasActiveGovernmentGrant}
           academicPrograms={activeAcademicPrograms}
           academicProgramCategories={activeAcademicProgramCategories}
+          documents={studentDocuments}
           attributeVerifications={attributeVerifications}
           onSave={saveAcademicProfile}
           isSaving={isSavingProfile}

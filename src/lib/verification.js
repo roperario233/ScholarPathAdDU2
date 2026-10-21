@@ -1,6 +1,7 @@
 import { attributeVerificationStatuses } from './constants';
 import {
   getCurrentAcademicYear,
+  getProofSkipReason,
   getProvenAttributes,
   getVerifiableAttributeOption,
   isProofRequired,
@@ -15,9 +16,27 @@ export const UNSET_ATTRIBUTE_STATUS = 'Unverified';
 // declared value changed after the upload, or an annual proof is from an earlier
 // academic year. The student needs to upload a new proof.
 export const OUTDATED_ATTRIBUTE_STATUS = 'Outdated';
-// The state of a profile attribute whose current answer needs no proof (for
-// example IP community "No", or a QPI for an incoming first-year).
-export const NOT_NEEDED_ATTRIBUTE_STATUS = 'Not needed';
+// The states of an answer that needs no proof. Each names its own reason, because
+// one blanket "Not needed" could not tell "does not apply to you" apart from
+// "you answered that it does not apply" apart from "you have not answered":
+//   - the answer is not read for the student's year standing (a QPI for an
+//     incoming first-year, a senior high school average for an enrolled student);
+//   - the recorded answer claims nothing (IP community or PWD "No", "Not
+//     employed", no honors);
+//   - the optional answer is still "Not specified".
+export const NOT_APPLICABLE_ATTRIBUTE_STATUS = 'Not applicable';
+export const NO_PROOF_NEEDED_ATTRIBUTE_STATUS = 'No proof needed';
+export const NOT_ANSWERED_ATTRIBUTE_STATUS = 'Not answered';
+// The single neutral state used before the reasons were separated. New
+// derivations never produce it; it is kept so a profile snapshot submitted
+// earlier still renders the badge it was frozen with.
+export const LEGACY_NOT_NEEDED_ATTRIBUTE_STATUS = 'Not needed';
+
+const SKIPPED_ATTRIBUTE_STATUSES = {
+  standing: NOT_APPLICABLE_ATTRIBUTE_STATUS,
+  claim: NO_PROOF_NEEDED_ATTRIBUTE_STATUS,
+  unanswered: NOT_ANSWERED_ATTRIBUTE_STATUS,
+};
 
 // The attributes a document proves: the links recorded at upload plus the ones
 // its document type proves for the owner's standing (getProvenAttributes), so a
@@ -82,11 +101,16 @@ export const getOutdatedProofAttributes = (doc, options = {}) => (
 // outranks `Pending`, so the owner needs only one verified file to satisfy an
 // attribute even if an older attempt was rejected or a newer one is still
 // awaiting review. `options` carries the owner's `profile` (for the value check
-// and the Not needed rule) and `now` (for the academic-year check). With a
-// profile, an answer that needs no proof reads `Not needed` whatever the vault
-// holds, so changing IP community from Yes to No clears an Outdated warning.
+// and the skip rules) and `now` (for the academic-year check). With a profile, an
+// answer that needs no proof reads its own skip state whatever the vault holds
+// (`Not applicable`, `No proof needed`, or `Not answered`, see
+// getProofSkipReason), so changing IP community from Yes to No clears an Outdated
+// warning.
 export const deriveAttributeStatus = (documents = [], key, options = {}) => {
-  if (options.profile && !isProofRequired(key, options.profile)) return NOT_NEEDED_ATTRIBUTE_STATUS;
+  if (options.profile) {
+    const skipReason = getProofSkipReason(key, options.profile);
+    if (skipReason) return SKIPPED_ATTRIBUTE_STATUSES[skipReason] || NO_PROOF_NEEDED_ATTRIBUTE_STATUS;
+  }
   const proofs = getAttributeProofDocuments(documents, key, options.profile || null);
   if (!proofs.length) return UNSET_ATTRIBUTE_STATUS;
   const current = proofs.filter((doc) => isProofCurrent(doc, key, options));
@@ -141,6 +165,30 @@ export const getAttributeVerificationTone = (status) => {
 export const getAttributeVerificationLabel = (status) => (
   attributeVerificationStatuses.includes(status) ? status : UNSET_ATTRIBUTE_STATUS
 );
+
+// Whether an attribute badge needs no further action from the student: it is
+// verified, or its answer needs no proof. The attach-proof link is offered for
+// every other state.
+export const isAttributeProofSettled = (status) => (
+  status === 'Verified'
+  || status === NOT_APPLICABLE_ATTRIBUTE_STATUS
+  || status === NO_PROOF_NEEDED_ATTRIBUTE_STATUS
+  || status === NOT_ANSWERED_ATTRIBUTE_STATUS
+  || status === LEGACY_NOT_NEEDED_ATTRIBUTE_STATUS
+);
+
+// One short sentence explaining a skip state, rendered as the badge tooltip so a
+// student can tell "not read for my year standing" apart from "I answered No"
+// apart from "I have not answered yet".
+export const describeAttributeVerification = (status) => {
+  if (status === NOT_APPLICABLE_ATTRIBUTE_STATUS) return 'Not applicable: your year standing is not matched on this answer, so no proof is needed.';
+  if (status === NO_PROOF_NEEDED_ATTRIBUTE_STATUS) return 'No proof needed: your answer claims nothing to prove.';
+  if (status === NOT_ANSWERED_ATTRIBUTE_STATUS) return 'Not answered: choose an answer here before a proof can be needed.';
+  if (status === LEGACY_NOT_NEEDED_ATTRIBUTE_STATUS) return 'No proof is needed for this answer.';
+  if (status === 'Outdated') return 'Outdated: upload a current proof in the Document Vault.';
+  if (status === UNSET_ATTRIBUTE_STATUS) return 'Unverified: no proof of this answer is in your Document Vault yet.';
+  return '';
+};
 
 // Verifiable attributes grouped by the profile section they belong to, so the
 // admin review queue and the profile overview can group badges consistently.
