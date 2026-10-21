@@ -1117,7 +1117,9 @@ function App() {
     if (isSupabaseWorkspaceLoaded) {
       // The endorsement itself is the authoritative write; the department review
       // row is an auxiliary audit record, so a failure there does not roll it back.
-      upsertSupabaseDepartmentReview({
+      // Promise.resolve keeps this safe even if the helper hands back a bare
+      // Postgrest thenable, which has no .catch of its own.
+      Promise.resolve(upsertSupabaseDepartmentReview({
         applicationId,
         reviewerId: currentProfile.id,
         studentName: application.studentName,
@@ -1126,7 +1128,7 @@ function App() {
         householdIncome: application.studentHouseholdIncome,
         status: 'Endorsed',
         recommendation: record.note,
-      }).catch(() => undefined);
+      })).catch(() => undefined);
     }
     return { ok: true };
   };

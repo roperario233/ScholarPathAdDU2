@@ -43,10 +43,10 @@ export default function DepartmentReviewView({
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Sent to endorsement by the Admissions Office" />
-        <StatCard label="Department recommendations" value={endorsed.length} note="Applications routed to the next SOP stage" />
-        <StatCard label="Interviews scheduled" value={interviews.length} note="Panels from the applicant school" />
-        <StatCard label="Department scope" value={profile.department || 'Unassigned'} note="Endorsement boundary" />
+        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} />
+        <StatCard label="Department recommendations" value={endorsed.length} />
+        <StatCard label="Interviews scheduled" value={interviews.length} />
+        <StatCard label="Department" value={profile.department || 'Unassigned'} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">

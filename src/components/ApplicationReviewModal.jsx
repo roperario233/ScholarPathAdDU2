@@ -247,21 +247,27 @@ export default function ApplicationReviewModal({
     if (!endorsementDecision) return;
     setEndorsementBusy(true);
     setEndorsementError('');
-    const result = endorsementDecision.mode === 'handoff'
-      ? await onStatusChange?.(application.id, 'For Endorsement', { note })
-      : await onEndorse?.(application.id, note);
-    setEndorsementBusy(false);
-    if (result?.error) {
-      setEndorsementError(result.error);
-      return;
+    try {
+      const result = endorsementDecision.mode === 'handoff'
+        ? await onStatusChange?.(application.id, 'For Endorsement', { note })
+        : await onEndorse?.(application.id, note);
+      if (result?.error) {
+        setEndorsementError(result.error);
+        return;
+      }
+      setEndorsementFeedback(endorsementDecision.mode === 'handoff'
+        ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
+        : 'The endorsement decision was recorded.');
+      setEndorsementDecision(null);
+      // Stay on the Endorsement tab either way: the recorded hand-off or decision
+      // is the confirmation, and closing the review surface would hide it.
+      setActiveTab('endorsement');
+    } catch (error) {
+      // A rejected write must never leave the dialog stuck on "Saving…".
+      setEndorsementError(error?.message || 'The decision could not be recorded. Please try again.');
+    } finally {
+      setEndorsementBusy(false);
     }
-    setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-      ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
-      : 'The endorsement decision was recorded.');
-    setEndorsementDecision(null);
-    // Stay on the Endorsement tab either way: the recorded hand-off or decision
-    // is the confirmation, and closing the review surface would hide it.
-    setActiveTab('endorsement');
   };
 
   // Overview facts: the snapshot values the student certified, compared with

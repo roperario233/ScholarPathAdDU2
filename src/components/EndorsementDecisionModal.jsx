@@ -28,12 +28,6 @@ export default function EndorsementDecisionModal({
           </p>
         </div>
 
-        <p className="m-0 rounded-[14px] border border-app-border bg-app-surface px-3 py-2 text-sm text-app-muted">
-          {isHandoff
-            ? 'The application moves to the Department Chair’s endorsement queue. The note is added to the status history.'
-            : 'The endorsement is recorded with this note in the application status history.'}
-        </p>
-
         <div className="grid gap-2">
           <span className="text-sm font-semibold text-app-text">Suggested notes</span>
           <div className="flex flex-wrap gap-2">
