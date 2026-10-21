@@ -303,6 +303,9 @@ export default function ApplicationReviewModal({
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
+    // The frozen profile snapshot sits beside the overview so a reviewer reads
+    // the applicant's self-reported answers before the attached proofs.
+    { key: 'profile', label: 'Profile snapshot' },
     // The Documents tab appears only once the application reaches the SOP
     // verification stage; before that the gate is explained in the action bar
     // rather than by a tab that cannot be opened.
@@ -321,7 +324,6 @@ export default function ApplicationReviewModal({
       badge: application.status === 'For Endorsement' ? 'Decision due' : null,
       alert: application.status === 'For Endorsement',
     }] : []),
-    { key: 'profile', label: 'Profile snapshot' },
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
   // A selection pointing at a tab that is not shown (for example right after a
