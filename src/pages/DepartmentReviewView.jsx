@@ -103,22 +103,6 @@ export default function DepartmentReviewView({
           </div>
         </Card>
 
-        <Card title="Review guidance" action={<StatusBadge tone="info">SOP steps 4-6</StatusBadge>} className="min-w-0">
-          <div className="grid gap-3">
-            <Panel className="grid gap-3">
-              <h3>Endorsement focus</h3>
-              <p className="text-sm text-app-muted">Recommend qualified applicants once required submissions are verified and academic standing is active.</p>
-            </Panel>
-            <Panel className="grid gap-3">
-              <h3>Interview panel</h3>
-              <p className="text-sm text-app-muted">The interviewing body is drawn from the school where the applicant’s program belongs — your department convenes the panel.</p>
-            </Panel>
-            <Panel className="grid gap-3">
-              <h3>Deliberation</h3>
-              <p className="text-sm text-app-muted">The School Scholarship Sub-committee evaluates interviewed applicants and records its recommendation.</p>
-            </Panel>
-          </div>
-        </Card>
       </section>
 
       {selected && (
