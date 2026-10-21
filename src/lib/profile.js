@@ -559,6 +559,40 @@ const oneOf = (value, options, message) => (
   options.some((option) => option.value === value) ? ok(value) : { value, error: message }
 );
 
+// One ranked program choice excludes the programs already chosen in the other
+// two slots, so an incoming first-year cannot rank the same program twice. A
+// slot always keeps its own current value: SelectPicker falls back to the first
+// option when the selected value is missing, which would display the wrong
+// program while the student is correcting the field. Group headings whose
+// programs were all hidden are dropped so the picker never shows an empty
+// category. Shared by the first-login modal and the My Profile section so the
+// two surfaces cannot disagree about what is still selectable.
+export const getProgramChoiceOptions = (options = [], { slot = 'degreeProgram', degreeProgram = '', programChoice2 = '', programChoice3 = '' } = {}) => {
+  const choices = { degreeProgram, programChoice2, programChoice3 };
+  const blocked = new Set(
+    Object.entries(choices)
+      .filter(([key, value]) => key !== slot && value)
+      .map(([, value]) => String(value).trim()),
+  );
+  const current = String(choices[slot] ?? '').trim();
+  const kept = options.filter((option) => option.isGroup || option.value === current || !blocked.has(String(option.value).trim()));
+
+  const result = [];
+  let group = null;
+  kept.forEach((option) => {
+    if (option.isGroup) {
+      group = option;
+      return;
+    }
+    if (group) {
+      result.push(group);
+      group = null;
+    }
+    result.push(option);
+  });
+  return result;
+};
+
 // Free-text field: trims and collapses whitespace, caps the length, and treats a
 // blank entry as an empty value (never a validation error).
 const validateText = (raw, { max, message }) => {
@@ -660,8 +694,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
     // Ranked program choices for an incoming first-year. Choice 1 is the degree
     // program above; choices 2 and 3 are optional and must differ from each other.
-    programChoice2: validateOptionalProgramChoice(form.programChoice2, academicPrograms),
-    programChoice3: validateOptionalProgramChoice(form.programChoice3, academicPrograms),
+    // A standing that does not rank choices clears any inherited selection, so a
+    // student who switches to an enrolled year never carries stale duplicates.
+    programChoice2: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice2, academicPrograms) : ok(''),
+    programChoice3: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice3, academicPrograms) : ok(''),
     // Derived so the eligibility engine keeps reading the same attributes.
     applicantType: ok(standing.applicantType),
     yearLevel: standing.yearLevel == null
@@ -674,11 +710,16 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
   if (standing.requiresHsStanding) {
     if (!result.values.hsStrand && !result.errors.hsStrand) result.errors.hsStrand = 'Choose your senior high school strand.';
     if (result.values.hsAverage === '' && !result.errors.hsAverage) result.errors.hsAverage = 'Add your senior high school general average.';
-    // Program choices must be distinct when more than one is provided.
-    if (result.values.programChoice2 && result.values.programChoice2 === result.values.degreeProgram) {
+    // Program choices must be distinct when more than one is provided. The
+    // comparison is trimmed so a stray space can never slip a duplicate past the
+    // picker's exact-value filtering.
+    const firstChoice = String(result.values.degreeProgram ?? '').trim();
+    const secondChoice = String(result.values.programChoice2 ?? '').trim();
+    const thirdChoice = String(result.values.programChoice3 ?? '').trim();
+    if (secondChoice && secondChoice === firstChoice) {
       result.errors.programChoice2 = 'Choose a different program from your 1st choice.';
     }
-    if (result.values.programChoice3 && (result.values.programChoice3 === result.values.degreeProgram || result.values.programChoice3 === result.values.programChoice2)) {
+    if (thirdChoice && (thirdChoice === firstChoice || thirdChoice === secondChoice)) {
       result.errors.programChoice3 = 'Choose a program different from your earlier choices.';
     }
   }

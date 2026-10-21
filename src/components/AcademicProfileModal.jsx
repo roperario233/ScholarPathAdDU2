@@ -5,6 +5,7 @@ import { SelectPicker } from '../pages/LoginScreen';
 import {
   academicStandingOptions,
   citizenshipOptions,
+  getProgramChoiceOptions,
   getStandingRequirements,
   hsStrandOptions,
   validateOnboardingEssentials,
@@ -74,12 +75,20 @@ export default function AcademicProfileModal({
   const [hsAverage, setHsAverage] = useState(initialHsAverage ?? '');
   const [hasActiveGovernmentGrant, setHasActiveGovernmentGrant] = useState(Boolean(initialHasActiveGovernmentGrant));
   const [validationError, setValidationError] = useState('');
+  // Per-field errors from the shared rules, so a duplicate program choice shows
+  // beside the choice it belongs to instead of only in the summary banner.
+  const [errors, setErrors] = useState({});
   const standing = getStandingRequirements(yearStanding);
   const selectedProgram = academicPrograms.find((entry) => entry.value === program) || academicPrograms[0];
   const programOptions = academicProgramCategories.flatMap((category) => [
     { value: `group-${category}`, label: category, isGroup: true },
     ...academicPrograms.filter((option) => option.category === category),
   ]);
+  const choiceOptions = {
+    degreeProgram: getProgramChoiceOptions(programOptions, { slot: 'degreeProgram', degreeProgram: program, programChoice2, programChoice3 }),
+    programChoice2: getProgramChoiceOptions(programOptions, { slot: 'programChoice2', degreeProgram: program, programChoice2, programChoice3 }),
+    programChoice3: getProgramChoiceOptions(programOptions, { slot: 'programChoice3', degreeProgram: program, programChoice2, programChoice3 }),
+  };
 
   useEffect(() => {
     setProgram(initialProgram || '');
@@ -97,7 +106,17 @@ export default function AcademicProfileModal({
     setHasActiveGovernmentGrant(Boolean(initialHasActiveGovernmentGrant));
   }, [initialProgram, initialProgramChoice2, initialProgramChoice3, initialStudentNumber, initialYearStanding, initialAcademicStanding, initialCitizenship, initialPhone, initialHouseholdIncome, initialQpi, initialHsStrand, initialHsAverage, initialHasActiveGovernmentGrant]);
 
-  const clearError = () => setValidationError('');
+  // Clears the summary banner plus the field errors a change can resolve. A new
+  // 1st choice can fix or break both later choices, so that field clears all three.
+  const clearError = (...keys) => {
+    setValidationError('');
+    if (!keys.length) return;
+    setErrors((previous) => {
+      const next = { ...previous };
+      keys.forEach((key) => delete next[key]);
+      return next;
+    });
+  };
   // An incoming first-year is matched on senior high school standing instead of
   // a college QPI, so the required inputs swap accordingly.
   const isComplete = Boolean(program && yearStanding && academicStanding && citizenship)
@@ -124,12 +143,15 @@ export default function AcademicProfileModal({
       citizenship,
     }, academicPrograms);
     const firstError = Object.values(result.errors)[0];
+    setErrors(result.errors);
     if (firstError) {
-      setValidationError(firstError.error);
+      // Every rendered field shows its own message, so the banner stays a summary.
+      setValidationError('Review the highlighted fields before continuing.');
       return;
     }
 
     setValidationError('');
+    setErrors({});
     onSave({ ...result.values, hasActiveGovernmentGrant });
   };
 
@@ -147,49 +169,49 @@ export default function AcademicProfileModal({
         </p>
         <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError(); }} options={yearStandingOptions} placeholder="Choose year standing" />
+            <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError('yearStanding', 'studentNumber', 'qpi', 'programChoice2', 'programChoice3'); }} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
             {standing.requiresStudentNumber && (
-              <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record.">
-                <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required />
+              <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record." error={errors.studentNumber}>
+                <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError('studentNumber'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required aria-invalid={Boolean(errors.studentNumber)} />
               </FormField>
             )}
           </div>
-          <SelectPicker label={standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program" />
+          <SelectPicker label={standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError('degreeProgram', 'programChoice2', 'programChoice3'); }} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="academic-profile-program" />
           {standing.requiresProgramChoices && (
             <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
               <div>
                 <p className="m-0 text-sm font-semibold text-app-text">Program choices</p>
-                <small className="field-hint mt-1 block">Your 1st choice is the program above. Add a 2nd and 3rd choice when you are applying to more than one program.</small>
+                <small className="field-hint mt-1 block">Your 1st choice is the program above. Add a 2nd and 3rd choice when you are applying to more than one program. Each program can be chosen once.</small>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
-                <SelectPicker label="2nd choice program" value={programChoice2} onChange={(value) => { setProgramChoice2(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program-choice-2" />
-                <SelectPicker label="3rd choice program" value={programChoice3} onChange={(value) => { setProgramChoice3(value); clearError(); }} options={programOptions} idPrefix="academic-profile-program-choice-3" />
+                <SelectPicker label="2nd choice program" value={programChoice2} onChange={(value) => { setProgramChoice2(value); clearError('programChoice2', 'programChoice3'); }} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="academic-profile-program-choice-2" />
+                <SelectPicker label="3rd choice program" value={programChoice3} onChange={(value) => { setProgramChoice3(value); clearError('programChoice3'); }} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="academic-profile-program-choice-3" />
               </div>
             </div>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError(); }} options={academicStandingOptions} placeholder="Choose standing" labelAdornment={<AttributeVerificationBadge attributeKey="academicStanding" attributeVerifications={attributeVerifications} />} />
-            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError(); }} options={citizenshipOptions} placeholder="Choose citizenship" labelAdornment={<AttributeVerificationBadge attributeKey="citizenship" attributeVerifications={attributeVerifications} />} />
+            <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError('academicStanding'); }} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerificationBadge attributeKey="academicStanding" attributeVerifications={attributeVerifications} />} />
+            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError('citizenship'); }} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerificationBadge attributeKey="citizenship" attributeVerifications={attributeVerifications} />} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Mobile number" hint="Optional. Deadline reminder texts use this Philippine mobile number.">
-              <input className={controlClass} value={phone} onChange={(event) => { setPhone(event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20)); clearError(); }} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" />
+            <FormField label="Mobile number" hint="Optional. Deadline reminder texts use this Philippine mobile number." error={errors.phone}>
+              <input className={controlClass} value={phone} onChange={(event) => { setPhone(event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20)); clearError('phone'); }} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
             </FormField>
-            <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." labelAdornment={<AttributeVerificationBadge attributeKey="householdIncome" attributeVerifications={attributeVerifications} />}>
-              <input className={controlClass} value={householdIncome} onChange={(event) => { setHouseholdIncome(event.target.value.replace(/[^\d]/g, '')); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" required />
+            <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerificationBadge attributeKey="householdIncome" attributeVerifications={attributeVerifications} />}>
+              <input className={controlClass} value={householdIncome} onChange={(event) => { setHouseholdIncome(event.target.value.replace(/[^\d]/g, '')); clearError('householdIncome'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" required aria-invalid={Boolean(errors.householdIncome)} />
             </FormField>
           </div>
           {standing.requiresHsStanding && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <NativeSelect label="Senior high school strand" value={hsStrand} onChange={(value) => { setHsStrand(value); clearError(); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" />
-              <FormField label="Senior high school general average" hint="Whole number from 60 to 100." labelAdornment={<AttributeVerificationBadge attributeKey="hsAverage" attributeVerifications={attributeVerifications} />}>
-                <input className={controlClass} value={hsAverage} onChange={(event) => { setHsAverage(event.target.value.replace(/\D/g, '').slice(0, 3)); clearError(); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" required />
+              <NativeSelect label="Senior high school strand" value={hsStrand} onChange={(value) => { setHsStrand(value); clearError('hsStrand'); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />
+              <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerificationBadge attributeKey="hsAverage" attributeVerifications={attributeVerifications} />}>
+                <input className={controlClass} value={hsAverage} onChange={(event) => { setHsAverage(event.target.value.replace(/\D/g, '').slice(0, 3)); clearError('hsAverage'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" required aria-invalid={Boolean(errors.hsAverage)} />
               </FormField>
             </div>
           )}
           {standing.requiresQpi && (
-            <FormField label="Annual QPI" hint="Self-reported on the AdDU 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={attributeVerifications} />}>
-              <input className={controlClass} value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); clearError(); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" required />
+            <FormField label="Annual QPI" hint="Self-reported on the AdDU 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={attributeVerifications} />}>
+              <input className={controlClass} value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); clearError('qpi'); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" required aria-invalid={Boolean(errors.qpi)} />
             </FormField>
           )}
           <label className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
