@@ -79,11 +79,14 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '' })
   };
 
   return (
-    <div className="relative grid gap-2" onKeyDown={handleKeyDown}>
+    // An explicit minmax(0, 1fr) track keeps the trigger inside its column: an
+    // implicit auto track would grow to the long program name's min-content
+    // width and paint over the neighbouring field (issue #18).
+    <div className="relative grid min-w-0 max-w-full grid-cols-1 gap-2" onKeyDown={handleKeyDown}>
       <span className="text-sm font-semibold text-app-text">{label}</span>
       <button
         type="button"
-        className={`flex min-h-12 w-full items-center justify-between gap-3 rounded-control border bg-app-surface px-4 py-3 text-left text-app-text shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${error ? 'border-rose-400/60' : 'border-app-border'}`}
+        className={`flex min-h-12 w-full min-w-0 items-center justify-between gap-3 overflow-hidden rounded-control border bg-app-surface px-4 py-3 text-left text-app-text shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${error ? 'border-rose-400/60' : 'border-app-border'}`}
         onClick={() => setOpen((previous) => !previous)}
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -91,7 +94,7 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '' })
         aria-invalid={Boolean(error)}
         aria-describedby={error ? `${idPrefix}-error` : undefined}
       >
-        <strong className="truncate text-sm">{selectedOption.label}</strong>
+        <strong className="min-w-0 flex-1 truncate text-sm" title={selectedOption.label}>{selectedOption.label}</strong>
         <ChevronDown className="h-5 w-5 shrink-0 text-app-muted" size={18} aria-hidden="true" />
       </button>
       {error && <span id={`${idPrefix}-error`} className="text-sm text-rose-600 dark:text-rose-300" role="alert">{error}</span>}
