@@ -11,6 +11,7 @@ import {
   getApplicationReadiness,
   getCatalogRequirements,
   getDocumentChecklist,
+  getDocumentProofReview,
   getDocumentVerificationReadiness,
   getApplicantPhotoDocument,
   getLinkedDocuments,
@@ -28,7 +29,7 @@ import { fmtDate } from '../src/lib/formatters';
 
 const continuingProfile = {
   fullName: 'Ana Reyes',
-  studentNumber: '2023-00001',
+  studentNumber: '202300001',
   degreeProgram: 'BS Information Technology',
   department: 'School of Engineering and Architecture',
   yearStanding: '2nd',
@@ -369,7 +370,7 @@ describe('My Profile document checklist', () => {
   it('merges the open internal scholarships into one list per document', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa, closed, inactive, external], profile: continuingProfile, today });
     expect(checklist.scholarships.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
-    expect(ids(checklist.items)).toEqual(['application-form', 'applicant-photo', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
+    expect(ids(checklist.items)).toEqual(['application-form', 'applicant-photo', 'citizenship-proof', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
     expect(keyOf(checklist.items, 'application-form').askedByAll).toBe(true);
     expect(keyOf(checklist.items, 'income-proof').scholarships.map((item) => item.id)).toEqual(['gia', 'sa']);
     expect(keyOf(checklist.items, 'income-proof').notAskedBy).toEqual([{ id: 'jubilee', title: jubilee.title }]);
@@ -392,6 +393,7 @@ describe('My Profile document checklist', () => {
     expect(Object.fromEntries(checklist.items.map((item) => [item.id, item.state]))).toEqual({
       'application-form': 'verified',
       'applicant-photo': 'missing',
+      'citizenship-proof': 'missing',
       'college-grades': 'attached',
       'income-proof': 'rejected',
       'residence-photos': 'missing',
@@ -399,15 +401,17 @@ describe('My Profile document checklist', () => {
       'certificate-of-award': 'missing',
     });
     // A pending file counts, a rejected one does not: the same bar as submitting.
-    expect([checklist.ready, checklist.total]).toEqual([2, 7]);
+    expect([checklist.ready, checklist.total]).toEqual([2, 8]);
   });
 
   it('is empty when no internal scholarship is open', () => {
     expect(getDocumentChecklist({ scholarships: [closed, external], profile: continuingProfile, today })).toMatchObject({ scholarships: [], items: [], ready: 0, total: 0 });
   });
 
-  it('preselects a general vault type, falling back to the attribute that accepts a proof-only type', () => {
-    expect(getRequirementUploadPreset({ documentTypes: ['Grade Report', 'Transcript'] })).toEqual({ attribute: '', documentType: 'Transcript' });
+  it('preselects the first type under the attribute it proves, or as a general document', () => {
+    expect(getRequirementUploadPreset({ documentTypes: ['Grade Report', 'Transcript'] })).toEqual({ attribute: 'qpi', documentType: 'Grade Report' });
+    expect(getRequirementUploadPreset({ documentTypes: ['HS Report Card'] }, incomingProfile)).toEqual({ attribute: 'hsAverage', documentType: 'HS Report Card' });
+    expect(getRequirementUploadPreset({ documentTypes: ['Application Form'] })).toEqual({ attribute: '', documentType: 'Application Form' });
     expect(getRequirementUploadPreset({ documentTypes: ['Grade Report'] })).toEqual({ attribute: 'qpi', documentType: 'Grade Report' });
     expect(getRequirementUploadPreset({ documentTypes: ['Applicant Photo'] })).toEqual({ attribute: '', documentType: 'Applicant Photo' });
     expect(getRequirementUploadPreset({ documentTypes: ['Photos of Residence'] })).toEqual({ attribute: '', documentType: 'Photos of Residence' });
@@ -650,5 +654,114 @@ describe('replacing a rejected document on a submitted application', () => {
     const { documentTypes, candidates } = getReplacementOptions({ application, requirements, rejectedDocument: rejectedPhoto, documents });
     expect(documentTypes).toEqual(['Photo']);
     expect(candidates).toEqual([]);
+  });
+});
+
+describe('profile answers behind the requirements', () => {
+  const proof = (id, documentType, attestedValues, overrides = {}) => ({
+    ...doc(id, documentType, 'Pending', '2026-10-01'),
+    linkedAttributes: Object.keys(attestedValues),
+    attestedValues,
+    ...overrides,
+  });
+  const today = new Date('2026-10-12T00:00:00');
+  const requirements = getScholarshipRequirements(gia, continuingProfile);
+  const byId = Object.fromEntries(requirements.map((item) => [item.id, item]));
+  // One current file per requirement; proof types attest the profile values.
+  const currentDocs = () => requirements.map((item, index) => {
+    const type = item.documentTypes[0];
+    if (item.id === 'college-grades') return proof(`d${index}`, type, { qpi: 3.2, academicStanding: 'good' });
+    if (item.id === 'income-proof') return proof(`d${index}`, type, { householdIncome: 180000 });
+    if (item.id === 'citizenship-proof') return proof(`d${index}`, type, { citizenship: 'Filipino' });
+    return doc(`d${index}`, type);
+  });
+  const draft = (documents) => ({ status: 'Draft', attachedDocuments: documents.map((entry) => entry.id), statement: 'Statement.' });
+
+  it('names the answers each requirement proves for the standing', () => {
+    expect(byId['college-grades'].proves).toEqual(['qpi', 'academicStanding']);
+    expect(byId['income-proof'].proves).toEqual(['householdIncome']);
+    expect(byId['citizenship-proof'].proves).toEqual(['citizenship']);
+    expect(byId['application-form'].proves).toEqual([]);
+    const incoming = Object.fromEntries(getScholarshipRequirements(gia, incomingProfile).map((item) => [item.id, item]));
+    expect(incoming['hs-report-card'].proves).toEqual(['hsAverage', 'academicStanding']);
+  });
+
+  it('asks every in-scope track for proof of citizenship', () => {
+    Object.values(DEFAULT_REQUIRED_DOCUMENTS).forEach((items) => {
+      expect(items.find((item) => item.id === 'citizenship-proof')).toMatchObject({ standing: 'all' });
+    });
+  });
+
+  it('is ready with current proofs and blocks a proof the profile no longer matches', () => {
+    const documents = currentDocs();
+    const ready = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: continuingProfile, certified: true, today });
+    expect(ready.blockers).toEqual([]);
+    const changed = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.5 }, certified: true, today });
+    expect(changed.requirements.find((item) => item.id === 'college-grades').state).toBe('outdated');
+    expect(changed.ready).toBe(false);
+    expect(changed.blockers).toContain('Upload a current proof for Latest grade report or transcript: your Annual QPI in My Profile is now 3.50, which the attached file was not uploaded to prove.');
+  });
+
+  it('attaches a current proof by default over a newer outdated one', () => {
+    const current = proof('current', 'Grade Report', { qpi: 3.2, academicStanding: 'good' }, { uploadedAt: '2026-09-01' });
+    const stale = proof('stale', 'Grade Report', { qpi: 2.9, academicStanding: 'good' }, { uploadedAt: '2026-10-01' });
+    expect(pickDefaultAttachments([byId['college-grades']], [stale, current], { profile: continuingProfile, today })).toEqual(['current']);
+    expect(pickDefaultAttachments([byId['college-grades']], [stale], { profile: continuingProfile, today })).toEqual(['stale']);
+  });
+
+  it('blocks an annual proof from an earlier academic year', () => {
+    const documents = currentDocs().map((entry) => (entry.documentType === 'Income Proof' ? { ...entry, uploadedAt: '2026-05-01' } : entry));
+    const result = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: continuingProfile, certified: true, today });
+    expect(result.requirements.find((item) => item.id === 'income-proof').state).toBe('outdated');
+    expect(result.blockers.some((blocker) => blocker.includes('earlier academic year'))).toBe(true);
+  });
+
+  it('adds a requirement row for each claim and removes it when the answer is No', () => {
+    const claiming = { ...continuingProfile, pwd: 'Yes', ipCommunity: 'No' };
+    const rows = getScholarshipRequirements(gia, claiming);
+    expect(rows.find((item) => item.id === 'proof-pwd')).toMatchObject({ claim: true, proves: ['pwd'], documentTypes: ['PWD ID', 'Medical Certificate'] });
+    expect(rows.some((item) => item.id === 'proof-ipCommunity')).toBe(false);
+    expect(getScholarshipRequirements(gia, { ...claiming, pwd: 'No' }).some((item) => item.id === 'proof-pwd')).toBe(false);
+    const documents = currentDocs();
+    const blocked = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: claiming, certified: true, today });
+    expect(blocked.blockers.some((blocker) => blocker.includes('Proof of PWD status'))).toBe(true);
+  });
+
+  it('does not repeat a claim a catalog requirement already proves', () => {
+    const jubilee = { id: 'jubilee', title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors', isActive: true, deadline: '2999-12-31' };
+    const rows = getScholarshipRequirements(jubilee, { ...continuingProfile, honorsRank: 'Valedictorian' });
+    expect(rows.find((item) => item.id === 'certificate-of-award').proves).toEqual(['honorsRank']);
+    expect(rows.some((item) => item.id === 'proof-honorsRank')).toBe(false);
+  });
+
+  it('asks for the year standing before listing standing-specific documents', () => {
+    const unset = { ...continuingProfile, yearStanding: '' };
+    const ids = getScholarshipRequirements(gia, unset).map((item) => item.id);
+    expect(ids).not.toContain('college-grades');
+    expect(ids).not.toContain('hs-report-card');
+    const result = getApplicationReadiness({ application: draft([]), scholarship: gia, documents: [], profile: unset, certified: true, today });
+    expect(result.blockers[0]).toBe('Set your year standing in My Profile so the documents for your standing can be listed.');
+  });
+
+  it('judges a submitted application against its frozen snapshot, not the live profile', () => {
+    const documents = currentDocs();
+    const submitted = {
+      ...draft(documents),
+      status: 'Submitted',
+      certifiedAt: '2026-10-05T00:00:00.000Z',
+      profileSnapshot: buildProfileSnapshot(continuingProfile, {}, '2026-10-05T00:00:00.000Z'),
+    };
+    const later = new Date('2027-07-01T00:00:00');
+    const result = getApplicationReadiness({ application: submitted, scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.9 }, today: later });
+    expect(result.requirements.every((item) => item.state !== 'outdated')).toBe(true);
+  });
+
+  it('shows the reviewer what a file proves and where it disagrees with the snapshot', () => {
+    const snapshot = buildProfileSnapshot({ ...continuingProfile, qpi: 3.4 }, {}, '2026-10-05T00:00:00.000Z');
+    const application = { status: 'For Verification', certifiedAt: '2026-10-05T00:00:00.000Z', profileSnapshot: snapshot };
+    const gradeReport = proof('g', 'Grade Report', { qpi: 3.2, academicStanding: 'good' });
+    const review = getDocumentProofReview(gradeReport, application);
+    expect(review.map((entry) => [entry.key, entry.source, entry.staleReason])).toEqual([['qpi', 'snapshot', 'value'], ['academicStanding', 'snapshot', null]]);
+    expect(review[0]).toMatchObject({ attested: 3.2, declared: 3.4 });
   });
 });

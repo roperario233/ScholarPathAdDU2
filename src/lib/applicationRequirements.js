@@ -2,21 +2,30 @@ import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentT
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
 import { fmtCurrency, fmtDate } from './formatters';
 import {
-  VERIFIABLE_ATTRIBUTE_OPTIONS,
+  VERIFIABLE_ATTRIBUTE_KEYS,
   academicStandingOptions,
   civilStatusOptions,
   deriveYearStanding,
   employmentOptions,
   familyPositionOptions,
+  getApplicationProfileGate,
+  getClaimedAttributes,
+  getProvenAttributes,
   getStandingRequirements,
   getVerifiableAttributeOption,
   honorsRankOptions,
   ipCommunityOptions,
+  isProofRequired,
   pwdOptions,
   religionOptions,
   yearStandingOptions,
 } from './profile';
-import { UNSET_ATTRIBUTE_STATUS } from './verification';
+import {
+  UNSET_ATTRIBUTE_STATUS,
+  deriveAttributeVerifications,
+  getDocumentLinkedAttributes,
+  getProofStaleReason,
+} from './verification';
 
 // Application requirements: the documents a scholarship asks for before a
 // student may submit, and the readiness check the application workspace, the
@@ -47,15 +56,21 @@ const GOOD_MORAL = { id: 'good-moral', label: 'Certificate of Good Moral Charact
 const INCOME_PROOF = { id: 'income-proof', label: 'Financial income documents of parents / legal guardians', documentTypes: ['Income Proof', 'Certificate of Indigency'], standing: 'all' };
 const HS_REPORT_CARD = { id: 'hs-report-card', label: 'Senior high school report card', documentTypes: ['HS Report Card'], standing: 'incoming' };
 const COLLEGE_GRADES = { id: 'college-grades', label: 'Latest grade report or transcript', documentTypes: ['Grade Report', 'Transcript'], standing: 'continuing' };
+// Every program's eligibility checks Filipino citizenship (the universal gate in
+// src/lib/eligibility.js), so every in-scope track asks for proof of it.
+const CITIZENSHIP_PROOF = { id: 'citizenship-proof', label: 'Proof of Filipino citizenship', documentTypes: ['PSA Birth Certificate', 'Philippine National ID', "Driver's License", 'Passport'], standing: 'all' };
 
 // Every in-scope track asks for a recent photo of the applicant and photos of
 // their residence. Both are ordinary Document Vault files, so the Admissions
 // Office verifies them like any other required submission; a student can take
 // them with the camera or upload an existing photo (src/lib/photoGuide.js).
+// Proof of citizenship is backfilled by
+// 20261028000000_require_current_attribute_proofs.sql.
 export const DEFAULT_REQUIRED_DOCUMENTS = {
   'general-pool': [
     APPLICATION_FORM,
     APPLICANT_PHOTO,
+    CITIZENSHIP_PROOF,
     { id: 'entrance-exam', label: 'Entrance exam result with ACCEPTED remark', documentTypes: ['Entrance Exam Result'], standing: 'incoming' },
     { ...HS_REPORT_CARD, label: 'Senior high school report card with at least 85% average' },
     COLLEGE_GRADES,
@@ -67,6 +82,7 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
   honors: [
     APPLICATION_FORM,
     APPLICANT_PHOTO,
+    CITIZENSHIP_PROOF,
     { id: 'certificate-of-award', label: 'Certificate of Award as Rank 1 or 2', documentTypes: ['Certificate of Award'], standing: 'all' },
     HS_REPORT_CARD,
     COLLEGE_GRADES,
@@ -76,6 +92,7 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
   'work-study': [
     APPLICATION_FORM,
     APPLICANT_PHOTO,
+    CITIZENSHIP_PROOF,
     INCOME_PROOF,
     HS_REPORT_CARD,
     COLLEGE_GRADES,
@@ -117,13 +134,53 @@ export const getCatalogRequirements = (scholarship = {}) => {
   return DEFAULT_REQUIRED_DOCUMENTS[resolveRuleFamily(scholarship)] || [];
 };
 
-// The requirements that apply to this student's standing. External and
+// The profile answers a requirement proves for this student: every attribute
+// its accepted types prove (getProvenAttributes) whose current answer needs
+// proof. A file attached for the requirement must be a current proof of each.
+export const getRequirementProvenAttributes = (documentTypes = [], profile = {}) => (
+  [...new Set(documentTypes.flatMap((type) => getProvenAttributes(type, profile)))]
+    .filter((key) => isProofRequired(key, profile))
+);
+
+// One requirement row per claim the student's answers make (IP community "Yes",
+// PWD "Yes", employed, honors) that no catalog requirement already proves, so a
+// claim shared in the profile snapshot always travels with its proof. Answering
+// "No" removes the row.
+export const getClaimProofRequirements = (profile = {}, covered = []) => (
+  getClaimedAttributes(profile)
+    .filter((key) => !covered.includes(key))
+    .map((key) => {
+      const option = getVerifiableAttributeOption(key);
+      return {
+        id: `proof-${key}`,
+        label: option.claimLabel,
+        documentTypes: [...option.acceptedDocumentTypes],
+        standing: 'all',
+        claim: true,
+        note: `Required because of your ${option.label} answer in My Profile. Change the answer there if it does not apply.`,
+        proves: [key],
+      };
+    })
+);
+
+// The requirements that apply to this student's standing, each with the
+// profile answers it proves, followed by the claim rows. An unset standing
+// lists only the items every applicant needs; the readiness check asks the
+// student to set it before anything is submitted. External and
 // government-linked entries are tracked only, so they ask for nothing here.
 export const getScholarshipRequirements = (scholarship = {}, profile = {}) => {
-  const isIncoming = getStandingRequirements(profile).isIncomingFirstYear;
-  return getCatalogRequirements(scholarship).filter((item) => (
-    item.standing === 'all' || (item.standing === 'incoming' ? isIncoming : !isIncoming)
-  ));
+  const catalog = getCatalogRequirements(scholarship);
+  if (!catalog.length) return [];
+  const standing = getStandingRequirements(profile);
+  const isIncoming = standing.isIncomingFirstYear;
+  const items = catalog
+    .filter((item) => (
+      item.standing === 'all'
+      || (standing.yearStanding && (item.standing === 'incoming' ? isIncoming : !isIncoming))
+    ))
+    .map((item) => ({ ...item, proves: getRequirementProvenAttributes(item.documentTypes, profile) }));
+  const covered = items.flatMap((item) => item.proves);
+  return [...items, ...getClaimProofRequirements(profile, covered)];
 };
 
 export const describeRequirementTypes = (requirement) => (
@@ -161,22 +218,38 @@ export const getReplacementOptions = ({ application, requirements = [], rejected
   return { documentTypes, candidates };
 };
 
-// Vault files to attach when a draft is created: the newest non-rejected file
-// for each requirement, so a student who already uploaded a document does not
-// attach it again.
-export const pickDefaultAttachments = (requirements = [], documents = []) => {
+// Vault files to attach when a draft is created: for each requirement, the
+// newest non-rejected file that is still a current proof of the answers it
+// proves (else the newest non-rejected file, which the workspace then flags as
+// outdated), so a student who already uploaded a document does not attach it
+// again.
+export const pickDefaultAttachments = (requirements = [], documents = [], { profile = null, today = new Date() } = {}) => {
   const picked = new Set();
   requirements.forEach((requirement) => {
-    const match = getMatchingVaultDocuments(requirement, documents).find((doc) => doc.verificationStatus !== 'Rejected');
+    const candidates = getMatchingVaultDocuments(requirement, documents).filter((doc) => doc.verificationStatus !== 'Rejected');
+    const match = candidates.find((doc) => !getStaleProofKeys(doc, requirement.proves || [], { profile, now: today }).length) || candidates[0];
     if (match) picked.add(match.id);
   });
   return [...picked];
 };
 
-const requirementState = (attached) => {
+// The answers in `proves` that a file no longer proves, each with its stale
+// reason: the declared value changed after upload or, for an annual attribute,
+// the file is from an earlier academic year.
+const getStaleProofKeys = (doc, proves = [], { profile = null, now = new Date() } = {}) => (
+  getDocumentLinkedAttributes(doc, profile)
+    .filter((key) => proves.includes(key))
+    .map((key) => ({ key, reason: getProofStaleReason(doc, key, { profile, now }) }))
+    .filter((entry) => entry.reason)
+);
+
+const requirementState = (attached, { proves = [], profile = null, now = new Date() } = {}) => {
   if (!attached.length) return 'missing';
-  if (attached.some((doc) => doc.verificationStatus === 'Verified')) return 'verified';
-  if (attached.every((doc) => doc.verificationStatus === 'Rejected')) return 'rejected';
+  const usable = attached.filter((doc) => doc.verificationStatus !== 'Rejected');
+  if (!usable.length) return 'rejected';
+  const current = usable.filter((doc) => !getStaleProofKeys(doc, proves, { profile, now }).length);
+  if (!current.length) return 'outdated';
+  if (current.some((doc) => doc.verificationStatus === 'Verified')) return 'verified';
   return 'attached';
 };
 
@@ -185,6 +258,7 @@ export const REQUIREMENT_STATE_LABELS = {
   attached: { label: 'Attached · Pending review', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
   rejected: { label: 'Rejected · Replace file', tone: 'danger' },
+  outdated: { label: 'Outdated · Upload a current proof', tone: 'danger' },
 };
 
 // The same states read against the whole Document Vault rather than one
@@ -194,6 +268,7 @@ export const VAULT_REQUIREMENT_STATE_LABELS = {
   attached: { label: 'Pending', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
   rejected: { label: 'Rejected', tone: 'danger' },
+  outdated: { label: 'Outdated', tone: 'danger' },
 };
 
 const isOpenForApplications = (scholarship, today) => (
@@ -226,7 +301,7 @@ export const getDocumentChecklist = ({ scholarships = [], profile = {}, document
     const notAskedBy = open
       .filter((scholarship) => !entry.scholarships.some((item) => item.id === scholarship.id))
       .map((scholarship) => ({ id: scholarship.id, title: scholarship.title }));
-    return { ...entry, notAskedBy, files, state: requirementState(files), askedByAll: notAskedBy.length === 0 };
+    return { ...entry, notAskedBy, files, state: requirementState(files, { proves: entry.proves, profile, now: today }), askedByAll: notAskedBy.length === 0 };
   });
   return {
     scholarships: open,
@@ -237,31 +312,144 @@ export const getDocumentChecklist = ({ scholarships = [], profile = {}, document
 };
 
 // The Document Vault picker entry to preselect when the student uploads a file
-// for a requirement: its first type offered as a general document (as the
-// application workspace uploads it), otherwise the profile attribute whose proof
-// types include it, since the vault only offers proof-only types under an attribute.
-export const getRequirementUploadPreset = (requirement) => {
+// for a requirement: its first type the vault offers for this standing, under the
+// attribute it proves (a proving type is listed only under its attribute), or as
+// a general document when it proves nothing.
+export const getRequirementUploadPreset = (requirement, profile = null) => {
   const types = requirement?.documentTypes || [];
-  const general = types.find((type) => generalDocumentTypeOptions.some((option) => option.value === type));
-  if (general) return { attribute: '', documentType: general };
   for (const type of types) {
-    const attribute = VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.acceptedDocumentTypes.includes(type));
-    if (attribute) return { attribute: attribute.key, documentType: type };
+    const attribute = getProvenAttributes(type, profile)[0];
+    if (attribute) return { attribute, documentType: type };
+    if (generalDocumentTypeOptions.some((option) => option.value === type)) return { attribute: '', documentType: type };
   }
   return { attribute: '', documentType: '' };
 };
 
+// The profile values frozen in a submitted application's snapshot, shaped like a
+// profile so the proof checks can read them. Only the answers the snapshot
+// recorded are present, so an older snapshot never reads a missing answer as a
+// change.
+export const snapshotToProfile = (snapshot) => {
+  if (!snapshot || typeof snapshot !== 'object') return null;
+  const profile = { yearStanding: snapshot.yearStanding || '' };
+  const academic = snapshot.academic || {};
+  if (academic.credential) profile[academic.credential] = academic.value ?? '';
+  if (snapshot.householdIncome) profile.householdIncome = snapshot.householdIncome.value ?? '';
+  if (snapshot.citizenship) profile.citizenship = snapshot.citizenship.value || '';
+  const proven = { ...(snapshot.eligibility || {}), ...(snapshot.background || {}) };
+  ['academicStanding', 'honorsRank', 'ipCommunity', 'pwd', 'employed'].forEach((key) => {
+    if (proven[key] && typeof proven[key] === 'object') profile[key] = proven[key].value || '';
+  });
+  return profile;
+};
+
+// The profile and the date a submitted application's proofs are judged
+// against: the frozen snapshot at the moment of submission, so a later profile
+// edit or a new academic year never flags a file the student can no longer
+// change. A draft (or a submission without a snapshot) uses the live profile.
+const getProofContext = (application = {}, profile = {}, today = new Date()) => {
+  const isDraft = !application.status || application.status === 'Draft';
+  const frozen = isDraft ? null : snapshotToProfile(application.profileSnapshot);
+  if (!frozen) return { profile, now: today, frozen: false };
+  const submittedAt = application.certifiedAt || application.profileSnapshot?.capturedAt || application.submittedAt;
+  const now = submittedAt && !Number.isNaN(new Date(submittedAt).getTime()) ? new Date(submittedAt) : today;
+  return { profile: frozen, now, frozen: true };
+};
+
+// The stale reason for one proof on one application, judged the same way the
+// readiness check judges it (getProofContext): a submitted application is read
+// against its frozen snapshot, a draft against the live profile.
+export const getApplicationProofStaleReason = (doc, key, application = {}, profile = {}, today = new Date()) => {
+  const context = getProofContext(application, profile, today);
+  return getProofStaleReason(doc, key, { profile: context.profile, now: context.now });
+};
+
+// The attribute badges for an application, derived only from the files it
+// attaches, so the snapshot never shows Verified on the strength of a vault
+// file the reviewers do not receive.
+export const getApplicationAttributeVerifications = (application, documents = [], profile = {}) => (
+  deriveAttributeVerifications(getLinkedDocuments(application, documents), VERIFIABLE_ATTRIBUTE_KEYS, { profile })
+);
+
+// A declared or attested answer, phrased for the student and the reviewers.
+const PROOF_VALUE_OPTIONS = {
+  academicStanding: () => academicStandingOptions,
+  employed: () => employmentOptions,
+  honorsRank: () => honorsRankOptions,
+  ipCommunity: () => ipCommunityOptions,
+  pwd: () => pwdOptions,
+};
+export const formatProofValue = (key, value) => {
+  if (value == null || value === '') return 'blank';
+  if (key === 'householdIncome') return fmtCurrency(Number(value));
+  if (key === 'qpi') return Number(value).toFixed(2);
+  const options = PROOF_VALUE_OPTIONS[key]?.();
+  return options ? optionLabel(options, value) : String(value);
+};
+
+const hasOwnKey = (source, key) => Boolean(source) && typeof source === 'object' && Object.prototype.hasOwnProperty.call(source, key);
+
+// What one attached file proves, for the reviewer pane and the verification
+// dialog: each answer with the value the file was uploaded to prove and the
+// value the application declared (the frozen snapshot, or the owner's current
+// QPI and income for a submission without one), and whether they disagree. A
+// staff member verifying the file is confirming those values, so a mismatch is
+// shown before the decision is recorded.
+export const getDocumentProofReview = (doc, application = {}, { owner = null, today = new Date() } = {}) => {
+  const context = getProofContext(application || {}, {}, today);
+  const frozen = context.frozen ? context.profile : null;
+  const fallback = {};
+  const qpi = owner?.qpi ?? application?.studentQpi;
+  const income = owner?.householdIncome ?? application?.studentHouseholdIncome;
+  if (qpi != null && qpi !== '') fallback.qpi = qpi;
+  if (income != null && income !== '') fallback.householdIncome = income;
+  const reference = { ...fallback, ...(frozen || {}) };
+  return getDocumentLinkedAttributes(doc, frozen).map((key) => {
+    const hasAttested = hasOwnKey(doc?.attestedValues, key);
+    const hasDeclared = hasOwnKey(reference, key);
+    return {
+      key,
+      label: getVerifiableAttributeOption(key)?.label || key,
+      hasAttested,
+      attested: hasAttested ? doc.attestedValues[key] : null,
+      hasDeclared,
+      declared: hasDeclared ? reference[key] : null,
+      source: hasOwnKey(frozen, key) ? 'snapshot' : hasDeclared ? 'profile' : null,
+      staleReason: getProofStaleReason(doc, key, { profile: reference, now: context.now }),
+    };
+  });
+};
+
+// Why an outdated requirement's attached file no longer counts, phrased for the
+// student with the value their profile now holds.
+const describeOutdatedRequirement = (requirement, { profile, now }) => {
+  const stale = requirement.attached
+    .filter((doc) => doc.verificationStatus !== 'Rejected')
+    .flatMap((doc) => getStaleProofKeys(doc, requirement.proves, { profile, now }))[0];
+  if (!stale) return `Upload a current proof for: ${requirement.label}.`;
+  const label = getVerifiableAttributeOption(stale.key)?.label || stale.key;
+  return stale.reason === 'year'
+    ? `Upload a current proof for ${requirement.label}: the attached file is from an earlier academic year.`
+    : `Upload a current proof for ${requirement.label}: your ${label} in My Profile is now ${formatProofValue(stale.key, profile?.[stale.key])}, which the attached file was not uploaded to prove.`;
+};
+
 // Everything the workspace, the submit handler, and the reviewers need to know
 // about whether an application can be submitted. A Pending file is enough to
-// submit; verification happens later at the For Verification stage.
+// submit; verification happens later at the For Verification stage. A file that
+// proves a profile answer must be a current proof of it (not Outdated), and the
+// profile must be complete. A submitted application is read against its frozen
+// snapshot (getProofContext), so the reviewers see the standing and values that
+// were declared.
 export const getApplicationReadiness = ({ application = {}, scholarship, documents = [], profile = {}, certified = false, today = new Date() } = {}) => {
   const isInternal = Boolean(scholarship) && isAdduInternalProgram(scholarship);
   const attachedIds = new Set(application.attachedDocuments || []);
   const attachedDocuments = documents.filter((doc) => attachedIds.has(doc.id));
+  const proofContext = getProofContext(application, profile, today);
+  const requirementProfile = proofContext.frozen ? proofContext.profile : profile;
   const requirements = isInternal
-    ? getScholarshipRequirements(scholarship, profile).map((requirement) => {
+    ? getScholarshipRequirements(scholarship, requirementProfile).map((requirement) => {
         const attached = attachedDocuments.filter((doc) => requirement.documentTypes.includes(doc.documentType));
-        return { ...requirement, attached, state: requirementState(attached) };
+        return { ...requirement, attached, state: requirementState(attached, { proves: requirement.proves, profile: proofContext.profile, now: proofContext.now }) };
       })
     : [];
 
@@ -275,10 +463,17 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   ));
 
   const blockers = [];
+  if (!getStandingRequirements(requirementProfile).yearStanding) {
+    blockers.push('Set your year standing in My Profile so the documents for your standing can be listed.');
+  }
+  const profileGate = getApplicationProfileGate(profile);
+  if (!proofContext.frozen && !profileGate.allowed) blockers.push(...profileGate.reasons);
   const missing = requirements.filter((item) => item.state === 'missing');
   const rejected = requirements.filter((item) => item.state === 'rejected');
+  const outdated = requirements.filter((item) => item.state === 'outdated');
   if (missing.length) blockers.push(`Attach ${missing.length === 1 ? 'the required document' : `${missing.length} required documents`}: ${missing.map((item) => item.label).join('; ')}.`);
   if (rejected.length) blockers.push(`Replace the rejected file for: ${rejected.map((item) => item.label).join('; ')}.`);
+  outdated.forEach((item) => blockers.push(describeOutdatedRequirement(item, proofContext)));
   if (!String(application.statement || '').trim()) blockers.push('Write your application statement.');
   if (!certified) blockers.push('Certify that your information and documents are true and complete.');
   if (getDeadlineStatus(scholarship.deadline, today).label === 'Closed' || scholarship.isActive === false) {

@@ -4,6 +4,7 @@ import {
   deriveAttributeVerifications,
   getAttributeProofDocuments,
   getAttributeVerificationTone,
+  getDocumentLinkedAttributes,
   getNewlyOutdatedAttributes,
   getOutdatedAttributeAlerts,
   getOutdatedProofAttributes,
@@ -161,5 +162,42 @@ describe('normalizeDocument', () => {
   it('defaults a missing linkedAttributes list to empty so old sessions load', () => {
     expect(normalizeDocument({ id: 'a' }).linkedAttributes).toEqual([]);
     expect(normalizeDocument({ id: 'b', linkedAttributes: ['qpi'] }).linkedAttributes).toEqual(['qpi']);
+  });
+});
+
+describe('type-derived proof links', () => {
+  it('counts a file as proof of what its type proves, even without a recorded link', () => {
+    const transcript = doc({ id: 't', documentType: 'Transcript', verificationStatus: 'Verified' });
+    expect(getDocumentLinkedAttributes(transcript, { yearStanding: '2nd' })).toEqual(['qpi', 'academicStanding']);
+    expect(deriveAttributeStatus([transcript], 'qpi', { profile: { yearStanding: '2nd', qpi: 3.1 } })).toBe('Verified');
+  });
+
+  it('keeps a recorded link and follows the standing', () => {
+    const card = doc({ id: 'c', documentType: 'HS Report Card', linkedAttributes: ['hsAverage'] });
+    expect(getDocumentLinkedAttributes(card, { yearStanding: 'incoming-1st' })).toEqual(['hsAverage', 'academicStanding']);
+    expect(getDocumentLinkedAttributes(card, { yearStanding: '2nd' })).toEqual(['hsAverage']);
+  });
+});
+
+describe('Not needed', () => {
+  it('reads Not needed when the answer claims nothing, whatever the vault holds', () => {
+    const pwdProof = doc({ documentType: 'PWD ID', linkedAttributes: ['pwd'], attestedValues: { pwd: 'Yes' }, verificationStatus: 'Verified' });
+    expect(deriveAttributeStatus([pwdProof], 'pwd', { profile: { pwd: 'No' } })).toBe('Not needed');
+    expect(deriveAttributeStatus([pwdProof], 'pwd', { profile: { pwd: 'Yes' } })).toBe('Verified');
+    expect(deriveAttributeStatus([], 'ipCommunity', { profile: { ipCommunity: 'No' } })).toBe('Not needed');
+    expect(deriveAttributeStatus([], 'qpi', { profile: { yearStanding: 'incoming-1st' } })).toBe('Not needed');
+    expect(getAttributeVerificationTone('Not needed')).toBe('neutral');
+  });
+
+  it('never flags a proof Outdated once its answer needs no proof', () => {
+    const pwdProof = doc({ documentType: 'PWD ID', linkedAttributes: ['pwd'], attestedValues: { pwd: 'Yes' } });
+    expect(getOutdatedProofAttributes(pwdProof, { profile: { pwd: 'No' } })).toEqual([]);
+    expect(getOutdatedAttributeAlerts([pwdProof], { pwd: 'No' })).toEqual([]);
+  });
+
+  it('skips the value check for an answer the profile does not carry', () => {
+    const proof = doc({ linkedAttributes: ['academicStanding'], attestedValues: { academicStanding: 'good' } });
+    expect(getProofStaleReason(proof, 'academicStanding', { profile: { yearStanding: '2nd' } })).toBeNull();
+    expect(getProofStaleReason(proof, 'academicStanding', { profile: { academicStanding: 'probation' } })).toBe('value');
   });
 });

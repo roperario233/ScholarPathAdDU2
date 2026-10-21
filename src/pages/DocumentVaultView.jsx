@@ -16,26 +16,35 @@ import {
   decodeDocumentSelection,
   encodeDocumentSelection,
   getAcceptedDocumentTypes,
+  getDocumentSelectionForType,
   getDocumentTitle,
+  getProvenAttributes,
   getVerifiableAttributeOption,
 } from '../lib/profile';
-import { getOutdatedProofAttributes } from '../lib/verification';
+import { getDocumentLinkedAttributes, getOutdatedProofAttributes } from '../lib/verification';
 import { isAdduInternalProgram } from '../lib/eligibility';
 
 // The upload form uses one grouped picker, mirroring the program/course picker
 // in My Profile: each profile attribute is a group header with the document
 // types it accepts listed below it, preceded by a "General documents" group for
-// files that are not tied to a profile attribute. Selecting an item chooses the
-// attribute and the document type together, and the vault derives the title from
-// that pair, so there is no free-text title and no attribute checklist.
-const documentPickerOptions = buildDocumentPickerOptions();
+// files that prove no profile answer. Selecting an item chooses the attribute
+// and the document type together, and the vault derives the title from that
+// pair, so there is no free-text title and no attribute checklist. The list
+// follows the student's standing (buildDocumentPickerOptions).
 
 // The preselected picker value: a preset document type when one is given (My
-// Profile's document checklist), else the attribute's first accepted type, or the
-// first general document type when the vault opens without a preset.
-const initialSelection = (attributeKey = '', documentType = '') => {
-  const firstType = documentType || (attributeKey ? getAcceptedDocumentTypes(attributeKey)[0]?.value : generalDocumentTypeOptions[0]?.value);
-  return encodeDocumentSelection(attributeKey, firstType || '');
+// Profile's document checklist), else the attribute's first accepted type for
+// the standing, or the first general document type when the vault opens without
+// a preset. A preset type that proves an answer opens under its attribute,
+// because a proving type is listed only there.
+const initialSelection = (attributeKey = '', documentType = '', profile = null) => {
+  if (documentType) {
+    return attributeKey && getProvenAttributes(documentType, profile).includes(attributeKey)
+      ? encodeDocumentSelection(attributeKey, documentType)
+      : getDocumentSelectionForType(documentType, profile);
+  }
+  if (attributeKey) return encodeDocumentSelection(attributeKey, getAcceptedDocumentTypes(attributeKey, profile)[0]?.value || '');
+  return encodeDocumentSelection('', generalDocumentTypeOptions[0]?.value || '');
 };
 
 // Why a proof no longer covers its attribute, phrased for the student.
@@ -47,7 +56,10 @@ const outdatedProofMessage = ({ key, reason }) => {
 };
 
 export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '' }) {
-  const [selection, setSelection] = useState(() => initialSelection(presetAttribute, presetDocumentType));
+  const [selection, setSelection] = useState(() => initialSelection(presetAttribute, presetDocumentType, profile));
+  const standingKey = profile?.yearStanding || '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const documentPickerOptions = useMemo(() => buildDocumentPickerOptions(profile), [standingKey]);
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [formError, setFormError] = useState('');
@@ -62,6 +74,9 @@ export default function DocumentVaultView({ documents, applications = [], profil
   const isPhoto = isPhotoDocumentType(documentType);
   const photoGuide = getPhotoGuide(documentType);
   const derivedTitle = getDocumentTitle({ attributeKey, documentType });
+  // Every answer this upload will prove, the picked one and any other its type
+  // proves (a grade report proves the QPI and academic standing together).
+  const provesOnUpload = [...new Set([...(attributeKey ? [attributeKey] : []), ...getProvenAttributes(documentType, profile)])];
   // Usage is derived from the applications that attach each file, so the count
   // always matches the application workspace. A file a submitted application
   // relies on is locked until that review ends.
@@ -107,7 +122,9 @@ export default function DocumentVaultView({ documents, applications = [], profil
   // link preselects the attribute and document type so the upload is one step.
   useEffect(() => {
     if (!presetAttribute && !presetDocumentType) return;
-    setSelection(initialSelection(presetAttribute, presetDocumentType));
+    setSelection(initialSelection(presetAttribute, presetDocumentType, profile));
+    // The preset is applied once per navigation; a profile edit does not reset it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [presetAttribute, presetDocumentType]);
 
   const resetPickedFile = () => {
@@ -161,7 +178,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
     }
     if (result?.error) { setFormError(result.error); return; }
     resetPickedFile();
-    setSelection(initialSelection(''));
+    setSelection(initialSelection('', '', profile));
   };
 
   return (
@@ -182,7 +199,11 @@ export default function DocumentVaultView({ documents, applications = [], profil
             options={documentPickerOptions}
             idPrefix="vault-document-type"
           />
-          <small className="field-hint -mt-1">Each attribute lists the document types it accepts; General documents are not a profile proof.</small>
+          <small className="field-hint -mt-1">
+            {provesOnUpload.length
+              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in My Profile now. Any one of an answer's listed types is enough.`
+              : 'A general document proves no profile answer. Each answer lists the document types it accepts; any one of them is enough.'}
+          </small>
           {isPhoto ? (
             <div className="grid gap-3">
               <div className="flex flex-wrap items-center gap-2">
@@ -245,8 +266,8 @@ export default function DocumentVaultView({ documents, applications = [], profil
               <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-app-border/60 pt-3 text-sm text-app-muted">
                 <span><strong>Uploaded</strong> {fmtDate(doc.uploadedAt)}</span>
                 <span><strong>Used in</strong> {usage.count} {usage.count === 1 ? 'application' : 'applications'}</span>
-                {Array.isArray(doc.linkedAttributes) && doc.linkedAttributes.length ? (
-                  <span><strong>Proof for</strong> {doc.linkedAttributes.map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
+                {getDocumentLinkedAttributes(doc, profile).length ? (
+                  <span><strong>Proof for</strong> {getDocumentLinkedAttributes(doc, profile).map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
                 ) : null}
               </div>
               <DocumentRejectionReason doc={doc} />

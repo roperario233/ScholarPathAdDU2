@@ -1,6 +1,6 @@
 import { Button, ModalShell } from './ui';
 import { getDocumentTypeLabel } from '../lib/constants';
-import { getActorRoleLabel } from '../lib/applicationRequirements';
+import { formatProofValue, getActorRoleLabel, getDocumentProofReview } from '../lib/applicationRequirements';
 import { fmtDate } from '../lib/formatters';
 
 const rowLabel = 'text-xs font-semibold uppercase tracking-[0.1em] text-app-muted';
@@ -9,7 +9,9 @@ const rowLabel = 'text-xs font-semibold uppercase tracking-[0.1em] text-app-mute
 // account and the date are stamped by the database
 // (20261027000000_add_document_decision_actor.sql), so this dialog states them
 // rather than collecting them: its job is to make a one-click verification an
-// explicit, attributable decision instead of an accidental press.
+// explicit, attributable decision instead of an accidental press. When the file
+// proves profile answers, the dialog names the values being confirmed and warns
+// when the value the file was uploaded to prove differs from the application.
 export default function VerifyDocumentModal({
   doc,
   application = null,
@@ -23,6 +25,8 @@ export default function VerifyDocumentModal({
 }) {
   if (!doc) return null;
   const roleLabel = getActorRoleLabel(reviewerRole) || 'Admissions Office';
+  const proofs = getDocumentProofReview(doc, application || {});
+  const mismatched = proofs.filter((proof) => proof.staleReason);
   return (
     <ModalShell title="Record document verification" onClose={busy ? undefined : onClose} className="w-[min(560px,100%)]">
       <div className="grid gap-4">
@@ -50,6 +54,27 @@ export default function VerifyDocumentModal({
             <dd className="m-0 font-semibold text-app-text">{fmtDate(today)}</dd>
           </div>
         </dl>
+
+        {proofs.length ? (
+          <div className="grid gap-1 rounded-[14px] border border-app-border bg-app-surface p-3 text-sm">
+            <span className={rowLabel}>Confirms</span>
+            {proofs.map((proof) => (
+              <span key={proof.key} className="text-app-text">
+                <strong>{proof.label}</strong>{' '}
+                {proof.hasDeclared ? formatProofValue(proof.key, proof.declared) : proof.hasAttested ? formatProofValue(proof.key, proof.attested) : 'as declared in the profile snapshot'}
+              </span>
+            ))}
+            <span className="text-xs text-app-muted">Verify only if the file shows these values. Otherwise reject it with “Document does not support the value declared in the profile”.</span>
+          </div>
+        ) : null}
+
+        {mismatched.length ? (
+          <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="alert">
+            {mismatched.map((proof) => (proof.staleReason === 'year'
+              ? `This ${proof.label} proof is from an earlier academic year than the submission.`
+              : `This file was uploaded to prove ${proof.label} ${formatProofValue(proof.key, proof.attested)}, but the application declares ${formatProofValue(proof.key, proof.declared)}.`)).join(' ')}
+          </p>
+        ) : null}
 
         {error ? (
           <p className="m-0 rounded-[14px] border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200" role="alert">

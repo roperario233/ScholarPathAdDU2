@@ -4,7 +4,7 @@ import { Button, StatusBadge } from './ui';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import { PHOTO_ACCEPT } from '../lib/photoGuide';
-import { REQUIREMENT_STATE_LABELS, describeDocumentDecision, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
+import { REQUIREMENT_STATE_LABELS, describeDocumentDecision, describeRequirementTypes, describeStatusActor, formatProofValue, getDocumentProofReview, getProfileSnapshotSections } from '../lib/applicationRequirements';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES, isImageFileName } from '../lib/documentStorage';
 import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 
@@ -12,9 +12,8 @@ import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
 import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
-import { getVerifiableAttributeOption } from '../lib/profile';
-import { getAttributeVerificationLabel, getAttributeVerificationTone, getProofStaleReason } from '../lib/verification';
-import { fmtCurrency, fmtDate } from '../lib/formatters';
+import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
+import { fmtDate } from '../lib/formatters';
 
 // Shared read-only pieces of an application: the required-document checklist,
 // the supporting documents, and the self-reported profile snapshot. The
@@ -277,32 +276,14 @@ export function SupportingDocumentList({ documents = [], onPreview, renderAttach
   );
 }
 
-// Renders a declared attribute value: the value a proof was uploaded to attest
-// (any verifiable attribute) or the student's current QPI and household income
-// from the staff directory.
-const formatDeclaredValue = (key, value) => {
-  if (value == null || value === '') return 'not provided';
-  if (key === 'qpi') return Number(value).toFixed(2);
-  if (key === 'householdIncome') return fmtCurrency(Number(value));
-  return String(value);
-};
-
-const hasAttestedValue =(doc, key) => Boolean(doc.attestedValues) && Object.prototype.hasOwnProperty.call(doc.attestedValues, key);
-
 // One attached Document Vault file in the staff review modal: what it proves,
-// the value declared at upload against the student's current value, and, for
+// the value declared at upload against the value the application declared
+// (getDocumentProofReview: the frozen snapshot), and, for
 // the Admissions Office (when `onChangeDocument` is passed), the verification
 // actions. Department Chairs get the same details read-only. `as` lets the
 // review modal's preview pane render it outside a list.
 export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument, as: Element = 'li' }) {
-  // The declared value a staff member can compare the file against, read from
-  // the profiles directory first and the application second.
-  const declaredFor = (key) => {
-    if (key === 'qpi') return owner?.qpi ?? application?.studentQpi ?? null;
-    if (key === 'householdIncome') return owner?.householdIncome ?? application?.studentHouseholdIncome ?? null;
-    return null;
-  };
-  const linkedAttributes = Array.isArray(doc.linkedAttributes) ? doc.linkedAttributes : [];
+  const proofs = getDocumentProofReview(doc, application, { owner });
   // A decision can be corrected (reset to Pending) only while the application is
   // still before endorsement; protect_verified_documents_on_progress refuses it
   // once the file has carried the application past verification.
@@ -325,31 +306,23 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
             : "Check that the photo is recent, sharp, and unobstructed, with a plain background and the applicant's whole face visible."}
         </p>
       ) : null}
-      {linkedAttributes.length ? (
-        <div className="flex flex-wrap items-center gap-2">
+      {proofs.length ? (
+        <div className="grid gap-1.5">
           <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Proves</span>
-          {linkedAttributes.map((key) => {
-            const declared = declaredFor(key);
-            const hasDeclared = declared != null && declared !== '';
-            const attested = hasAttestedValue(doc, key);
-            // The directory only carries QPI and household income, so the value
-            // check runs for those; the academic-year check runs for all.
-            const staleReason = getProofStaleReason(doc, key, {
-              profile: hasDeclared && ['qpi', 'householdIncome'].includes(key) ? { [key]: declared } : null,
-            });
-            return (
-              <span key={key} className="inline-flex flex-wrap items-center gap-1">
-                <StatusBadge tone="info">{getVerifiableAttributeOption(key)?.label || key}</StatusBadge>
-                {attested
-                  ? <span className="text-xs text-app-muted">Declared at upload: {formatDeclaredValue(key, doc.attestedValues[key])}</span>
-                  : hasDeclared ? <span className="text-xs text-app-muted">Declared: {formatDeclaredValue(key, declared)}</span> : null}
-                {staleReason === 'value' && <span className="text-xs text-app-muted">Profile now: {formatDeclaredValue(key, declared)}</span>}
-                {staleReason && <StatusBadge tone="danger">{staleReason === 'year' ? 'Outdated · earlier academic year' : 'Outdated · profile changed'}</StatusBadge>}
-              </span>
-            );
-          })}
-          {!linkedAttributes.some((key) => hasAttestedValue(doc, key) || declaredFor(key) != null) && (
-            <span className="text-xs text-app-muted">Declared values are in the student’s My Profile.</span>
+          {proofs.map((proof) => (
+            <span key={proof.key} className="inline-flex flex-wrap items-center gap-1">
+              <StatusBadge tone="info">{proof.label}</StatusBadge>
+              {proof.hasAttested ? <span className="text-xs text-app-muted">Declared at upload: {formatProofValue(proof.key, proof.attested)}</span> : null}
+              {proof.hasDeclared && (!proof.hasAttested || proof.staleReason === 'value') ? (
+                <span className="text-xs text-app-muted">{proof.source === 'snapshot' ? 'Application snapshot' : 'Profile now'}: {formatProofValue(proof.key, proof.declared)}</span>
+              ) : null}
+              {proof.staleReason ? (
+                <StatusBadge tone="danger">{proof.staleReason === 'year' ? 'Outdated · earlier academic year' : proof.source === 'snapshot' ? 'Mismatch · snapshot differs' : 'Outdated · profile changed'}</StatusBadge>
+              ) : null}
+            </span>
+          ))}
+          {!proofs.some((proof) => proof.hasAttested || proof.hasDeclared) && (
+            <span className="text-xs text-app-muted">Declared values are in the student’s profile snapshot.</span>
           )}
         </div>
       ) : null}

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   deriveYearStanding,
+  getApplicationProfileGate,
+  getClaimedAttributes,
   getCurrentAcademicYear,
+  isProofRequired,
   getProfileCompleteness,
   normalizeAttestedValue,
   getStandingRequirements,
@@ -360,5 +363,64 @@ describe('normalizeAttestedValue', () => {
     expect(normalizeAttestedValue('employed', '')).toBeNull();
     expect(normalizeAttestedValue('qpi', null)).toBeNull();
     expect(normalizeAttestedValue('honorsRank', undefined)).toBeNull();
+  });
+});
+
+describe('isProofRequired', () => {
+  it('asks for proof only when the answer claims something', () => {
+    expect(isProofRequired('ipCommunity', { ipCommunity: 'Yes' })).toBe(true);
+    expect(isProofRequired('ipCommunity', { ipCommunity: 'No' })).toBe(false);
+    expect(isProofRequired('pwd', { pwd: '' })).toBe(false);
+    expect(isProofRequired('employed', { employed: 'Part-time' })).toBe(true);
+    expect(isProofRequired('employed', { employed: 'Not employed' })).toBe(false);
+    expect(isProofRequired('honorsRank', { honorsRank: 'Valedictorian' })).toBe(true);
+    expect(isProofRequired('honorsRank', { honorsRank: '' })).toBe(false);
+  });
+
+  it('follows the year standing for the academic credential', () => {
+    expect(isProofRequired('qpi', { yearStanding: '2nd' })).toBe(true);
+    expect(isProofRequired('qpi', { yearStanding: 'incoming-1st' })).toBe(false);
+    expect(isProofRequired('hsAverage', { yearStanding: 'incoming-1st' })).toBe(true);
+    expect(isProofRequired('hsAverage', { yearStanding: '3rd', hsAverage: 90 })).toBe(false);
+  });
+
+  it('always asks for proof of income, citizenship, and academic standing', () => {
+    ['householdIncome', 'citizenship', 'academicStanding'].forEach((key) => expect(isProofRequired(key, {})).toBe(true));
+    expect(isProofRequired('not-an-attribute', {})).toBe(false);
+  });
+
+  it('lists the claims a profile makes', () => {
+    expect(getClaimedAttributes({ ipCommunity: 'Yes', pwd: 'No', employed: 'Full-time', honorsRank: '' })).toEqual(['employed', 'ipCommunity']);
+    expect(getClaimedAttributes({})).toEqual([]);
+  });
+});
+
+describe('getApplicationProfileGate', () => {
+  const complete = {
+    fullName: 'Ana Reyes',
+    yearStanding: '2nd',
+    studentNumber: '202300001',
+    degreeProgram: 'BS Information Technology',
+    academicStanding: 'good',
+    qpi: 3.2,
+    householdIncome: 180000,
+    citizenship: 'Filipino',
+  };
+
+  it('allows a profile whose "Needed to apply" answers are complete', () => {
+    expect(getApplicationProfileGate(complete)).toEqual({ allowed: true, missing: [], reasons: [] });
+  });
+
+  it('lists the missing answers with the section that holds each', () => {
+    const gate = getApplicationProfileGate({ ...complete, citizenship: '', qpi: '' });
+    expect(gate.allowed).toBe(false);
+    expect(gate.missing.map((item) => [item.key, item.section])).toEqual([['qpi', 'academic'], ['citizenship', 'background']]);
+    expect(gate.reasons[0]).toBe('Complete your profile before applying: Annual QPI, Citizenship.');
+  });
+
+  it('asks an incoming first-year for the senior high school average instead of a QPI', () => {
+    const gate = getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '' });
+    expect(gate.missing.map((item) => item.key)).toEqual(['hsAverage']);
+    expect(getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 91 }).allowed).toBe(true);
   });
 });

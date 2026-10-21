@@ -40,7 +40,6 @@ export default function ApplicationsView({
   documents,
   scholarships,
   profile,
-  attributeVerifications,
   openApplicationId,
   onOpenApplication,
   onAttach,
@@ -228,7 +227,6 @@ export default function ApplicationsView({
         scholarship={scholarshipById[workspaceApplication.scholarshipId]}
         documents={documents}
         profile={profile}
-        attributeVerifications={attributeVerifications}
         onAttach={onAttach}
         onDetach={onDetach}
         onUploadAndAttach={onUploadAndAttach}

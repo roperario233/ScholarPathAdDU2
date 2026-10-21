@@ -327,6 +327,15 @@ export const evaluateApplicationGate = (profile, scholarship) => {
     issues.push(issue('Household income cannot be negative.', 'householdIncome'));
   }
 
+  // The universal gate and the Exclusion Flag Hierarchy read these answers, so a
+  // blank one cannot pass as if it were satisfied.
+  if (!profile?.citizenship) {
+    issues.push(issue('Choose your citizenship before checking qualifications.', 'citizenship'));
+  }
+  if (!profile?.academicStanding) {
+    issues.push(issue('Choose your academic standing before checking qualifications.', 'academicStanding'));
+  }
+
   if (!scholarship) issues.push(issue('Select an internal scholarship to check.'));
   // Only the three in-scope AdDU tracks are evaluated (and therefore only they
   // can be applied to); an unrelated internal catalog entry is rejected here.

@@ -90,6 +90,14 @@ describe('internal scholarship eligibility gate', () => {
     expect(result.reasons).toContain('Enter your household income before checking qualifications.');
   });
 
+  it('does not let a blank citizenship or academic standing pass the gate', () => {
+    const result = evaluateApplicationGate({ ...eligibleProfile, citizenship: '', academicStanding: '' }, scholarship);
+    expect(result.allowed).toBe(false);
+    expect(result.reasons).toContain('Choose your citizenship before checking qualifications.');
+    expect(result.reasons).toContain('Choose your academic standing before checking qualifications.');
+    expect(result.issues.map((item) => item.field)).toEqual(expect.arrayContaining(['citizenship', 'academicStanding']));
+  });
+
   it('allows Jubilee honors graduates beyond incoming first-year students', () => {
     const jubileeResult = evaluateApplicationGate({
       ...eligibleProfile,

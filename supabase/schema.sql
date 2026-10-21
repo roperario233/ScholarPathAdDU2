@@ -90,6 +90,10 @@ alter table scholarships add column if not exists minimum_shs_average numeric(5,
 -- Every in-scope track also asks for `applicant-photo` (Applicant Photo) and
 -- `residence-photos` (Photos of Residence); existing catalog rows receive both
 -- from migrations/20261026000001_add_applicant_photo_requirement.sql.
+-- Every in-scope track also asks for `citizenship-proof` (Proof of Filipino
+-- citizenship), backfilled by
+-- migrations/20261028000000_require_current_attribute_proofs.sql, which also
+-- backfills each vault file's linked_attributes from its document type.
 alter table scholarships add column if not exists required_documents jsonb not null default '[]'::jsonb;
 
 create table if not exists documents (
@@ -572,6 +576,183 @@ as $$
   select lower(btrim(coalesce(p_title, ''))) ~ 'jubilee|grant[ -]?in[ -]?aid|(^|[^a-z])gia([^a-z]|$)|student assistant|working scholar';
 $$;
 
+-- The profile-completeness and current-proof gates below come from
+-- migrations/20261028000000_require_current_attribute_proofs.sql.
+-- A valid year standing value, or '' when unset.
+create or replace function public.profile_year_standing(p_profile jsonb)
+returns text
+language sql
+immutable
+as $$
+  select case
+    when coalesce(p_profile ->> 'yearStanding', '') in ('incoming-1st', '1st', '2nd', '3rd', '4th', '5th')
+      then p_profile ->> 'yearStanding'
+    else ''
+  end;
+$$;
+
+-- The profile attributes a document type proves for a year standing. Mirrors
+-- getProvenAttributes() and VERIFIABLE_ATTRIBUTE_OPTIONS in src/lib/profile.js:
+-- a type scoped to one standing applies to that standing or to an unset one.
+create or replace function public.document_type_attributes(p_type text, p_year_standing text)
+returns text[]
+language sql
+immutable
+as $$
+  with standing as (
+    select
+      coalesce(p_year_standing, '') = 'incoming-1st' as is_incoming,
+      coalesce(p_year_standing, '') in ('1st', '2nd', '3rd', '4th', '5th') as is_continuing
+  )
+  select array_remove(array[
+    case when p_type in ('Grade Report', 'Transcript') and not s.is_incoming then 'qpi' end,
+    case when p_type = 'HS Report Card' and not s.is_continuing then 'hsAverage' end,
+    case when (p_type in ('Grade Report', 'Transcript') and not s.is_incoming)
+           or (p_type = 'HS Report Card' and not s.is_continuing) then 'academicStanding' end,
+    case when p_type in ('Income Proof', 'Certificate of Indigency') then 'householdIncome' end,
+    case when p_type in ('Certificate of Employment', 'Payslip') then 'employed' end,
+    case when p_type = 'Certificate of Award' then 'honorsRank' end,
+    case when p_type in ('PSA Birth Certificate', 'Philippine National ID', 'Driver''s License', 'Passport') then 'citizenship' end,
+    case when p_type = 'Certificate of Tribal Membership' then 'ipCommunity' end,
+    case when p_type in ('PWD ID', 'Medical Certificate') then 'pwd' end
+  ], null)
+  from standing s;
+$$;
+
+-- Whether the profile's current answer needs proof. Mirrors isProofRequired():
+-- an answer that claims nothing (IP community "No", "Not employed", no honors)
+-- needs no document, and a QPI is not asked of an incoming first-year.
+create or replace function public.attribute_proof_required(p_key text, p_profile jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select case p_key
+    when 'qpi' then public.profile_year_standing(p_profile) <> 'incoming-1st'
+    when 'hsAverage' then public.profile_year_standing(p_profile) = 'incoming-1st'
+      or (public.profile_year_standing(p_profile) = '' and coalesce(btrim(p_profile ->> 'hsAverage'), '') <> '')
+    when 'employed' then coalesce(btrim(p_profile ->> 'employed'), '') not in ('', 'Not employed')
+    when 'honorsRank' then coalesce(btrim(p_profile ->> 'honorsRank'), '') <> ''
+    when 'ipCommunity' then coalesce(p_profile ->> 'ipCommunity', '') = 'Yes'
+    when 'pwd' then coalesce(p_profile ->> 'pwd', '') = 'Yes'
+    else true
+  end;
+$$;
+
+-- The June-start academic year of a moment, read on the Manila calendar.
+create or replace function public.academic_year_start(p_at timestamptz)
+returns integer
+language sql
+stable
+as $$
+  select extract(year from (p_at at time zone 'Asia/Manila'))::integer
+    - case when extract(month from (p_at at time zone 'Asia/Manila')) < 6 then 1 else 0 end;
+$$;
+
+-- A numeric answer in its comparable form, or null when blank or not a number.
+create or replace function public.proof_numeric_value(p_value text)
+returns numeric
+language sql
+immutable
+as $$
+  select case
+    when coalesce(btrim(p_value), '') ~ '^-?[0-9]+(\.[0-9]+)?$' then btrim(p_value)::numeric
+    else null
+  end;
+$$;
+
+-- Whether a file is still a current proof of one answer. Mirrors
+-- getProofStaleReason() in src/lib/verification.js: the value it was uploaded
+-- to prove must match the profile now (QPI and the senior high school average
+-- to two decimals), and an annual proof must be from the current academic
+-- year. A file with no attested value for the key counts as current.
+create or replace function public.document_proof_is_current(
+  p_attested jsonb,
+  p_uploaded_at timestamptz,
+  p_key text,
+  p_profile jsonb,
+  p_now timestamptz default now()
+)
+returns boolean
+language plpgsql
+stable
+as $$
+begin
+  if coalesce(p_attested, '{}'::jsonb) ? p_key then
+    if p_key in ('qpi', 'hsAverage') then
+      if round(public.proof_numeric_value(p_attested ->> p_key), 2)
+        is distinct from round(public.proof_numeric_value(p_profile ->> p_key), 2) then
+        return false;
+      end if;
+    elsif p_key = 'householdIncome' then
+      if public.proof_numeric_value(p_attested ->> p_key)
+        is distinct from public.proof_numeric_value(p_profile ->> p_key) then
+        return false;
+      end if;
+    elsif nullif(btrim(p_attested ->> p_key), '') is distinct from nullif(btrim(p_profile ->> p_key), '') then
+      return false;
+    end if;
+  end if;
+  if p_key in ('qpi', 'householdIncome') and p_uploaded_at is not null
+    and public.academic_year_start(p_uploaded_at) <> public.academic_year_start(p_now) then
+    return false;
+  end if;
+  return true;
+end;
+$$;
+
+-- The profile the gates read: the core columns plus the eligibility answers.
+create or replace function public.student_profile_answers(p_user_id uuid)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(p.eligibility_attributes, '{}'::jsonb)
+    || jsonb_build_object(
+      'fullName', p.full_name,
+      'studentNumber', p.student_number,
+      'degreeProgram', p.degree_program,
+      'qpi', p.qpi,
+      'householdIncome', p.household_income
+    )
+  from public.profiles p
+  where p.user_id = p_user_id;
+$$;
+
+-- The first "Needed to apply" answer still missing for the standing, or null
+-- when the profile is complete. Mirrors getProfileCompleteness() (group
+-- `application`) in src/lib/profile.js.
+create or replace function public.missing_application_profile_item(p_profile jsonb)
+returns text
+language plpgsql
+immutable
+as $$
+declare
+  v_standing text := public.profile_year_standing(p_profile);
+  v_hs numeric := public.proof_numeric_value(p_profile ->> 'hsAverage');
+  v_qpi numeric := public.proof_numeric_value(p_profile ->> 'qpi');
+  v_income numeric := public.proof_numeric_value(p_profile ->> 'householdIncome');
+begin
+  if p_profile is null then return 'your profile'; end if;
+  if char_length(btrim(coalesce(p_profile ->> 'fullName', ''))) < 2 then return 'Full name'; end if;
+  if v_standing = '' then return 'Year standing'; end if;
+  if v_standing <> 'incoming-1st' and coalesce(btrim(p_profile ->> 'studentNumber'), '') !~ '^[0-9]{4,12}$' then
+    return 'AdDU student number';
+  end if;
+  if coalesce(btrim(p_profile ->> 'degreeProgram'), '') = '' then return 'Degree program'; end if;
+  if coalesce(p_profile ->> 'academicStanding', '') not in ('good', 'probation', 'disqualified') then return 'Academic standing'; end if;
+  if v_standing <> 'incoming-1st' and (v_qpi is null or v_qpi < 0 or v_qpi > 4) then return 'Annual QPI'; end if;
+  if v_standing = 'incoming-1st' and (v_hs is null or v_hs < 60 or v_hs > 100 or v_hs <> trunc(v_hs)) then
+    return 'Senior high school general average';
+  end if;
+  if v_income is null or v_income < 0 then return 'Annual household income'; end if;
+  if coalesce(p_profile ->> 'citizenship', '') not in ('Filipino', 'Non-Filipino') then return 'Citizenship'; end if;
+  return null;
+end;
+$$;
+
 create or replace function public.enforce_student_application_update()
 returns trigger
 language plpgsql
@@ -580,8 +761,15 @@ set search_path = public
 as $$
 declare
   v_scholarship public.scholarships%rowtype;
+  v_profile jsonb;
+  v_standing text;
   v_is_incoming boolean;
   v_item jsonb;
+  v_types text[];
+  v_keys text[];
+  v_covered text[] := '{}'::text[];
+  v_claim text;
+  v_missing text;
 begin
   if public.current_profile_role() is distinct from 'student' then
     return new;
@@ -600,6 +788,15 @@ begin
       and coalesce(v_scholarship.rule_family, '') in ('general-pool', 'honors', 'work-study')
       and not public.is_addu_in_scope_track(v_scholarship.title) then
       raise exception 'Only the AdDU internal scholarship tracks are in scope: Grant-in-Aid (GIA), Jubilee, and the Student Assistant Program.' using errcode = '23514';
+    end if;
+    -- Profile first: an in-scope application starts only from a complete
+    -- profile, because the answers decide its required documents.
+    if found and coalesce(v_scholarship.is_external, false) = false
+      and public.is_addu_in_scope_track(v_scholarship.title) then
+      v_missing := public.missing_application_profile_item(public.student_profile_answers(new.student_id));
+      if v_missing is not null then
+        raise exception 'Complete your profile before applying: %.', v_missing using errcode = '23514';
+      end if;
     end if;
     return new;
   end if;
@@ -637,23 +834,73 @@ begin
     raise exception 'Write your application statement.' using errcode = '23514';
   end if;
 
-  select coalesce(p.eligibility_attributes ->> 'yearStanding', '') = 'incoming-1st'
-    into v_is_incoming
-    from public.profiles p
-    where p.user_id = new.student_id;
+  v_profile := coalesce(public.student_profile_answers(new.student_id), '{}'::jsonb);
+  v_missing := public.missing_application_profile_item(v_profile);
+  if v_missing is not null then
+    raise exception 'Complete your profile before submitting: %.', v_missing using errcode = '23514';
+  end if;
+  v_standing := public.profile_year_standing(v_profile);
+  v_is_incoming := v_standing = 'incoming-1st';
 
   for v_item in select value from jsonb_array_elements(coalesce(v_scholarship.required_documents, '[]'::jsonb)) loop
-    if (v_item ->> 'standing') = 'incoming' and not coalesce(v_is_incoming, false) then continue; end if;
-    if (v_item ->> 'standing') = 'continuing' and coalesce(v_is_incoming, false) then continue; end if;
+    if (v_item ->> 'standing') = 'incoming' and not v_is_incoming then continue; end if;
+    if (v_item ->> 'standing') = 'continuing' and v_is_incoming then continue; end if;
+    v_types := array(select jsonb_array_elements_text(coalesce(v_item -> 'documentTypes', '[]'::jsonb)));
     if not exists (
       select 1
       from public.application_documents ad
       join public.documents d on d.id = ad.document_id
       where ad.application_id = new.id
         and d.verification_status <> 'Rejected'
-        and d.document_type in (select jsonb_array_elements_text(v_item -> 'documentTypes'))
+        and d.document_type = any(v_types)
     ) then
       raise exception 'Attach the required document: %.', v_item ->> 'label' using errcode = '23514';
+    end if;
+
+    -- The answers this requirement proves for the student, as in
+    -- getRequirementProvenAttributes().
+    v_keys := array(
+      select distinct key
+      from unnest(v_types) t(type), unnest(public.document_type_attributes(t.type, v_standing)) key
+      where public.attribute_proof_required(key, v_profile)
+    );
+    v_covered := v_covered || v_keys;
+    if cardinality(v_keys) > 0 and not exists (
+      select 1
+      from public.application_documents ad
+      join public.documents d on d.id = ad.document_id
+      where ad.application_id = new.id
+        and d.verification_status <> 'Rejected'
+        and d.document_type = any(v_types)
+        and not exists (
+          select 1 from unnest(v_keys) key
+          where (key = any(d.linked_attributes) or key = any(public.document_type_attributes(d.document_type, v_standing)))
+            and not public.document_proof_is_current(d.attested_values, d.uploaded_at, key, v_profile)
+        )
+    ) then
+      raise exception 'Upload a current proof for: %. Your profile answer changed after the attached file was uploaded, or the file is from an earlier academic year.', v_item ->> 'label' using errcode = '23514';
+    end if;
+  end loop;
+
+  -- Claims the profile makes need their own current proof, unless a catalog
+  -- requirement already proves them (getClaimProofRequirements).
+  foreach v_claim in array array['employed', 'honorsRank', 'ipCommunity', 'pwd'] loop
+    if v_claim = any(v_covered) or not public.attribute_proof_required(v_claim, v_profile) then continue; end if;
+    if not exists (
+      select 1
+      from public.application_documents ad
+      join public.documents d on d.id = ad.document_id
+      where ad.application_id = new.id
+        and d.verification_status <> 'Rejected'
+        and v_claim = any(public.document_type_attributes(d.document_type, v_standing))
+        and public.document_proof_is_current(d.attested_values, d.uploaded_at, v_claim, v_profile)
+    ) then
+      raise exception 'Attach a current proof of your % answer.', case v_claim
+        when 'employed' then 'employment'
+        when 'honorsRank' then 'graduation honors'
+        when 'ipCommunity' then 'IP community'
+        else 'PWD'
+      end using errcode = '23514';
     end if;
   end loop;
 

@@ -7,13 +7,13 @@ import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, is
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile } from './lib/auth';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getDocumentTitle, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
-import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
 import { NotificationDropdown } from './components/pageParts';
@@ -132,9 +132,11 @@ const buildOutdatedProofNotification = ({ key, reason, sourceKey }, ownerId = nu
     ownerId,
     title: `${label} proof is outdated`,
     channel: 'In-app',
-    body: reason === 'year'
-      ? `A new academic year has started, so your ${label} proof from the previous year no longer verifies this attribute. Upload a current proof in the Document Vault.`
-      : `Your ${label} in My Profile changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault.`,
+    // A submitted application is judged against its frozen snapshot, so the
+    // alert concerns future applications only and says so.
+    body: `${reason === 'year'
+      ? `A new academic year has started, so your ${label} proof from the previous year no longer verifies this attribute. Upload a current proof in the Document Vault before your next application.`
+      : `Your ${label} in My Profile changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault before your next application.`} Applications you already submitted keep the values you declared when you submitted them.`,
     status: 'Unread',
     createdAt: new Date().toISOString().slice(0, 10),
   };
@@ -821,6 +823,11 @@ function App() {
     // catalog entry is tracked only, exactly like an external program.
     const isInternal = isAdduInternalProgram(scholarship);
     if (isInternal) {
+      // Profile first: the "Needed to apply" answers must be complete before an
+      // application exists, because they decide the required documents and are
+      // frozen into the submission. The database repeats this on insert.
+      const profileGate = getApplicationProfileGate(qualificationProfile);
+      if (!profileGate.allowed) return { ...profileGate, profileItems: profileGate.missing };
       const gateResult = evaluateApplicationGate(qualificationProfile, scholarship);
       if (!gateResult.allowed) return gateResult;
     }
@@ -833,7 +840,7 @@ function App() {
     if (!isSupabaseWorkspaceLoaded) return { allowed: false, reasons: ['Supabase is not configured, so the application could not be created.'] };
 
     const requirements = getScholarshipRequirements(scholarship, qualificationProfile);
-    const attachedDocuments = isInternal ? pickDefaultAttachments(requirements, studentDocuments) : [];
+    const attachedDocuments = isInternal ? pickDefaultAttachments(requirements, studentDocuments, { profile: qualificationProfile }) : [];
     const nextApplication = {
       id: crypto.randomUUID(),
       studentId: currentProfile.id,
@@ -970,7 +977,13 @@ function App() {
       actor: 'Student',
       at: submittedAt.slice(0, 10),
     };
-    const profileSnapshot = buildProfileSnapshot(studentMatchProfile, attributeVerifications, submittedAt);
+    // The badges come from the files this application attaches, so a Verified
+    // badge always rests on a file the reviewers receive.
+    const profileSnapshot = buildProfileSnapshot(
+      studentMatchProfile,
+      getApplicationAttributeVerifications(application, studentDocuments, studentMatchProfile),
+      submittedAt,
+    );
     const timeline = [...(application.timeline || []), submitEvent];
     const result = await submitSupabaseApplication(applicationId, {
       timeline,
@@ -1375,10 +1388,15 @@ function App() {
     const fileName = file.name.trim();
     const documentType = String(rawDocumentType || 'Supporting Document');
     // The vault derives the title from the attribute the file proves and its
-    // document type, so there is no free-text title. A blank attribute means a
-    // general application document with no profile-attribute link.
+    // document type, so there is no free-text title. Every path links the answers
+    // the type proves for the student's standing (getProvenAttributes), so a file
+    // uploaded from the application workspace verifies the same answers as one
+    // uploaded in the vault.
     const attributeKey = String(rawAttributeKey || '').trim();
-    const linkedAttributes = attributeKey ? [attributeKey] : [];
+    const linkedAttributes = [...new Set([
+      ...(attributeKey ? [attributeKey] : []),
+      ...getProvenAttributes(documentType, studentMatchProfile),
+    ])];
     // The declared value each linked attribute had at upload, so the proof reads
     // as Outdated once the student changes that value (src/lib/verification.js).
     const attestedValues = Object.fromEntries(linkedAttributes.map((key) => [key, normalizeAttestedValue(key, studentMatchProfile[key])]));
@@ -1386,7 +1404,7 @@ function App() {
     // all share the same identifier.
     const id = crypto.randomUUID();
     const uploadedAt = new Date().toISOString().slice(0, 10);
-    const baseTitle = getDocumentTitle({ attributeKey, documentType });
+    const baseTitle = getDocumentTitle({ attributeKey: attributeKey || linkedAttributes[0] || '', documentType });
     // Two general documents can share a type, so disambiguate with the date.
     const title = studentDocuments.some((doc) => doc.title === baseTitle) ? `${baseTitle} (${uploadedAt})` : baseTitle;
 
@@ -1931,7 +1949,13 @@ function App() {
               announcements={state.announcements}
               onOpenExplorer={() => navigate('explore')}
               onOpenEligibility={() => navigate('explore')}
-              onTrackScholarship={applyToScholarship}
+              onTrackScholarship={async (scholarship) => {
+                // The dashboard row has no error slot, so an incomplete profile
+                // opens the My Profile section that holds the first missing answer.
+                const result = await applyToScholarship(scholarship);
+                if (result?.profileItems?.length) navigate('profile', { section: result.profileItems[0].section });
+                return result;
+              }}
               onMarkRead={markNotificationRead}
               onShowApplications={() => navigate('applications')}
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
@@ -1964,7 +1988,6 @@ function App() {
               documents={studentDocuments}
               scholarships={state.scholarships || []}
               profile={studentMatchProfile}
-              attributeVerifications={attributeVerifications}
               openApplicationId={openApplicationId}
               onOpenApplication={setOpenApplicationId}
               onAttach={attachDocumentToApplication}
