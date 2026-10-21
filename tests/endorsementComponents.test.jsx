@@ -40,37 +40,42 @@ const scholarship = {
 
 const documents = [{ id: 'doc-1', verificationStatus: 'Verified' }];
 
+// The stage action lives in the review modal's sticky action bar, so the tab
+// must never render a second decision button of its own.
+const buttonLabels = (html) => [...html.matchAll(/>([^<>]+)<\/button>/g)].map((match) => match[1].trim());
+
 describe('EndorsementCasePanel', () => {
-  it('shows the record, comments, and Endorse action to the Department Chair', () => {
+  it('shows the record, comments, and readiness to the Department Chair without a second Endorse button', () => {
     const html = renderToStaticMarkup(
       <EndorsementCasePanel
         application={application()}
         documents={documents}
         role="department_chair"
         onAddComment={() => ({ ok: true })}
-        onRequestDecision={() => undefined}
       />,
     );
 
     expect(html).toContain('Endorsement record');
     expect(html).toContain('Sent to endorsement');
     expect(html).toContain('Internal comments');
-    expect(html).toContain('Endorse');
+    expect(html).toContain('Record the endorsement from the action bar below.');
+    expect(html).toContain('1 of 1 attached documents verified');
+    expect(buttonLabels(html)).not.toContain('Endorse');
     expect(html).not.toContain('Endorsement checklist');
   });
 
-  it('shows the hand-off action to the Admissions Office at verification', () => {
+  it('points the Admissions Office at the action bar instead of rendering the hand-off button', () => {
     const html = renderToStaticMarkup(
       <EndorsementCasePanel
         application={application({ status: 'For Verification', statusLog: [] })}
         documents={documents}
         role="admissions_office"
-        onRequestDecision={() => undefined}
       />,
     );
 
-    expect(html).toContain('Send to endorsement');
+    expect(html).toContain('Send the application to endorsement from the action bar below.');
     expect(html).toContain('1 of 1 attached documents verified');
+    expect(buttonLabels(html)).not.toContain('Send to endorsement');
   });
 
   it('shows the recorded decision after endorsement', () => {
@@ -123,5 +128,25 @@ describe('ApplicationReviewModal endorsement tab', () => {
     expect(html).toContain('Endorsement record');
     expect(html).toContain('All attached files are verified.');
     expect(html).not.toContain('Endorsement checklist');
+    // One action surface only: the Chair's Endorse button renders once.
+    expect(buttonLabels(html).filter((label) => label === 'Endorse')).toHaveLength(1);
+  });
+
+  it('renders the hand-off once for the Admissions Office on the Endorsement tab', () => {
+    const html = renderToStaticMarkup(
+      <ApplicationReviewModal
+        application={application({ status: 'For Verification', statusLog: [] })}
+        scholarship={scholarship}
+        documents={documents}
+        role="admissions_office"
+        initialTab="endorsement"
+        onClose={() => undefined}
+        onStatusChange={() => ({ ok: true })}
+      />,
+    );
+
+    expect(html).toContain('Endorsement record');
+    expect(html).toContain('Send the application to endorsement from the action bar below.');
+    expect(buttonLabels(html).filter((label) => label === 'Send to endorsement')).toHaveLength(1);
   });
 });

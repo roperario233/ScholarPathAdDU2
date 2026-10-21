@@ -239,7 +239,8 @@ export const photoRejectionReasonValues = ['photo-quality', 'not-recent'];
 // Admissions Office verifies a Document Vault file that declares it as proof
 // (see src/lib/verification.js). The state is derived per attribute from the
 // linked documents, so it is distinct from a document's own verificationStatus.
-export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected', 'Outdated'];
+// `Not needed` marks an answer that claims nothing and so needs no proof.
+export const attributeVerificationStatuses = ['Unverified', 'Pending', 'Verified', 'Rejected', 'Outdated', 'Not needed'];
 
 // Standard Procedure submission types (step 2 required documents) plus the
 // generic fallbacks. These are the types offered when a vault file is a general
@@ -295,10 +296,11 @@ export const photoDocumentTypes = ['Applicant Photo', 'Photos of Residence'];
 export const isPhotoDocumentType = (value) => photoDocumentTypes.includes(value);
 
 // The rejection-reason list for one file: photo-specific reasons are offered
-// only for the two camera-capable types.
+// only for the two camera-capable types, and the declared-value mismatch is not
+// offered for a photo, which proves no profile answer.
 export const getDocumentRejectionReasons = (documentType) => (
   isPhotoDocumentType(documentType)
-    ? documentRejectionReasons
+    ? documentRejectionReasons.filter((reason) => reason.value !== 'value-mismatch')
     : documentRejectionReasons.filter((reason) => !photoRejectionReasonValues.includes(reason.value))
 );
 

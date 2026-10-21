@@ -6,7 +6,16 @@ import { coverageTypes } from '../lib/constants';
 import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
 import { getScholarshipRequirements } from '../lib/applicationRequirements';
-import { getProfileSectionForField } from '../lib/profile';
+import { getApplicationProfileGate, getProfileSectionForField } from '../lib/profile';
+
+// The My Profile sections the "Needed to apply" items live in, keyed like the
+// section menu in src/pages/ProfileView.jsx.
+const PROFILE_SECTION_LABELS = {
+  personal: 'Personal information',
+  academic: 'Academic profile',
+  financial: 'Household and financial aid',
+  background: 'Eligibility background',
+};
 
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply, onOpenProfileSection }) {
   const [expandedEligibilityId, setExpandedEligibilityId] = useState(null);
@@ -17,6 +26,11 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
     if (result && !result.allowed && result.reasons?.length) setApplyErrors((previous) => ({ ...previous, [scholarship.id]: result.reasons[0] }));
   };
   const activeFilterCount = [filters.category, filters.coverage, filters.deadline].filter((value) => value !== 'all').length + (filters.activeOnly ? 1 : 0);
+  // Profile first: an AdDU internal application can only be started once every
+  // "Needed to apply" answer is complete. Browsing and the Smart Eligibility
+  // Checker stay open.
+  const profileGate = getApplicationProfileGate(profile);
+  const missingSections = [...new Set(profileGate.missing.map((item) => item.section))];
 
   return (
     <div className="grid gap-4">
@@ -78,6 +92,32 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
           <span className="explorer-govgrant-chip">{profile.hasActiveGovernmentGrant ? 'Gov grant active' : 'No active gov grant'}</span>
         </p>
       </section>
+
+      {!profileGate.allowed ? (
+        <section className="grid gap-3 rounded-app border border-amber-400/40 bg-amber-500/10 p-4" aria-label="Complete your profile to apply">
+          <div className="grid gap-1">
+            <strong className="text-sm text-app-text">Complete your profile to apply</strong>
+            <p className="m-0 text-sm text-app-muted">
+              You can browse and check eligibility now. To start an AdDU application, add: {profileGate.missing.map((item) => item.label).join(', ')}.
+            </p>
+          </div>
+          {onOpenProfileSection ? (
+            <div className="flex flex-wrap gap-2">
+              {missingSections.map((section) => (
+                <button
+                  key={section}
+                  type="button"
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                  onClick={() => onOpenProfileSection(section)}
+                >
+                  {PROFILE_SECTION_LABELS[section] || 'My Profile'}
+                  <ArrowRight size={15} className="shrink-0" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {scholarships.length ? scholarships.map((scholarship) => {
@@ -192,7 +232,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                         <div className="grid gap-1 border-t border-app-border/60 pt-3">
                           <strong className="text-xs text-app-text">Required documents ({requirements.length})</strong>
                           <ul className="m-0 grid gap-0.5 pl-5 text-xs text-app-muted">
-                            {requirements.map((item) => <li key={item.id}>{item.label}</li>)}
+                            {requirements.map((item) => <li key={item.id}>{item.label}{item.claim ? ' (from your profile answer)' : ''}</li>)}
                           </ul>
                           <span className="text-xs text-app-muted">Upload them to your Document Vault now, or add them when you apply.</span>
                         </div>
@@ -204,7 +244,10 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                     </p>
                   )}
 
-                  {isInternal && gateResult.allowed && (
+                  {isInternal && gateResult.allowed && !profileGate.allowed && (
+                    <p className="m-0 text-sm text-app-muted">Complete the profile items listed above to start this application.</p>
+                  )}
+                  {isInternal && gateResult.allowed && profileGate.allowed && (
                     <button
                       type="button"
                       className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"

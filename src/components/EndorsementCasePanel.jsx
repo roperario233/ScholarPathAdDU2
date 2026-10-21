@@ -1,7 +1,7 @@
 import ApplicationCommentThread from './ApplicationCommentThread';
-import { Button, Panel } from './ui';
+import { Panel } from './ui';
 import { getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { getStageActionLabel, isAdmissionsReviewerRole } from '../lib/constants';
+import { isAdmissionsReviewerRole } from '../lib/constants';
 import {
   getApplicationComments,
   getEndorsementAgeDays,
@@ -14,14 +14,15 @@ import { fmtDate } from '../lib/formatters';
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
 
 // The Endorsement tab, kept small: what happened at the hand-off and decision,
-// one internal comment thread, and the role-scoped action.
+// one internal comment thread, and the document-readiness state. The stage
+// action itself is the review modal's single sticky action bar button, so the
+// hand-off/endorsement action is never rendered twice while this tab is open.
 export default function EndorsementCasePanel({
   application,
   documents = [],
   comments = [],
   role,
   onAddComment,
-  onRequestDecision,
 }) {
   const readiness = getDocumentVerificationReadiness(application, documents);
   const documentsReady = readiness.total > 0 && readiness.ready;
@@ -32,14 +33,15 @@ export default function EndorsementCasePanel({
   const overdue = isEndorsementOverdue(application);
   const thread = getApplicationComments(comments, application.id);
 
+  // Whether this role has a decision to take right now. The button itself lives
+  // in the action bar; this only points the reviewer at it.
   const canDecide = Boolean(
-    onRequestDecision
-    && ((isAdmissionsReviewerRole(role) && application.status === 'For Verification')
-      || (role === 'department_chair' && application.status === 'For Endorsement')),
+    (isAdmissionsReviewerRole(role) && application.status === 'For Verification')
+    || (role === 'department_chair' && application.status === 'For Endorsement'),
   );
-  const decisionLabel = role === 'department_chair'
-    ? getStageActionLabel('Endorsed', 'department_chair')
-    : getStageActionLabel('For Endorsement', 'admissions_office');
+  const decisionHint = role === 'department_chair'
+    ? 'Record the endorsement from the action bar below.'
+    : 'Send the application to endorsement from the action bar below.';
   const blockedReason = documentsReady
     ? ''
     : readiness.total === 0
@@ -87,24 +89,14 @@ export default function EndorsementCasePanel({
         />
       </section>
 
-      {canDecide ? (
-        <div className="grid gap-2 border-t border-app-border pt-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs text-app-muted">
-              {documentsReady
-                ? `${readiness.verified} of ${readiness.total} attached documents verified`
-                : blockedReason}
-            </span>
-            <Button
-              type="button"
-              variant="primary"
-              disabled={!documentsReady}
-              title={blockedReason || undefined}
-              onClick={() => onRequestDecision()}
-            >
-              {decisionLabel}
-            </Button>
-          </div>
+      {canDecide || readiness.total > 0 ? (
+        <div className="grid gap-1 border-t border-app-border pt-3">
+          <span className={`text-xs ${documentsReady ? 'text-app-muted' : 'text-amber-700 dark:text-amber-200'}`}>
+            {documentsReady
+              ? `${readiness.verified} of ${readiness.total} attached documents verified`
+              : blockedReason}
+          </span>
+          {canDecide ? <span className="text-xs text-app-muted">{decisionHint}</span> : null}
         </div>
       ) : null}
     </div>

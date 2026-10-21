@@ -140,8 +140,8 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
 }
 
 // Shown while a draft would change a value that a Document Vault proof attests.
-// Saving still works: verification is informational, so this only tells the
-// student which proof will need replacing.
+// Saving still works; this tells the student which proof will need replacing
+// before their next application can be submitted.
 function ProofImpactWarning({ warnings = [] }) {
   if (!warnings.length) return null;
   const labels = warnings.map(({ key, previousStatus }) => `${getVerifiableAttributeOption(key)?.label || key} (${previousStatus.toLowerCase()})`);
@@ -149,7 +149,7 @@ function ProofImpactWarning({ warnings = [] }) {
     <div role="status" className="flex items-start gap-3 rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-sm text-app-text">
       <TriangleAlert size={18} className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true" />
       <p className="m-0">
-        Your proof for <strong>{labels.join(', ')}</strong> was uploaded for the current value. If you save this change, that proof will be marked Outdated and you will need to upload a new one in the Document Vault.
+        Your proof for <strong>{labels.join(', ')}</strong> was uploaded for the current value. If you save this change, that proof will be marked Outdated and you will need to upload a new one in the Document Vault before you submit another application. Applications you already submitted keep the values you declared.
       </p>
     </div>
   );
@@ -167,14 +167,16 @@ function ReadOnlyField({ label, value, note, className = '' }) {
 
 // A verification badge for one profile attribute, with a link to attach its
 // proof document in the Document Vault when it is not verified yet. The state is
-// derived from the student's linked proof documents (src/lib/verification.js) and
-// is informational: it never blocks eligibility matching or applying.
+// derived from the student's linked proof documents (src/lib/verification.js).
+// It never blocks eligibility matching; an application needs a current proof
+// attached before it is submitted. An answer that claims nothing reads
+// `Not needed` and asks for no document.
 function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
   const status = attributeVerifications[attributeKey] || 'Unverified';
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
       <StatusBadge tone={getAttributeVerificationTone(status)}>{status}</StatusBadge>
-      {status !== 'Verified' && onAttachProof && (
+      {status !== 'Verified' && status !== 'Not needed' && onAttachProof && (
         <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>{status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
       )}
     </span>
@@ -212,14 +214,14 @@ const standingNote = (standing) => {
 };
 
 const completenessGroupNotes = {
-  application: 'The Smart Eligibility Checker reads these answers, and each submission saves them in your profile snapshot. Upload proof in the Document Vault to have an answer verified.',
+  application: 'Complete these before you can start an AdDU application. The Smart Eligibility Checker reads them, each submission saves them in your profile snapshot, and each application needs a current proof of them from your Document Vault.',
   details: 'Not required to apply, but every answer except your mobile number is included in the profile snapshot of each application you submit, which the Admissions Office and your Department Chair review. A mobile number enables SMS reminders.',
 };
 
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
   // A verification badge only means something once the answer is filled in.
   const showStatus = item.done && status !== undefined;
-  const showAttachProof = showStatus && status !== 'Verified' && onAttachProof;
+  const showAttachProof = showStatus && status !== 'Verified' && status !== 'Not needed' && onAttachProof;
   return (
     <li className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
       <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
@@ -285,8 +287,8 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
                 <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
                   {onUploadDocument && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item))}>
-                      {item.state === 'missing' ? 'Upload' : item.state === 'rejected' ? 'Upload again' : 'View'}
+                    <button type="button" className="link-btn shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item, standing))}>
+                      {item.state === 'missing' ? 'Upload' : item.state === 'rejected' ? 'Upload again' : item.state === 'outdated' ? 'Upload new proof' : 'View'}
                     </button>
                   )}
                 </span>

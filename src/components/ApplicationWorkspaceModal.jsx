@@ -5,11 +5,11 @@ import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
-import { buildProfileSnapshot, describeRequirementTypes, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
+import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
 import { getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, photoRequirementNeedsCamera } from '../lib/photoGuide';
-import { ESSAY_MAX_LENGTH } from '../lib/profile';
+import { ESSAY_MAX_LENGTH, getVerifiableAttributeOption } from '../lib/profile';
 import { fmtDate } from '../lib/formatters';
 
 const STEPS = [
@@ -58,7 +58,13 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <h4 className="m-0 text-sm font-bold text-app-text">{requirement.label}</h4>
-          <p className="m-0 mt-1 text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)}</p>
+          <p className="m-0 mt-1 text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)} · any one is enough</p>
+          {requirement.proves?.length ? (
+            <p className="m-0 mt-1 text-xs text-app-muted">
+              Proves your {requirement.proves.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as declared in My Profile
+            </p>
+          ) : null}
+          {requirement.note ? <p className="m-0 mt-1 text-xs text-app-muted">{requirement.note}</p> : null}
         </div>
         <RequirementStateBadge state={requirement.state} />
       </div>
@@ -199,7 +205,6 @@ export default function ApplicationWorkspaceModal({
   scholarship,
   documents,
   profile,
-  attributeVerifications,
   onAttach,
   onDetach,
   onUploadAndAttach,
@@ -228,15 +233,21 @@ export default function ApplicationWorkspaceModal({
     profile,
     certified,
   }), [application, statement, scholarship, documents, profile, certified]);
-  const snapshot = useMemo(() => buildProfileSnapshot(profile, attributeVerifications), [profile, attributeVerifications]);
+  // The badges come from the files this application attaches, exactly as the
+  // submission will freeze them.
+  const snapshot = useMemo(
+    () => buildProfileSnapshot(profile, getApplicationAttributeVerifications(application, documents, profile)),
+    [profile, application, documents],
+  );
   const isStatementDirty = statement !== savedStatement;
   const eligibilityBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Eligibility:'));
   const documentsDone = readiness.requirements.every((item) => item.state === 'attached' || item.state === 'verified');
+  const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Complete your profile') || blocker.startsWith('Set your year standing'));
   const supportingCount = readiness.supportingDocuments.length;
 
   const stepDone = {
     documents: documentsDone,
-    profile: eligibilityBlockers.length === 0,
+    profile: eligibilityBlockers.length === 0 && profileBlockers.length === 0,
     statement: Boolean(statement.trim()),
     review: readiness.ready,
   };
@@ -326,7 +337,7 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'documents' && (
             <section className="grid gap-3" aria-label="Required documents">
-              <p className="m-0 text-sm text-app-muted">Attach one file for each requirement. Files you upload here are saved to your Document Vault so you can reuse them for other applications. A file pending review is enough to submit; the Admissions Office verifies it during document verification.</p>
+              <p className="m-0 text-sm text-app-muted">Attach one file for each requirement. Files you upload here are saved to your Document Vault so you can reuse them for other applications. A file that proves a profile answer must match what My Profile says now; if you change the answer, upload a new proof. A file pending review is enough to submit; the Admissions Office verifies it during document verification.</p>
               {readiness.requirements.length ? (
                 <ul className="m-0 grid gap-3 p-0">
                   {readiness.requirements.map((requirement) => (
@@ -361,10 +372,10 @@ export default function ApplicationWorkspaceModal({
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Profile snapshot">
               <p className="m-0 text-sm text-app-muted">Everything listed here is sent with your application and frozen when you submit. The Admissions Office and your Department Chair see the same values. Update them in My Profile if anything has changed.</p>
-              <Panel><ProfileSnapshotList snapshot={snapshot} expanded /></Panel>
-              {eligibilityBlockers.length ? (
+              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} /></Panel>
+              {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
-                  {eligibilityBlockers.map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
+                  {[...profileBlockers, ...eligibilityBlockers].map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
                 </ul>
               ) : null}
               <div><Button type="button" onClick={() => { if (!isStatementDirty || window.confirm('Leave without saving your statement?')) onOpenProfile(); }}>Edit in My Profile</Button></div>

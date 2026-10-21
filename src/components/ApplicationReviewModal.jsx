@@ -7,7 +7,7 @@ import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, S
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -138,6 +138,9 @@ export default function ApplicationReviewModal({
   const previewPaneRef = useRef(null);
   const nextStatuses = getNextApplicationStatuses(application.status, role);
   const linkedDocuments = getLinkedDocuments(application, documents);
+  // The 2x2 ID photo heads the snapshot view, so a reviewer can put a face to
+  // the application without opening the Documents tab.
+  const applicantPhoto = getApplicantPhotoDocument(application, documents);
   const statusLog = Array.isArray(application.statusLog) ? application.statusLog : [];
   // Manuscript 3.3.3: an application whose attached files are still Pending or
   // Rejected cannot be endorsed or advance to any later SOP stage. The database
@@ -244,21 +247,27 @@ export default function ApplicationReviewModal({
     if (!endorsementDecision) return;
     setEndorsementBusy(true);
     setEndorsementError('');
-    const result = endorsementDecision.mode === 'handoff'
-      ? await onStatusChange?.(application.id, 'For Endorsement', { note })
-      : await onEndorse?.(application.id, note);
-    setEndorsementBusy(false);
-    if (result?.error) {
-      setEndorsementError(result.error);
-      return;
+    try {
+      const result = endorsementDecision.mode === 'handoff'
+        ? await onStatusChange?.(application.id, 'For Endorsement', { note })
+        : await onEndorse?.(application.id, note);
+      if (result?.error) {
+        setEndorsementError(result.error);
+        return;
+      }
+      setEndorsementFeedback(endorsementDecision.mode === 'handoff'
+        ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
+        : 'The endorsement decision was recorded.');
+      setEndorsementDecision(null);
+      // Stay on the Endorsement tab either way: the recorded hand-off or decision
+      // is the confirmation, and closing the review surface would hide it.
+      setActiveTab('endorsement');
+    } catch (error) {
+      // A rejected write must never leave the dialog stuck on "Saving…".
+      setEndorsementError(error?.message || 'The decision could not be recorded. Please try again.');
+    } finally {
+      setEndorsementBusy(false);
     }
-    setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-      ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
-      : 'The endorsement decision was recorded.');
-    setEndorsementDecision(null);
-    // Stay on the Endorsement tab either way: the recorded hand-off or decision
-    // is the confirmation, and closing the review surface would hide it.
-    setActiveTab('endorsement');
   };
 
   // Overview facts: the snapshot values the student certified, compared with
@@ -370,12 +379,20 @@ export default function ApplicationReviewModal({
       return;
     }
     // The hand-off to the Department Chair records an optional note, so the
-    // action bar and the Endorsement tab open the same decision dialog. The
-    // review surface stays open afterwards instead of closing on the reviewer
-    // before they can read the recorded hand-off.
+    // action bar opens the decision dialog. The review surface stays open
+    // afterwards instead of closing on the reviewer before they can read the
+    // recorded hand-off.
     if (status === 'For Endorsement' && isAdmissionsReviewer) {
       setEndorsementError('');
       setEndorsementDecision({ mode: 'handoff' });
+      return;
+    }
+    // Endorsing records the department's recommendation note, so the Chair's
+    // single action bar button opens the decision dialog instead of writing
+    // straight from the button with no note.
+    if (status === 'Endorsed') {
+      setEndorsementError('');
+      setEndorsementDecision({ mode: 'endorse' });
       return;
     }
     setActionError('');
@@ -390,9 +407,7 @@ export default function ApplicationReviewModal({
       }
       : undefined;
     let result;
-    if (status === 'Endorsed') {
-      result = await onEndorse?.(application.id);
-    } else if (status === 'Interview') {
+    if (status === 'Interview') {
       result = await onScheduleInterview?.(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
     } else if (status === 'Recommended') {
       result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
@@ -561,7 +576,7 @@ export default function ApplicationReviewModal({
         {visibleActiveTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
-            <ProfileSnapshotList snapshot={application.profileSnapshot} />
+            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} />
           </Panel>
         )}
 
@@ -589,10 +604,6 @@ export default function ApplicationReviewModal({
               comments={reviewComments}
               role={role}
               onAddComment={onAddComment}
-              onRequestDecision={() => {
-                setEndorsementError('');
-                setEndorsementDecision({ mode: role === 'department_chair' ? 'endorse' : 'handoff' });
-              }}
             />
           </div>
         )}

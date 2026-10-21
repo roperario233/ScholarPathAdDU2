@@ -17,12 +17,11 @@ left join public.profiles p on p.user_id = a.student_id
 where not public.is_addu_in_scope_track(s.title)
 order by a.updated_at desc;
 
--- 2. Optional: deactivate the out-of-scope *internal* catalog rows so they stop
---    appearing in the Explorer. External and government-linked rows are left
---    alone (they are tracked-only by design). Review the result of query 1
---    before running this.
+-- 2. Deactivate the out-of-scope *catalog* rows so nothing outside the three
+--    tracks is reachable from the app. Applied on 2026-10-21 for the
+--    ScholarPath AdDU project: 51 rows were deactivated (20 donor endowments,
+--    17 corporate/external, 13 state-sponsored, and A-1); no application
+--    referenced any of them. Reversible with `set is_active = true`.
 -- update public.scholarships
 --   set is_active = false, updated_at = now()
---   where category = 'Internal Endowment'
---     and coalesce(is_external, false) = false
---     and not public.is_addu_in_scope_track(title);
+--   where not public.is_addu_in_scope_track(title);

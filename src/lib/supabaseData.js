@@ -321,20 +321,21 @@ export const createSupabaseReviewComment = async ({ applicationId, authorId, aut
 };
 
 // Department review records mirror chair decisions for schema-level auditing.
-export const upsertSupabaseDepartmentReview = ({ applicationId, reviewerId, studentName, department, qpi, householdIncome, status, recommendation }) => (
-  ensureReady()
-    ? supabase.from('department_reviews').upsert({
-        application_id: applicationId,
-        reviewer_id: reviewerId,
-        student_name: studentName || 'Student applicant',
-        department: department || 'Unassigned',
-        qpi: qpi ?? 0,
-        household_income: householdIncome ?? 0,
-        status,
-        recommendation: recommendation || recommendationNote(status),
-      }, { onConflict: 'application_id,reviewer_id' }).select().single()
-    : Promise.resolve({ data: null, error: null })
-);
+// Kept async so it always returns a real Promise: a Postgrest builder is only a
+// thenable (no .catch/.finally), and a fire-and-forget caller needs .catch.
+export const upsertSupabaseDepartmentReview = async ({ applicationId, reviewerId, studentName, department, qpi, householdIncome, status, recommendation }) => {
+  if (!ensureReady()) return { data: null, error: null };
+  return supabase.from('department_reviews').upsert({
+    application_id: applicationId,
+    reviewer_id: reviewerId,
+    student_name: studentName || 'Student applicant',
+    department: department || 'Unassigned',
+    qpi: qpi ?? 0,
+    household_income: householdIncome ?? 0,
+    status,
+    recommendation: recommendation || recommendationNote(status),
+  }, { onConflict: 'application_id,reviewer_id' }).select().single();
+};
 
 const recommendationNote = (status) => (
   status === 'Endorsed'

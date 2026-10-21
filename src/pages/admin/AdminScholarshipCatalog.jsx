@@ -3,6 +3,7 @@ import AdminPageHeader from '../../components/AdminPageHeader';
 import RequiredDocumentsEditor from '../../components/RequiredDocumentsEditor';
 import { Button, Card, FormField, StatusBadge } from '../../components/ui';
 import { getInternalCatalogEntries } from '../../lib/admissionsOffice';
+import { ADDU_INTERNAL_PROGRAM_TITLES, isAdduInternalProgram } from '../../lib/eligibility';
 import { normalizeRequirements } from '../../lib/applicationRequirements';
 
 // Catalog management is its own route: publishing an AdDU internal scholarship
@@ -28,11 +29,20 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
       setCatalogError('Add at least one required document with a label and an accepted document type.');
       return;
     }
+    // Only the three Appendix A tracks are tracked, so the form must not publish
+    // a fourth internal title that students could never apply to.
+    const title = String(data.get('scholarshipTitle') || '').trim();
+    if (!isAdduInternalProgram({ title })) {
+      setCatalogError('Only the three Appendix A AdDU tracks can be published here: Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars) Program.');
+      return;
+    }
     setCatalogError('');
     const scholarship = {
       ...(editingScholarship || {}),
-      title: String(data.get('scholarshipTitle') || '').trim(),
-      category: 'Internal Endowment',
+      title,
+      // Keep the stored category when editing, so saving the Student Assistant
+      // program does not silently relabel it as an Internal Endowment.
+      category: editingScholarship?.category || 'Internal Endowment',
       origin: 'AdDU',
       coverageType: String(data.get('coverageType') || 'Full Tuition'),
       coverage: String(data.get('scholarshipCoverage') || '').trim(),
@@ -69,15 +79,18 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
     <div className="grid gap-5">
       <AdminPageHeader
         title="AdDU internal scholarship catalog"
-        description="Publish and update the AdDU internal entries that students can apply to, including the documents each entry requires."
-        badge={`${internalScholarships.length} internal entries`}
+        description="Maintain the three Appendix A AdDU tracks students can apply to — Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars) Program — including the documents each track requires."
+        badge={`${internalScholarships.length} AdDU internal tracks`}
       />
 
       <section className="grid gap-4">
-        <Card title="Publish or update an AdDU internal scholarship" action={<StatusBadge tone="info">Catalog management</StatusBadge>}>
+        <Card title="Publish or update a tracked AdDU internal program" action={<StatusBadge tone="info">Catalog management</StatusBadge>}>
           <form key={editingScholarship?.id || 'new-scholarship'} className="grid gap-4" onChange={markDirty} onSubmit={saveScholarshipFromForm}>
-            <FormField label="Scholarship title">
-              <input name="scholarshipTitle" required defaultValue={editingScholarship?.title || ''} placeholder="Grant-in-Aid (GIA)" />
+            <FormField label="Scholarship title" hint="Only the three Appendix A tracks are tracked. Pick one of the listed titles.">
+              <input name="scholarshipTitle" required list="addu-track-titles" defaultValue={editingScholarship?.title || ''} placeholder="Grant-in-Aid (GIA)" />
+              <datalist id="addu-track-titles">
+                {ADDU_INTERNAL_PROGRAM_TITLES.map((title) => <option key={title} value={title} />)}
+              </datalist>
             </FormField>
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField label="Internal eligibility rule">
@@ -122,7 +135,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
             </div>
             <RequiredDocumentsEditor scholarship={editingScholarship} onDirty={markDirty} />
             {catalogError ? <p className="form-error m-0" role="alert">{catalogError}</p> : null}
-            <p className="m-0 text-xs text-app-muted">This form publishes AdDU-administered programs only. Government-linked and external programs remain managed through their established catalog source; eligibility verification does not make an award or disbursement decision.</p>
+            <p className="m-0 text-xs text-app-muted">This form maintains the three tracked AdDU internal programs only. Government-linked, corporate, and donor programs are outside the manuscript scope and are not managed here; catalog eligibility is not an award or disbursement decision.</p>
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" type="submit">{editingScholarship ? 'Save scholarship changes' : 'Publish scholarship'}</Button>
               {editingScholarship && (
@@ -139,7 +152,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
             </div>
           </form>
           <div className="mt-5 grid max-h-[360px] gap-2 overflow-y-auto border-t border-app-border pt-4">
-            <h4 className="m-0 text-sm font-bold text-app-text">Existing internal catalog entries</h4>
+            <h4 className="m-0 text-sm font-bold text-app-text">Tracked AdDU internal programs</h4>
             {internalScholarships.map((entry) => (
               <article key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface p-3">
                 <div className="min-w-0">
@@ -149,7 +162,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
                 <Button type="button" onClick={() => startEditingScholarship(entry)}>Edit</Button>
               </article>
             ))}
-            {!internalScholarships.length && <p className="m-0 text-sm text-app-muted">No internal scholarships are loaded from Supabase.</p>}
+            {!internalScholarships.length && <p className="m-0 text-sm text-app-muted">No tracked AdDU internal programs are loaded from Supabase.</p>}
           </div>
         </Card>
       </section>

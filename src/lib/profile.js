@@ -90,9 +90,10 @@ export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_
 // (see src/lib/verification.js). `acceptedDocumentTypes` lists the document
 // types that count as proof for that attribute (values from `documentTypeOptions`
 // in src/lib/constants.js), so the vault can offer the accepted types instead of
-// a free-text type and title. Verification is informational in this prototype: it
-// never blocks eligibility matching or applying, and QPI/income remain
-// self-reported rather than Registrar-verified.
+// a free-text type and title. Verification never blocks eligibility matching or
+// starting an application, but a submission needs a current proof attached for
+// each answer it relies on (getApplicationReadiness in applicationRequirements.js).
+// QPI and income remain self-reported rather than Registrar-verified.
 //
 // Not every attribute needs proof. Attributes that are administrative or already
 // evidenced elsewhere (AdDU student number, degree program, year standing, active
@@ -102,20 +103,118 @@ export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_
 // `annual` marks an attribute whose proof only covers one academic year (the
 // annual QPI and household income), so a file uploaded in an earlier academic
 // year is outdated even when the declared value has not changed.
+//
+// `typeStanding` scopes an accepted type to one standing: a college grade
+// report proves an enrolled student's QPI and academic standing, while a senior
+// high school report card proves an incoming first-year's general average and
+// academic standing. An unset standing accepts every listed type.
+//
+// `proofRequired(profile, standing)` says whether the current answer needs proof
+// at all. Answers that claim nothing (IP community "No", PWD "No", "Not
+// employed", no honors) need no document, so the attribute reads `Not needed`
+// instead of `Unverified`. An attribute without the rule always needs proof.
+// `claimLabel` names the extra requirement row an application gains when the
+// answer is a claim (getClaimProofRequirements in applicationRequirements.js).
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
-  { key: 'qpi', label: 'Annual QPI', section: 'academic', annual: true, acceptedDocumentTypes: ['Transcript', 'Grade Report'], hint: 'Upload your grade report or transcript showing your annual QPI.' },
-  { key: 'academicStanding', label: 'Academic standing', section: 'academic', acceptedDocumentTypes: ['Transcript', 'Good Moral Character'], hint: 'Upload a transcript or a certificate of good moral character reflecting your academic standing.' },
-  { key: 'hsAverage', label: 'Senior high school general average', section: 'academic', acceptedDocumentTypes: ['HS Report Card'], hint: 'Upload your senior high school report card showing your general average.' },
+  {
+    key: 'qpi', label: 'Annual QPI', section: 'academic', annual: true,
+    acceptedDocumentTypes: ['Grade Report', 'Transcript'],
+    typeStanding: { 'Grade Report': 'continuing', Transcript: 'continuing' },
+    proofRequired: (_profile, standing) => !standing.isIncomingFirstYear,
+    hint: 'Upload your grade report or transcript showing your annual QPI.',
+  },
+  {
+    key: 'hsAverage', label: 'Senior high school general average', section: 'academic',
+    acceptedDocumentTypes: ['HS Report Card'],
+    typeStanding: { 'HS Report Card': 'incoming' },
+    proofRequired: (profile, standing) => standing.isIncomingFirstYear || (!standing.yearStanding && !isBlank(profile.hsAverage)),
+    hint: 'Upload your senior high school report card showing your general average.',
+  },
+  {
+    key: 'academicStanding', label: 'Academic standing', section: 'academic',
+    acceptedDocumentTypes: ['Grade Report', 'Transcript', 'HS Report Card'],
+    typeStanding: { 'Grade Report': 'continuing', Transcript: 'continuing', 'HS Report Card': 'incoming' },
+    hint: 'Upload your latest grade report or transcript (or your senior high school report card if you are an incoming first-year).',
+  },
   { key: 'householdIncome', label: 'Annual household income', section: 'financial', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
-  { key: 'employed', label: 'Employment status', section: 'financial', acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'], hint: 'Upload a certificate of employment or your latest payslip.' },
-  { key: 'honorsRank', label: 'Graduation honors', section: 'background', acceptedDocumentTypes: ['Certificate of Award'], hint: 'Upload your Certificate of Award for your honors standing.' },
+  {
+    key: 'employed', label: 'Employment status', section: 'financial',
+    acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'],
+    proofRequired: (profile) => !isBlank(profile.employed) && profile.employed !== 'Not employed',
+    claimLabel: 'Proof of employment',
+    hint: 'Upload a certificate of employment or your latest payslip.',
+  },
+  {
+    key: 'honorsRank', label: 'Graduation honors', section: 'background',
+    acceptedDocumentTypes: ['Certificate of Award'],
+    proofRequired: (profile) => !isBlank(profile.honorsRank),
+    claimLabel: 'Proof of graduation honors',
+    hint: 'Upload your Certificate of Award for your honors standing.',
+  },
   { key: 'citizenship', label: 'Citizenship', section: 'background', acceptedDocumentTypes: ['PSA Birth Certificate', 'Philippine National ID', "Driver's License", 'Passport'], hint: 'Upload a PSA birth certificate, national ID, driver’s license, or passport showing your citizenship.' },
-  { key: 'ipCommunity', label: 'Indigenous People (IP) community', section: 'background', acceptedDocumentTypes: ['Certificate of Tribal Membership'], hint: 'Upload your NCIP certificate of tribal membership or equivalent.' },
-  { key: 'pwd', label: 'Person with Disability (PWD)', section: 'background', acceptedDocumentTypes: ['PWD ID', 'Medical Certificate'], hint: 'Upload your PWD ID or medical certificate of disability.' },
+  {
+    key: 'ipCommunity', label: 'Indigenous People (IP) community', section: 'background',
+    acceptedDocumentTypes: ['Certificate of Tribal Membership'],
+    proofRequired: (profile) => profile.ipCommunity === 'Yes',
+    claimLabel: 'Proof of IP community membership',
+    hint: 'Upload your NCIP certificate of tribal membership or equivalent.',
+  },
+  {
+    key: 'pwd', label: 'Person with Disability (PWD)', section: 'background',
+    acceptedDocumentTypes: ['PWD ID', 'Medical Certificate'],
+    proofRequired: (profile) => profile.pwd === 'Yes',
+    claimLabel: 'Proof of PWD status',
+    hint: 'Upload your PWD ID or medical certificate of disability.',
+  },
 ];
 
 export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
 export const getVerifiableAttributeOption = (key) => VERIFIABLE_ATTRIBUTE_OPTIONS.find((option) => option.key === key);
+
+// Whether a type an attribute accepts applies to the profile's standing. With no
+// profile (or no standing yet) every accepted type applies.
+const typeAppliesToStanding = (option, documentType, profile) => {
+  const scope = option.typeStanding?.[documentType];
+  if (!scope || !profile) return true;
+  const standing = getStandingRequirements(profile);
+  if (!standing.yearStanding) return true;
+  return scope === 'incoming' ? standing.isIncomingFirstYear : standing.isContinuing;
+};
+
+// The single type-to-attribute map: the profile attributes a document of this
+// type proves for this student's standing. Every upload path (the Document
+// Vault, the application workspace, and the rejected-file replacement) links a
+// file through this map, so the same type always proves the same answers and
+// verifying it always verifies them. Mirrored by document_type_attributes() in
+// supabase/migrations/20261028000000_require_current_attribute_proofs.sql.
+export const getProvenAttributes = (documentType, profile = null) => (
+  documentType
+    ? VERIFIABLE_ATTRIBUTE_OPTIONS
+      .filter((option) => option.acceptedDocumentTypes.includes(documentType) && typeAppliesToStanding(option, documentType, profile))
+      .map((option) => option.key)
+    : []
+);
+
+// Whether the student's current answer needs proof. An answer that claims
+// nothing (for example IP community "No") needs no document, and an attribute
+// that does not apply to the standing (a QPI for an incoming first-year) needs
+// none either.
+export const isProofRequired = (key, profile = {}) => {
+  const option = getVerifiableAttributeOption(key);
+  if (!option) return false;
+  if (!option.proofRequired) return true;
+  const source = profile && typeof profile === 'object' ? profile : {};
+  return Boolean(option.proofRequired(source, getStandingRequirements(source)));
+};
+
+// The claim-style attributes the student's answers currently assert (IP
+// community "Yes", PWD "Yes", employed, honors). Each needs proof attached to an
+// application, so the application gains one requirement row per claim.
+export const getClaimedAttributes = (profile = {}) => (
+  VERIFIABLE_ATTRIBUTE_OPTIONS
+    .filter((option) => option.claimLabel && isProofRequired(option.key, profile))
+    .map((option) => option.key)
+);
 
 // AdDU academic years start in June, so May 2027 belongs to 2026-2027. Shared by
 // the annual QPI records and the annual-proof expiry in src/lib/verification.js.
@@ -144,11 +243,14 @@ export const normalizeAttestedValue = (key, value) => {
 };
 
 // The document types a profile attribute accepts as proof, shaped as picker
-// options (`{ value, label }`). An unknown attribute yields an empty list.
-export const getAcceptedDocumentTypes = (key) => {
+// options (`{ value, label }`). An unknown attribute yields an empty list. With a
+// profile, types scoped to the other standing are left out.
+export const getAcceptedDocumentTypes = (key, profile = null) => {
   const option = getVerifiableAttributeOption(key);
   if (!option) return [];
-  return option.acceptedDocumentTypes.map((value) => ({ value, label: getDocumentTypeLabel(value) }));
+  return option.acceptedDocumentTypes
+    .filter((value) => typeAppliesToStanding(option, value, profile))
+    .map((value) => ({ value, label: getDocumentTypeLabel(value) }));
 };
 
 // The vault derives a document's title from the attribute it proves and its
@@ -174,15 +276,38 @@ export const decodeDocumentSelection = (value) => {
 // The grouped option list for the vault upload picker, mirroring the
 // program/course picker in My Profile: each verifiable attribute is a group
 // header with the document types it accepts listed below it, preceded by a
-// "General documents" group for files that are not tied to a profile attribute.
-export const buildDocumentPickerOptions = () => [
-  { value: 'group-general', label: 'General documents', isGroup: true },
-  ...generalDocumentTypeOptions.map((type) => ({ value: encodeDocumentSelection('', type.value), label: type.label })),
-  ...VERIFIABLE_ATTRIBUTE_OPTIONS.flatMap((option) => [
-    { value: `group-${option.key}`, label: option.label, isGroup: true },
-    ...getAcceptedDocumentTypes(option.key).map((type) => ({ value: encodeDocumentSelection(option.key, type.value), label: type.label })),
-  ]),
-];
+// "General documents" group for files that prove no profile answer. A type that
+// proves an answer for this standing is listed only under its attribute, so the
+// same type cannot be uploaded once as a proof and once as a plain file; when it
+// also proves another answer (a grade report proves the QPI and academic
+// standing) the item says so. Attributes with no type for the standing (a
+// senior high school average for an enrolled student) are left out.
+export const buildDocumentPickerOptions = (profile = null) => {
+  const alsoProves = (documentType, key) => {
+    const others = getProvenAttributes(documentType, profile).filter((other) => other !== key);
+    return others.length ? ` · also proves ${others.map((other) => getVerifiableAttributeOption(other)?.label || other).join(', ')}` : '';
+  };
+  return [
+    { value: 'group-general', label: 'General documents', isGroup: true },
+    ...generalDocumentTypeOptions
+      .filter((type) => !getProvenAttributes(type.value, profile).length)
+      .map((type) => ({ value: encodeDocumentSelection('', type.value), label: type.label })),
+    ...VERIFIABLE_ATTRIBUTE_OPTIONS.flatMap((option) => {
+      const types = getAcceptedDocumentTypes(option.key, profile);
+      if (!types.length) return [];
+      return [
+        { value: `group-${option.key}`, label: option.label, isGroup: true },
+        ...types.map((type) => ({ value: encodeDocumentSelection(option.key, type.value), label: `${type.label}${alsoProves(type.value, option.key)}` })),
+      ];
+    }),
+  ];
+};
+
+// The picker entry for a document type: under the first attribute it proves for
+// this standing, otherwise as a general document.
+export const getDocumentSelectionForType = (documentType, profile = null) => (
+  encodeDocumentSelection(getProvenAttributes(documentType, profile)[0] || '', documentType || '')
+);
 
 export const BIO_MAX_LENGTH = 280;
 export const ESSAY_MAX_LENGTH = 5000;
@@ -650,6 +775,23 @@ export const PROFILE_COMPLETENESS_GROUPS = [
 ];
 
 const countDone = (items) => items.filter((item) => item.done).length;
+
+// The profile-first gate: an application can only be started once every
+// "Needed to apply" item for the student's standing is complete. Returns the
+// missing items (each with its My Profile section) so the Scholarship Explorer
+// can link the student straight to them. Mirrored for the in-scope tracks by
+// enforce_student_application_update on insert.
+export const getApplicationProfileGate = (profile = {}) => {
+  const missing = getProfileCompleteness(profile, 'student').items
+    .filter((item) => item.group === 'application' && !item.done);
+  return {
+    allowed: missing.length === 0,
+    missing,
+    reasons: missing.length
+      ? [`Complete your profile before applying: ${missing.map((item) => item.label).join(', ')}.`]
+      : [],
+  };
+};
 
 export const getProfileCompleteness = (profile = {}, role = 'student') => {
   const standing = getStandingRequirements(profile);

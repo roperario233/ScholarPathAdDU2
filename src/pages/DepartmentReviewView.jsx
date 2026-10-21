@@ -43,10 +43,10 @@ export default function DepartmentReviewView({
       </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} note="Sent to endorsement by the Admissions Office" />
-        <StatCard label="Department recommendations" value={endorsed.length} note="Applications routed to the next SOP stage" />
-        <StatCard label="Interviews scheduled" value={interviews.length} note="Panels from the applicant school" />
-        <StatCard label="Department scope" value={profile.department || 'Unassigned'} note="Endorsement boundary" />
+        <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} />
+        <StatCard label="Department recommendations" value={endorsed.length} />
+        <StatCard label="Interviews scheduled" value={interviews.length} />
+        <StatCard label="Department" value={profile.department || 'Unassigned'} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
@@ -103,22 +103,6 @@ export default function DepartmentReviewView({
           </div>
         </Card>
 
-        <Card title="Review guidance" action={<StatusBadge tone="info">SOP steps 4-6</StatusBadge>} className="min-w-0">
-          <div className="grid gap-3">
-            <Panel className="grid gap-3">
-              <h3>Endorsement focus</h3>
-              <p className="text-sm text-app-muted">Recommend qualified applicants once required submissions are verified and academic standing is active.</p>
-            </Panel>
-            <Panel className="grid gap-3">
-              <h3>Interview panel</h3>
-              <p className="text-sm text-app-muted">The interviewing body is drawn from the school where the applicant’s program belongs — your department convenes the panel.</p>
-            </Panel>
-            <Panel className="grid gap-3">
-              <h3>Deliberation</h3>
-              <p className="text-sm text-app-muted">The School Scholarship Sub-committee evaluates interviewed applicants and records its recommendation.</p>
-            </Panel>
-          </div>
-        </Card>
       </section>
 
       {selected && (

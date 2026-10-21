@@ -11,7 +11,7 @@ export function StatCard({ label, value, note }) {
     <article className="group relative flex flex-col gap-1 overflow-hidden rounded-app border border-app-border bg-app-card p-5 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app">
       <span className="absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-blue-500/10 transition group-hover:scale-125" />
       <span className="text-sm font-semibold text-app-muted">{label}</span>
-      <strong className="text-3xl font-bold text-app-text">{value}</strong>
+      <strong className="text-xl font-bold text-app-text">{value}</strong>
       <p className="mb-0 text-sm text-app-muted">{note}</p>
     </article>
   );

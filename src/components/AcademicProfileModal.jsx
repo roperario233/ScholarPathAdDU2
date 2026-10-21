@@ -18,8 +18,9 @@ const controlClass = 'h-12 py-0';
 
 // A profile attribute the Admissions Office can verify against a Document Vault
 // proof document. The state is derived from the student's linked documents
-// (src/lib/verification.js) and is informational: it never blocks eligibility
-// matching or applying. An answer with no proof uploaded yet reads as
+// (src/lib/verification.js). It never blocks eligibility matching; an
+// application needs a current proof attached before it is submitted. An answer
+// with no proof uploaded yet reads as
 // "Unverified", which renders as a neutral badge rather than an error.
 function AttributeVerificationBadge({ attributeKey, attributeVerifications = {} }) {
   const status = attributeVerifications[attributeKey] || 'Unverified';

@@ -115,7 +115,7 @@ describe('getReleaseQueue', () => {
 });
 
 describe('getInternalCatalogEntries', () => {
-  const internal = (overrides = {}) => ({
+  const entry = (overrides = {}) => ({
     id: 'entry',
     title: 'Grant-in-Aid (GIA)',
     category: 'Internal Endowment',
@@ -124,21 +124,31 @@ describe('getInternalCatalogEntries', () => {
     ...overrides,
   });
 
-  it('keeps AdDU internal entries for the three supported rule families', () => {
+  it('keeps exactly the three Appendix A tracks', () => {
     const entries = getInternalCatalogEntries([
-      internal({ id: 'general' }),
-      internal({ id: 'honors', ruleFamily: 'honors' }),
-      internal({ id: 'work-study', ruleFamily: 'work-study' }),
+      entry({ id: 'gia', title: 'Grant-in-Aid (GIA)' }),
+      entry({ id: 'jubilee', title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors' }),
+      // The Student Assistant program is stored under a different category, so a
+      // category-based filter used to leave it out of the catalog entirely.
+      entry({ id: 'sa', title: 'Student Assistant (SA) Program', category: 'Specialized Service', ruleFamily: 'work-study' }),
     ]);
 
-    expect(entries.map((entry) => entry.id)).toEqual(['general', 'honors', 'work-study']);
+    expect(entries.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
   });
 
-  it('leaves external, government-linked, and unrelated entries out', () => {
+  it('leaves a donor endowment out even when it shares an internal rule family', () => {
     const entries = getInternalCatalogEntries([
-      internal({ id: 'external', isExternal: true }),
-      internal({ id: 'government', category: 'Government' }),
-      internal({ id: 'donor', ruleFamily: 'donor-endowment' }),
+      entry({ id: 'endowment', title: 'Antonio A. Villanueva Endowment Fund' }),
+      entry({ id: 'a1', title: 'A-1 Scholarship Program (Micro-Philanthropy)', ruleFamily: 'excluded' }),
+    ]);
+
+    expect(entries).toEqual([]);
+  });
+
+  it('leaves external and government-linked programs out', () => {
+    const entries = getInternalCatalogEntries([
+      entry({ id: 'corporate', title: 'Metrobank Foundation Scholarship Fund', category: 'Corporate & External', isExternal: true }),
+      entry({ id: 'government', title: 'CHED-National Scholarship Program', category: 'State-Sponsored', ruleFamily: 'government-linked', isExternal: true }),
     ]);
 
     expect(entries).toEqual([]);
