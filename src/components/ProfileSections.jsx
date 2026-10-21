@@ -18,6 +18,7 @@ import {
   deriveYearStanding,
   employmentOptions,
   familyPositionOptions,
+  getProgramChoiceOptions,
   getStandingRequirements,
   getVerifiableAttributeOption,
   honorsRankOptions,
@@ -66,11 +67,13 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previe
     onDirtyChange?.(isDirty);
   }, [isDirty, onDirtyChange]);
 
-  const update = (patch) => {
+  // `relatedKeys` lets a field clear errors it can resolve in a neighbour, such as
+  // the 1st program choice clearing a duplicate message on the 2nd and 3rd.
+  const update = (patch, relatedKeys = []) => {
     setValues((previous) => ({ ...previous, ...patch }));
     setErrors((previous) => {
       const next = { ...previous };
-      Object.keys(patch).forEach((key) => delete next[key]);
+      [...Object.keys(patch), ...relatedKeys].forEach((key) => delete next[key]);
       return next;
     });
     setStatus({ tone: '', message: '' });
@@ -584,19 +587,25 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
     { value: `group-${category}`, label: category, isGroup: true },
     ...academicPrograms.filter((program) => program.category === category),
   ]);
+  // Each ranked choice hides the programs already chosen in the other two slots,
+  // so the same program cannot be ranked twice (issue #20).
+  const choiceOptions = {
+    degreeProgram: getProgramChoiceOptions(programOptions, { slot: 'degreeProgram', ...values }),
+    programChoice2: getProgramChoiceOptions(programOptions, { slot: 'programChoice2', ...values }),
+    programChoice3: getProgramChoiceOptions(programOptions, { slot: 'programChoice3', ...values }),
+  };
 
   return (
     <SectionForm title="Academic profile" description="Your enrollment details drive degree-specific matching in the Smart Eligibility Checker." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value })} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
+        <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value }, ['programChoice2', 'programChoice3'])} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
         {standing.requiresStudentNumber && <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
       <div className="grid gap-2">
-        <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value })} options={programOptions} idPrefix="profile-degree-program" />
-        {errors.degreeProgram && <span className="text-sm text-rose-600 dark:text-rose-300" role="alert">{errors.degreeProgram}</span>}
+        <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" />
       </div>
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates automatically when you change your degree program." />
-      {standing.requiresProgramChoices && <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value })} options={programOptions} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={programOptions} idPrefix="profile-program-choice-3" /></div>{(errors.programChoice2 || errors.programChoice3) && <span className="text-sm text-rose-600 dark:text-rose-300" role="alert">{errors.programChoice2 || errors.programChoice3}</span>}</div>}
+      {standing.requiresProgramChoices && <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once across your 1st, 2nd, and 3rd choices.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
