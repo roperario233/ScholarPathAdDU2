@@ -7,6 +7,7 @@ import {
   buildProfileSnapshot,
   describeApplicantAcademic,
   describeStatusActor,
+  describeDocumentDecision,
   getApplicationReadiness,
   getCatalogRequirements,
   getDocumentChecklist,
@@ -22,6 +23,7 @@ import {
   pickDefaultAttachments,
 } from '../src/lib/applicationRequirements';
 import { documentTypeOptions } from '../src/lib/constants';
+import { fmtDate } from '../src/lib/formatters';
 
 const continuingProfile = {
   fullName: 'Ana Reyes',
@@ -530,6 +532,54 @@ describe('describeStatusActor', () => {
   });
 });
 
+
+describe('describeDocumentDecision', () => {
+  const decidedAt = '2026-10-21T03:42:00.000Z';
+  const on = fmtDate(decidedAt);
+  const verified = {
+    verificationStatus: 'Verified',
+    decidedAt,
+    reviewedBy: 'staff-1',
+    reviewedByRole: 'admissions_office',
+    reviewedByName: 'Juan Dela Cruz',
+  };
+
+  it('names the reviewer, lane, and date for staff surfaces', () => {
+    expect(describeDocumentDecision(verified, { showName: true }))
+      .toBe(`Verified by Juan Dela Cruz · Admissions Office Staff · ${on}`);
+  });
+
+  it('shows the lane and date to a student, never the reviewer name', () => {
+    expect(describeDocumentDecision(verified)).toBe(`Verified by Admissions Office Staff · ${on}`);
+  });
+
+  it('labels the Head lane and a rejection', () => {
+    const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_head', reviewedByName: 'Ada Cruz' };
+    expect(describeDocumentDecision(rejected, { showName: true }))
+      .toBe(`Rejected by Ada Cruz · Admissions Office Head · ${on}`);
+  });
+
+  it('treats a reset file as awaiting review', () => {
+    expect(describeDocumentDecision({ verificationStatus: 'Pending', decidedAt: null, reviewedBy: null, reviewedByRole: null }))
+      .toBe('Awaiting review — no decision recorded yet.');
+  });
+
+  it('states when reviewer details were not kept rather than inventing them', () => {
+    expect(describeDocumentDecision({ verificationStatus: 'Verified' }))
+      .toBe('Verified · recorded before reviewer details were kept.');
+    expect(describeDocumentDecision({ verificationStatus: 'Rejected', rejectionReason: 'Blurry' }))
+      .toBe('Rejected · recorded before reviewer details were kept.');
+  });
+
+  it('falls back to the Admissions Office lane when no role was recorded', () => {
+    expect(describeDocumentDecision({ verificationStatus: 'Verified', decidedAt, reviewedByName: 'Juan Dela Cruz' }, { showName: true }))
+      .toBe(`Verified by Juan Dela Cruz · Admissions Office · ${on}`);
+  });
+
+  it('tolerates a missing document', () => {
+    expect(describeDocumentDecision(null)).toBe('No review decision recorded.');
+  });
+});
 
 describe('replacing a rejected document on a submitted application', () => {
   const rejected = { id: 'doc-itr', documentType: 'Income Tax Return', verificationStatus: 'Rejected', uploadedAt: '2026-09-01' };

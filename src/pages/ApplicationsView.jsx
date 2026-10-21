@@ -3,7 +3,7 @@ import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import { DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
+import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
@@ -124,10 +124,17 @@ export default function ApplicationsView({
     ? getReplaceableRejectedDocuments(selected, documents)
     : [];
 
-  // The reason shown under an attached file in the lists. The replace controls
-  // live in the action panel above, so the file rows stay compact.
+  // The reason and the review record shown under an attached file in the lists.
+  // The replace controls live in the action panel above, so the file rows stay
+  // compact. The student sees the Admissions Office lane, never the reviewer's
+  // name.
   const renderAttachmentNote = function AttachmentNote(doc) {
-    return <DocumentRejectionReason doc={doc} />;
+    return (
+      <>
+        <DocumentRejectionReason doc={doc} />
+        <DocumentDecisionRecord doc={doc} showReviewer={false} />
+      </>
+    );
   };
 
   return <div className="blue-action-view grid gap-4">

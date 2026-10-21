@@ -35,6 +35,13 @@ const toDocument = (row) => ({
   storagePath: row.storage_path,
   sharedWith: row.shared_with || [],
   uploadedAt: row.uploaded_at,
+  // The current review decision: when it was made and which Admissions Office
+  // account recorded it (stamped by the trigger, see
+  // 20261027000000_add_document_decision_actor.sql). A Pending file carries no
+  // decision; a file decided before that migration carries none either.
+  decidedAt: row.verification_decided_at ?? null,
+  reviewedBy: row.reviewed_by ?? null,
+  reviewedByRole: row.reviewed_by_role ?? null,
 });
 
 const toApplication = (row, scholarshipById, documentIdsByApplication, studentById = {}, statusLogByApplication = {}) => {
@@ -151,6 +158,10 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     ...entry,
     ownerName: studentById[entry.ownerId]?.full_name || 'Student applicant',
     ownerDepartment: studentById[entry.ownerId]?.department || '',
+    // The reviewer's name resolves for staff (staff_read_profiles) but not for a
+    // student, whose profile read is scoped to their own row; the UI then falls
+    // back to the recorded role, never the name.
+    reviewedByName: studentById[entry.reviewedBy]?.full_name || null,
   }));
   const documentIdsByApplication = {};
   const applicationIds = (applicationsResult.data || []).map((entry) => entry.id);

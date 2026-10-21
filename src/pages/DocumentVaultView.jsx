@@ -6,7 +6,7 @@ import { SelectPicker } from './LoginScreen';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import PhotoCaptureModal from '../components/PhotoCaptureModal';
 import PhotoGuide from '../components/PhotoGuide';
-import { DocumentRejectionReason } from '../components/ApplicationParts';
+import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
 import { generalDocumentTypeOptions, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
@@ -250,6 +250,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
                 ) : null}
               </div>
               <DocumentRejectionReason doc={doc} />
+              <DocumentDecisionRecord doc={doc} showReviewer={false} />
               {onResolveDocument && replacementApplications.length ? (
                 <div className="grid gap-2 rounded-xl border border-rose-400/40 p-3">
                   <p className="m-0 text-sm text-app-text">

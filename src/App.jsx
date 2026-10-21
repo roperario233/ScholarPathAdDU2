@@ -1258,23 +1258,29 @@ function App() {
   // attribute's state is derived from its linked proof documents
   // (src/lib/verification.js), verifying the file also verifies the attributes it
   // proves. A rejection must carry a recorded reason (ReasonModal in
-  // ApplicationReviewModal); the database enforces the same rule. The student is
+  // ApplicationReviewModal); the database enforces the same rule. Verification is
+  // confirmed first (VerifyDocumentModal) because the review is attributed to the
+  // signed-in account: the trigger stamps reviewed_by, reviewed_by_role, and
+  // verification_decided_at, and a reset to Pending clears them. The student is
   // notified server-side by notify-document-verification, which the database
   // trigger calls; the browser call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
     // Reviewing a vault file belongs to the Admissions Office. Staff verify
     // documents; the Head has the same authority as a superset.
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      window.alert('Only the Admissions Office can verify or reject a document.');
-      return;
+      const message = 'Only the Admissions Office can verify or reject a document.';
+      window.alert(message);
+      return { error: message };
     }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
-    if (verificationStatus === 'Rejected' && !reason) return;
+    if (verificationStatus === 'Rejected' && !reason) return { error: 'A reason is required to reject a document.' };
+    const decidedAt = new Date().toISOString();
     if (isSupabaseWorkspaceLoaded) {
       const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
       if (result.error) {
-        window.alert(result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.');
-        return;
+        const message = result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.';
+        window.alert(message);
+        return { error: message };
       }
       if (['Verified', 'Rejected'].includes(verificationStatus)) {
         notifySupabaseDocumentVerification(documentId).catch(() => undefined);
@@ -1286,8 +1292,15 @@ function App() {
         ...entry,
         verificationStatus,
         rejectionReason: reason,
+        // Mirrors the database trigger: a decision records its date and the
+        // reviewing account; a reset to Pending carries no decision.
+        decidedAt: verificationStatus === 'Pending' ? null : decidedAt,
+        reviewedBy: verificationStatus === 'Pending' ? null : (previous.authUser?.id || null),
+        reviewedByRole: verificationStatus === 'Pending' ? null : state.viewerRole,
+        reviewedByName: verificationStatus === 'Pending' ? null : (previous.authUser?.fullName || null),
       } : entry),
     }));
+    return { ok: true };
   };
 
   // A Rejected file on a submitted, pre-endorsement application can be swapped
@@ -1992,6 +2005,7 @@ function App() {
               documents={state.documents}
               scholarships={state.scholarships || []}
               role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
               onScheduleInterview={scheduleInterview}

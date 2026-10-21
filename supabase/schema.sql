@@ -119,6 +119,15 @@ alter table documents add column if not exists rejection_reason text;
 -- When the current verification decision was made; keys the per-decision
 -- student notification (see 20261021000000_replace_rejected_application_documents.sql).
 alter table documents add column if not exists verification_decided_at timestamptz;
+-- The Admissions Office account that recorded the current decision and its
+-- role, stamped by the trigger from auth.uid() / current_profile_role() and
+-- cleared when the file returns to Pending
+-- (see 20261027000000_add_document_decision_actor.sql).
+alter table documents add column if not exists reviewed_by uuid references profiles(user_id) on delete set null;
+alter table documents add column if not exists reviewed_by_role text;
+-- Covering index for the new foreign key
+-- (see 20261027000000_add_document_decision_actor.sql).
+create index if not exists documents_reviewed_by_idx on documents (reviewed_by);
 
 create table if not exists applications (
   id uuid primary key default gen_random_uuid(),
@@ -816,8 +825,10 @@ for select using (
 
 -- Students own their vault rows (documents_self_access is FOR ALL), but the
 -- review fields belong to the Admissions Office: a student cannot mark a file
--- Verified, relink it, rewrite the value it attests, or backdate it into the
--- current academic year (see 20261013000000_add_document_attested_values.sql).
+-- Verified, relink it, rewrite the value it attests, name a reviewer, or
+-- backdate it into the current academic year (see
+-- 20261013000000_add_document_attested_values.sql and
+-- 20261027000000_add_document_decision_actor.sql).
 create or replace function public.protect_document_review_fields()
 returns trigger
 language plpgsql
@@ -833,12 +844,16 @@ begin
     new.verification_status := 'Pending';
     new.rejection_reason := null;
     new.verification_decided_at := null;
+    new.reviewed_by := null;
+    new.reviewed_by_role := null;
     new.uploaded_at := now();
     return new;
   end if;
   if new.verification_status is distinct from old.verification_status
     or new.rejection_reason is distinct from old.rejection_reason
     or new.verification_decided_at is distinct from old.verification_decided_at
+    or new.reviewed_by is distinct from old.reviewed_by
+    or new.reviewed_by_role is distinct from old.reviewed_by_role
     or new.linked_attributes is distinct from old.linked_attributes
     or new.attested_values is distinct from old.attested_values
     or new.uploaded_at is distinct from old.uploaded_at
@@ -857,7 +872,9 @@ create trigger protect_document_review_fields
 -- A file cannot move into Rejected without a recorded reason, and the reason is
 -- cleared once the file leaves Rejected. The check runs on the transition only,
 -- so a file rejected before the column existed stays editable
--- (see 20261020000000_add_document_rejection_reason.sql).
+-- (see 20261020000000_add_document_rejection_reason.sql). Every decision also
+-- records its date and the reviewing Admissions Office account, and a reset to
+-- Pending clears both (see 20261027000000_add_document_decision_actor.sql).
 create or replace function public.require_document_rejection_reason()
 returns trigger
 language plpgsql
@@ -865,7 +882,15 @@ set search_path = public
 as $$
 begin
   if new.verification_status is distinct from old.verification_status then
-    new.verification_decided_at := now();
+    if new.verification_status = 'Pending' then
+      new.verification_decided_at := null;
+      new.reviewed_by := null;
+      new.reviewed_by_role := null;
+    else
+      new.verification_decided_at := now();
+      new.reviewed_by := auth.uid();
+      new.reviewed_by_role := coalesce(public.current_profile_role(), 'system');
+    end if;
   end if;
   if new.verification_status is distinct from 'Rejected' then
     new.rejection_reason := null;

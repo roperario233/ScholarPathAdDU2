@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
+import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
@@ -116,6 +117,7 @@ export default function ApplicationReviewModal({
   documents,
   students = {},
   role,
+  reviewerName = '',
   initialTab = null,
   onClose,
   onStatusChange,
@@ -182,6 +184,11 @@ export default function ApplicationReviewModal({
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
+  // Verification is attributed to the signed-in Admissions Office account and
+  // dated by the database, so it is confirmed before it is written.
+  const [verifyTarget, setVerifyTarget] = useState(null);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
   const [actionError, setActionError] = useState('');
   // The Endorsement tab records the stage decision with a recommendation note;
   // the dialog never writes status directly.
@@ -194,13 +201,34 @@ export default function ApplicationReviewModal({
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
 
   // A document rejection must carry a recorded reason, so it opens the reason
-  // dialog; Verified and Pending apply directly.
+  // dialog; a verification is attributed to the reviewer, so it opens the
+  // confirmation dialog. A reset to Pending is a quiet correction and applies
+  // directly.
   const changeDocument = (documentId, status) => {
+    const target = linkedDocuments.find((doc) => doc.id === documentId) || null;
     if (status === 'Rejected') {
-      setDocumentRejectTarget(linkedDocuments.find((doc) => doc.id === documentId) || null);
+      setDocumentRejectTarget(target);
+      return;
+    }
+    if (status === 'Verified') {
+      setVerifyError('');
+      setVerifyTarget(target);
       return;
     }
     onChangeDocument?.(documentId, status);
+  };
+
+  const confirmVerification = async () => {
+    if (!verifyTarget) return;
+    setVerifyBusy(true);
+    setVerifyError('');
+    const result = await onChangeDocument?.(verifyTarget.id, 'Verified');
+    setVerifyBusy(false);
+    if (result?.error) {
+      setVerifyError(result.error);
+      return;
+    }
+    setVerifyTarget(null);
   };
 
   const selectDocument = (doc) => {
@@ -668,6 +696,22 @@ export default function ApplicationReviewModal({
       />
     ) : null}
     {previewDoc ?<DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}
+    {verifyTarget ? (
+      <VerifyDocumentModal
+        doc={verifyTarget}
+        application={application}
+        reviewerName={reviewerName}
+        reviewerRole={role}
+        busy={verifyBusy}
+        error={verifyError}
+        onConfirm={confirmVerification}
+        onClose={() => {
+          if (verifyBusy) return;
+          setVerifyTarget(null);
+          setVerifyError('');
+        }}
+      />
+    ) : null}
     </>
   );
 }

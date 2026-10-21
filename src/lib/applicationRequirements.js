@@ -1,6 +1,6 @@
 import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel, sopStageIndex } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
-import { fmtCurrency } from './formatters';
+import { fmtCurrency, fmtDate } from './formatters';
 import {
   VERIFIABLE_ATTRIBUTE_OPTIONS,
   academicStandingOptions,
@@ -365,12 +365,36 @@ const ACTOR_ROLE_LABELS = {
   system: 'System',
 };
 
+export const getActorRoleLabel = (role) => ACTOR_ROLE_LABELS[role]
+  || String(role || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
+
 export const describeStatusActor = (event, showName = false) => {
   if (!event) return 'Recorded automatically';
   const name = showName ? event.actorName : null;
-  const roleLabel = ACTOR_ROLE_LABELS[event.actorRole]
-    || String(event.actorRole || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase());
-  return name || roleLabel || 'System';
+  return name || getActorRoleLabel(event.actorRole) || 'System';
+};
+
+
+// The current Document Vault review decision, phrased once so the reviewer pane,
+// the Department Chair's read-only pane, the student's Document Vault card, and
+// the student's application details cannot describe the same decision
+// differently. The date and the reviewing account are stamped by the database
+// trigger (20261027000000_add_document_decision_actor.sql), never sent by the
+// client. Staff see the reviewer's name when the directory resolves it; a
+// student sees the role only, exactly like describeStatusActor. A file decided
+// before that migration keeps its status and reads as recorded without reviewer
+// details rather than implying a date.
+export const describeDocumentDecision = (doc, { showName = false } = {}) => {
+  if (!doc) return 'No review decision recorded.';
+  const status = doc.verificationStatus;
+  if (!status || status === 'Pending') return 'Awaiting review — no decision recorded yet.';
+  const verb = status === 'Rejected' ? 'Rejected' : 'Verified';
+  if (!doc.decidedAt && !doc.reviewedBy && !doc.reviewedByRole) {
+    return `${verb} · recorded before reviewer details were kept.`;
+  }
+  const roleLabel = getActorRoleLabel(doc.reviewedByRole) || 'Admissions Office';
+  const actor = showName && doc.reviewedByName ? `${doc.reviewedByName} · ${roleLabel}` : roleLabel;
+  return doc.decidedAt ? `${verb} by ${actor} · ${fmtDate(doc.decidedAt)}` : `${verb} by ${actor}`;
 };
 
 // Version 2 adds the eligibility answers, background, personal, address, and

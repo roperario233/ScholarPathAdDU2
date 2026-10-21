@@ -21,6 +21,7 @@ export default function AdminReviewQueue({
   documents = [],
   scholarships = [],
   role = 'admissions_office',
+  reviewerName = '',
   onChangeApplication,
   onEndorseApplication,
   onScheduleInterview,
@@ -184,6 +185,7 @@ export default function AdminReviewQueue({
           documents={documents}
           students={students}
           role={role}
+          reviewerName={reviewerName}
           initialTab={reviewTab}
           onClose={closeReview}
           onStatusChange={handleStatusChange}
