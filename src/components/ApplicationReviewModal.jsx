@@ -373,12 +373,20 @@ export default function ApplicationReviewModal({
       return;
     }
     // The hand-off to the Department Chair records an optional note, so the
-    // action bar and the Endorsement tab open the same decision dialog. The
-    // review surface stays open afterwards instead of closing on the reviewer
-    // before they can read the recorded hand-off.
+    // action bar opens the decision dialog. The review surface stays open
+    // afterwards instead of closing on the reviewer before they can read the
+    // recorded hand-off.
     if (status === 'For Endorsement' && isAdmissionsReviewer) {
       setEndorsementError('');
       setEndorsementDecision({ mode: 'handoff' });
+      return;
+    }
+    // Endorsing records the department's recommendation note, so the Chair's
+    // single action bar button opens the decision dialog instead of writing
+    // straight from the button with no note.
+    if (status === 'Endorsed') {
+      setEndorsementError('');
+      setEndorsementDecision({ mode: 'endorse' });
       return;
     }
     setActionError('');
@@ -393,9 +401,7 @@ export default function ApplicationReviewModal({
       }
       : undefined;
     let result;
-    if (status === 'Endorsed') {
-      result = await onEndorse?.(application.id);
-    } else if (status === 'Interview') {
+    if (status === 'Interview') {
       result = await onScheduleInterview?.(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
     } else if (status === 'Recommended') {
       result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
@@ -592,10 +598,6 @@ export default function ApplicationReviewModal({
               comments={reviewComments}
               role={role}
               onAddComment={onAddComment}
-              onRequestDecision={() => {
-                setEndorsementError('');
-                setEndorsementDecision({ mode: role === 'department_chair' ? 'endorse' : 'handoff' });
-              }}
             />
           </div>
         )}
