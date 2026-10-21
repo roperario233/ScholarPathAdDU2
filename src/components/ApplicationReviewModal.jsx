@@ -7,7 +7,7 @@ import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, S
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -138,6 +138,9 @@ export default function ApplicationReviewModal({
   const previewPaneRef = useRef(null);
   const nextStatuses = getNextApplicationStatuses(application.status, role);
   const linkedDocuments = getLinkedDocuments(application, documents);
+  // The 2x2 ID photo heads the snapshot view, so a reviewer can put a face to
+  // the application without opening the Documents tab.
+  const applicantPhoto = getApplicantPhotoDocument(application, documents);
   const statusLog = Array.isArray(application.statusLog) ? application.statusLog : [];
   // Manuscript 3.3.3: an application whose attached files are still Pending or
   // Rejected cannot be endorsed or advance to any later SOP stage. The database
@@ -561,7 +564,7 @@ export default function ApplicationReviewModal({
         {visibleActiveTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
-            <ProfileSnapshotList snapshot={application.profileSnapshot} />
+            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} />
           </Panel>
         )}
 

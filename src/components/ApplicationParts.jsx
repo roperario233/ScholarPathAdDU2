@@ -1,11 +1,12 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { Camera, Clock } from 'lucide-react';
 import { Button, StatusBadge } from './ui';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import { PHOTO_ACCEPT } from '../lib/photoGuide';
 import { REQUIREMENT_STATE_LABELS, describeDocumentDecision, describeRequirementTypes, describeStatusActor, getProfileSnapshotSections } from '../lib/applicationRequirements';
-import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
+import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES, isImageFileName } from '../lib/documentStorage';
+import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
@@ -384,17 +385,111 @@ const SnapshotRow = ({ label, value, verification }) => (
 
 const SnapshotRows = ({ rows }) => rows.map((row) => <SnapshotRow key={row.label} {...row} />);
 
+// A signed URL lasts an hour, and the same vault file can be rendered more than
+// once in a session (a re-render of the snapshot block, or another surface that
+// shows the same photo). One signature per object path keeps the thumbnail from
+// re-requesting it every time it remounts, and it is discarded shortly before
+// the URL would expire.
+const SIGNED_URL_REUSE_MS = 55 * 60 * 1000;
+const photoUrlCache = new Map();
+const signedPhotoUrl = (storagePath) => {
+  const cached = photoUrlCache.get(storagePath);
+  if (cached && cached.expiresAt > Date.now()) return cached.request;
+  photoUrlCache.delete(storagePath);
+  const request = getSupabaseDocumentUrl(storagePath)
+    .catch(() => ({ url: null, error: true }))
+    .then((result) => {
+      if (!result?.url) photoUrlCache.delete(storagePath);
+      return result;
+    });
+  photoUrlCache.set(storagePath, { request, expiresAt: Date.now() + SIGNED_URL_REUSE_MS });
+  return request;
+};
+
+// The applicant's 2x2 ID photo, framed square and read from the private
+// Document Vault bucket through a short-lived signed URL. It is the photograph
+// submitted with the application, never the personal profile photo, which is
+// owner-only and deliberately not shared with reviewers. A missing or
+// unreadable file shows a readable placeholder instead of a broken picture, and
+// clicking it opens the full document preview where the surface provides one.
+export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
+  const [state, setState] = useState({ url: '', error: '' });
+  const storagePath = doc?.storagePath || '';
+
+  useEffect(() => {
+    let active = true;
+    if (!storagePath) {
+      setState({ url: '', error: '' });
+      return () => { active = false; };
+    }
+    setState({ url: '', error: '' });
+    signedPhotoUrl(storagePath).then(({ url, error }) => {
+      if (!active) return;
+      setState(error || !url
+        ? { url: '', error: 'The 2x2 photo could not be opened.' }
+        : { url, error: '' });
+    });
+    return () => { active = false; };
+  }, [storagePath]);
+
+  const frame = `grid h-20 w-20 shrink-0 place-items-center overflow-hidden rounded-[14px] border p-1 text-center text-[10px] leading-tight text-app-muted sm:h-24 sm:w-24 ${doc ? 'border-app-border bg-app-surface' : 'border-dashed border-app-border bg-app-surface/60'} ${className}`;
+  // A 2x2 photo is always a normalized JPEG, so a file that is not an image (or
+  // has no stored object) cannot be rendered and says so instead of looping on
+  // the loading state.
+  const viewable = Boolean(storagePath) && (!doc?.fileName || isImageFileName(doc.fileName));
+  const content = doc ? (
+    !viewable
+      ? <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />Photo unavailable</span>
+      : state.url && !state.error
+        ? <img src={state.url} alt="Recent 2x2 ID photo of the applicant" className="h-full w-full rounded-[10px] object-cover" onError={() => setState({ url: '', error: 'The 2x2 photo could not be opened.' })} />
+        : <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />{state.error ? 'Photo unavailable' : 'Loading photo…'}</span>
+  ) : (
+    <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />2x2 photo not attached</span>
+  );
+
+  if (!doc || !onPreview) return <span className={frame}>{content}</span>;
+  return (
+    <button
+      type="button"
+      onClick={() => onPreview(doc)}
+      aria-label="Open the applicant 2x2 photo"
+      className={`${frame} cursor-pointer transition hover:border-blue-500/50 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20`}
+    >
+      {content}
+    </button>
+  );
+}
+
 // Values are self-reported; a badge only reflects Document Vault proof reviewed
 // by the Admissions Office, never a Registrar record. The answers the
 // application needs stay open; the other groups fold so long snapshots stay
 // scannable on a phone and in the review modal. `expanded` opens every group,
 // for the workspace step where the student checks what they are about to send.
-export function ProfileSnapshotList({ snapshot, expanded = false }) {
+// `applicantPhoto` is the 2x2 ID photo the application currently attaches
+// (getApplicantPhotoDocument), shown first so the applicant is recognized at a
+// glance; `onPreviewPhoto` opens the full document where the surface has one.
+export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, onPreviewPhoto }) {
   if (!snapshot) return <p className="m-0 text-sm text-app-muted">No profile snapshot was recorded.</p>;
   const { legacy, sections } = getProfileSnapshotSections(snapshot);
   const [primary, ...groups] = sections;
   return (
     <div className="grid">
+      <div className="flex min-w-0 flex-wrap items-start gap-3 border-b border-app-border/60 pb-3">
+        <ApplicantPhotoThumb doc={applicantPhoto} onPreview={onPreviewPhoto} />
+        <div className="grid min-w-0 gap-1">
+          <strong className="text-base text-app-text">{snapshot.fullName || 'Name not encoded'}</strong>
+          <span className="text-xs text-app-muted">
+            {[snapshot.yearStandingLabel, snapshot.degreeProgram].filter(Boolean).join(' · ') || 'Year standing not recorded'}
+          </span>
+          {applicantPhoto ? (
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-app-muted">
+              <StatusBadge tone={verificationTone(applicantPhoto.verificationStatus)}>{applicantPhoto.verificationStatus}</StatusBadge>
+              <span>Recent 2x2 ID photo · from the Document Vault</span>
+            </span>
+          ) : <span className="text-xs text-app-muted">Recent 2x2 ID photo · not attached</span>}
+          {applicantPhoto?.verificationStatus === 'Rejected' ? <DocumentRejectionReason doc={applicantPhoto} /> : null}
+        </div>
+      </div>
       <SnapshotRows rows={primary.rows} />
       {groups.map((section) => (
         <details key={section.key} open={expanded} className="group border-b border-app-border/60 last:border-b-0">

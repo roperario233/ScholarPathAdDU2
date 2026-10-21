@@ -5,7 +5,7 @@ import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
-import { buildProfileSnapshot, describeRequirementTypes, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
+import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
 import { getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, photoRequirementNeedsCamera } from '../lib/photoGuide';
@@ -361,7 +361,7 @@ export default function ApplicationWorkspaceModal({
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Profile snapshot">
               <p className="m-0 text-sm text-app-muted">Everything listed here is sent with your application and frozen when you submit. The Admissions Office and your Department Chair see the same values. Update them in My Profile if anything has changed.</p>
-              <Panel><ProfileSnapshotList snapshot={snapshot} expanded /></Panel>
+              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} /></Panel>
               {eligibilityBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
                   {eligibilityBlockers.map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}

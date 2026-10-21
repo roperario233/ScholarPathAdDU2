@@ -333,6 +333,20 @@ export const getLinkedDocuments = (application, documents = []) => (
     .filter(Boolean)
 );
 
+// The applicant's 2x2 ID photo is a Document Vault requirement on every in-scope
+// track, and the profile snapshot view leads with it so a reviewer can put a face
+// to the application at a glance. It is read from the file the application
+// currently attaches rather than a copy frozen into the snapshot JSON, so a
+// replacement before endorsement shows the newer photo. A rejected file is
+// returned only when it is all the application has, so the badge explains why
+// the photo cannot be accepted.
+export const getApplicantPhotoDocument = (application, documents = []) => {
+  const photos = getLinkedDocuments(application, documents)
+    .filter((doc) => doc.documentType === 'Applicant Photo')
+    .sort(byNewest);
+  return photos.find((doc) => doc.verificationStatus !== 'Rejected') || photos[0] || null;
+};
+
 // The single readiness check behind the document-verification gate: every
 // attached file must be Verified. The reviewer UI reads this to disable forward
 // actions, and `tests/applicationRequirements.test.js` pins the behavior; the

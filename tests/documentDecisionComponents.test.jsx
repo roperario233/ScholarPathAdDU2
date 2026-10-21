@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { DocumentDecisionRecord, DocumentVerificationItem } from '../src/components/ApplicationParts';
+import { DocumentDecisionRecord, DocumentVerificationItem, ProfileSnapshotList } from '../src/components/ApplicationParts';
+import { buildProfileSnapshot } from '../src/lib/applicationRequirements';
 import { fmtDate } from '../src/lib/formatters';
 
 const decidedAt = '2026-10-21T03:42:00.000Z';
@@ -74,5 +75,51 @@ describe('DocumentVerificationItem actions', () => {
     expect(html).not.toContain('Verify document');
     expect(html).not.toContain('Reject');
     expect(html).toContain(`Verified by Juan Dela Cruz · Admissions Office Staff · ${on}`);
+  });
+});
+
+describe('ProfileSnapshotList 2x2 photo', () => {
+  const snapshot = buildProfileSnapshot({
+    fullName: 'Ana Reyes',
+    degreeProgram: 'BS Information Technology',
+    yearStanding: '2nd',
+    qpi: 3.2,
+    householdIncome: 180000,
+    citizenship: 'Filipino',
+  });
+  const applicantPhoto = {
+    id: 'doc-photo',
+    title: 'Applicant Photo',
+    fileName: 'applicant-photo.jpg',
+    documentType: 'Applicant Photo',
+    verificationStatus: 'Pending',
+    storagePath: 'student-1/doc-photo/applicant-photo.jpg',
+  };
+
+  it('leads the snapshot with the applicant and the attached 2x2 photo', () => {
+    const html = renderToStaticMarkup(<ProfileSnapshotList snapshot={snapshot} applicantPhoto={applicantPhoto} />);
+    expect(html).toContain('Ana Reyes');
+    expect(html).toContain('Recent 2x2 ID photo');
+    expect(html).toContain('Pending');
+  });
+
+  it('says when no 2x2 photo is attached', () => {
+    const html = renderToStaticMarkup(<ProfileSnapshotList snapshot={snapshot} />);
+    expect(html).toContain('2x2 photo not attached');
+  });
+
+  it('carries the recorded rejection reason when the photo was rejected', () => {
+    const html = renderToStaticMarkup(
+      <ProfileSnapshotList
+        snapshot={snapshot}
+        applicantPhoto={{ ...applicantPhoto, verificationStatus: 'Rejected', rejectionReason: 'Photo is blurred.' }}
+      />,
+    );
+    expect(html).toContain('Photo is blurred.');
+  });
+
+  it('offers the full document when the surface can preview it', () => {
+    const html = renderToStaticMarkup(<ProfileSnapshotList snapshot={snapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={() => {}} />);
+    expect(html).toContain('aria-label="Open the applicant 2x2 photo"');
   });
 });

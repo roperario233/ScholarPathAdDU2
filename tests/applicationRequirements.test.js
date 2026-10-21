@@ -12,6 +12,7 @@ import {
   getCatalogRequirements,
   getDocumentChecklist,
   getDocumentVerificationReadiness,
+  getApplicantPhotoDocument,
   getLinkedDocuments,
   getProfileSnapshotSections,
   getReplaceableRejectedDocuments,
@@ -312,6 +313,40 @@ describe('supporting documents', () => {
 
   it('is empty for tracked external entries', () => {
     expect(getApplicationReadiness({ application, scholarship: external, documents: [pwdId], profile: continuingProfile }).supportingDocuments).toEqual([]);
+  });
+});
+
+describe('applicant 2x2 photo in the profile snapshot', () => {
+  const photo = (id, verificationStatus = 'Pending', uploadedAt = '2026-10-01') => ({
+    ...doc(id, 'Applicant Photo', verificationStatus, uploadedAt),
+    title: 'Applicant Photo',
+    fileName: 'applicant-photo.jpg',
+    storagePath: `student-1/${id}/applicant-photo.jpg`,
+  });
+
+  it('resolves the attached 2x2 photo and ignores other vault files', () => {
+    const attached = photo('photo-attached');
+    const residence = { ...doc('residence', 'Photos of Residence'), storagePath: 'student-1/residence/p.jpg' };
+    const unattached = photo('photo-unattached');
+    const application = { attachedDocuments: [attached.id, residence.id] };
+    expect(getApplicantPhotoDocument(application, [attached, residence, unattached])?.id).toBe('photo-attached');
+  });
+
+  it('prefers the newest file that is not rejected, so a replacement is shown', () => {
+    const verifiedOld = photo('photo-old', 'Verified', '2026-01-01');
+    const pendingNew = photo('photo-new', 'Pending', '2026-09-01');
+    const application = { attachedDocuments: [verifiedOld.id, pendingNew.id] };
+    expect(getApplicantPhotoDocument(application, [verifiedOld, pendingNew])?.id).toBe('photo-new');
+  });
+
+  it('falls back to the rejected attachment when it is all the application has', () => {
+    const rejected = photo('photo-rejected', 'Rejected');
+    expect(getApplicantPhotoDocument({ attachedDocuments: [rejected.id] }, [rejected])?.id).toBe('photo-rejected');
+  });
+
+  it('returns nothing when no 2x2 photo is attached', () => {
+    expect(getApplicantPhotoDocument({ attachedDocuments: [] }, [photo('photo-vault')])).toBeNull();
+    expect(getApplicantPhotoDocument(undefined, undefined)).toBeNull();
   });
 });
 

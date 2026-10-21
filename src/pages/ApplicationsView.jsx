@@ -4,7 +4,7 @@ import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
-import { getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
+import { getApplicantPhotoDocument, getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
@@ -14,10 +14,14 @@ const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
 
 // The frozen profile snapshot as report lines, grouped like the on-screen list.
-const snapshotLines = (snapshot, isOpenDraft) => {
-  if (!snapshot) return [isOpenDraft ? '(Recorded when you submit the application.)' : '(No profile snapshot was recorded.)'];
+// The 2x2 ID photo leads the snapshot on screen; a text report can only name the
+// file the application attaches, so it records that line instead of the image.
+const snapshotLines = (snapshot, isOpenDraft, applicantPhoto = null) => {
+  const photoLine = `- 2x2 applicant photo: ${applicantPhoto ? `${applicantPhoto.title} (${applicantPhoto.verificationStatus})` : 'Not attached'}`;
+  if (!snapshot) return [photoLine, isOpenDraft ? '(Recorded when you submit the application.)' : '(No profile snapshot was recorded.)'];
   const { legacy, sections } = getProfileSnapshotSections(snapshot);
   return [
+    photoLine,
     ...sections.flatMap((section) => [
       `${section.title}:`,
       ...section.rows.map((row) => `- ${row.label}: ${row.value || 'Not encoded'}${row.verification ? ` [${row.verification}]` : ''}`),
@@ -91,7 +95,7 @@ export default function ApplicationsView({
         : ['- None attached']),
       '',
       'PROFILE SNAPSHOT',
-      ...snapshotLines(entry.profileSnapshot, entry.status === 'Draft' && readiness.route === 'internal'),
+      ...snapshotLines(entry.profileSnapshot, entry.status === 'Draft' && readiness.route === 'internal', getApplicantPhotoDocument(entry, documents)),
       '',
       'STATEMENT',
       entry.statement || '(none)',
@@ -204,7 +208,7 @@ export default function ApplicationsView({
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
-              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} /></Panel>
+              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} applicantPhoto={getApplicantPhotoDocument(selected, documents)} onPreviewPhoto={setPreview} /></Panel>
               <Panel className="grid gap-2">
                 <h3 className={sectionHeading}>Status history</h3>
                 {/* The student sees the actor's role (their profile read is scoped
