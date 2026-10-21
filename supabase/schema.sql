@@ -421,17 +421,26 @@ for select using (public.current_profile_role() in ('admissions_office', 'admiss
 
 create policy "scholarships_read_all" on scholarships
 for select using (true);
+
+-- "In scope" is decided by the scholarship *title* (is_addu_in_scope_track),
+-- never by rule_family alone: other internal catalog entries can share those
+-- values without being GIA, Jubilee, or SA. Mirrors isAdduInternalProgram() in
+-- src/lib/eligibility.js. Defined here because the catalog policy below reads it.
+create or replace function public.is_addu_in_scope_track(p_title text)
+returns boolean
+language sql
+immutable
+as $$
+  select lower(btrim(coalesce(p_title, ''))) ~ 'jubilee|grant[ -]?in[ -]?aid|(^|[^a-z])gia([^a-z]|$)|student assistant|working scholar';
+$$;
+
 create policy "admissions_office_scholarships_manage" on scholarships
 for all using (
   public.is_admissions_head()
-  and category = 'Internal Endowment'
-  and is_external = false
-  and rule_family in ('general-pool', 'honors', 'work-study')
+  and public.is_addu_in_scope_track(title)
 ) with check (
   public.is_admissions_head()
-  and category = 'Internal Endowment'
-  and is_external = false
-  and rule_family in ('general-pool', 'honors', 'work-study')
+  and public.is_addu_in_scope_track(title)
 );
 create policy "documents_self_access" on documents
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
@@ -563,18 +572,11 @@ for all using (public.is_admissions_head()) with check (public.is_admissions_hea
 --     certification, a statement, and a non-rejected vault file attached for
 --     every required document that applies to the student's year standing.
 --
--- "In scope" is decided by the scholarship *title* (is_addu_in_scope_track),
--- never by rule_family alone: other internal catalog entries can share those
--- values without being GIA, Jubilee, or SA. Mirrors isAdduInternalProgram() in
--- src/lib/eligibility.js.
+-- "In scope" is decided by the scholarship *title* (is_addu_in_scope_track,
+-- defined above with the catalog policies), never by rule_family alone: other
+-- internal catalog entries can share those values without being GIA, Jubilee,
+-- or SA.
 -- ---------------------------------------------------------------------------
-create or replace function public.is_addu_in_scope_track(p_title text)
-returns boolean
-language sql
-immutable
-as $$
-  select lower(btrim(coalesce(p_title, ''))) ~ 'jubilee|grant[ -]?in[ -]?aid|(^|[^a-z])gia([^a-z]|$)|student assistant|working scholar';
-$$;
 
 -- The profile-completeness and current-proof gates below come from
 -- migrations/20261028000000_require_current_attribute_proofs.sql.

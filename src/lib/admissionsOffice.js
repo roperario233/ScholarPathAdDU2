@@ -1,5 +1,6 @@
 import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from './constants';
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
+import { isAdduInternalProgram } from './eligibility';
 
 // The Admissions Office workspace is split into one route per function
 // (overview, application review, catalog management, results release, and
@@ -45,14 +46,15 @@ export const getDocumentsAwaitingReview = (applications = [], documents = []) =>
   ));
 };
 
-// Catalog management through the Admissions Office is limited by the role and
-// RLS to AdDU internal entries. Government-linked and external programs remain
-// outside this path.
-export const getInternalCatalogEntries = (scholarships = []) => asList(scholarships).filter((entry) => (
-  entry.isExternal !== true
-  && entry.category === 'Internal Endowment'
-  && ['general-pool', 'honors', 'work-study'].includes(entry.ruleFamily)
-));
+// The system tracks only the three Appendix A AdDU tracks: Grant-in-Aid (GIA),
+// the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars)
+// Program. "In scope" is decided by the title, exactly as the student Explorer,
+// the application gate, and public.is_addu_in_scope_track() decide it. A
+// category/rule-family test would list every donor endowment seeded as
+// `general-pool` and would hide the Student Assistant program, which the catalog
+// stores under the `Specialized Service` category.
+export const getInternalCatalogEntries = (scholarships = []) => asList(scholarships)
+  .filter((entry) => entry.isExternal !== true && isAdduInternalProgram(entry));
 
 // Prefer the append-only status log (the trustworthy actor), falling back to the
 // browser-written timeline for rows that predate it, and to a single

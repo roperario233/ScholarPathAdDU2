@@ -1486,6 +1486,10 @@ function App() {
       window.alert('Only the Admissions Office Head can publish catalog entries.');
       return false;
     }
+    if (!isAdduInternalProgram(scholarship)) {
+      window.alert('Only the three Appendix A tracks can be published: Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars) Program.');
+      return false;
+    }
     if (!scholarship?.title || !scholarship?.coverage || !['general-pool', 'honors', 'work-study'].includes(scholarship.ruleFamily)) return;
     if (!isSupabaseWorkspaceLoaded) {
       window.alert('Supabase is not configured, so the scholarship could not be saved.');
