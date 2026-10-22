@@ -127,6 +127,13 @@ const createDefaultState = () => ({
   // The internal endorsement thread. Staff-only rows; a student session always
   // keeps this empty.
   reviewComments: [],
+  // SOP step 5 interview data (staff only): the visible staff accounts for the
+  // panel picker, the Head-managed venues, the active panel members, and the
+  // private evaluation notes. A student session always keeps these empty.
+  staffDirectory: [],
+  interviewLocations: [],
+  interviewPanelists: [],
+  interviewNotes: [],
   customDeadlines: [],
   profileSkipped: false,
   theme: 'light',
@@ -191,6 +198,10 @@ export const createInitialState = () => {
     notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
     reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
+    staffDirectory: Array.isArray(stored.staffDirectory) ? stored.staffDirectory : defaults.staffDirectory,
+    interviewLocations: Array.isArray(stored.interviewLocations) ? stored.interviewLocations : defaults.interviewLocations,
+    interviewPanelists: Array.isArray(stored.interviewPanelists) ? stored.interviewPanelists : defaults.interviewPanelists,
+    interviewNotes: Array.isArray(stored.interviewNotes) ? stored.interviewNotes : defaults.interviewNotes,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
     academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,

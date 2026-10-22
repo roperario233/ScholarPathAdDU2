@@ -23,13 +23,19 @@ export default function DepartmentReviewView({
   onEndorseApplication,
   onAddComment,
   onFlagForValidation,
+  interviewWorkspace = null,
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
   const selected = queue.find((entry) => entry.id === selectedId);
   const awaitingEndorsement = queue.filter((entry) => entry.status === 'For Endorsement');
   const endorsed = queue.filter((entry) => ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'].includes(entry.status));
-  const interviews = queue.filter((entry) => entry.status === 'Interview');
+  // SOP 5a: the interview panel comes from the applicant's school, so a Chair
+  // may sit on it. The Admissions Office coordinates the schedule.
+  const panelApplicationIds = new Set((interviewWorkspace?.panelists || [])
+    .filter((row) => !row.removedAt && row.profileId && row.profileId === interviewWorkspace?.viewerId)
+    .map((row) => row.applicationId));
+  const panelInterviews = queue.filter((entry) => entry.status === 'Interview' && panelApplicationIds.has(entry.id));
 
   return (
     <div className="grid gap-5">
@@ -37,7 +43,7 @@ export default function DepartmentReviewView({
         <div className="page-title-copy">
           <span className="page-section-label">Department Chair workspace</span>
           <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applicants from your department, convene the interview panel, and record department-level recommendations.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applicants from your department, endorse verified applications, and sit on the interview panel the Admissions Office schedules for your school.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>
@@ -45,7 +51,7 @@ export default function DepartmentReviewView({
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} />
         <StatCard label="Department recommendations" value={endorsed.length} />
-        <StatCard label="Interviews scheduled" value={interviews.length} />
+        <StatCard label="Interviews on your panel" value={panelInterviews.length} />
         <StatCard label="Department" value={profile.department || 'Unassigned'} />
       </section>
 
@@ -84,6 +90,12 @@ export default function DepartmentReviewView({
                         type="button"
                         onClick={() => { setReviewTab(null); setSelectedId(entry.id); }}
                       >Open review</Button>
+                      {entry.status === 'Interview' && interviewWorkspace ? (
+                        <Button
+                          type="button"
+                          onClick={() => { setReviewTab('interview'); setSelectedId(entry.id); }}
+                        >{panelApplicationIds.has(entry.id) ? 'Open interview' : 'View interview'}</Button>
+                      ) : null}
                       {areDocumentsReviewable(entry.status) ? (
                         <Button
                           type="button"
@@ -117,6 +129,7 @@ export default function DepartmentReviewView({
           onClose={() => { setSelectedId(null); setReviewTab(null); }}
           onStatusChange={onChangeApplication}
           onEndorse={onEndorseApplication}
+          interviewWorkspace={interviewWorkspace}
         />
       )}
     </div>

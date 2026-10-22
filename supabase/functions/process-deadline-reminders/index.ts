@@ -14,15 +14,20 @@
 // settings: the in-app row honors `inAppEnabled`, and the email and SMS honor
 // `emailEnabled` / `smsEnabled` plus the 7-day / 3-day / 1-day reminder toggles.
 //
+// A scheduled interview (SOP step 5) gets the 1-day reminder on the same
+// channels, keyed `interview-reminder-<applicationId>-<revision>-1` like the
+// in-app row the app generates locally, so a reschedule earns a new reminder.
+//
 // Required Edge Function secrets: RESEND_API_KEY, RESEND_FROM_EMAIL,
 // RESEND_FROM_NAME (optional), APP_SITE_URL (optional), REMINDER_CRON_SECRET,
 // IPROGSMS_API_TOKEN, IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { computeDueReminders, manilaDateKey } from '../_shared/reminders.js';
-import { isEmailEnabledForUser, isReminderEnabledForUser, renderReminderEmail, resolveSiteUrl } from '../_shared/email.js';
+import { computeDueReminders, manilaDateKey, reminderDateKey } from '../_shared/reminders.js';
+import { isEmailEnabledForUser, isReminderEnabledForUser, renderInterviewReminderEmail, renderReminderEmail, resolveSiteUrl } from '../_shared/email.js';
+import { getInterviewDateKey, getInterviewReminderKey, isStructuredInterview, summarizeInterview } from '../_shared/interview.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
-import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderReminderSms, sendSms } from '../_shared/sms.js';
+import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderInterviewReminderSms, renderReminderSms, sendSms } from '../_shared/sms.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -88,7 +93,7 @@ Deno.serve(async (req) => {
           .not('deadline', 'is', null),
         supabaseAdmin
           .from('applications')
-          .select('id, scholarship_id, status, student_id')
+          .select('id, scholarship_id, status, student_id, interview')
           .not('status', 'in', '("Approved","Rejected")'),
       ]);
     if (scholarshipsError) throw scholarshipsError;
@@ -152,6 +157,36 @@ Deno.serve(async (req) => {
     const deliveredKeys = new Set((existingLog ?? []).map((row) => row.source_key));
 
     const dueReminders = computeDueReminders({ today, items });
+
+    // SOP step 5: the day-before reminder for each scheduled interview, due
+    // from the day before through the interview day (catch-up, like the
+    // deadline rule).
+    const interviewById = new Map();
+    const interviewApplications = (applications ?? []).filter((row) => (
+      row.status === 'Interview' && isStructuredInterview(row.interview) && row.interview.state === 'scheduled'
+    ));
+    if (interviewApplications.length) {
+      const { data: interviewScholarships, error: interviewScholarshipsError } = await supabaseAdmin
+        .from('scholarships')
+        .select('id, title')
+        .in('id', [...new Set(interviewApplications.map((row) => row.scholarship_id))]);
+      if (interviewScholarshipsError) throw interviewScholarshipsError;
+      const titleById = new Map((interviewScholarships ?? []).map((row) => [row.id, row.title]));
+      for (const application of interviewApplications) {
+        const interviewDate = getInterviewDateKey(application.interview.startsAt);
+        if (!interviewDate || reminderDateKey(interviewDate, 1) > today || today > interviewDate) continue;
+        const scholarshipTitle = titleById.get(application.scholarship_id) || 'scholarship';
+        interviewById.set(application.id, { interview: application.interview, scholarshipTitle });
+        dueReminders.push({
+          sourceKey: getInterviewReminderKey(application.id, application.interview.revision),
+          itemId: application.id,
+          itemTitle: scholarshipTitle,
+          kind: 'interview',
+          daysBefore: 1,
+          title: `Reminder: your ${scholarshipTitle} interview is tomorrow`,
+        });
+      }
+    }
     const deadlineById = new Map(items.map((item) => [item.id, item.deadline]));
     const env = Deno.env.toObject();
     const siteUrl = resolveSiteUrl(env);
@@ -164,9 +199,10 @@ Deno.serve(async (req) => {
     for (const reminder of dueReminders) {
       const isApplicationReminder = reminder.kind === 'application';
       const isCustomReminder = reminder.kind === 'custom';
+      const interviewReminder = reminder.kind === 'interview' ? interviewById.get(reminder.itemId) : null;
       const recipientIds = isCustomReminder
         ? [customOwners.get(reminder.itemId)].filter(Boolean)
-        : isApplicationReminder
+        : isApplicationReminder || interviewReminder
           ? [applications.find((row) => row.id === reminder.itemId)?.student_id].filter(Boolean)
           : applications
               .filter((row) => row.scholarship_id === reminder.itemId)
@@ -202,10 +238,14 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const kindLabel = isCustomReminder
-          ? 'Personal deadline'
-          : isApplicationReminder ? 'Application deadline' : 'Deadline reminder';
-        const body = `${reminder.itemTitle} is due on ${deadline ?? 'its recorded deadline'}.`;
+        const kindLabel = interviewReminder
+          ? 'Interview reminder'
+          : isCustomReminder
+            ? 'Personal deadline'
+            : isApplicationReminder ? 'Application deadline' : 'Deadline reminder';
+        const body = interviewReminder
+          ? summarizeInterview(interviewReminder.interview)
+          : `${reminder.itemTitle} is due on ${deadline ?? 'its recorded deadline'}.`;
 
         // Channel 1 — in-app row, gated by notificationPreferences.inAppEnabled.
         // notifications.channel is constrained to 'SMS' / 'Email' / 'In-app', so
@@ -232,13 +272,20 @@ Deno.serve(async (req) => {
         let emailResult = { ok: false, skipped: true, reason: 'Email notifications disabled' };
 
         if (wantsEmail) {
-          const message = renderReminderEmail({
-            title: reminder.title,
-            itemTitle: reminder.itemTitle,
-            deadline,
-            daysBefore: reminder.daysBefore,
-            siteUrl,
-          });
+          const message = interviewReminder
+            ? renderInterviewReminderEmail({
+              title: reminder.title,
+              interview: interviewReminder.interview,
+              scholarshipTitle: interviewReminder.scholarshipTitle,
+              siteUrl,
+            })
+            : renderReminderEmail({
+              title: reminder.title,
+              itemTitle: reminder.itemTitle,
+              deadline,
+              daysBefore: reminder.daysBefore,
+              siteUrl,
+            });
           emailResult = await sendEmail({
             apiKey: resend.apiKey,
             from: resend.from,
@@ -260,18 +307,20 @@ Deno.serve(async (req) => {
         // expects; a student without a usable mobile number is skipped, not
         // failed, so the reminder stays retryable once they add one.
         const smsTo = normalizePhilippineMobile(profile.phone);
-        const wantsSms = isSmsEnabledForUser(preferences) && offsetEnabled;
+        const wantsSms = isSmsEnabledForUser(preferences);
         let smsResult = { ok: false, skipped: true, reason: 'SMS notifications disabled' };
         if (wantsSms && !smsTo) {
           smsResult = { ok: false, skipped: true, reason: 'This student has no mobile number on file' };
           stats.smsSkipped += 1;
         } else if (wantsSms) {
-          const message = renderReminderSms({
-            title: reminder.title,
-            itemTitle: reminder.itemTitle,
-            deadline,
-            daysBefore: reminder.daysBefore,
-          });
+          const message = interviewReminder
+            ? renderInterviewReminderSms({ interview: interviewReminder.interview, scholarshipTitle: interviewReminder.scholarshipTitle })
+            : renderReminderSms({
+              title: reminder.title,
+              itemTitle: reminder.itemTitle,
+              deadline,
+              daysBefore: reminder.daysBefore,
+            });
           smsResult = await sendSms({
             apiToken: sms.apiToken,
             phoneNumber: smsTo,

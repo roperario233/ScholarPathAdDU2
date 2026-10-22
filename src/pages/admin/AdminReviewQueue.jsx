@@ -24,7 +24,7 @@ export default function AdminReviewQueue({
   reviewerName = '',
   onChangeApplication,
   onEndorseApplication,
-  onScheduleInterview,
+  interviewWorkspace = null,
   onRecordDeliberation,
   onReleaseResults,
   onChangeDocument,
@@ -87,7 +87,7 @@ export default function AdminReviewQueue({
         title="Application review queue"
         description={isHead
           ? 'Run every Standard Procedure stage: start reviews, verify documents, hand off to the Department Chair, schedule interviews, and record recommendations. Approval and release are also available in the recommendation and release workspace.'
-          : 'Opening an application starts its review. Continue it to verification to review its attached documents, then schedule interviews after endorsement.'}
+          : 'Opening an application starts its review. Continue it to verification to review its attached documents, then schedule the interview with a panel from the applicant’s school after endorsement.'}
         badge={`${reviewApplications.length} awaiting action`}
         badgeTone={reviewApplications.length ? 'warning' : 'success'}
       />
@@ -175,7 +175,7 @@ export default function AdminReviewQueue({
           onClose={closeReview}
           onStatusChange={handleStatusChange}
           onEndorse={onEndorseApplication}
-          onScheduleInterview={onScheduleInterview}
+          interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}
           onRelease={onReleaseResults}
           onChangeDocument={onChangeDocument}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, CalendarPlus, PartyPopper, X } from 'lucide-react';
 import { fmtDate } from '../lib/formatters';
+import { formatInterviewWhen, getInterviewDateKey, getInterviewEndsAt, isStructuredInterview } from '../lib/interview';
 
 const daysLeftLabel = (value) => {
   if (value < 0) return 'Closed';
@@ -9,7 +10,21 @@ const daysLeftLabel = (value) => {
   return `${value} days`;
 };
 
-export default function CalendarView({ scholarships, customDeadlines = [], onAddCustomDeadline, onDeleteCustomDeadline, syncFeedback, onDismissSyncFeedback }) {
+const pad = (value) => String(value).padStart(2, '0');
+
+function InterviewItem({ interview }) {
+  return (
+    <div className="deadline-item info">
+      <div>
+        <strong>Interview · {interview.title}</strong>
+        <p>{interview.when}</p>
+      </div>
+      <span className="days-left">{interview.modeLabel}</span>
+    </div>
+  );
+}
+
+export default function CalendarView({ scholarships, customDeadlines = [], interviews = [], onAddCustomDeadline, onDeleteCustomDeadline, syncFeedback, onDismissSyncFeedback }) {
   const now = new Date();
   const todayInputValue = new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const [displayMonth, setDisplayMonth] = useState(now.getMonth());
@@ -50,6 +65,27 @@ export default function CalendarView({ scholarships, customDeadlines = [], onAdd
     } else {
       setDisplayMonth(displayMonth + 1);
     }
+  };
+
+  // Scheduled interviews (SOP step 5) appear on the student's calendar on their
+  // Manila date. `interviews` is the student's own applications.
+  const scheduledInterviews = interviews
+    .filter((entry) => entry.status === 'Interview' && isStructuredInterview(entry.interview) && entry.interview.state === 'scheduled')
+    .map((entry) => ({
+      id: entry.id,
+      title: entry.scholarshipTitle || 'Scholarship',
+      dateKey: getInterviewDateKey(entry.interview.startsAt),
+      endsAt: getInterviewEndsAt(entry.interview),
+      startsAt: entry.interview.startsAt,
+      when: formatInterviewWhen(entry.interview.startsAt, entry.interview.durationMinutes),
+      modeLabel: entry.interview.mode === 'online' ? 'Online' : 'On-site',
+    }))
+    .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt));
+  const upcomingInterviews = scheduledInterviews.filter((entry) => entry.endsAt && entry.endsAt >= now);
+  const getInterviewsForDate = (day) => {
+    if (!day) return [];
+    const key = `${displayYear}-${pad(displayMonth + 1)}-${pad(day)}`;
+    return scheduledInterviews.filter((entry) => entry.dateKey === key);
   };
 
   const upcomingDeadlines = scholarships
@@ -148,16 +184,17 @@ export default function CalendarView({ scholarships, customDeadlines = [], onAdd
               {days.map((day, idx) => {
                 const dayScholarships = getScholarshipsForDate(day);
                 const dayCustomDeadlines = getCustomDeadlinesForDate(day);
-                const hasDeadlines = dayScholarships.length > 0 || dayCustomDeadlines.length > 0;
+                const dayInterviews = getInterviewsForDate(day);
+                const hasDeadlines = dayScholarships.length > 0 || dayCustomDeadlines.length > 0 || dayInterviews.length > 0;
                 const isSelected = selectedDate === day;
                 return (
                   <button
                     key={idx}
                     type="button"
-                    className={`calendar-cell ${day ? 'active' : 'empty'} ${dayScholarships.length > 0 ? 'has-deadline' : ''} ${dayCustomDeadlines.length > 0 ? 'has-custom-deadline' : ''} ${isSelected ? 'selected' : ''}`}
+                    className={`calendar-cell ${day ? 'active' : 'empty'} ${dayScholarships.length > 0 || dayInterviews.length > 0 ? 'has-deadline' : ''} ${dayCustomDeadlines.length > 0 ? 'has-custom-deadline' : ''} ${isSelected ? 'selected' : ''}`}
                     onClick={() => day && setSelectedDate(isSelected ? null : day)}
                     disabled={!day}
-                    aria-label={day ? `${day}${hasDeadlines ? ` - ${dayScholarships.length} scholarship${dayScholarships.length !== 1 ? 's' : ''} and ${dayCustomDeadlines.length} custom deadline${dayCustomDeadlines.length !== 1 ? 's' : ''}` : ''}` : undefined}
+                    aria-label={day ? `${day}${hasDeadlines ? ` - ${dayScholarships.length} scholarship${dayScholarships.length !== 1 ? 's' : ''} and ${dayCustomDeadlines.length} custom deadline${dayCustomDeadlines.length !== 1 ? 's' : ''}${dayInterviews.length ? `, ${dayInterviews.length} interview${dayInterviews.length !== 1 ? 's' : ''}` : ''}` : ''}` : undefined}
                   >
                     {day}
                     {hasDeadlines && <span className="deadline-dot" />}
@@ -177,8 +214,9 @@ export default function CalendarView({ scholarships, customDeadlines = [], onAdd
               )}
             </div>
             {selectedDate ? (
-              selectedDateScholarships.length || getCustomDeadlinesForDate(selectedDate).length ? (
+              selectedDateScholarships.length || getCustomDeadlinesForDate(selectedDate).length || getInterviewsForDate(selectedDate).length ? (
                 <div className="deadline-list">
+                  {getInterviewsForDate(selectedDate).map((interview) => <InterviewItem key={interview.id} interview={interview} />)}
                   {selectedDateScholarships.map((scholarship) => {
                     const daysUntil = Math.ceil((new Date(scholarship.deadline) - now) / (1000 * 60 * 60 * 24));
                     const urgency = daysUntil <= 3 ? 'urgent' : daysUntil <= 7 ? 'warning' : 'info';
@@ -220,8 +258,9 @@ export default function CalendarView({ scholarships, customDeadlines = [], onAdd
                 <p className="no-deadlines">No deadlines on this date</p>
               )
             ) : (
-              upcomingDeadlines.length ? (
+              upcomingDeadlines.length || upcomingInterviews.length ? (
                 <div className="deadline-list">
+                  {upcomingInterviews.map((interview) => <InterviewItem key={interview.id} interview={interview} />)}
                   {upcomingDeadlines.map((scholarship) => {
                     const daysUntil = Math.ceil((new Date(scholarship.deadline) - now) / (1000 * 60 * 60 * 24));
                     const urgency = daysUntil <= 3 ? 'urgent' : daysUntil <= 7 ? 'warning' : 'info';

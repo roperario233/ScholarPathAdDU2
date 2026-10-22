@@ -6,12 +6,17 @@ import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
+import InterviewPanel from './InterviewPanel';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
+import { createInterviewDraft, getInterviewStateLabel, isInterviewComplete, isInterviewOutcomeDue, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
+// SOP step 5 onward: the Interview tab appears once the Department Chair has
+// endorsed the application and stays readable afterwards.
+const INTERVIEW_TAB_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 const WIDE_QUERY = '(min-width: 1024px)';
 
 const statusTone = (status) => (['Released', 'Approved'].includes(status) ? 'success' : status === 'Rejected' ? 'danger' : 'info');
@@ -122,7 +127,9 @@ export default function ApplicationReviewModal({
   onClose,
   onStatusChange,
   onEndorse,
-  onScheduleInterview,
+  // SOP step 5 data and actions (App.jsx interviewWorkspace). Without it the
+  // Interview tab is not shown.
+  interviewWorkspace = null,
   onRecordDeliberation,
   onRelease,
   onChangeDocument,
@@ -173,17 +180,41 @@ export default function ApplicationReviewModal({
   ]);
   const otherDocuments = [...supportingDocuments, ...linkedDocuments.filter((doc) => !listedIds.has(doc.id))];
 
+  // SOP step 5. The Admissions Office coordinates the interview; SOP 5a draws
+  // the panel from the applicant's school, so a Department Chair on the panel
+  // records the outcome. The schedule draft lives here because the action bar's
+  // "Schedule interview" button confirms it.
+  const applicationPanelists = (interviewWorkspace?.panelists || []).filter((row) => (
+    row.applicationId === application.id && !row.removedAt
+  ));
+  const isInterviewPanelist = role === 'department_chair' && applicationPanelists.some((row) => (
+    row.profileId && row.profileId === interviewWorkspace?.viewerId
+  ));
+  const interviewUnlocked = Boolean(interviewWorkspace) && (
+    INTERVIEW_TAB_STATUSES.includes(application.status)
+    || (application.status === 'Rejected' && Boolean(application.interview))
+  );
+  const interviewOutcomeDue = application.status === 'Interview'
+    && (isAdmissionsReviewer || isInterviewPanelist)
+    && isInterviewOutcomeDue(application.interview);
+  const [interviewDraft, setInterviewDraft] = useState(() => createInterviewDraft(application, applicationPanelists));
+  const [interviewShowErrors, setInterviewShowErrors] = useState(false);
+  const interviewErrors = validateInterviewSchedule(interviewDraft, {
+    autoMeeting: Boolean(interviewWorkspace?.calendarConfigured) && interviewDraft.mode === 'online' && !String(interviewDraft.meetingUrl || '').trim(),
+    activeLocationIds: (interviewWorkspace?.locations || []).filter((entry) => entry.isActive).map((entry) => entry.id),
+  });
+
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
     if (initialTab) return initialTab;
+    if (isAdmissionsReviewer && interviewUnlocked && application.status === 'Endorsed') return 'interview';
     return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
   ));
-  const [interviewDate, setInterviewDate] = useState(application.interview?.scheduledAt || '');
-  const [interviewPanel, setInterviewPanel] = useState(application.interview?.panel || '');
   const [deliberationNote, setDeliberationNote] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
@@ -295,11 +326,15 @@ export default function ApplicationReviewModal({
     application.interview && {
       key: 'interview',
       title: 'Interview · SOP step 5',
-      lines: [
-        `${application.interview.panel} · ${application.interview.school}`,
-        application.interview.scheduledAt ? `Scheduled ${fmtDate(application.interview.scheduledAt)}` : 'Schedule pending',
-        application.interview.outcome ? `Outcome: ${application.interview.outcome}` : '',
-      ],
+      lines: isStructuredInterview(application.interview)
+        ? [
+          summarizeInterview(application.interview),
+          [getInterviewStateLabel(application.interview.state), application.interview.school ? `Panel from ${application.interview.school}` : ''].filter(Boolean).join(' · '),
+        ]
+        : [
+          [application.interview.panel, application.interview.school].filter(Boolean).join(' · '),
+          application.interview.scheduledAt ? `Scheduled ${fmtDate(application.interview.scheduledAt)}` : 'Schedule pending',
+        ],
     },
     application.deliberation && {
       key: 'deliberation',
@@ -336,6 +371,16 @@ export default function ApplicationReviewModal({
       badge: application.status === 'For Endorsement' ? 'Decision due' : null,
       alert: application.status === 'For Endorsement',
     }] : []),
+    // SOP step 5: the schedule, the panel from the applicant's school, the
+    // attendance record, and the private evaluation notes.
+    ...(interviewUnlocked ? [{
+      key: 'interview',
+      label: 'Interview',
+      badge: isAdmissionsReviewer && application.status === 'Endorsed'
+        ? 'Schedule due'
+        : interviewOutcomeDue ? 'Outcome due' : null,
+      alert: (isAdmissionsReviewer && application.status === 'Endorsed') || interviewOutcomeDue,
+    }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
   // A selection pointing at a tab that is not shown (for example right after a
@@ -351,7 +396,6 @@ export default function ApplicationReviewModal({
     status !== 'Rejected' && !AUTOMATIC_STAGE_STATUSES.includes(status)
   ));
   const canReject = nextStatuses.includes('Rejected');
-  const showInterviewFields = isAdmissionsReviewer && nextStatuses.includes('Interview');
   const showDeliberationField = isAdmissionsReviewer && nextStatuses.includes('Recommended');
   const hasBlockedForward = blockedByDocuments && forwardStatuses.some((status) => ENDORSEMENT_BLOCKED_STATUSES.includes(status));
   // Both Admissions Office lanes finish verification and hand the application to
@@ -369,9 +413,12 @@ export default function ApplicationReviewModal({
       : 'This application has no attached files. Continue it to verification to begin the document stage.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
-    if (status === 'Interview' && !interviewDate) return 'Enter the interview date first';
+    if (status === 'Recommended' && !isInterviewComplete(application.interview)) return 'The interview panel must record the applicant as attended first';
     return '';
   };
+  // The Recommend gate is explained in the footer, like the document gate, with
+  // a link to the Interview tab where the panel records attendance.
+  const interviewBlocksRecommendation = forwardStatuses.includes('Recommended') && !isInterviewComplete(application.interview);
   const runAction = async (status) => {
     if (status === 'Rejected') {
       // A rejection must carry a recorded reason, so it opens the reason dialog.
@@ -406,18 +453,46 @@ export default function ApplicationReviewModal({
           : 'Continued to document verification. Attached files are queued for Admissions Office review.',
       }
       : undefined;
-    let result;
+    // Scheduling confirms the Interview tab's draft. An incomplete draft opens
+    // the tab with its field errors instead of writing anything.
     if (status === 'Interview') {
-      result = await onScheduleInterview?.(application.id, { scheduledAt: interviewDate, panel: interviewPanel });
-    } else if (status === 'Recommended') {
-      result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
-    } else if (status === 'Released') {
-      result = await onRelease?.(application.id);
-    } else {
-      result = await onStatusChange(application.id, status, options);
+      if (!interviewWorkspace?.onSchedule) {
+        setActionError('Interview scheduling is not available on this page.');
+        return;
+      }
+      if (Object.keys(interviewErrors).length) {
+        setInterviewShowErrors(true);
+        setActiveTab('interview');
+        setActionError(`Complete the interview schedule in the Interview tab: ${Object.values(interviewErrors)[0]}`);
+        return;
+      }
+    }
+    let result;
+    setActionBusy(true);
+    try {
+      if (status === 'Interview') {
+        result = await interviewWorkspace.onSchedule(application.id, interviewDraft);
+      } else if (status === 'Recommended') {
+        result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
+      } else if (status === 'Released') {
+        result = await onRelease?.(application.id);
+      } else {
+        result = await onStatusChange(application.id, status, options);
+      }
+    } finally {
+      setActionBusy(false);
     }
     if (result?.error) {
+      if (status === 'Interview') {
+        if (result.errors) setInterviewShowErrors(true);
+        setActiveTab('interview');
+      }
       setActionError(result.error);
+      return;
+    }
+    if (status === 'Interview') {
+      // The recorded schedule is the confirmation; keep it on screen.
+      setActiveTab('interview');
       return;
     }
     if (status === 'For Verification' && isAdmissionsReviewer) {
@@ -591,6 +666,24 @@ export default function ApplicationReviewModal({
           </Panel>
         )}
 
+        {visibleActiveTab === 'interview' && interviewWorkspace && (
+          <InterviewPanel
+            application={application}
+            role={role}
+            scholarshipTitle={application.scholarshipTitle || scholarship?.title || ''}
+            workspace={interviewWorkspace}
+            draft={interviewDraft}
+            onDraftChange={setInterviewDraft}
+            onResetDraft={() => {
+              setInterviewDraft(createInterviewDraft(application, applicationPanelists));
+              setInterviewShowErrors(false);
+            }}
+            errors={interviewErrors}
+            showErrors={interviewShowErrors}
+            onShowErrors={() => setInterviewShowErrors(true)}
+          />
+        )}
+
         {visibleActiveTab === 'endorsement' && (
           <div className="grid gap-3">
             {endorsementFeedback ? (
@@ -631,17 +724,13 @@ export default function ApplicationReviewModal({
           </p>
         ) : null}
 
-        {showInterviewFields ? (
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm text-app-text">
-              <span className="font-semibold">Interview date</span>
-              <input type="date" value={interviewDate} onChange={(event) => setInterviewDate(event.target.value)} />
-            </label>
-            <label className="grid gap-1 text-sm text-app-text">
-              <span className="font-semibold">Panel / school</span>
-              <input value={interviewPanel} onChange={(event) => setInterviewPanel(event.target.value)} placeholder={`${application.studentDepartment || 'Applicant school'} Scholarship Panel`} />
-            </label>
-          </div>
+        {interviewBlocksRecommendation ? (
+          <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200" role="status">
+            <span>The interview panel must record the applicant as attended before the sub-committee recommendation (SOP step 6).</span>
+            {visibleActiveTab !== 'interview' && interviewUnlocked ? (
+              <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setActiveTab('interview')}>Open interview</button>
+            ) : null}
+          </p>
         ) : null}
 
         {showDeliberationField ? (
@@ -660,7 +749,7 @@ export default function ApplicationReviewModal({
         {nextStatuses.length ? (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              {canReject ? <Button type="button" variant="danger" onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
+              {canReject ? <Button type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               {forwardStatuses.map((status, index) => {
@@ -670,10 +759,10 @@ export default function ApplicationReviewModal({
                     key={status}
                     type="button"
                     variant={index === forwardStatuses.length - 1 ? 'primary' : 'secondary'}
-                    disabled={Boolean(reason)}
+                    disabled={Boolean(reason) || actionBusy}
                     title={reason || undefined}
                     onClick={() => runAction(status)}
-                  >{getStageActionLabel(status, role)}</Button>
+                  >{actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role)}</Button>
                 );
               })}
             </div>

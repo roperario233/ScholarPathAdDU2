@@ -12,7 +12,8 @@ import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAt
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -256,6 +257,9 @@ function App() {
   // avatarPath (profiles.avatar_path) is what rides along in app state.
   const [avatarPreview, setAvatarPreview] = useState({ path: '', url: '' });
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
+  // Whether the optional Google Calendar integration (manage-interview-event)
+  // is configured. Without it an online interview needs a pasted meeting link.
+  const [interviewCalendar, setInterviewCalendar] = useState({ configured: false, checked: false });
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -322,7 +326,14 @@ function App() {
 
     const syncDeadlineReminders = () => {
       setState((previous) => {
-        if (!previous.notificationPreferences?.inAppEnabled || !previous.customDeadlines?.length) {
+        // A scheduled interview (SOP step 5) also gets the 1-day reminder, so
+        // the early return waits for either source.
+        const upcomingInterviews = previous.viewerRole === 'student'
+          ? (previous.applications || []).filter((entry) => (
+            entry.status === 'Interview' && isStructuredInterview(entry.interview) && entry.interview.state === 'scheduled'
+          ))
+          : [];
+        if (!previous.notificationPreferences?.inAppEnabled || (!previous.customDeadlines?.length && !upcomingInterviews.length)) {
           return previous;
         }
 
@@ -337,7 +348,7 @@ function App() {
         );
         const dueReminders = [];
 
-        previous.customDeadlines.forEach((deadline) => {
+        (previous.customDeadlines || []).forEach((deadline) => {
           reminderOptions.forEach(({ key, daysBefore }) => {
             if (!previous.notificationPreferences.deadlineReminders?.[key]) {
               return;
@@ -365,6 +376,26 @@ function App() {
           });
         });
 
+        if (previous.notificationPreferences.deadlineReminders?.dayBefore) {
+          upcomingInterviews.forEach((entry) => {
+            const interviewDate = getInterviewDateKey(entry.interview.startsAt);
+            const sourceKey = getInterviewReminderKey(entry.id, entry.interview.revision);
+            if (!interviewDate || reminderDateKey(interviewDate, 1) > today || today > interviewDate || existingReminderKeys.has(sourceKey)) {
+              return;
+            }
+            dueReminders.push({
+              id: `not-${crypto.randomUUID()}`,
+              sourceKey,
+              ownerId: previous.ownerId ?? previous.authUser?.id ?? null,
+              title: `Reminder: your ${entry.scholarshipTitle || 'scholarship'} interview is tomorrow`,
+              channel: 'In-app',
+              body: summarizeInterview(entry.interview),
+              status: 'Unread',
+              createdAt: today,
+            });
+          });
+        }
+
         return dueReminders.length
           ? { ...previous, notifications: [...dueReminders, ...(previous.notifications ?? [])] }
           : previous;
@@ -389,6 +420,21 @@ function App() {
   // again after every change, so a reminder created before the workspace finished
   // loading (or one whose first write failed) is still persisted and eligible for
   // email. The upsert is idempotent on the client-generated id.
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || !isAdmissionsReviewerRole(state.viewerRole) || interviewCalendar.checked) {
+      return undefined;
+    }
+    let active = true;
+    invokeSupabaseInterviewEvent({ action: 'status' })
+      .then((result) => {
+        if (active) setInterviewCalendar({ configured: Boolean(result?.configured), checked: true });
+      })
+      .catch(() => {
+        if (active) setInterviewCalendar({ configured: false, checked: true });
+      });
+    return () => { active = false; };
+  }, [isSupabaseWorkspaceLoaded, state.viewerRole, interviewCalendar.checked]);
+
   useEffect(() => {
     if (!isSupabaseWorkspaceLoaded || !state.authUser?.id) {
       return;
@@ -1422,28 +1468,263 @@ function App() {
     return { ok: true };
   };
 
-  // SOP step 5 — interview scheduling; the interviewing panel comes from the
-  // school where the applicant's program belongs. Planning the interview is a
-  // Staff action; the Head's lane starts at the approval decision.
-  const scheduleInterview = (applicationId, { scheduledAt, panel, note = '' } = {}) => {
+  // SOP step 5 — Interview of applicants. The Admissions Office (Staff and
+  // Head) coordinates the interview: mode, location, time, meeting link,
+  // reschedules, and the Endorsed → Interview → Recommended moves. SOP 5a draws
+  // the panel from the school where the applicant's program belongs, so the
+  // panel is the applicant's Department Chair(s) plus typed faculty guests, and a
+  // Chair on the panel records the outcome and the private evaluation notes.
+  // The database repeats every rule (20261029000000_overhaul_interview_stage.sql).
+  const staffNameById = Object.fromEntries((state.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
+  const isPanelistOn = (applicationId) => (state.interviewPanelists || []).some((row) => (
+    row.applicationId === applicationId && !row.removedAt && row.profileId && row.profileId === currentProfile.id
+  ));
+  const activeLocationIds = (state.interviewLocations || []).filter((entry) => entry.isActive).map((entry) => entry.id);
+
+  // Saves the panel first, so the calendar invitation and the database-triggered
+  // panel notification both read the new members, then creates or updates the
+  // Google Calendar event when the integration is configured.
+  const prepareInterviewSchedule = async (application, draft, { previous = null, reason = '' } = {}) => {
+    const wantsAutoMeeting = interviewCalendar.configured && draft.mode === 'online' && !String(draft.meetingUrl || '').trim();
+    const errors = validateInterviewSchedule(draft, { autoMeeting: wantsAutoMeeting, activeLocationIds });
+    if (Object.keys(errors).length) {
+      return { error: Object.values(errors)[0], errors };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the interview could not be saved.' };
+    }
+    const panelResult = await replaceSupabaseInterviewPanel(application.id, draft.panel, staffNameById);
+    if (panelResult.error) {
+      return { error: panelResult.error.message || 'The interview panel could not be saved. Confirm the interview migration is applied.' };
+    }
+    setState((current) => ({
+      ...current,
+      interviewPanelists: [
+        ...(current.interviewPanelists || []).filter((row) => row.applicationId !== application.id),
+        ...(panelResult.data || []),
+      ],
+    }));
+
+    const location = (state.interviewLocations || []).find((entry) => entry.id === draft.locationId) || null;
+    let record = buildInterviewRecord({
+      draft,
+      previous,
+      location,
+      school: application.studentDepartment || '',
+      actorId: currentProfile.id,
+      reason,
+    });
+    let createdEventId = null;
+    if (interviewCalendar.configured) {
+      const existingEventId = isStructuredInterview(previous) ? previous.calendar?.eventId : null;
+      const eventResult = await invokeSupabaseInterviewEvent({
+        action: existingEventId ? 'update' : 'create',
+        applicationId: application.id,
+        eventId: existingEventId || undefined,
+        schedule: {
+          mode: record.mode,
+          startsAt: record.startsAt,
+          durationMinutes: record.durationMinutes,
+          locationLabel: record.locationLabel,
+          meetingUrl: record.meetingUrl,
+          instructions: record.instructions,
+        },
+      });
+      if (eventResult?.configured && eventResult?.eventId) {
+        createdEventId = existingEventId ? null : eventResult.eventId;
+        record = {
+          ...record,
+          meetingUrl: record.mode === 'online' ? (record.meetingUrl || eventResult.meetingUrl || '') : '',
+          calendar: { provider: 'google', eventId: eventResult.eventId, htmlLink: eventResult.htmlLink || '' },
+        };
+      } else if (wantsAutoMeeting) {
+        return { error: `The Google Meet link could not be generated (${eventResult?.reason || eventResult?.error || 'calendar service unavailable'}). Paste a meeting link instead.` };
+      }
+    }
+    return { record, createdEventId };
+  };
+
+  const writeInterviewRecord = async (application, record, note) => {
+    const stageEvent = {
+      id: `ev-${crypto.randomUUID()}`,
+      stage: 'Interview',
+      note,
+      actor: roleLabels[state.viewerRole] || 'Admissions Office',
+      at: new Date().toISOString().slice(0, 10),
+    };
+    const timeline = [...(application.timeline || []), stageEvent];
+    const result = await updateSupabaseApplicationStage(application.id, 'Interview', { interview: record, timeline });
+    if (result?.error) {
+      return { error: result.error.message || 'The interview could not be saved.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => (entry.id === application.id
+        ? { ...entry, interview: record, timeline, updatedAt: new Date().toISOString().slice(0, 10) }
+        : entry)),
+    }));
+    // The database trigger (20261029000001) is the primary sender; this is the
+    // idempotent retry for the in-app and email channels.
+    notifySupabaseInterviewUpdate(application.id).catch(() => undefined);
+    return { ok: true };
+  };
+
+  const scheduleInterview = async (applicationId, draft) => {
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only the Admissions Office can schedule an interview.' });
+      return { error: 'Only the Admissions Office can schedule an interview.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Endorsed') {
-      return Promise.resolve({ error: 'This application is not awaiting an interview.' });
+      return { error: 'This application is not awaiting an interview.' };
     }
-    const record = {
-      scheduledAt: scheduledAt || null,
-      panel: panel || `${application.studentDepartment || 'Department'} Scholarship Panel`,
-      school: application.studentDepartment || 'Applicant school',
-      note,
-      outcome: null,
-    };
-    return changeApplicationStatus(applicationId, 'Interview', {
-      note: `Interview scheduled for ${record.scheduledAt || 'an upcoming date'} with the ${record.panel}.`,
-      interview: record,
+    const prepared = await prepareInterviewSchedule(application, draft);
+    if (prepared.error) return prepared;
+    const result = await changeApplicationStatus(applicationId, 'Interview', {
+      note: `Interview scheduled: ${summarizeInterview(prepared.record)}.`,
+      interview: prepared.record,
     });
+    if (result?.error) {
+      if (prepared.createdEventId) {
+        invokeSupabaseInterviewEvent({ action: 'cancel', applicationId, eventId: prepared.createdEventId }).catch(() => undefined);
+      }
+      return result;
+    }
+    notifySupabaseInterviewUpdate(applicationId).catch(() => undefined);
+    return { ok: true };
+  };
+
+  const rescheduleInterview = async (applicationId, draft, reason = '') => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can reschedule an interview.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || application.status !== 'Interview' || !isStructuredInterview(application.interview)) {
+      return { error: 'This interview cannot be rescheduled.' };
+    }
+    if (application.interview.state === 'completed') {
+      return { error: 'The panel has already recorded this interview as attended.' };
+    }
+    const trimmedReason = String(reason || '').trim();
+    if (!trimmedReason) return { error: 'Record why the interview is being rescheduled.' };
+    const prepared = await prepareInterviewSchedule(application, draft, { previous: application.interview, reason: trimmedReason });
+    if (prepared.error) return prepared;
+    return writeInterviewRecord(application, prepared.record, `Interview rescheduled (${trimmedReason}): ${summarizeInterview(prepared.record)}.`);
+  };
+
+  const cancelInterview = async (applicationId, reason = '') => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can cancel an interview.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || application.status !== 'Interview' || !isStructuredInterview(application.interview)
+      || !['scheduled', 'no_show'].includes(application.interview.state)) {
+      return { error: 'This interview cannot be cancelled.' };
+    }
+    const trimmedReason = String(reason || '').trim();
+    if (!trimmedReason) return { error: 'Record why the interview is being cancelled.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the interview could not be saved.' };
+    }
+    // The Google event is deleted below, so the record forgets it; scheduling
+    // again creates a new event instead of updating a deleted one.
+    const record = { ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason: trimmedReason }), calendar: null };
+    const result = await writeInterviewRecord(application, record, `Interview cancelled: ${trimmedReason}.`);
+    if (result.ok && application.interview.calendar?.eventId) {
+      invokeSupabaseInterviewEvent({ action: 'cancel', applicationId, eventId: application.interview.calendar.eventId }).catch(() => undefined);
+    }
+    return result;
+  };
+
+  // Attendance is recorded by a Department Chair on the panel, or by the
+  // Admissions Office on the panel's behalf (for example, a panel of faculty
+  // guests only). record_interview_outcome re-checks the caller server-side.
+  const recordInterviewOutcome = async (applicationId, outcome) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    const allowed = isAdmissionsReviewerRole(state.viewerRole)
+      || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
+    if (!allowed) return { error: 'Only the interview panel or the Admissions Office can record the outcome.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the outcome could not be saved.' };
+    }
+    const result = await recordSupabaseInterviewOutcome(applicationId, outcome);
+    if (result.error) {
+      return { error: result.error.message || 'The interview outcome could not be saved.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => (entry.id === applicationId
+        ? { ...entry, interview: result.data || { ...entry.interview, state: outcome } }
+        : entry)),
+    }));
+    return { ok: true };
+  };
+
+  const addInterviewNote = async (applicationId, { body, rating = null } = {}) => {
+    const allowed = isAdmissionsReviewerRole(state.viewerRole)
+      || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
+    if (!allowed) return { error: 'Only the interview panel or the Admissions Office can add an evaluation note.' };
+    const trimmed = String(body || '').trim();
+    if (!trimmed) return { error: 'Write the evaluation note first.' };
+    if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the note could not be saved.' };
+    }
+    const result = await createSupabaseInterviewNote({
+      applicationId,
+      authorId: currentProfile.id,
+      authorRole: state.viewerRole,
+      authorName: currentProfile.fullName || 'Reviewer',
+      rating: rating ? Number(rating) : null,
+      body: trimmed,
+    });
+    if (result.error) {
+      return { error: result.error.message || 'The note could not be saved. Confirm the interview migration is applied.' };
+    }
+    if (result.data) {
+      setState((previous) => ({ ...previous, interviewNotes: [...(previous.interviewNotes || []), result.data] }));
+    }
+    return { ok: true };
+  };
+
+  // Venues for on-site interviews are managed by the Admissions Office Head.
+  const saveInterviewLocation = async (location) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Head can manage interview locations.' };
+    }
+    if (!String(location?.name || '').trim()) return { error: 'Enter the location name.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the location could not be saved.' };
+    }
+    const result = await saveSupabaseInterviewLocation(location);
+    if (result.error || !result.data) {
+      return { error: result.error?.message || 'The location could not be saved. Confirm the interview migration is applied.' };
+    }
+    setState((previous) => {
+      const others = (previous.interviewLocations || []).filter((entry) => entry.id !== result.data.id);
+      return {
+        ...previous,
+        interviewLocations: [...others, result.data].sort((a, b) => a.name.localeCompare(b.name)),
+      };
+    });
+    return { ok: true, location: result.data };
+  };
+
+  // One bundle of interview data and actions for the review surfaces.
+  const interviewWorkspace = {
+    viewerId: currentProfile.id,
+    staffDirectory: state.staffDirectory || [],
+    locations: state.interviewLocations || [],
+    panelists: state.interviewPanelists || [],
+    notes: state.interviewNotes || [],
+    applications: state.applications,
+    calendarConfigured: interviewCalendar.configured,
+    onSchedule: scheduleInterview,
+    onReschedule: rescheduleInterview,
+    onCancel: cancelInterview,
+    onRecordOutcome: recordInterviewOutcome,
+    onAddNote: addInterviewNote,
+    onSaveLocation: isAdmissionsHeadRole(state.viewerRole) ? saveInterviewLocation : undefined,
   };
 
   // SOP step 6 — evaluation and deliberation by the School Scholarship
@@ -1455,6 +1736,12 @@ function App() {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Interview') {
       return Promise.resolve({ error: 'This application is not awaiting a deliberation.' });
+    }
+    // SOP step 5 → 6: the recommendation follows an attended interview. The
+    // review modal disables the action and the database trigger
+    // (enforce_interview_outcome_before_recommendation) repeats the rule.
+    if (decision !== 'Rejected' && !isInterviewComplete(application.interview)) {
+      return Promise.resolve({ error: 'The interview panel must record the applicant as attended before the recommendation.' });
     }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
     const record = {
@@ -2287,7 +2574,7 @@ function App() {
               reviewerName={state.authUser?.fullName || ''}
               onChangeApplication={changeApplicationStatus}
               onEndorseApplication={endorseApplication}
-              onScheduleInterview={scheduleInterview}
+              interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
@@ -2313,6 +2600,7 @@ function App() {
               onChangeApplication={changeApplicationStatus}
               onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
+              interviewWorkspace={interviewWorkspace}
             />
           )}
 
@@ -2334,6 +2622,7 @@ function App() {
               onEndorseApplication={endorseApplication}
               onAddComment={addReviewComment}
               onFlagForValidation={flagApplicationForValidation}
+              interviewWorkspace={interviewWorkspace}
             />
           )}
 
@@ -2385,6 +2674,7 @@ function App() {
             <CalendarViewPage
               scholarships={scholarshipCatalog}
               customDeadlines={state.customDeadlines}
+              interviews={state.viewerRole === 'student' ? studentApplications : []}
               onAddCustomDeadline={addCustomDeadline}
               onDeleteCustomDeadline={deleteCustomDeadline}
               syncFeedback={deadlineSync}

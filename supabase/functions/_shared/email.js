@@ -8,6 +8,7 @@
  * alongside a plain-text alternative.
  */
 import { getApplicationStatusLabel } from './applicationStatus.js';
+import { describeInterviewForStudent, formatInterviewWhen, getInterviewModeLabel, isStructuredInterview, summarizeInterview } from './interview.js';
 
 // Ateneo blue visual identity, matching the app's theme primitives.
 const PRIMARY = '#0b2d5c';
@@ -201,7 +202,7 @@ export const renderReminderEmail = ({ title, itemTitle, deadline, daysBefore, si
  * message instead of the generic "status changed" copy. "Endorsed" is stored as
  * the chair's decision but shown as the step-4 endorsement phase.
  */
-export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office') => {
+export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office', { interview = null } = {}) => {
   if (status === 'For Verification') {
     return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
   }
@@ -209,15 +210,32 @@ export const describeApplicationStatusUpdate = (status, actorLabel = 'the review
     return 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.';
   }
   if (status === 'Endorsed') {
-    return 'Your application is in the endorsement phase: the Department Chair has endorsed it, and the Admissions Office will schedule the interview next.';
+    return 'Your application is in the endorsement phase: the Department Chair has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.';
+  }
+  // SOP step 5: the first schedule rides the status notification, so the
+  // message carries the date, the mode, and the location or meeting link.
+  if (status === 'Interview' && isStructuredInterview(interview)) {
+    return `Your interview is scheduled: ${summarizeInterview(interview)}.${interview.instructions ? ` ${interview.instructions}` : ''}`;
   }
   return `Your application status was updated to ${getApplicationStatusLabel(status)} through ${actorLabel}. Sign in to review the next steps.`;
+};
+
+// The interview schedule as email detail rows. The panel is described by
+// school only; panel member names never reach the applicant.
+const interviewRows = (interview) => {
+  if (!isStructuredInterview(interview)) return [];
+  const view = describeInterviewForStudent(interview);
+  return [
+    { label: 'Interview', value: view.when },
+    { label: getInterviewModeLabel(interview.mode), value: interview.mode === 'online' ? (interview.meetingUrl || 'Meeting link to follow') : view.where },
+    ...(view.panel ? [{ label: 'Panel', value: view.panel }] : []),
+  ];
 };
 
 /**
  * Renders an application status-change email for the application workspace.
  */
-export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, status, siteUrl }) => {
+export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, status, siteUrl, interview = null }) => {
   const statusLabel = getApplicationStatusLabel(status);
   const heading = subject || `Application update: ${statusLabel}`;
   const intro = body || `Your application status was updated to ${statusLabel}.`;
@@ -231,6 +249,7 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
       rows: [
         { label: 'Scholarship', value: scholarshipTitle },
         { label: 'New status', value: statusLabel },
+        ...interviewRows(status === 'Interview' ? interview : null),
       ],
       ctaLabel: 'View your applications',
       ctaUrl: link,
@@ -243,6 +262,7 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
       '',
       `Scholarship: ${scholarshipTitle}`,
       `New status: ${statusLabel}`,
+      ...interviewRows(status === 'Interview' ? interview : null).map((row) => `${row.label}: ${row.value}`),
       '',
       `View your applications: ${link}`,
       '',
@@ -289,6 +309,102 @@ export const renderDocumentRejectionEmail = ({ documentTitle, reason, scholarshi
       ...rows.map((row) => `${row.label}: ${row.value}`),
       '',
       `View your applications: ${link}`,
+      '',
+      'You are receiving this because Email Notifications are enabled in your ScholarPath AdDU settings. You can change this any time under Settings.',
+    ].join('\n'),
+  };
+};
+
+/**
+ * Renders the day-before interview reminder (SOP step 5). The subject matches
+ * the in-app title the app generates locally, so the two rows collapse.
+ */
+export const renderInterviewReminderEmail = ({ title, interview, scholarshipTitle, siteUrl }) => {
+  const subject = title || `Reminder: your ${scholarshipTitle || 'scholarship'} interview is tomorrow`;
+  const intro = interview?.mode === 'online'
+    ? 'Your scholarship interview is tomorrow. Join a few minutes early from a quiet place with a stable connection.'
+    : 'Your scholarship interview is tomorrow. Plan to arrive at least 10 minutes before your schedule.';
+  const link = `${siteUrl}?view=applications`;
+  const rows = [
+    { label: 'Scholarship', value: scholarshipTitle || 'Scholarship application' },
+    ...interviewRows(interview),
+    ...(interview?.instructions ? [{ label: 'What to prepare', value: interview.instructions }] : []),
+  ];
+  return {
+    subject,
+    html: renderEmailLayout({
+      heading: subject,
+      intro,
+      rows,
+      ctaLabel: 'View your applications',
+      ctaUrl: link,
+      footerNote: 'This reminder follows the 1-day reminder timing you selected in Settings.',
+    }),
+    text: [
+      subject,
+      '',
+      intro,
+      '',
+      ...rows.map((row) => `${row.label}: ${row.value}`),
+      '',
+      `View your applications: ${link}`,
+      '',
+      'You are receiving this because Email Notifications are enabled in your ScholarPath AdDU settings. You can change this any time under Settings.',
+    ].join('\n'),
+  };
+};
+
+/**
+ * Renders an interview schedule change (SOP step 5).
+ *
+ * `audience` is 'student' (a reschedule or cancellation) or 'panelist' (a Department
+ * Chair told about the panel they sit on). `kind` is 'scheduled',
+ * 'rescheduled', or 'cancelled'.
+ */
+export const renderInterviewUpdateEmail = ({ audience = 'student', kind = 'scheduled', interview, scholarshipTitle, applicantName = '', reason = '', siteUrl }) => {
+  const forPanel = audience === 'panelist';
+  const title = scholarshipTitle || 'Scholarship application';
+  const heading = kind === 'cancelled'
+    ? (forPanel ? `Interview cancelled: ${applicantName || 'applicant'}` : 'Your scholarship interview was cancelled')
+    : kind === 'rescheduled'
+      ? (forPanel ? `Interview rescheduled: ${applicantName || 'applicant'}` : 'Your scholarship interview was rescheduled')
+      : `Interview panel assignment: ${applicantName || 'applicant'}`;
+  const intro = kind === 'cancelled'
+    ? (forPanel
+      ? 'The Admissions Office cancelled this interview. No action is needed unless it is scheduled again.'
+      : 'The Admissions Office cancelled your interview. You will be notified if it is scheduled again.')
+    : forPanel
+      ? `You are on the interview panel for this applicant (SOP 5a: the panel comes from the applicant's school). After the interview, record attendance and your evaluation in the application's Interview tab.`
+      : 'The Admissions Office changed your interview schedule. Please review the new details below.';
+  const link = `${siteUrl}?view=${forPanel ? 'review' : 'applications'}`;
+  const rows = [
+    { label: 'Scholarship', value: title },
+    ...(forPanel && applicantName ? [{ label: 'Applicant', value: applicantName }] : []),
+    ...(kind === 'cancelled'
+      ? [{ label: 'Cancelled schedule', value: formatInterviewWhen(interview?.startsAt, interview?.durationMinutes) }]
+      : interviewRows(interview)),
+    ...(reason ? [{ label: 'Reason', value: reason }] : []),
+  ];
+  const ctaLabel = forPanel ? 'Open the review queue' : 'View your applications';
+
+  return {
+    subject: heading,
+    html: renderEmailLayout({
+      heading,
+      intro,
+      rows,
+      ctaLabel,
+      ctaUrl: link,
+      footerNote: 'Interview schedules are coordinated by the Admissions Office.',
+    }),
+    text: [
+      heading,
+      '',
+      intro,
+      '',
+      ...rows.map((row) => `${row.label}: ${row.value}`),
+      '',
+      `${ctaLabel}: ${link}`,
       '',
       'You are receiving this because Email Notifications are enabled in your ScholarPath AdDU settings. You can change this any time under Settings.',
     ].join('\n'),

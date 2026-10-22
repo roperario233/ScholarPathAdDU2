@@ -187,7 +187,7 @@ pages.
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, interviews, and the sub-committee recommendation |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
 | `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
 | `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |

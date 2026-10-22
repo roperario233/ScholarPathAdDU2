@@ -18,6 +18,7 @@
 
 import { formatDeadlineLabel } from './email.js';
 import { getApplicationStatusLabel } from './applicationStatus.js';
+import { formatInterviewDateShort, isStructuredInterview } from './interview.js';
 
 export const IPROGSMS_ENDPOINT = 'https://www.iprogsms.com/api/v1/sms_messages';
 
@@ -157,8 +158,22 @@ export const renderReminderSms = ({ title, itemTitle, deadline, daysBefore }) =>
 };
 
 /** Renders an application status-change text message for the application workspace. */
-export const renderApplicationStatusSms = ({ scholarshipTitle, status }) => ({
-  message: `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
+export const renderApplicationStatusSms = ({ scholarshipTitle, status, interview = null }) => ({
+  message: status === 'Interview' && isStructuredInterview(interview)
+    ? `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview is on ${formatInterviewDateShort(interview.startsAt)} (${interview.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`
+    : `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
+});
+
+/** Renders the day-before interview reminder text. */
+export const renderInterviewReminderSms = ({ interview, scholarshipTitle }) => ({
+  message: `ScholarPath AdDU: reminder, your ${scholarshipTitle || 'scholarship'} interview is tomorrow, ${formatInterviewDateShort(interview?.startsAt)} (${interview?.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`,
+});
+
+/** Renders an interview reschedule or cancellation text for the student. */
+export const renderInterviewUpdateSms = ({ kind = 'rescheduled', interview, scholarshipTitle }) => ({
+  message: kind === 'cancelled'
+    ? `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview was cancelled. Sign in for details.`
+    : `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview was moved to ${formatInterviewDateShort(interview?.startsAt)} (${interview?.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`,
 });
 
 // Keeps the rejection reason short enough that the text stays within a couple
