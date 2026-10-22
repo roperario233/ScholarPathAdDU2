@@ -98,7 +98,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               role="radio"
               aria-checked={draft.mode === mode.value}
               onClick={() => setMode(mode.value)}
-              className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${draft.mode === mode.value ? 'bg-ateneo text-white shadow-sm dark:bg-sky-500' : 'text-app-muted hover:text-app-text'}`}
+              className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${draft.mode === mode.value ? 'bg-ateneo text-white shadow-sm' : 'text-app-muted hover:text-app-text'}`}
             >{mode.label}</button>
           ))}
         </div>

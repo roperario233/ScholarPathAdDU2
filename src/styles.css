@@ -882,12 +882,9 @@ main .deadline-item > .deadline-actions {
   color: #075985;
 }
 
-/* Status tone text in light mode. StatusBadge (src/components/ui.jsx) and the
-   SOP stage track (src/components/ApplicationParts.jsx) use the dark-theme
-   accent shades (`text-emerald-300`, `text-rose-300`, `text-amber-300`,
-   `text-sky-300`). On the light theme those pale tones sit on a pale tint of
-   the same hue, so the label reads as its own box. Deepen the text to the -700
-   shades in light mode; the dark theme keeps its brighter accents. */
+/* Light-theme contrast for the dark-theme accent classes used by StatusBadge
+   and the SOP stage track. The root `.dark` class activates Tailwind's dark
+   variants in dark mode; `.theme-light` remains the light-theme token switch. */
 .theme-light .text-emerald-300 {
   color: #047857;
 }

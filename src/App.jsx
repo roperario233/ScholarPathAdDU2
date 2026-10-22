@@ -306,12 +306,11 @@ function App() {
   }, [state]);
 
   useEffect(() => {
-    // Apply theme class to document root so body background updates
-    if (state.theme === 'light') {
-      document.documentElement.classList.add('theme-light');
-    } else {
-      document.documentElement.classList.remove('theme-light');
-    }
+    // Apply theme classes to the document root so body background updates and
+    // Tailwind's `dark:` variants also work for portaled dialogs and pickers.
+    const root = document.documentElement;
+    root.classList.toggle('theme-light', state.theme === 'light');
+    root.classList.toggle('dark', state.theme !== 'light');
   }, [state.theme]);
 
   useEffect(() => {
