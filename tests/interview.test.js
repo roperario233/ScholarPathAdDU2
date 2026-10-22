@@ -292,6 +292,8 @@ describe('interview notification copy', () => {
     const panel = renderInterviewUpdateEmail({ audience: 'panelist', kind: 'scheduled', interview: record, scholarshipTitle: 'GIA', applicantName: 'Ada Cruz', siteUrl: 'https://example.test/' });
     expect(panel.subject).toBe('Interview panel assignment: Ada Cruz');
     expect(panel.text).toContain('record attendance and your evaluation');
+    // The panelist email states the task in plain language, without the SOP code.
+    expect(panel.text).not.toContain('SOP 5a');
     expect(renderInterviewUpdateSms({ kind: 'cancelled', interview: record, scholarshipTitle: 'GIA' }).message).toContain('was cancelled');
     expect(renderInterviewReminderEmail({ interview: record, scholarshipTitle: 'GIA', siteUrl: 'https://example.test/' }).subject).toBe('Reminder: your GIA interview is tomorrow');
     expect(renderInterviewReminderSms({ interview: record, scholarshipTitle: 'GIA' }).message).toContain('is tomorrow');

@@ -76,12 +76,27 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(html).toContain('id="review-tab-interview"');
     expect(html).toContain('Schedule due');
     expect(html).toContain('Schedule the interview');
-    expect(html).toContain('SOP 5a');
+    // Plain-language panel rule, with each Chair's school named in the picker.
+    expect(html).toContain('Applicants are interviewed by a panel from the school that offers their program — <strong class="text-app-text">School of Engineering and Architecture (SEA)</strong>.');
+    expect(html).not.toContain('SOP 5a');
+    expect(html).toMatch(/<option value="chair-sea">Ana Reyes · School of Engineering and Architecture \(SEA\)<\/option>/);
     expect(html).toContain('Ana Reyes');
     expect(html).not.toContain('Carla Lim');
     // The old footer fields are gone; the action bar keeps one Schedule button.
     expect(html).not.toContain('Panel / school');
     expect(buttonLabels(html).filter((label) => label === 'Schedule interview')).toHaveLength(1);
+  });
+
+  it('names the first program choice for an incoming first-year applicant', () => {
+    const html = render({
+      application: application({
+        profileSnapshot: { version: 2, yearStanding: 'incoming-1st', yearStandingLabel: 'Incoming 1st year', department: SEA },
+      }),
+      role: 'admissions_office',
+      interviewWorkspace: workspace(),
+    });
+    expect(html).toContain('a panel from the school that offers their first program choice');
+    expect(html).not.toContain('a panel from the school that offers their program —');
   });
 
   it('shows the Department Chair a read-only tab before the interview is scheduled', () => {
