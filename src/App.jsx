@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
@@ -6,7 +6,7 @@ import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureD
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole } from './lib/constants';
-import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile } from './lib/auth';
+import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
@@ -16,6 +16,7 @@ import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSu
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
+import SessionTimeoutModal from './components/SessionTimeoutModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
 import DashboardViewPage from './pages/DashboardView';
@@ -32,6 +33,7 @@ import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
+import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 
 const roleLabels = {
   student: 'Student',
@@ -223,6 +225,14 @@ function App() {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   // theme: 'dark' | 'light' — persisted in state
   const [isBooting, setIsBooting] = useState(true);
+  const [isSessionChecked, setIsSessionChecked] = useState(false);
+  const [sessionTimeoutState, setSessionTimeoutState] = useState(null);
+  const [sessionNotice, setSessionNotice] = useState('');
+  const endingSessionRef = useRef(false);
+  const absoluteWarningDismissedRef = useRef(false);
+  const lastValidationAtRef = useRef(0);
+  const lastActivityEventAtRef = useRef(0);
+  const sessionTimeoutConfig = useMemo(() => getSessionTimeoutConfig(), []);
   const [profileOnboarding, setProfileOnboarding] = useState(null);
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
@@ -255,6 +265,38 @@ function App() {
     };
   });
 
+  const endSession = useCallback(async (reason = 'signed-out', ownerId = null, { skipSupabaseSignOut = false } = {}) => {
+    if (endingSessionRef.current) return;
+    endingSessionRef.current = true;
+    clearPendingSessionStart();
+    if (ownerId) markSessionEnded({ ownerId, reason });
+    const notice = reason === 'idle'
+      ? 'You were signed out after a period of inactivity. Sign in again to continue.'
+      : reason === 'absolute'
+        ? 'Your maximum session duration was reached. Sign in again to continue.'
+        : reason === 'revoked'
+          ? 'Your session could not be verified. Please sign in again.'
+          : '';
+    // Remove the authenticated UI immediately. Network sign-out can take time;
+    // the local guard must not wait for token revocation to complete.
+    setState((previous) => createFreshState(devicePreferencesOf(previous)));
+    setProfileOnboarding(null);
+    setIsSupabaseWorkspaceLoaded(false);
+    setDeadlineSync(null);
+    setAvatarPreview({ path: '', url: '' });
+    setSessionTimeoutState(null);
+    setSessionNotice(notice);
+    setIsSessionChecked(true);
+    try {
+      if (!skipSupabaseSignOut) await signOutFromSupabase();
+    } catch {
+      // Always clear the local authenticated shell even if revocation cannot
+      // reach Supabase; RLS still rejects an expired or revoked server token.
+    } finally {
+      endingSessionRef.current = false;
+    }
+  }, []);
+
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(state));
   }, [state]);
@@ -274,7 +316,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (isBooting) {
+    if (isBooting || !isSessionChecked || !state.isAuthenticated) {
       return undefined;
     }
 
@@ -339,7 +381,7 @@ function App() {
       window.removeEventListener('focus', syncDeadlineReminders);
       document.removeEventListener('visibilitychange', syncDeadlineReminders);
     };
-  }, [isBooting]);
+  }, [isBooting, isSessionChecked, state.isAuthenticated]);
 
   // The local deadline list is the source of truth for the calendar, but the
   // server-side reminder function can only email deadlines it can read from
@@ -365,22 +407,78 @@ function App() {
     let active = true;
 
     const hydrateSession = async () => {
+      let sessionOwnerId = null;
+      try {
       const result = await getSupabaseSession();
-      if (!active || !result.session) {
+      if (!active) return;
+      if (!result.session) {
+        consumePendingSessionStart();
+        if (result.message) {
+          await endSession('revoked', readStoredState()?.ownerId);
+          return;
+        }
+        setState((previous) => createFreshState(devicePreferencesOf(previous)));
         return;
       }
 
-      const user = result.session.user;
+      const cachedUser = result.session.user;
+      const user = cachedUser;
+      sessionOwnerId = user.id;
+      let activity = readSessionActivity();
+      const oauthStartedAt = consumePendingSessionStart();
+      if (oauthStartedAt !== null) {
+        activity = startSessionActivity({ ownerId: user.id, startedAt: oauthStartedAt, lastActivityAt: Date.now() });
+        absoluteWarningDismissedRef.current = false;
+        lastActivityEventAtRef.current = Date.now();
+          if (!activity) {
+            await endSession('revoked', user.id);
+            return;
+          }
+      } else if (!activity || activity.ownerId !== user.id || activity.endedAt) {
+        activity = null;
+      }
+      // Never restore an older pre-policy session without a verifiable start
+      // timestamp. Requiring sign-in once is safer than inventing a session age.
+      if (!activity || activity.ownerId !== user.id || activity.endedAt) {
+        await endSession(activity?.endReason || 'revoked', user.id);
+        return;
+      }
+      if (!Number.isFinite(activity.startedAt) || !Number.isFinite(activity.lastActivityAt)) {
+        await endSession('revoked', user.id);
+        return;
+      }
+      const timing = getSessionTiming({
+        startedAt: activity.startedAt,
+        lastActivityAt: activity.lastActivityAt,
+        config: sessionTimeoutConfig,
+      });
+      if (timing.isExpired) {
+        await endSession(timing.reason, user.id);
+        return;
+      }
+      const validation = await validateSupabaseSession();
+      if (!active) return;
+      if (!validation.user || validation.user.id !== user.id) {
+        await endSession('revoked', user.id);
+        return;
+      }
+      lastValidationAtRef.current = Date.now();
+      if (!active) return;
       const profileResult = await getUserProfile(user.id);
+      if (!active) return;
       const profile = profileResult.profile;
       const profileDetails = await getProfileDetails(user.id);
+      if (!active) return;
       const profileAvatar = await getProfileAvatar(user.id);
+      if (!active) return;
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
       updateState((previous) => {
         const base = adoptStateOwner(previous, user.id);
         return {
           ...base,
           isAuthenticated: true,
+          sessionsStartedAt: activity.startedAt,
+          lastSessionActivityAt: activity.lastActivityAt,
           viewerRole: userRole,
           activeView: landingViewForRole(userRole),
           authUser: {
@@ -417,6 +515,7 @@ function App() {
         }
       }
       const workspace = await loadSupabaseWorkspace({ role: userRole, userId: user.id, department: profile?.department || '' });
+      if (!active) return;
       if (active && workspace.success) {
         updateState((previous) => {
           const base = adoptStateOwner(previous, user.id);
@@ -444,14 +543,20 @@ function App() {
       }
       if (active) {
         const academicProgramsResult = await loadSupabaseAcademicPrograms();
+        if (!active) return;
         if (academicProgramsResult.success && academicProgramsResult.academicPrograms?.length) {
           updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
         }
       }
-      if (userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
+      if (active && userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
         if (readStoredState()?.profileSkipped) return;
         const attributes = profileDetails.eligibilityAttributes || {};
         setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+      }
+      } catch {
+        if (active) await endSession('revoked', sessionOwnerId || readStoredState()?.ownerId);
+      } finally {
+        if (active) setIsSessionChecked(true);
       }
     };
 
@@ -460,7 +565,122 @@ function App() {
     return () => {
       active = false;
     };
-  }, [isBooting]);
+  }, [endSession, isBooting, sessionTimeoutConfig]);
+
+  useEffect(() => {
+    if (!state.isAuthenticated || !state.authUser?.id) {
+      return undefined;
+    }
+
+    const ownerId = state.authUser.id;
+    const evaluateSession = () => {
+      const activity = readSessionActivity();
+      if (!activity || activity.ownerId !== ownerId || activity.endedAt) {
+        endSession(activity?.endReason || 'revoked', ownerId);
+        return;
+      }
+      const timing = getSessionTiming({
+        startedAt: activity.startedAt,
+        lastActivityAt: activity.lastActivityAt,
+        config: sessionTimeoutConfig,
+      });
+      if (timing.isExpired) {
+        endSession(timing.reason, ownerId);
+        return;
+      }
+      if (timing.reason === 'absolute' && absoluteWarningDismissedRef.current) {
+        setSessionTimeoutState(null);
+      } else {
+        const warningStartedAt = Date.now();
+        setSessionTimeoutState((current) => {
+          if (!timing.isWarning) return null;
+          if (current?.reason === timing.reason && current?.expiresAt === timing.expiresAt) return current;
+          return {
+            reason: timing.reason,
+            expiresAt: timing.expiresAt,
+            warningMs: sessionTimeoutConfig.warningMs,
+            warningStartedAt,
+          };
+        });
+      }
+    };
+
+    const onActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityEventAtRef.current < sessionTimeoutConfig.activityThrottleMs) return;
+      lastActivityEventAtRef.current = now;
+      const current = readSessionActivity();
+      if (!current || current.ownerId !== ownerId || current.endedAt) return;
+      const timing = getSessionTiming({ startedAt: current.startedAt, lastActivityAt: current.lastActivityAt, config: sessionTimeoutConfig });
+      if (timing.isExpired) {
+        endSession(timing.reason, ownerId);
+        return;
+      }
+      const touched = touchSessionActivity({ ownerId, throttleMs: sessionTimeoutConfig.activityThrottleMs });
+      if (touched) {
+        setState((previous) => previous.lastSessionActivityAt === touched.lastActivityAt
+          ? previous
+          : { ...previous, lastSessionActivityAt: touched.lastActivityAt });
+      }
+      evaluateSession();
+    };
+
+    const onReturn = async (forceValidation = false) => {
+      evaluateSession();
+      if (document.visibilityState === 'hidden') return;
+      if (!forceValidation && Date.now() - lastValidationAtRef.current < sessionTimeoutConfig.revalidationIntervalMs) return;
+      lastValidationAtRef.current = Date.now();
+      const result = await validateSupabaseSession();
+      if (!result.user || result.user.id !== ownerId) endSession('revoked', ownerId);
+    };
+
+    const onFocus = () => onReturn(true);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') onReturn(true);
+    };
+
+    const onStorageActivity = (activity) => {
+      if (activity?.ownerId !== ownerId || !activity) return;
+      if (activity.endedAt) {
+        // The initiating tab already revoked the Supabase session; this tab
+        // only needs to clear its authenticated UI and local app state.
+        endSession(activity.endReason || 'revoked', ownerId, { skipSupabaseSignOut: true });
+        return;
+      }
+      setState((previous) => (activity.lastActivityAt > (previous.lastSessionActivityAt || 0)
+        ? { ...previous, lastSessionActivityAt: activity.lastActivityAt }
+        : previous));
+      evaluateSession();
+    };
+
+    const initialEvaluation = window.setTimeout(evaluateSession, 0);
+    const timer = window.setInterval(evaluateSession, sessionTimeoutConfig.checkIntervalMs);
+    const revalidator = window.setInterval(onReturn, sessionTimeoutConfig.revalidationIntervalMs);
+    const activityEvents = ['pointerdown', 'keydown', 'touchstart', 'scroll', 'mousemove'];
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, onActivity, { passive: true }));
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    const unsubscribe = subscribeToSessionActivity(onStorageActivity);
+
+    return () => {
+      window.clearTimeout(initialEvaluation);
+      window.clearInterval(timer);
+      window.clearInterval(revalidator);
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, onActivity));
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      unsubscribe();
+    };
+  }, [endSession, sessionTimeoutConfig, state.authUser?.id, state.isAuthenticated]);
+
+  useEffect(() => subscribeToSupabaseAuth((event) => {
+    const activity = readSessionActivity();
+    if (event === 'SIGNED_OUT' && !endingSessionRef.current && state.isAuthenticated && !activity?.endedAt) {
+      // Supabase auth listeners run under the auth lock; do not call signOut a
+      // second time from inside this callback. This tab is already signed out.
+      endSession('revoked', state.authUser?.id, { skipSupabaseSignOut: true });
+    }
+  }), [endSession, state.authUser?.id, state.isAuthenticated]);
 
   // Supabase is the required backend, so a signed-in session always carries a
   // real authUser. This empty scaffold only fills fields the profile row does
@@ -601,6 +821,19 @@ function App() {
     });
 
     if (authResult.success) {
+      const sessionStartedAt = Date.now();
+      const sessionActivity = authResult.user?.id
+        ? startSessionActivity({ ownerId: authResult.user.id, startedAt: sessionStartedAt, lastActivityAt: sessionStartedAt })
+        : null;
+      if (!sessionActivity) {
+      await signOutFromSupabase();
+        return { success: false, message: 'Secure session storage is unavailable. Enable browser storage and sign in again.' };
+      }
+      setSessionNotice('');
+      absoluteWarningDismissedRef.current = false;
+      lastActivityEventAtRef.current = sessionStartedAt;
+      setIsSessionChecked(true);
+      lastValidationAtRef.current = sessionStartedAt;
       const profileResult = authResult.user?.id ? await getUserProfile(authResult.user.id) : { profile: null };
       const profile = profileResult.profile;
       const profileDetails = authResult.user?.id ? await getProfileDetails(authResult.user.id) : { bio: '', eligibilityAttributes: {} };
@@ -612,6 +845,8 @@ function App() {
         return {
           ...base,
           isAuthenticated: true,
+          sessionsStartedAt: sessionStartedAt,
+          lastSessionActivityAt: sessionStartedAt,
           hasLoggedInBefore: true,
           showFirstLoginWelcome: !base.hasLoggedInBefore,
           viewerRole: resolvedRole,
@@ -726,19 +961,22 @@ function App() {
   };
 
   const logout = async () => {
-    await signOutFromSupabase();
-    // Replace the whole state rather than clearing a few flags: the previous
-    // user's notifications, reminders, applications, documents, and profile
-    // draft must not survive into the next session on a shared browser. Only
-    // device-level preferences (theme, remember-me) carry over. The state
-    // persistence effect then overwrites the stored record with the cleared
-    // state, so the next page load starts clean too.
-    setState(createFreshState(devicePreferencesOf(state)));
-    setProfileOnboarding(null);
-    setIsSupabaseWorkspaceLoaded(false);
-    setDeadlineSync(null);
-    // The signed avatar URL and its stored path are session state too.
-    setAvatarPreview({ path: '', url: '' });
+    await endSession('signed-out', state.authUser?.id || state.ownerId);
+  };
+
+  const continueSession = () => {
+    const ownerId = state.authUser?.id;
+    if (!ownerId) return;
+    if (sessionTimeoutState?.reason === 'absolute') {
+      absoluteWarningDismissedRef.current = true;
+      setSessionTimeoutState(null);
+      return;
+    }
+    const touched = touchSessionActivity({ ownerId, now: Date.now(), throttleMs: 0 });
+    if (touched) {
+      updateState((previous) => ({ ...previous, lastSessionActivityAt: touched.lastActivityAt }));
+      setSessionTimeoutState(null);
+    }
   };
 
   const saveAcademicProfile = async (profileValues) => {
@@ -1781,7 +2019,7 @@ function App() {
     );
   };
 
-  if (isBooting) {
+  if (isBooting || !isSessionChecked) {
     return (
       <div className="grid min-h-screen place-items-center bg-app-bg p-5 text-app-text">
         <div className="w-full max-w-3xl rounded-app border border-app-border bg-app-card p-6 shadow-app backdrop-blur sm:p-8">
@@ -1808,12 +2046,23 @@ function App() {
         isRemembered={state.rememberMe}
         theme={state.theme}
         onToggleTheme={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+        sessionNotice={sessionNotice}
       />
     );
   }
 
   return (
     <div className={`min-h-screen max-w-[100vw] overflow-x-hidden bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
+      {sessionTimeoutState && (
+        <SessionTimeoutModal
+          reason={sessionTimeoutState.reason}
+          expiresAt={sessionTimeoutState.expiresAt}
+          warningMs={sessionTimeoutState.warningMs}
+          warningStartedAt={sessionTimeoutState.warningStartedAt}
+          onStaySignedIn={continueSession}
+          onSignOut={logout}
+        />
+      )}
       {profileOnboarding && (
         <AcademicProfileModal
           fullName={profileOnboarding.fullName}
@@ -2116,6 +2365,7 @@ function App() {
           {state.activeView === 'settings' && (
             <SettingsViewPage
               notificationPreferences={state.notificationPreferences}
+              sessionTimeoutConfig={sessionTimeoutConfig}
               isEmailDeliveryAvailable={isSupabaseWorkspaceLoaded}
               onUpdatePreferences={(prefs) => {
                 updateState({ notificationPreferences: prefs });

@@ -4,6 +4,7 @@ import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search,
 import bgImage from '../../pictures/picture1.png';
 import logoImage from '../../pictures/logo.png';
 import { signInWithGoogle } from '../lib/auth';
+import { clearPendingSessionStart, markPendingSessionStart } from '../lib/sessionTimeout';
 import { Button, FormField, ModalShell } from '../components/ui';
 
 
@@ -119,7 +120,7 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '' })
   );
 }
 
-export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme }) {
+export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '' }) {
   const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -244,9 +245,11 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
      setFeedbackTone('info');
 
      try {
+        markPendingSessionStart();
        const result = await signInWithGoogle();
 
        if (result?.success && result?.fallback) {
+          clearPendingSessionStart();
          setFeedbackMessage(
            result?.message?.includes('not configured')
              ? 'Google Sign-In requires Supabase configuration. Please add your Supabase credentials to enable OAuth. Contact your administrator to set up Google OAuth provider in the Supabase dashboard.'
@@ -257,6 +260,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
          setFeedbackMessage('Redirecting to Google sign-in...');
          setFeedbackTone('success');
        } else {
+          clearPendingSessionStart();
          const errorMsg = result?.message || 'Unable to sign in with Google.';
          if (errorMsg.includes('provider') || errorMsg.includes('enabled')) {
            setFeedbackMessage(
@@ -268,6 +272,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
          setFeedbackTone('error');
        }
      } catch (error) {
+        clearPendingSessionStart();
        setFeedbackMessage(error?.message || 'Unable to sign in with Google. Please try again.');
        setFeedbackTone('error');
      } finally {
@@ -306,6 +311,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           </div>
 
            <form className="grid content-center gap-4 p-1 sm:p-3" onSubmit={submitLogin}>
+             {sessionNotice && <div className="feedback-banner feedback-banner--info w-full rounded-xl border px-3 py-3 text-sm" role="status">{sessionNotice}</div>}
              <label className="grid gap-2">
                <span className="text-sm font-semibold text-app-text">Email</span>
               <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="Email" />
