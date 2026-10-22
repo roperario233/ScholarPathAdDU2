@@ -882,6 +882,28 @@ main .deadline-item > .deadline-actions {
   color: #075985;
 }
 
+/* Status tone text in light mode. StatusBadge (src/components/ui.jsx) and the
+   SOP stage track (src/components/ApplicationParts.jsx) use the dark-theme
+   accent shades (`text-emerald-300`, `text-rose-300`, `text-amber-300`,
+   `text-sky-300`). On the light theme those pale tones sit on a pale tint of
+   the same hue, so the label reads as its own box. Deepen the text to the -700
+   shades in light mode; the dark theme keeps its brighter accents. */
+.theme-light .text-emerald-300 {
+  color: #047857;
+}
+
+.theme-light .text-rose-300 {
+  color: #be123c;
+}
+
+.theme-light .text-amber-300 {
+  color: #b45309;
+}
+
+.theme-light .text-sky-300 {
+  color: #0369a1;
+}
+
 .theme-light [role='alert'],
 .theme-light .form-error,
 .theme-light .deadline-form-error {
