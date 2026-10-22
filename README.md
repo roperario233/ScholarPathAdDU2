@@ -214,9 +214,12 @@ these seeded credentials:
 
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
-| Admissions Office Staff | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
-| Admissions Office Head | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
-| Department Chair | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
+| Admissions Office Staff | `john67.admissions@gmail.com` | `john6767` | Admissions Office overview and review queue |
+| Admissions Office Head | `samantha.headadmissions@gmail.com` | `scholarpath67` | Admissions Office overview, approval/release, catalog, and announcements |
+| Department Chair (SEA) | `miguel.chair.sea@gmail.com` | `scholarpath67` | Department Review and interview panel (School of Engineering and Architecture scoped) |
+| Admissions Office Staff (earlier seed) | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
+| Admissions Office Head (earlier seed) | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
+| Department Chair (earlier seed, CCS) | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
 any real deployment. The addresses deliberately sit on Gmail rather than
@@ -242,6 +245,20 @@ Staff lane; the role value, not the department, decides what the account may do:
 ```sql
 update public.profiles
 set role = 'admissions_office', department = 'Office of Admissions'
+where email = 'john67.admissions@gmail.com';
+
+update public.profiles
+set role = 'admissions_head', department = 'Office of Admissions'
+where email = 'samantha.headadmissions@gmail.com';
+
+update public.profiles
+set role = 'department_chair', department = 'School of Engineering and Architecture (SEA)'
+where email = 'miguel.chair.sea@gmail.com';
+
+-- Earlier seeded accounts (kept for reference; the credentials table above
+-- still lists them).
+update public.profiles
+set role = 'admissions_office', department = 'Office of Admissions'
 where email = 'scholarpath.admissions@gmail.com';
 
 update public.profiles
@@ -253,8 +270,11 @@ set role = 'department_chair', department = 'College of Computer Studies (CCS)'
 where email = 'scholarpath.chair@gmail.com';
 ```
 
-The Department Chair `department` scopes the Department Review queue, so it must
-match the applicant department the chair should see. Sign-in resolves the role
+The Department Chair `department` scopes the Department Review queue and the
+interview panel, so it must match the applicant department the chair should see.
+`miguel.chair.sea@gmail.com` is scoped to `School of Engineering and
+Architecture (SEA)`; the earlier `scholarpath.chair@gmail.com` seed stays scoped
+to `College of Computer Studies (CCS)`. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
 Office Staff and Head routes, and the Department Review view, appear in the
