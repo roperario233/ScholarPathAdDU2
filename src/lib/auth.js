@@ -141,7 +141,9 @@ export const signOutFromSupabase = async () => {
     };
   }
 
-  const { error } = await supabase.auth.signOut();
+  // Global scope revokes all refresh tokens for this user, so an old session
+  // cannot simply be resumed in a different browser after local expiry.
+  const { error } = await supabase.auth.signOut({ scope: 'global' });
 
   if (error) {
     return {
@@ -179,6 +181,29 @@ export const getSupabaseSession = async () => {
     session,
     fallback: false,
   };
+};
+
+// getSession() reads the locally persisted token. Use getUser() when returning
+// from a suspended tab or validating a restored session so Supabase confirms
+// that the access token is still accepted by the Auth service.
+export const validateSupabaseSession = async () => {
+  if (!hasSupabaseConfig || !supabase) {
+    return { user: null, fallback: true, message: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) return { user: null, fallback: false, message: getAuthErrorMessage(error, 'Your session could not be verified.') };
+    return { user: data?.user || null, fallback: false };
+  } catch (error) {
+    return { user: null, fallback: false, message: getAuthErrorMessage(error, 'Your session could not be verified.') };
+  }
+};
+
+export const subscribeToSupabaseAuth = (onChange) => {
+  if (!hasSupabaseConfig || !supabase || typeof onChange !== 'function') return () => {};
+  const { data } = supabase.auth.onAuthStateChange((event, session) => onChange(event, session));
+  return () => data?.subscription?.unsubscribe?.();
 };
 
 export const getUserProfile = async (userId) => {

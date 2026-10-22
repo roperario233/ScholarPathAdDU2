@@ -81,6 +81,10 @@ const createDefaultState = () => ({
   // browser: a mismatch discards the session-scoped slices, and logout clears
   // them outright.
   ownerId: null,
+  // Owner-scoped timestamps persist the absolute session lifetime across page
+  // reloads. Activity mirrors live in sessionTimeout.js and are validated by id.
+  sessionsStartedAt: null,
+  lastSessionActivityAt: null,
   isAuthenticated: false,
   hasLoggedInBefore: false,
   showFirstLoginWelcome: false,
@@ -202,6 +206,8 @@ export const createInitialState = () => {
     academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,
     ownerId: typeof stored.ownerId === 'string' && stored.ownerId ? stored.ownerId : defaults.ownerId,
+    sessionsStartedAt: stored.sessionsStartedAt ?? null,
+    lastSessionActivityAt: stored.lastSessionActivityAt ?? null,
   };
 };
 
@@ -223,5 +229,5 @@ export const createFreshState = (devicePreferences = {}) => {
   DEVICE_PREFERENCE_KEYS.forEach((key) => {
     if (devicePreferences[key] !== undefined) kept[key] = devicePreferences[key];
   });
-  return { ...defaults, ...kept, ownerId: null };
+  return { ...defaults, ...kept, ownerId: null, sessionsStartedAt: null, lastSessionActivityAt: null };
 };

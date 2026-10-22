@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Button, SettingToggle } from '../components/ui';
 import { maskPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
+import { formatSessionDuration } from '../lib/sessionTimeout';
 
-export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '' }) {
+export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '', sessionTimeoutConfig }) {
   const [testEmail, setTestEmail] = useState({ status: 'idle', message: '' });
   const [testSms, setTestSms] = useState({ status: 'idle', message: '' });
   const preferences = notificationPreferences || {
@@ -167,6 +168,16 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
               description="Get a final reminder the day before"
             />
           </div>
+        </div>
+
+        <div className="mt-8 border-t border-app-border pt-6">
+          <h3 className="m-0 text-lg font-semibold text-app-text">Session security</h3>
+          <p className="mb-0 mt-2 max-w-3xl text-sm text-app-muted">
+            You are signed out after {formatSessionDuration(sessionTimeoutConfig?.idleTimeoutMs ?? 15 * 60 * 1000)} without activity or after {formatSessionDuration(sessionTimeoutConfig?.absoluteTimeoutMs ?? 12 * 60 * 60 * 1000)} total. Returning to an open tab revalidates your session with Supabase. The maximum duration is not extended by activity, and closing the browser does not reset it.
+          </p>
+          <p className="mb-0 mt-2 max-w-3xl text-xs text-app-muted">
+            If your session is about to expire, ScholarPath gives you a short warning. A fresh sign-in is required after either limit is reached.
+          </p>
         </div>
       </section>
     </div>

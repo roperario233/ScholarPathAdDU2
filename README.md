@@ -33,6 +33,24 @@ Optional: set `VITE_SITE_URL` in the deployed environment (see `.env.example`)
 to make every build return to one canonical origin. Leave it unset locally so
 local development signs in against `http://localhost:5173`.
 
+## Session security
+
+Authenticated sessions end after **15 minutes without activity** or **12 hours
+after sign-in**, whichever comes first. ScholarPath warns shortly before either
+limit, checks the session with Supabase when a suspended tab becomes active, and
+propagates sign-out across tabs. The absolute timeout remains in effect across a
+reload or browser restart; a new sign-in is required after expiry. Existing
+sessions without a recorded sign-in time require one fresh sign-in to establish
+the policy baseline.
+
+The defaults can be changed at build time with
+`VITE_SESSION_IDLE_TIMEOUT_MINUTES`, `VITE_SESSION_ABSOLUTE_TIMEOUT_HOURS`, and
+`VITE_SESSION_WARNING_SECONDS` (see `.env.example`). These are client-enforced
+controls, not a server-side inactivity detector. For defense in depth, set an
+appropriate refresh-token lifetime under **Supabase → Authentication →
+Sessions** as well. Supabase remains responsible for validating and revoking
+the actual auth tokens.
+
 ### Opening the prototype from another device
 
 `npm run dev` binds to every network interface, so Vite prints both a local URL

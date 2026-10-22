@@ -33,6 +33,8 @@ describe('createFreshState (sign-out reset)', () => {
     savedEmail: 'student-a@addu.edu.ph',
     savedRole: 'student',
     isAuthenticated: true,
+    sessionsStartedAt: 1_700_000_000_000,
+    lastSessionActivityAt: 1_700_000_100_000,
     viewerRole: 'student',
     activeView: 'applications',
     authUser: { id: 'user-a', fullName: 'Student A' },
@@ -50,6 +52,8 @@ describe('createFreshState (sign-out reset)', () => {
 
     expect(next.ownerId).toBeNull();
     expect(next.isAuthenticated).toBe(false);
+    expect(next.sessionsStartedAt).toBeNull();
+    expect(next.lastSessionActivityAt).toBeNull();
     expect(next.authUser).toBeNull();
     expect(next.viewerRole).toBe('student');
     expect(next.activeView).toBe('dashboard');
