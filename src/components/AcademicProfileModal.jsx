@@ -33,7 +33,7 @@ function AttributeVerificationBadge({ attributeKey, attributeVerifications = {} 
 function NativeSelect({ label, hint, error, labelAdornment, value, onChange, options, placeholder }) {
   return (
     <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment}>
-      <select className={controlClass} value={value} onChange={(event) => onChange(event.target.value)} aria-invalid={Boolean(error)}>
+      <select className={controlClass} value={value} onChange={(event) => onChange(event.target.value)} autoComplete="off" aria-invalid={Boolean(error)}>
         <option value="" disabled>{placeholder}</option>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select>
@@ -141,8 +141,9 @@ export default function AcademicProfileModal({
       ? Boolean(hsStrand) && hsAverage !== ''
       : Boolean(studentNumber) && qpi !== '');
 
-  const handleSubmit = (event) => {
-    event.preventDefault();
+  const handleContinue = () => {
+    if (isSaving) return;
+
     const result = validateOnboardingEssentials({
       studentNumber,
       degreeProgram: program,
@@ -171,6 +172,15 @@ export default function AcademicProfileModal({
     onSave({ ...result.values, hasActiveGovernmentGrant });
   };
 
+  const handleKeyDown = (event) => {
+    if (event.key !== 'Enter'
+      || event.target.tagName !== 'INPUT'
+      || event.target.type === 'checkbox'
+      || event.target.closest('.select-picker-modal')) return;
+    event.preventDefault();
+    handleContinue();
+  };
+
   return (
     <ModalShell title="" onClose={undefined} aria-labelledby="academic-profile-title" overlayClassName="academic-profile-overlay" className="w-full max-w-[640px]">
         <div className="mb-4 flex items-center gap-3">
@@ -183,11 +193,12 @@ export default function AcademicProfileModal({
         <p className="mt-2 text-sm leading-relaxed text-app-muted">
           Welcome{fullName ? `, ${fullName.split(' ')[0]}` : ''}! Add your academic and eligibility details so the Smart Eligibility Checker can match you with the right scholarships.
         </p>
-        <form className="mt-5 grid gap-4" onSubmit={handleSubmit}>
+        {/* Avoid native form submission: Chromium treats canceled submit events as autofill-save signals. */}
+        <div className="mt-5 grid gap-4" onKeyDown={handleKeyDown}>
           <div className="grid gap-4 sm:grid-cols-2">
             <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError('yearStanding', 'studentNumber', 'qpi', 'programChoice2', 'programChoice3'); }} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
             {standing.requiresStudentNumber && (
-              <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU ID or registration record." error={errors.studentNumber}>
+              <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU registration record." error={errors.studentNumber}>
                 <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError('studentNumber'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required aria-invalid={Boolean(errors.studentNumber)} />
               </FormField>
             )}
@@ -246,7 +257,7 @@ export default function AcademicProfileModal({
           </div>
           {(validationError || errorMessage) && <div className="w-full rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-3 text-sm text-rose-200" role="alert">{validationError || errorMessage}</div>}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <Button variant="primary" className="flex-1" type="submit" disabled={!isComplete || isSaving}>
+            <Button variant="primary" className="flex-1" type="button" onClick={handleContinue} disabled={!isComplete || isSaving}>
               {isSaving ? 'Saving profile…' : 'Continue to ScholarPath'}
             </Button>
             <button
@@ -257,7 +268,7 @@ export default function AcademicProfileModal({
               Skip for now
             </button>
           </div>
-        </form>
+        </div>
     </ModalShell>
   );
 }

@@ -31,10 +31,10 @@ export function Panel({ children, className = '', ...props }) {
 }
 
 const statusClasses = {
-  success: 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300',
-  danger: 'border-rose-400/30 bg-rose-400/10 text-rose-300',
-  warning: 'border-amber-400/30 bg-amber-400/10 text-amber-300',
-  info: 'border-sky-400/30 bg-sky-400/10 text-sky-300',
+  success: 'border-emerald-400/40 bg-emerald-400/10 text-emerald-300 dark:border-emerald-400/50 dark:bg-emerald-400/20 dark:text-emerald-100',
+  danger: 'border-rose-400/40 bg-rose-400/10 text-rose-300 dark:border-rose-400/50 dark:bg-rose-400/20 dark:text-rose-100',
+  warning: 'border-amber-400/40 bg-amber-400/10 text-amber-300 dark:border-amber-400/50 dark:bg-amber-400/20 dark:text-amber-100',
+  info: 'border-sky-400/40 bg-sky-400/10 text-sky-300 dark:border-sky-400/50 dark:bg-sky-400/20 dark:text-sky-100',
   neutral: 'border-app-border bg-app-surface text-app-text',
 };
 

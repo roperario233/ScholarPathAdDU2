@@ -882,6 +882,25 @@ main .deadline-item > .deadline-actions {
   color: #075985;
 }
 
+/* Light-theme contrast for the dark-theme accent classes used by StatusBadge
+   and the SOP stage track. The root `.dark` class activates Tailwind's dark
+   variants in dark mode; `.theme-light` remains the light-theme token switch. */
+.theme-light .text-emerald-300 {
+  color: #047857;
+}
+
+.theme-light .text-rose-300 {
+  color: #be123c;
+}
+
+.theme-light .text-amber-300 {
+  color: #b45309;
+}
+
+.theme-light .text-sky-300 {
+  color: #0369a1;
+}
+
 .theme-light [role='alert'],
 .theme-light .form-error,
 .theme-light .deadline-form-error {
