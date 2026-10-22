@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
-import DocumentPreviewModal, { DocumentPreview } from './DocumentPreviewModal';
+import DocumentPreviewModal, { DocumentPreview, useDocumentPreviewUrl } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
 import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
@@ -8,7 +8,7 @@ import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areDocumentsReviewable, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getInterviewStateLabel, isInterviewComplete, isInterviewOutcomeDue, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
@@ -47,7 +47,10 @@ function ReviewTabs({ tabs, active, onChange }) {
     refs.current[tab.key]?.focus();
   };
   return (
-    <div role="tablist" aria-label="Application review sections" className="flex shrink-0 gap-1 overflow-x-auto border-b border-app-border">
+    // overflow-y-hidden keeps the horizontal scroller from promoting overflow-y
+    // to auto: with the tabs' -mb-px alignment shift that produced a stray
+    // vertical scrollbar on the tab strip.
+    <div role="tablist" aria-label="Application review sections" className="flex shrink-0 gap-1 overflow-x-auto overflow-y-hidden border-b border-app-border">
       {tabs.map((tab, index) => {
         const selected = tab.key === active;
         return (
@@ -67,7 +70,7 @@ function ReviewTabs({ tabs, active, onChange }) {
               if (event.key === 'Home') { event.preventDefault(); focusTab(0); }
               if (event.key === 'End') { event.preventDefault(); focusTab(tabs.length - 1); }
             }}
-            className={`-mb-px inline-flex min-h-11 shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${selected ? 'border-ateneo text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:text-app-text'}`}
+            className={`-mb-px inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-9 ${selected ? 'border-ateneo text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:text-app-text'}`}
           >
             {tab.label}
             {tab.badge != null ? (
@@ -159,10 +162,11 @@ export default function ApplicationReviewModal({
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
   const documentsUnlocked = areApplicationDocumentsVisible(application.status);
-  // The endorsement tab appears from the document-verification stage on, which
-  // is also where the hand-off becomes available. It stays visible afterwards so
-  // the recorded decision and its discussion remain readable.
-  const endorsementUnlocked = areDocumentsReviewable(application.status);
+  // SOP step 4 starts when the Admissions Office hands the case to the
+  // Department Chair, so the Endorsement tab stays hidden while it is still with
+  // the office. It stays visible afterwards so the recorded hand-off, decision,
+  // and discussion remain readable.
+  const endorsementUnlocked = areEndorsementRecordsVisible(application.status);
   const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
   // declared at submit time (the frozen profile snapshot).
@@ -206,6 +210,7 @@ export default function ApplicationReviewModal({
 
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
+    if (initialTab === 'endorsement' && !endorsementUnlocked) return 'overview';
     if (initialTab) return initialTab;
     if (isAdmissionsReviewer && interviewUnlocked && application.status === 'Endorsed') return 'interview';
     return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
@@ -233,6 +238,13 @@ export default function ApplicationReviewModal({
   // Re-read from `documents` every render so a Verified/Rejected decision shows
   // in the pane immediately.
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
+  // One signed URL per selected file: the verification actions' "Open in a new
+  // tab" link and the inline preview share it. Narrow screens keep the preview in
+  // its own modal (which fetches its own URL), so no request is made here.
+  const { url: previewUrl, error: previewError } = useDocumentPreviewUrl(
+    isWide ? selectedDoc : null,
+    isWide && Boolean(selectedDoc),
+  );
 
   // A document rejection must carry a recorded reason, so it opens the reason
   // dialog; a verification is attributed to the reviewer, so it opens the
@@ -363,8 +375,8 @@ export default function ApplicationReviewModal({
       alert: isAdmissionsReviewer && blockedByDocuments,
     }] : []),
     // SOP step 4 in one place: the hand-off/decision record, the internal
-    // thread, and the decision action. It appears from the
-    // document-verification stage on and stays readable afterwards.
+    // thread, and the decision action. It appears once the application has
+    // reached the endorsement stage and stays readable afterwards.
     ...(endorsementUnlocked ? [{
       key: 'endorsement',
       label: 'Endorsement',
@@ -397,13 +409,6 @@ export default function ApplicationReviewModal({
   ));
   const canReject = nextStatuses.includes('Rejected');
   const showDeliberationField = isAdmissionsReviewer && nextStatuses.includes('Recommended');
-  const hasBlockedForward = blockedByDocuments && forwardStatuses.some((status) => ENDORSEMENT_BLOCKED_STATUSES.includes(status));
-  // Both Admissions Office lanes finish verification and hand the application to
-  // the Department Chair, so at this point the forward action is that hand-off.
-  const readyForEndorsement = isAdmissionsReviewer
-    && application.status === 'For Verification'
-    && totalDocuments > 0
-    && !blockedByDocuments;
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
   const lockedDocumentsMessage = !isAdmissionsReviewer
@@ -416,9 +421,6 @@ export default function ApplicationReviewModal({
     if (status === 'Recommended' && !isInterviewComplete(application.interview)) return 'The interview panel must record the applicant as attended first';
     return '';
   };
-  // The Recommend gate is explained in the footer, like the document gate, with
-  // a link to the Interview tab where the panel records attendance.
-  const interviewBlocksRecommendation = forwardStatuses.includes('Recommended') && !isInterviewComplete(application.interview);
   const runAction = async (status) => {
     if (status === 'Rejected') {
       // A rejection must carry a recorded reason, so it opens the reason dialog.
@@ -516,7 +518,7 @@ export default function ApplicationReviewModal({
   return (
     <>
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-review-modal">
-      <header className="grid shrink-0 gap-3 pb-3">
+      <header className="grid shrink-0 gap-2 pb-2">
         <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
@@ -541,7 +543,7 @@ export default function ApplicationReviewModal({
       <ReviewTabs tabs={tabs} active={visibleActiveTab} onChange={setActiveTab} />
 
       <div
-        className="application-review-modal-body pt-4"
+        className={`application-review-modal-body pt-4${visibleActiveTab === 'documents' ? ' application-review-modal-body--split' : ''}`}
         role="tabpanel"
         id={`review-panel-${visibleActiveTab}`}
         aria-labelledby={`review-tab-${visibleActiveTab}`}
@@ -580,8 +582,8 @@ export default function ApplicationReviewModal({
 
         {visibleActiveTab === 'documents' && (
           linkedDocuments.length || requirements.length ? (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
-              <div className="grid content-start gap-4">
+            <div className="application-review-documents">
+              <div className="application-review-documents-pane">
                 {requirements.length ? (
                   <section className="grid gap-2">
                     <h4 className={sectionHeading}>Required submissions</h4>
@@ -616,9 +618,9 @@ export default function ApplicationReviewModal({
                 </section>
               </div>
 
-              <div ref={previewPaneRef} className="scroll-mt-4">
+              <div ref={previewPaneRef} className="application-review-documents-pane scroll-mt-4">
                 {selectedDoc ? (
-                  <Panel className="grid content-start gap-3 lg:sticky lg:top-0">
+                  <Panel className="grid content-start gap-3">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                       <h4 className={sectionHeading}>Document verification</h4>
                       {!isAdmissionsReviewer ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office</span> : null}
@@ -630,11 +632,15 @@ export default function ApplicationReviewModal({
                       owner={students[selectedDoc.ownerId] || null}
                       onPreview={isWide ? undefined : setPreviewDoc}
                       onChangeDocument={isAdmissionsReviewer && onChangeDocument ? changeDocument : undefined}
+                      openUrl={isWide ? previewUrl : ''}
                     />
                     {isWide ? (
                       <DocumentPreview
                         key={selectedDoc.id}
                         doc={selectedDoc}
+                        url={previewUrl}
+                        error={previewError}
+                        showOpenLink={false}
                         frameClassName="h-[min(56vh,540px)]"
                         imageClassName="max-h-[min(56vh,540px)]"
                       />
@@ -709,30 +715,6 @@ export default function ApplicationReviewModal({
           </p>
         ) : null}
 
-        {hasBlockedForward ? (
-          <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200" role="status">
-            <span>{documentBlockReason} before this application can be endorsed or advance to a later stage.</span>
-            {visibleActiveTab !== 'documents' ? (
-              <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setActiveTab('documents')}>Review documents</button>
-            ) : null}
-          </p>
-        ) : null}
-
-        {readyForEndorsement ? (
-          <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
-            All attached documents are verified. Send the application to endorsement when you are ready to hand it to the Department Chair; the hand-off note is recorded in the Endorsement tab and the status history.
-          </p>
-        ) : null}
-
-        {interviewBlocksRecommendation ? (
-          <p className="m-0 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-200" role="status">
-            <span>The interview panel must record the applicant as attended before the sub-committee recommendation (SOP step 6).</span>
-            {visibleActiveTab !== 'interview' && interviewUnlocked ? (
-              <button type="button" className="font-semibold underline underline-offset-2" onClick={() => setActiveTab('interview')}>Open interview</button>
-            ) : null}
-          </p>
-        ) : null}
-
         {showDeliberationField ? (
           <label className="grid gap-1 text-sm text-app-text">
             <span className="font-semibold">Sub-committee note</span>
@@ -752,6 +734,21 @@ export default function ApplicationReviewModal({
               {canReject ? <Button type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
             </div>
             <div className="flex flex-wrap justify-end gap-2">
+              {/* The footer carries no visible stage notice: the header badge, the
+                  Documents tab badge, and each disabled button's title report the
+                  gate on screen. This hidden text keeps the reason available to
+                  assistive tech, where a dimmed button alone says nothing. */}
+              {forwardStatuses.map((status) => {
+                const reason = blockReasonFor(status);
+                if (!reason) return null;
+                return (
+                  <span key={`block-${status}`} id={`review-block-${status}`} className="sr-only">
+                    {status === 'Recommended'
+                      ? 'The interview panel must record the applicant as attended before the sub-committee recommendation (SOP step 6).'
+                      : `${reason} before this application can be endorsed or advance to a later stage.`}
+                  </span>
+                );
+              })}
               {forwardStatuses.map((status, index) => {
                 const reason = blockReasonFor(status);
                 return (
@@ -761,6 +758,7 @@ export default function ApplicationReviewModal({
                     variant={index === forwardStatuses.length - 1 ? 'primary' : 'secondary'}
                     disabled={Boolean(reason) || actionBusy}
                     title={reason || undefined}
+                    aria-describedby={reason ? `review-block-${status}` : undefined}
                     onClick={() => runAction(status)}
                   >{actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role)}</Button>
                 );
