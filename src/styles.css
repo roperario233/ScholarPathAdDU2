@@ -1121,10 +1121,47 @@ main .deadline-item > .deadline-actions {
    longer tracks the rounded corner of the modal surface. */
 .application-detail-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 0.4rem; }
 /* Staff review modal: fixed header, tabs, and action bar around one scrolling
-   body, wide enough for the side-by-side document list and inline preview. */
+   body, wide enough for the side-by-side document list and inline preview. The
+   Documents tab splits that body into two independently scrolling panes. */
 .application-review-modal { width: min(1180px, 100%); height: min(92vh, 900px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
 .application-review-modal h2 { margin: 0; }
 .application-review-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 0.4rem; padding-bottom: 1rem; }
+/* The modal opens on the applicant, so the scholarship title reads as a compact
+   label in the Close row and the applicant block follows it directly instead of
+   floating below the taller button row. Scoped to the direct child so the shared
+   ModalShell header keeps its spacing everywhere else. */
+.application-review-modal > .card-header {
+  flex: 0 0 auto;
+  margin-bottom: 0.375rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+.application-review-modal > .card-header h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+/* The documents stage is worked file by file, so the requirement list and the
+   verification pane scroll on their own. Below 1024px they stack and share the
+   modal body's single scroll, as before. */
+.application-review-documents { display: grid; gap: 1rem; }
+.application-review-documents-pane { display: grid; align-content: start; gap: 1rem; }
+@media (min-width: 1024px) {
+  .application-review-modal-body--split { display: flex; flex-direction: column; overflow: hidden; }
+  .application-review-documents {
+    flex: 1 1 auto;
+    min-height: 0;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .application-review-documents-pane {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-right: 0.4rem;
+  }
+}
 @media (max-width: 640px) {
   .application-review-modal { height: calc(100dvh - 1.5rem); padding: 1rem; }
   .application-review-actions button { min-height: 2.75rem; }

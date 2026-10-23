@@ -3,7 +3,7 @@ import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
-import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
+import { areEndorsementRecordsVisible, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
 const queueTone = (status) => {
@@ -96,7 +96,7 @@ export default function DepartmentReviewView({
                           onClick={() => { setReviewTab('interview'); setSelectedId(entry.id); }}
                         >{panelApplicationIds.has(entry.id) ? 'Open interview' : 'View interview'}</Button>
                       ) : null}
-                      {areDocumentsReviewable(entry.status) ? (
+                      {areEndorsementRecordsVisible(entry.status) ? (
                         <Button
                           type="button"
                           onClick={() => { setReviewTab('endorsement'); setSelectedId(entry.id); }}

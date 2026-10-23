@@ -280,9 +280,11 @@ export function SupportingDocumentList({ documents = [], onPreview, renderAttach
 // the value declared at upload against the value the application declared
 // (getDocumentProofReview: the frozen snapshot), and, for
 // the Admissions Office (when `onChangeDocument` is passed), the verification
-// actions. Department Chairs get the same details read-only. `as` lets the
-// review modal's preview pane render it outside a list.
-export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument, as: Element = 'li' }) {
+// actions. `openUrl` adds the signed-URL escape hatch beside those actions, so
+// the review pane can keep it at the top of the pane. Department Chairs get the
+// same details read-only. `as` lets the review modal's preview pane render it
+// outside a list.
+export function DocumentVerificationItem({ doc, application, owner = null, onPreview, onChangeDocument, openUrl = '', as: Element = 'li' }) {
   const proofs = getDocumentProofReview(doc, application, { owner });
   // A decision can be corrected (reset to Pending) only while the application is
   // still before endorsement; protect_verified_documents_on_progress refuses it
@@ -340,6 +342,11 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
               <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Pending')}>Reset to pending</Button>
             ) : null}
           </>
+        ) : null}
+        {/* The file's escape hatch sits with the decision actions so a reviewer
+            never has to scroll past the preview to open the original. */}
+        {openUrl ? (
+          <a className="link-btn !min-h-8 !px-2 !py-1 !text-xs" href={openUrl} target="_blank" rel="noreferrer">Open in a new tab</a>
         ) : null}
       </div>
     </Element>

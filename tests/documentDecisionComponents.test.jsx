@@ -76,6 +76,24 @@ describe('DocumentVerificationItem actions', () => {
     expect(html).not.toContain('Reject');
     expect(html).toContain(`Verified by Juan Dela Cruz · Admissions Office Staff · ${on}`);
   });
+
+  it('keeps the open-in-a-new-tab action with the verification buttons', () => {
+    const html = renderToStaticMarkup(
+      <DocumentVerificationItem
+        doc={{ ...verifiedDoc, verificationStatus: 'Pending', decidedAt: null }}
+        application={application}
+        onChangeDocument={() => {}}
+        openUrl="https://example.test/signed-url"
+      />,
+    );
+    expect(html).toContain('href="https://example.test/signed-url"');
+    expect(html).toContain('Open in a new tab');
+    // Without a resolved signed URL the pane shows no escape hatch.
+    const noUrl = renderToStaticMarkup(
+      <DocumentVerificationItem doc={{ ...verifiedDoc, verificationStatus: 'Pending', decidedAt: null }} application={application} onChangeDocument={() => {}} />,
+    );
+    expect(noUrl).not.toContain('Open in a new tab');
+  });
 });
 
 describe('ProfileSnapshotList 2x2 photo', () => {

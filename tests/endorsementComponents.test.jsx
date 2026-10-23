@@ -132,7 +132,7 @@ describe('ApplicationReviewModal endorsement tab', () => {
     expect(buttonLabels(html).filter((label) => label === 'Endorse')).toHaveLength(1);
   });
 
-  it('renders the hand-off once for the Admissions Office on the Endorsement tab', () => {
+  it('keeps the Endorsement tab hidden until the case reaches endorsement', () => {
     const html = renderToStaticMarkup(
       <ApplicationReviewModal
         application={application({ status: 'For Verification', statusLog: [] })}
@@ -145,8 +145,29 @@ describe('ApplicationReviewModal endorsement tab', () => {
       />,
     );
 
+    // SOP step 4 starts at the hand-off, so the tab cannot be opened while the
+    // case is still with the Admissions Office for document verification.
+    expect(html).not.toContain('id="review-tab-endorsement"');
+    expect(html).toContain('id="review-panel-overview"');
+  });
+
+  it('shows the recorded hand-off to the Admissions Office once it is with the Chair', () => {
+    const html = renderToStaticMarkup(
+      <ApplicationReviewModal
+        application={application()}
+        scholarship={scholarship}
+        documents={documents}
+        role="admissions_office"
+        initialTab="endorsement"
+        onClose={() => undefined}
+        onStatusChange={() => ({ ok: true })}
+      />,
+    );
+
+    expect(html).toContain('id="review-tab-endorsement"');
     expect(html).toContain('Endorsement record');
-    expect(html).toContain('Send the application to endorsement from the action bar below.');
-    expect(buttonLabels(html).filter((label) => label === 'Send to endorsement')).toHaveLength(1);
+    expect(html).toContain('Sent to endorsement');
+    // The hand-off is done, so the office has no hand-off button to show twice.
+    expect(buttonLabels(html).filter((label) => label === 'Send to endorsement')).toHaveLength(0);
   });
 });

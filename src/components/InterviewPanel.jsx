@@ -3,6 +3,7 @@ import { Button, EmptyState, Panel, StatusBadge } from './ui';
 import ReasonModal from './ReasonModal';
 import InterviewLocationsModal from './InterviewLocationsModal';
 import { fmtDate } from '../lib/formatters';
+import { getStandingRequirements } from '../lib/profile';
 import {
   DEFAULT_INTERVIEW_INSTRUCTIONS,
   INTERVIEW_DURATIONS,
@@ -64,6 +65,17 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   const eligible = getEligiblePanelists(workspace.staffDirectory, application);
   const onPanel = new Set(draft.panel.map((member) => member.profileId).filter(Boolean));
   const addable = eligible.filter((entry) => !onPanel.has(entry.userId));
+  // The Chair picker and the added-member rows name each Chair's department, so
+  // the reviewer can see the school the panel is drawn from (SOP 5a).
+  const departmentById = Object.fromEntries(
+    (workspace.staffDirectory || []).map((entry) => [entry.userId, entry.department || '']),
+  );
+  // SOP 5a draws the panel from the school the applicant's program belongs to.
+  // An incoming first-year is not enrolled yet, so that school is the one that
+  // offers their first program choice; an application without a frozen snapshot
+  // keeps the neutral wording.
+  const applicantSchool = application.studentDepartment || '';
+  const isIncomingApplicant = getStandingRequirements(application.profileSnapshot || {}).isIncomingFirstYear;
   const conflicts = findInterviewConflicts(draft, {
     applications: workspace.applications,
     panelists: workspace.panelists,
@@ -175,7 +187,13 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
         <div className="grid gap-1">
           <h5 id="interview-panel-heading" className="m-0 text-sm font-semibold text-app-text">Interview panel</h5>
           <p className="m-0 text-xs text-app-muted">
-            SOP 5a: the panel comes from the school where the applicant’s program belongs — <strong className="text-app-text">{application.studentDepartment || 'school not on file'}</strong>.
+            {applicantSchool
+              ? (
+                <>
+                  Applicants are interviewed by a panel from {isIncomingApplicant ? 'the school that offers their first program choice' : 'the school that offers their program'} — <strong className="text-app-text">{applicantSchool}</strong>.
+                </>
+              )
+              : 'No school is on file for this applicant yet, so a Department Chair cannot be added to the panel.'}
           </p>
         </div>
         {draft.panel.length ? (
@@ -184,7 +202,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               <li key={member.profileId || `guest-${index}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-app-text">{member.profileId ? (panelNameById[member.profileId] || 'Department Chair') : member.guestName}</span>
-                  <span className="block truncate text-xs text-app-muted">{member.profileId ? 'Department Chair' : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}</span>
+                  <span className="block truncate text-xs text-app-muted">{member.profileId ? ['Department Chair', departmentById[member.profileId]].filter(Boolean).join(' · ') : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}</span>
                 </span>
                 <label className="inline-flex min-h-10 items-center gap-2 text-xs text-app-muted">
                   <input type="radio" name="interview-lead" checked={member.isLead} onChange={() => setLead(index)} />
@@ -199,7 +217,11 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <select value={chairToAdd} onChange={(event) => setChairToAdd(event.target.value)} disabled={!addable.length} aria-label="Department Chair from the applicant’s school">
             <option value="">{eligible.length ? (addable.length ? 'Add a Department Chair from this school…' : 'Every Chair from this school is on the panel') : 'No Department Chair account for this school'}</option>
-            {addable.map((entry) => <option key={entry.userId} value={entry.userId}>{entry.fullName}</option>)}
+            {addable.map((entry) => (
+              <option key={entry.userId} value={entry.userId}>
+                {entry.department ? `${entry.fullName} · ${entry.department}` : entry.fullName}
+              </option>
+            ))}
           </select>
           <Button
             type="button"
@@ -497,7 +519,7 @@ export default function InterviewPanel({
         <Panel>
           <p className="m-0 text-sm text-app-muted">
             {application.status === 'Endorsed'
-              ? 'The Admissions Office has not scheduled the interview yet. The panel comes from the applicant’s school (SOP 5a).'
+              ? 'The Admissions Office has not scheduled the interview yet. Applicants are interviewed by a panel from their own school.'
               : 'No interview was recorded for this application.'}
           </p>
         </Panel>
