@@ -412,15 +412,35 @@ const buildEventDetails = (interview, scholarshipTitle) => [
  * An iCalendar (.ics) file for the interview, so a student or a faculty guest
  * can add it to any calendar app when the Google Calendar integration is not
  * configured.
+ *
+ * `uid` must be stable per application (pass the application id, never the
+ * revision): with a stable UID and the revision as SEQUENCE, a reschedule updates
+ * the existing calendar entry instead of adding a second one, and a cancellation
+ * removes it.
+ *
+ * `recipientEmail` renders exactly one ATTENDEE. Each recipient gets their own
+ * file, because a file shared between the applicant and the panel would show the
+ * applicant every panel member's address — the same thing the Google invitation
+ * hides with `guestsCanSeeOtherGuests: false`.
  */
-export const buildInterviewIcs = ({ interview, scholarshipTitle = '', uid = '', now = new Date() }) => {
+export const buildInterviewIcs = ({
+  interview,
+  scholarshipTitle = '',
+  uid = '',
+  recipientEmail = '',
+  organizerEmail = '',
+  now = new Date(),
+}) => {
   if (!isStructuredInterview(interview)) return '';
+  const cancelled = interview.state === 'cancelled';
+  const attendee = String(recipientEmail || '').trim();
+  const organizer = String(organizerEmail || '').trim();
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//ScholarPath AdDU//Scholarship Interview//EN',
     'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
+    `METHOD:${cancelled ? 'CANCEL' : 'REQUEST'}`,
     'BEGIN:VEVENT',
     `UID:${icsEscape(uid || `interview-${interview.startsAt}`)}@scholarpath-addu`,
     `SEQUENCE:${Number(interview.revision) || 1}`,
@@ -431,7 +451,9 @@ export const buildInterviewIcs = ({ interview, scholarshipTitle = '', uid = '', 
     `DESCRIPTION:${icsEscape(buildEventDetails(interview, scholarshipTitle))}`,
     `LOCATION:${icsEscape(interview.mode === 'online' ? (interview.meetingUrl || 'Online') : (interview.locationLabel || ''))}`,
     ...(interview.mode === 'online' && isSafeMeetingUrl(interview.meetingUrl) ? [`URL:${interview.meetingUrl}`] : []),
-    `STATUS:${interview.state === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`,
+    ...(organizer ? [`ORGANIZER;CN=ScholarPath AdDU:mailto:${organizer}`] : []),
+    ...(attendee ? [`ATTENDEE;CN=${icsEscape(attendee)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${attendee}`] : []),
+    `STATUS:${cancelled ? 'CANCELLED' : 'CONFIRMED'}`,
     'END:VEVENT',
     'END:VCALENDAR',
   ];

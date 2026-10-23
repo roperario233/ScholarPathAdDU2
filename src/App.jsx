@@ -43,6 +43,33 @@ const roleLabels = {
   department_chair: 'Department Chair',
 };
 
+// The Google Calendar integration state the review surfaces read. `configured`
+// means "a Meet link can be generated right now", so a broken or expired
+// authorization reads as not configured and the schedule form asks for a pasted
+// link instead of failing at save. `code`/`reason` let the panel say what to fix
+// (an expired token, a calendar the account cannot see) instead of echoing
+// Google's wording.
+const emptyInterviewCalendarState = {
+  configured: false,
+  checked: true,
+  checking: false,
+  reauthRequired: false,
+  code: '',
+  reason: '',
+  calendarId: '',
+  calendar: null,
+};
+
+const interviewCalendarState = (result) => ({
+  ...emptyInterviewCalendarState,
+  configured: result?.ok === true,
+  reauthRequired: result?.code === 'reauth_required',
+  code: result?.code || '',
+  reason: result?.reason || '',
+  calendarId: result?.calendarId || '',
+  calendar: result?.calendar || null,
+});
+
 // The identity rows (sidebar panel and mobile header) should not repeat a staff
 // member's name as its own role label, or echo a department whose words are
 // already in the name. The central office's seeded name is literally
@@ -257,9 +284,12 @@ function App() {
   // avatarPath (profiles.avatar_path) is what rides along in app state.
   const [avatarPreview, setAvatarPreview] = useState({ path: '', url: '' });
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
-  // Whether the optional Google Calendar integration (manage-interview-event)
-  // is configured. Without it an online interview needs a pasted meeting link.
-  const [interviewCalendar, setInterviewCalendar] = useState({ configured: false, checked: false });
+  // The state of the optional Google Calendar integration (manage-interview-event).
+  // It is verified against Google, not just against the presence of the secrets,
+  // so an expired refresh token or an unreachable calendar is visible before the
+  // Admissions Office tries to schedule. Without a working integration an online
+  // interview needs a pasted meeting link.
+  const [interviewCalendar, setInterviewCalendar] = useState({ ...emptyInterviewCalendarState, checked: false, checking: true });
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -424,12 +454,17 @@ function App() {
       return undefined;
     }
     let active = true;
-    invokeSupabaseInterviewEvent({ action: 'status' })
+    // `status` only proves the secrets exist; `verify` refreshes the token and
+    // reads the target calendar, so a revoked authorization or a calendar the
+    // office account cannot see is caught here instead of at the moment an
+    // interview is being scheduled. The state starts as `checking` while this
+    // runs (see the initial value above), so the body never sets state directly.
+    invokeSupabaseInterviewEvent({ action: 'verify' })
       .then((result) => {
-        if (active) setInterviewCalendar({ configured: Boolean(result?.configured), checked: true });
+        if (active) setInterviewCalendar(interviewCalendarState(result));
       })
       .catch(() => {
-        if (active) setInterviewCalendar({ configured: false, checked: true });
+        if (active) setInterviewCalendar({ ...emptyInterviewCalendarState });
       });
     return () => { active = false; };
   }, [isSupabaseWorkspaceLoaded, state.viewerRole, interviewCalendar.checked]);
@@ -1367,6 +1402,20 @@ function App() {
         timeline: [...(entry.timeline || []), stageEvent],
       } : entry),
     }));
+    // A rejection ends the interview. Delete the Google Calendar event so the
+    // applicant and the panel stop receiving a live invitation (and its Meet
+    // link) for a closed case. The ledger in interview_calendar_events keeps the
+    // event id if this call fails, so it can still be repaired.
+    if (status === 'Rejected'
+      && application.status === 'Interview'
+      && application.interview?.calendar?.eventId
+      && isAdmissionsReviewerRole(state.viewerRole)) {
+      invokeSupabaseInterviewEvent({
+        action: 'cancel',
+        applicationId,
+        eventId: application.interview.calendar.eventId,
+      }).catch(() => undefined);
+    }
     // The database trigger (20261014000003) is the primary sender; this is the
     // retry for a tab that closed first and only sends the idempotent in-app and
     // email channels. The trigger owns the SMS channel.
@@ -1634,6 +1683,58 @@ function App() {
     return result;
   };
 
+  // Re-checks the integration against Google. The review panel exposes this
+  // because an External OAuth app in "Testing" gets a 7-day refresh-token window:
+  // after re-authorizing, the office needs one click to confirm that automatic
+  // Meet links work again.
+  const recheckInterviewCalendar = async () => {
+    setInterviewCalendar((previous) => ({ ...previous, checking: true }));
+    const result = await invokeSupabaseInterviewEvent({ action: 'verify' }).catch(() => null);
+    const next = result ? interviewCalendarState(result) : { ...emptyInterviewCalendarState };
+    setInterviewCalendar(next);
+    return next;
+  };
+
+  // Repairs Google from the saved record: creates the event the database expects
+  // when a create was lost, updates it when Google drifted, or deletes the event
+  // of a cancelled interview whose delete never landed. The Edge Function never
+  // writes the application row, so the repaired calendar link is saved here
+  // through the normal stage write.
+  const resyncInterviewCalendar = async (applicationId) => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can repair a calendar event.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || !isStructuredInterview(application.interview)) {
+      return { error: 'This application has no interview schedule to repair.' };
+    }
+    if (!interviewCalendar.configured) {
+      return { error: interviewCalendar.reason || 'The Google Calendar integration is not available.' };
+    }
+    const result = await invokeSupabaseInterviewEvent({ action: 'sync', applicationId }).catch(() => null);
+    if (!result?.ok) {
+      return { error: result?.reason || 'The calendar event could not be repaired.' };
+    }
+    if (result.repaired === 'deleted' || result.calendar === null) {
+      return {
+        ok: true,
+        message: result.repaired === 'deleted'
+          ? 'The calendar event for the cancelled interview was removed.'
+          : 'Nothing needed repairing.',
+      };
+    }
+    const record = {
+      ...application.interview,
+      meetingUrl: application.interview.mode === 'online'
+        ? (application.interview.meetingUrl || result.meetingUrl || '')
+        : '',
+      calendar: result.calendar,
+    };
+    const written = await writeInterviewRecord(application, record, `Calendar event ${result.repaired}: ${summarizeInterview(record)}.`);
+    if (written.error) return written;
+    return { ok: true, message: `The calendar event was ${result.repaired}.` };
+  };
+
   // Attendance is recorded by a Department Chair on the panel, or by the
   // Admissions Office on the panel's behalf (for example, a panel of faculty
   // guests only). record_interview_outcome re-checks the caller server-side.
@@ -1718,6 +1819,14 @@ function App() {
     notes: state.interviewNotes || [],
     applications: state.applications,
     calendarConfigured: interviewCalendar.configured,
+    calendarChecked: interviewCalendar.checked,
+    calendarChecking: interviewCalendar.checking,
+    calendarReauthRequired: interviewCalendar.reauthRequired,
+    calendarReason: interviewCalendar.reason,
+    calendarSummary: interviewCalendar.calendar?.summary || '',
+    calendarAccessRole: interviewCalendar.calendar?.accessRole || '',
+    onRecheckCalendar: recheckInterviewCalendar,
+    onRepairCalendar: resyncInterviewCalendar,
     onSchedule: scheduleInterview,
     onReschedule: rescheduleInterview,
     onCancel: cancelInterview,

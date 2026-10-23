@@ -62,6 +62,9 @@ export default function StudentInterviewCard({ application, scholarshipTitle = '
           {templateUrl ? (
             <a href={templateUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-4 text-sm font-semibold text-app-text">Add to Google Calendar</a>
           ) : null}
+          {interview.calendar?.htmlLink ? (
+            <a href={interview.calendar.htmlLink} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-4 text-sm font-semibold text-app-text">View calendar invitation</a>
+          ) : null}
           <Button type="button" onClick={() => downloadInterviewIcs({ interview, scholarshipTitle, applicationId: application.id })}>Download .ics</Button>
         </div>
       ) : null}

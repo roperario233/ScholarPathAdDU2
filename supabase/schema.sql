@@ -1327,6 +1327,37 @@ create unique index if not exists application_interview_panelists_active_account
   where removed_at is null and profile_id is not null;
 create index if not exists application_interview_panelists_profile_idx
   on public.application_interview_panelists (profile_id);
+-- The durable provider-side mirror of an interview's calendar event. The app
+-- reads `applications.interview.calendar`, which is cleared when an interview is
+-- cancelled; this row keeps the provider event id so a create or cancel that
+-- failed can still be found and repaired. RLS is enabled with no policies: only
+-- the manage-interview-event Edge Function (service role) reads or writes it.
+-- Applied to the deployed project by the migration
+-- supabase/migrations/20261030000000_add_interview_calendar_events.sql.
+create table if not exists public.interview_calendar_events (
+  application_id uuid primary key references public.applications(id) on delete cascade,
+  provider text not null default 'google',
+  calendar_id text not null,
+  event_id text,
+  html_link text,
+  meet_url text,
+  revision int,
+  sync_state text not null default 'synced'
+    check (sync_state in ('synced', 'failed', 'cancelled')),
+  last_error text,
+  last_attempt_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+comment on table public.interview_calendar_events is
+  'Durable provider-side record of an interview calendar event. Written by the manage-interview-event Edge Function only; survives a cleared applications.interview.calendar so a failed create or cancel can be found and repaired.';
+create index if not exists interview_calendar_events_failed_idx
+  on public.interview_calendar_events (updated_at desc)
+  where sync_state = 'failed';
+alter table public.interview_calendar_events enable row level security;
+revoke all on public.interview_calendar_events from anon, authenticated;
+
+
 
 -- SOP 5a, server-side: an account panelist must be a Department Chair whose
 -- department (school) is the applicant's.

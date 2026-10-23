@@ -340,6 +340,40 @@ describe('Google Calendar client', () => {
     expect(await cancelGoogleInterviewEvent({ config, accessToken: 'token', eventId: 'evt-1', fetchImpl })).toEqual({ ok: true });
   });
 
+  it('keeps one calendar entry across reschedules and renders a single recipient', () => {
+    const icsInterview = {
+      version: 2,
+      state: 'scheduled',
+      revision: 1,
+      mode: 'online',
+      startsAt: '2026-11-03T01:00:00.000Z',
+      durationMinutes: 30,
+      meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      school: SEA,
+      locationLabel: '',
+      instructions: '',
+    };
+    const icsNow = new Date('2026-10-23T00:00:00.000Z');
+    const first = buildInterviewIcs({ interview: icsInterview, scholarshipTitle: 'GIA', uid: 'app-1', recipientEmail: 'student@example.test', now: icsNow });
+    const second = buildInterviewIcs({
+      interview: { ...icsInterview, revision: 2, startsAt: '2026-11-04T01:00:00.000Z' },
+      scholarshipTitle: 'GIA',
+      uid: 'app-1',
+      recipientEmail: 'student@example.test',
+      now: icsNow,
+    });
+    // Same UID, higher SEQUENCE: the calendar client updates the entry in place.
+    expect(first).toContain('UID:app-1@scholarpath-addu');
+    expect(second).toContain('UID:app-1@scholarpath-addu');
+    expect(second).toContain('SEQUENCE:2');
+    expect(second).toContain('METHOD:REQUEST');
+    // One attendee per file, so a shared file never exposes the panel.
+    expect(second.match(/ATTENDEE/g)).toHaveLength(1);
+    expect(second).toContain('ATTENDEE;CN=student@example.test');
+    expect(second).not.toContain('chair@');
+    expect(buildInterviewIcs({ interview: { ...icsInterview, state: 'cancelled', revision: 3 }, uid: 'app-1', now: icsNow })).toContain('METHOD:CANCEL');
+  });
+
   it('reads the Meet link from the conference entry points', () => {
     expect(extractMeetLink({ conferenceData: { entryPoints: [{ entryPointType: 'phone', uri: 'tel:1' }, { entryPointType: 'video', uri: 'https://meet.google.com/a' }] } })).toBe('https://meet.google.com/a');
   });

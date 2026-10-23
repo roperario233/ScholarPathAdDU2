@@ -396,3 +396,101 @@ reminders never reach the reminder function.
 The Calendar now reports the outcome each time a reminder is added or removed,
 and any reminder that exists only in a browser is pushed to Supabase on the next
 successful sign-in.
+
+## Google Calendar and Meet (interviews)
+
+SOP step 5 interviews can create a real Google Calendar event with a Google Meet
+link, and invite the applicant, the account panelists, and any faculty guest with
+an email. The integration is optional: without it the Admissions Office pastes a
+meeting link and the applicant downloads an `.ics` file.
+
+The event is written by the `manage-interview-event` Edge Function, never by the
+browser. The refresh token stays in Supabase secrets.
+
+### What it does
+
+- An online interview with a blank meeting link gets a generated Meet link.
+- The guest list is hidden from guests, so the applicant never sees the panel's
+  names or addresses through the invitation.
+- Rescheduling patches the same event, so the applicant gets one updated entry
+  instead of two.
+- Switching between online and on-site replaces the event, because a live Meet
+  link cannot be reliably stripped from an existing one.
+- Cancelling, and rejecting an application at the `Interview` stage, delete it.
+- Each event records the application it belongs to, so **Repair calendar event**
+  in the Interview tab can recreate or remove it after a failure.
+
+### 1. Google Cloud setup (once)
+
+1. Create a project (it may live outside the university organization).
+2. **APIs & Services → Library → Google Calendar API → Enable.** No billing
+   account is needed, and the Meet API is not required.
+3. **OAuth consent screen**: app name, support email, developer contact;
+   user type **External**, status **Testing**; add the office Google account as a
+   test user.
+4. **Data access → scopes**, exactly:
+   - `https://www.googleapis.com/auth/calendar.events`
+   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+     (the helper script only; the Edge Function never uses it)
+   - `openid`, `email` (so the helper can print which account consented)
+5. **Clients → Create client → Web application**, with the redirect URI
+   `http://localhost:5555/oauth2callback`. Copy the client id and secret.
+6. In Google Calendar, signed in as the **office account**, create a calendar
+   (for example *ScholarPath AdDU — Scholarship Interviews*, time zone Manila)
+   and copy its id from *Settings and sharing → Integrate calendar*.
+
+### 2. Mint the refresh token
+
+```powershell
+$env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
+npm run google:auth
+```
+
+Approve the consent screen **with the account that owns the interview calendar**.
+The script prints that account, every calendar it can write to, the refresh
+token, and a ready `supabase secrets set` command.
+
+Consent is bound to one Google account: if the token belongs to a different
+account than the calendar, the Calendar API answers `404 Not Found` even though
+the token itself is valid.
+
+### 3. Set the secrets and deploy
+
+```powershell
+supabase secrets set "GOOGLE_OAUTH_CLIENT_ID=..." "GOOGLE_OAUTH_CLIENT_SECRET=..." "GOOGLE_CALENDAR_REFRESH_TOKEN=..." "GOOGLE_CALENDAR_ID=..."
+supabase functions deploy manage-interview-event --no-verify-jwt
+```
+
+`GOOGLE_CALENDAR_ID` must be the plain id with a literal `@`
+(`xxxx@group.calendar.google.com`). Never a `VITE_` variable, and never a URL.
+
+The Interview tab shows the connection state, with **Check connection** and
+**Repair calendar event**.
+
+### 4. The 7-day refresh token
+
+While the OAuth app is External + Testing, Google expires the refresh token after
+7 days. Existing events and Meet links keep working; new automatic Meet links
+stop until the token is replaced.
+
+Re-run `npm run google:auth` **every Monday and two days before a demo**, then
+update `GOOGLE_CALENDAR_REFRESH_TOKEN`. Publishing the app (requires Google
+verification) or consenting with an internal Workspace app removes the limit.
+
+The app treats this as a normal state: the panel says the authorization expired,
+and scheduling still works with a pasted meeting link.
+
+### 5. Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `configured: false` | a secret is missing | set all four, then re-check |
+| `reauth_required` | the 7-day window lapsed, or consent was revoked | `npm run google:auth`, update the token |
+| `calendar_not_found` | the token's account cannot see that calendar id | own or share the calendar with it, or correct the id |
+| `calendar_forbidden` | the account has read-only access | re-share with *Make changes to events* |
+| `insufficient_scope` | the token was minted without `calendar.events` | re-consent |
+| a Meet link never appears | Google reported the conference as pending | use **Repair calendar event**, or paste a link |
+
+If the calendar stays unreachable, set `GOOGLE_CALENDAR_ID=primary` and retry: a
+success proves the credentials are fine and the calendar id is the problem.
+

@@ -177,7 +177,9 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
           <span className="text-xs text-app-muted">
             {workspace.calendarConfigured
               ? 'Leave this blank and a Google Meet link and calendar invitation are created when the schedule is saved.'
-              : 'Paste a Google Meet, Zoom, or Microsoft Teams link (https://). Automatic Meet links need the Google Calendar integration.'}
+              : workspace.calendarReauthRequired
+                ? 'The Google Calendar authorization expired, so a link is required. Re-authorize the office account to restore automatic Meet links.'
+                : 'Paste a Google Meet, Zoom, or Microsoft Teams link (https://). Automatic Meet links need the Google Calendar integration.'}
           </span>
           {show('meetingUrl')}
         </label>
@@ -463,6 +465,41 @@ export default function InterviewPanel({
         >{feedback.message}</p>
       ) : null}
 
+      {isOffice ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface px-3 py-2" role="status">
+          <span className="min-w-0 text-xs text-app-muted">
+            <strong className="text-app-text">Google Calendar &amp; Meet</strong>
+            {' · '}
+            {workspace.calendarChecking
+              ? 'Checking the connection…'
+              : workspace.calendarConfigured
+                ? `Connected${workspace.calendarSummary ? ` · ${workspace.calendarSummary}` : ''}`
+                : workspace.calendarReauthRequired
+                  ? 'Authorization expired. Re-authorize the office Google account, or paste a meeting link.'
+                  : 'Not connected. Online interviews need a pasted meeting link.'}
+            {!workspace.calendarChecking && !workspace.calendarConfigured && workspace.calendarReason && !workspace.calendarReauthRequired
+              ? ` ${workspace.calendarReason}`
+              : ''}
+          </span>
+          {workspace.onRecheckCalendar ? (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={busy || workspace.calendarChecking}
+              onClick={async () => {
+                setBusy(true);
+                setFeedback(null);
+                const next = await workspace.onRecheckCalendar();
+                setBusy(false);
+                setFeedback(next?.configured
+                  ? { tone: 'success', message: `Connected to ${next.calendar?.summary || 'the interview calendar'}.` }
+                  : { tone: 'error', message: next?.reason || 'The Google Calendar integration is not available.' });
+              }}
+            >Check connection</Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {interview && !showForm ? (
         <Panel className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -474,6 +511,22 @@ export default function InterviewPanel({
                 ) : null}
                 {['scheduled', 'no_show'].includes(interview.state) ? (
                   <Button type="button" variant="danger" disabled={busy} onClick={() => setReasonFor('cancel')}>Cancel interview</Button>
+                ) : null}
+                {workspace.calendarConfigured && workspace.onRepairCalendar ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={async () => {
+                      setBusy(true);
+                      setFeedback(null);
+                      const result = await workspace.onRepairCalendar(application.id);
+                      setBusy(false);
+                      setFeedback(result?.error
+                        ? { tone: 'error', message: result.error }
+                        : { tone: 'success', message: result?.message || 'The calendar event was repaired.' });
+                    }}
+                  >Repair calendar event</Button>
                 ) : null}
               </div>
             ) : null}
