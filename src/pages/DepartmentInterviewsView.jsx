@@ -117,22 +117,23 @@ export default function DepartmentInterviewsView({
         </div>
       ) : null}
 
-      <Card
-        title="Interviews"
-        action={(
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="text-xs text-app-muted">{visibleEntries.length} interview{visibleEntries.length === 1 ? '' : 's'}</span>
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              aria-label="Filter interviews"
-              className="min-h-10 min-w-[11rem]"
-            >
-              {FILTERS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}</option>)}
-            </select>
-          </div>
-        )}
-      >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="m-0 text-sm font-semibold text-app-text">
+          {visibleEntries.length} interview{visibleEntries.length === 1 ? '' : 's'}
+        </p>
+        <div className="w-full max-w-[14rem]">
+          <select
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            aria-label="Filter interviews"
+            className="min-h-10 w-full"
+          >
+            {FILTERS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <Card title="Interviews">
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {groups.length ? groups.map((group) => (
             <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey} entries={group.entries}>
