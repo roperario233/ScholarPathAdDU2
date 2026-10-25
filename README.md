@@ -464,11 +464,13 @@ supabase functions deploy manage-interview-event --no-verify-jwt
 `GOOGLE_CALENDAR_ID` must be the plain id with a literal `@`
 (`xxxx@group.calendar.google.com`). Never a `VITE_` variable, and never a URL.
 
-The Interview tab shows the connection state, with **Repair calendar event**.
-Repair reconciles Google against the saved interview: it creates an event that
-never landed, patches one that drifted, deletes a duplicate, removes the event of
-a cancelled interview whose delete failed, and attaches a Meet conference to an
-online event that has none.
+The Interview tab shows the saved schedule: the state badges, a read-only meeting
+link with copy and open controls (or the on-site location), who was invited, and
+the panel. **Repair calendar event** appears only when Google and the saved record
+disagree — a scheduled interview with no event or no link, or a cancelled one
+whose event survived. Repair creates an event that never landed, patches one that
+drifted, deletes a duplicate, removes the leftover event, and attaches a Meet
+conference to an online event that has none.
 
 ### 4. The 7-day refresh token
 

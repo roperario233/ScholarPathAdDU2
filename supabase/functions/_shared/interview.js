@@ -157,6 +157,9 @@ export const createInterviewDraft = (application = {}, panelists = []) => {
     time,
     durationMinutes: Number(interview?.durationMinutes) || DEFAULT_INTERVIEW_DURATION,
     locationId: interview?.locationId || '',
+    // A typed location is kept only when no saved venue was chosen, so editing a
+    // room-based interview does not duplicate the venue's own label.
+    locationLabel: interview?.locationId ? '' : (interview?.locationLabel || ''),
     meetingUrl: interview?.meetingUrl || '',
     instructions: interview?.instructions ?? DEFAULT_INTERVIEW_INSTRUCTIONS[mode],
     panel: (Array.isArray(panelists) ? panelists : []).map(normalizePanelMember),
@@ -181,8 +184,9 @@ export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMe
   if (!INTERVIEW_DURATIONS.includes(Number(draft.durationMinutes))) errors.durationMinutes = 'Choose the interview length.';
 
   if (draft.mode === 'onsite') {
-    if (!draft.locationId) errors.locationId = 'Choose the interview location.';
-    else if (Array.isArray(activeLocationIds) && !activeLocationIds.includes(draft.locationId)) errors.locationId = 'That location is archived. Choose an active location.';
+    const typedLocation = String(draft.locationLabel || '').trim();
+    if (!draft.locationId && !typedLocation) errors.locationId = 'Add the interview location.';
+    else if (draft.locationId && Array.isArray(activeLocationIds) && !activeLocationIds.includes(draft.locationId)) errors.locationId = 'That location is archived. Choose an active location.';
   }
   if (draft.mode === 'online') {
     const link = String(draft.meetingUrl || '').trim();
@@ -291,7 +295,9 @@ export const buildInterviewRecord = ({ draft, previous = null, location = null, 
     startsAt: manilaInputToIso(draft.date, draft.time),
     durationMinutes: Number(draft.durationMinutes) || DEFAULT_INTERVIEW_DURATION,
     locationId: mode === 'onsite' ? (draft.locationId || null) : null,
-    locationLabel: mode === 'onsite' ? formatLocationLabel(location) : '',
+    locationLabel: mode === 'onsite'
+      ? (formatLocationLabel(location) || String(draft.locationLabel || '').trim())
+      : '',
     meetingUrl: mode === 'online' ? String(draft.meetingUrl || '').trim() : '',
     school: school || prior?.school || '',
     calendar: calendar ?? prior?.calendar ?? null,

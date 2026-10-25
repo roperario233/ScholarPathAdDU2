@@ -110,6 +110,11 @@ describe('validateInterviewSchedule', () => {
     expect(errors.locationId).toMatch(/archived/);
   });
 
+  it('accepts a typed location when no saved venue is used', () => {
+    const typed = validDraft({ locationId: '', locationLabel: 'Finster Hall, F213' });
+    expect(validateInterviewSchedule(typed, { now: NOW, activeLocationIds: ['loc-1'] })).toEqual({});
+  });
+
   it('requires exactly one lead interviewer', () => {
     const none = validateInterviewSchedule(validDraft({ panel: [{ profileId: 'chair-sea', isLead: false }] }), { now: NOW });
     const two = validateInterviewSchedule(validDraft({ panel: [{ profileId: 'chair-sea', isLead: true }, { profileId: 'chair-sea-2', isLead: true }] }), { now: NOW });
@@ -180,6 +185,21 @@ describe('interview records', () => {
     const draft = createInterviewDraft({ interview: record }, [{ profileId: 'chair-sea', isLead: true }]);
     expect(draft).toMatchObject({ mode: 'onsite', date: '2026-11-03', time: '09:00', durationMinutes: 30, locationId: 'loc-1' });
     expect(draft.panel).toEqual([{ profileId: 'chair-sea', guestName: '', guestEmail: '', isLead: true }]);
+  });
+
+  it('keeps a typed location on the record and in the edit draft', () => {
+    const record = buildInterviewRecord({
+      draft: validDraft({ locationId: '', locationLabel: 'Finster Hall, F213' }),
+      school: SEA,
+      now: NOW,
+    });
+    expect(record.locationId).toBeNull();
+    expect(record.locationLabel).toBe('Finster Hall, F213');
+    expect(createInterviewDraft({ interview: record }, []).locationLabel).toBe('Finster Hall, F213');
+    // A saved venue's label is derived from the venue, so the draft leaves the
+    // typed field empty instead of echoing it.
+    const venueRecord = buildInterviewRecord({ draft: validDraft(), location, school: SEA, now: NOW });
+    expect(createInterviewDraft({ interview: venueRecord }, []).locationLabel).toBe('');
   });
 });
 

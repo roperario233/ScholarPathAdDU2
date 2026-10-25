@@ -147,7 +147,7 @@ export default function AdminReviewQueue({
                     ) : entry.status === 'For Endorsement' ? (
                       <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>Open endorsement</Button>
                     ) : (
-                      <Button type="button" onClick={() => openReview(entry.id, documentsUnlocked ? 'documents' : null)}>Open review</Button>
+                      <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
                     )}
                     {documentsUnlocked && outstanding ? (
                       <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge>

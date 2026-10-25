@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button, EmptyState, Panel, StatusBadge } from './ui';
 import ReasonModal from './ReasonModal';
 import InterviewLocationsModal from './InterviewLocationsModal';
@@ -10,7 +11,6 @@ import {
   INTERVIEW_MODES,
   buildGoogleCalendarTemplateUrl,
   describeInterviewConflict,
-  downloadInterviewIcs,
   findInterviewConflicts,
   formatInterviewWhen,
   getEligiblePanelists,
@@ -150,13 +150,13 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
 
       {draft.mode === 'onsite' ? (
         <div className="grid content-start gap-1 text-sm text-app-text">
-          <label htmlFor="interview-location" className="font-semibold">Location</label>
+          <label htmlFor="interview-location" className="font-semibold">Saved location</label>
           <div className="flex flex-wrap items-center gap-2">
             <select
               id="interview-location"
               className="min-w-0 flex-1"
               value={draft.locationId}
-              onChange={(event) => update({ locationId: event.target.value })}
+              onChange={(event) => update({ locationId: event.target.value, locationLabel: '' })}
               disabled={!activeLocations.length}
             >
               <option value="">{activeLocations.length ? 'Select a location…' : 'No locations available'}</option>
@@ -173,6 +173,15 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               {canManageLocations ? 'Add the first interview location to schedule an on-site interview.' : 'No interview locations yet. Ask the Admissions Office Head to add one.'}
             </span>
           ) : null}
+          <label className="grid content-start gap-1">
+            <span className="text-xs font-semibold text-app-text">Or type the location</span>
+            <input
+              value={draft.locationLabel}
+              onChange={(event) => update({ locationLabel: event.target.value, locationId: '' })}
+              placeholder="e.g. Finster Hall, F213"
+            />
+            <span className="text-xs text-app-muted">Use this when the room is not in the saved list.</span>
+          </label>
           {show('locationId')}
           <span className="text-xs text-app-muted">No Meet link is created for an on-site interview. Switching an online interview to on-site replaces its calendar event.</span>
         </div>
@@ -299,13 +308,16 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   );
 }
 
-function CopyButton({ value, label = 'Copy', copiedLabel = 'Copied' }) {
+// A small icon-only copy control. Two variants: one sits inside the meeting-link
+// field, the other beside a location.
+function CopyIconButton({ value, label }) {
   const [copied, setCopied] = useState(false);
   if (!value) return null;
   return (
-    <Button
+    <button
       type="button"
-      variant="ghost"
+      aria-label={copied ? 'Copied' : label}
+      title={copied ? 'Copied' : label}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(value);
@@ -315,9 +327,15 @@ function CopyButton({ value, label = 'Copy', copiedLabel = 'Copied' }) {
           // Clipboard access can be blocked; the value stays selectable.
         }
       }}
-    >{copied ? copiedLabel : label}</Button>
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-blue-500/10 hover:text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20${label === 'Copy meeting link' ? ' absolute right-1' : ''}`}
+    >
+      {copied ? <Check size={16} aria-hidden="true" /> : <Copy size={16} aria-hidden="true" />}
+    </button>
   );
 }
+
+const CopyMeetingLinkButton = ({ value }) => <CopyIconButton value={value} label="Copy meeting link" />;
+const CopyLocationButton = ({ value }) => <CopyIconButton value={value} label="Copy location" />;
 
 function ScheduleSummary({ application, interview, panel, scholarshipTitle, recorderName }) {
   const templateUrl = buildGoogleCalendarTemplateUrl({ interview, scholarshipTitle });
@@ -329,12 +347,6 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
   const removalPending = interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt;
   const calendarRemoved = interview.state === 'cancelled' && Boolean(calendar?.removedAt);
   const linkMissing = interview.state === 'scheduled' && interview.mode === 'online' && !interview.meetingUrl;
-  const inviteText = [
-    `Scholarship interview${scholarshipTitle ? ` · ${scholarshipTitle}` : ''}`,
-    formatInterviewWhen(interview.startsAt, interview.durationMinutes),
-    interview.mode === 'online' ? (interview.meetingUrl || 'Link to follow') : interview.locationLabel,
-    interview.instructions,
-  ].filter(Boolean).join('\n');
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -357,19 +369,37 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
             {interview.mode === 'online' ? (
               interview.meetingUrl ? (
                 <span className="flex min-w-0 flex-wrap items-center gap-2">
-                  <input
-                    readOnly
-                    value={interview.meetingUrl}
-                    aria-label="Meeting link"
-                    className="min-w-0 flex-1"
-                    onFocus={(event) => event.target.select()}
-                  />
-                  <CopyButton value={interview.meetingUrl} label="Copy link" copiedLabel="Link copied" />
+                  <span className="relative flex min-w-0 flex-1 items-center">
+                    <input
+                      readOnly
+                      value={interview.meetingUrl}
+                      aria-label="Meeting link"
+                      className="min-w-0 flex-1 pr-11"
+                      onFocus={(event) => event.target.select()}
+                    />
+                    <CopyMeetingLinkButton value={interview.meetingUrl} />
+                  </span>
+                  <a
+                    href={interview.meetingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-text"
+                  >
+                    <ExternalLink size={16} aria-hidden="true" />
+                    Open link
+                  </a>
                 </span>
               ) : (
                 <span className="text-app-muted">No link yet. Repair the calendar event to create one.</span>
               )
-            ) : (interview.locationLabel || 'Location to be announced')}
+            ) : (
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
+                <span className="min-w-0 flex-1">{interview.locationLabel || 'Location to be announced'}</span>
+                {interview.locationLabel ? (
+                  <CopyLocationButton value={interview.locationLabel} />
+                ) : null}
+              </span>
+            )}
           </dd>
         </div>
         <div className="grid gap-0.5 sm:col-span-2">
@@ -390,22 +420,23 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
             ? 'The interview is cancelled but its Google Calendar event could not be removed. Use Repair calendar event to delete it.'
             : interview.state === 'cancelled'
               ? 'The Google Calendar event for this interview was removed.'
-              : 'No calendar invitation was sent. Share the meeting link or the .ics file directly.'}
+              : 'No calendar invitation was sent. Share the meeting link directly.'}
       </p>
       {interview.outcomeRecordedAt ? (
         <p className="m-0 text-xs text-app-muted">
           Recorded as {getInterviewStateLabel(interview.state).toLowerCase()} by {recorderName || roleLabels[interview.outcomeRecordedRole] || 'the panel'}{interview.outcomeRecordedRole && recorderName ? ` · ${roleLabels[interview.outcomeRecordedRole] || ''}` : ''} · {fmtWhen(interview.outcomeRecordedAt)}
         </p>
       ) : null}
-      {interview.state !== 'cancelled' ? (
+      {interview.state !== 'cancelled' && (interview.calendar?.htmlLink || templateUrl) ? (
         <div className="flex flex-wrap gap-2">
-          {interview.calendar?.htmlLink ? (
-            <a href={interview.calendar.htmlLink} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-text">Open calendar event</a>
-          ) : templateUrl ? (
-            <a href={templateUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-text">Add to Google Calendar</a>
-          ) : null}
-          <CopyButton value={inviteText} label="Copy invitation" copiedLabel="Invitation copied" />
-          <Button type="button" onClick={() => downloadInterviewIcs({ interview, scholarshipTitle, applicationId: application.id })}>Download .ics</Button>
+          <a
+            href={interview.calendar?.htmlLink || templateUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-text"
+          >
+            {interview.calendar?.htmlLink ? 'Open calendar event' : 'Add to Google Calendar'}
+          </a>
         </div>
       ) : null}
     </div>
@@ -532,6 +563,14 @@ export default function InterviewPanel({
   const canRecordOutcome = application.status === 'Interview' && (isOffice || isPanelist);
   const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isOffice || isPanelist);
   const outcomeDue = isInterviewOutcomeDue(interview);
+  // Repair is a recovery action, so it only appears when Google and the record
+  // actually disagree: a cancelled interview whose event survived, a scheduled
+  // interview with no event, or an online interview whose event has no link.
+  const calendar = interview?.calendar || null;
+  const needsCalendarRepair = Boolean(interview) && (
+    (interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt)
+    || (interview.state === 'scheduled' && (!calendar?.eventId || (interview.mode === 'online' && !interview.meetingUrl)))
+  );
   const showForm = canCoordinate && (application.status === 'Endorsed' || editing);
 
   const run = async (action, successMessage) => {
@@ -567,25 +606,6 @@ export default function InterviewPanel({
         >{feedback.message}</p>
       ) : null}
 
-      {isOffice ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-[14px] border border-app-border bg-app-surface px-3 py-2" role="status">
-          <span className="min-w-0 text-xs text-app-muted">
-            <strong className="text-app-text">Google Calendar &amp; Meet</strong>
-            {' · '}
-            {workspace.calendarChecking
-              ? 'Checking the connection…'
-              : workspace.calendarConfigured
-                ? `Connected${workspace.calendarSummary ? ` · ${workspace.calendarSummary}` : ''}`
-                : workspace.calendarReauthRequired
-                  ? 'Authorization expired. Re-authorize the office Google account, or paste a meeting link.'
-                  : 'Not connected. Online interviews need a pasted meeting link.'}
-            {!workspace.calendarChecking && !workspace.calendarConfigured && workspace.calendarReason && !workspace.calendarReauthRequired
-              ? ` ${workspace.calendarReason}`
-              : ''}
-          </span>
-        </div>
-      ) : null}
-
       {interview && !showForm ? (
         <Panel className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -598,7 +618,7 @@ export default function InterviewPanel({
                 {['scheduled', 'no_show'].includes(interview.state) ? (
                   <Button type="button" variant="danger" disabled={busy} onClick={() => setReasonFor('cancel')}>Cancel interview</Button>
                 ) : null}
-                {workspace.calendarConfigured && workspace.onRepairCalendar ? (
+                {needsCalendarRepair && workspace.calendarConfigured && workspace.onRepairCalendar ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -634,7 +654,7 @@ export default function InterviewPanel({
         </Panel>
       ) : null}
 
-      {canRecordOutcome && structured && interview.state === 'scheduled' ? (
+      {canRecordOutcome && structured && interview.state === 'scheduled' && !editing ? (
         <Panel className="grid gap-2">
           <h4 className={sectionHeading}>Interview outcome</h4>
           {outcomeDue ? (
