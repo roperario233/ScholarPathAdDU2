@@ -1709,18 +1709,6 @@ function App() {
     return result;
   };
 
-  // Re-checks the integration against Google. The review panel exposes this
-  // because an External OAuth app in "Testing" gets a 7-day refresh-token window:
-  // after re-authorizing, the office needs one click to confirm that automatic
-  // Meet links work again.
-  const recheckInterviewCalendar = async () => {
-    setInterviewCalendar((previous) => ({ ...previous, checking: true }));
-    const result = await invokeSupabaseInterviewEvent({ action: 'verify' }).catch(() => null);
-    const next = result ? interviewCalendarState(result) : { ...emptyInterviewCalendarState };
-    setInterviewCalendar(next);
-    return next;
-  };
-
   // Repairs Google from the saved record: creates the event the database expects
   // when a create was lost, updates it when Google drifted, or deletes the event
   // of a cancelled interview whose delete never landed. The Edge Function never
@@ -1870,7 +1858,6 @@ function App() {
     calendarReason: interviewCalendar.reason,
     calendarSummary: interviewCalendar.calendar?.summary || '',
     calendarAccessRole: interviewCalendar.calendar?.accessRole || '',
-    onRecheckCalendar: recheckInterviewCalendar,
     onRepairCalendar: resyncInterviewCalendar,
     onSchedule: scheduleInterview,
     onReschedule: rescheduleInterview,

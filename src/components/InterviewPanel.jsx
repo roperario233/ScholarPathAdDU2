@@ -568,7 +568,7 @@ export default function InterviewPanel({
       ) : null}
 
       {isOffice ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface px-3 py-2" role="status">
+        <div className="flex flex-wrap items-center gap-2 rounded-[14px] border border-app-border bg-app-surface px-3 py-2" role="status">
           <span className="min-w-0 text-xs text-app-muted">
             <strong className="text-app-text">Google Calendar &amp; Meet</strong>
             {' · '}
@@ -583,22 +583,6 @@ export default function InterviewPanel({
               ? ` ${workspace.calendarReason}`
               : ''}
           </span>
-          {workspace.onRecheckCalendar ? (
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy || workspace.calendarChecking}
-              onClick={async () => {
-                setBusy(true);
-                setFeedback(null);
-                const next = await workspace.onRecheckCalendar();
-                setBusy(false);
-                setFeedback(next?.configured
-                  ? { tone: 'success', message: `Connected to ${next.calendar?.summary || 'the interview calendar'}.` }
-                  : { tone: 'error', message: next?.reason || 'The Google Calendar integration is not available.' });
-              }}
-            >Check connection</Button>
-          ) : null}
         </div>
       ) : null}
 

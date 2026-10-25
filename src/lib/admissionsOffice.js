@@ -11,6 +11,20 @@ import { isAdduInternalProgram } from './eligibility';
 
 const asList = (value) => (Array.isArray(value) ? value : []);
 
+// The tab the review modal opens on: the stage the application is currently
+// sitting in, so the reviewer lands on the work that stage needs instead of
+// always on Overview. A status with no dedicated tab (Submitted, Under Review,
+// Recommended, Approved, Released, Rejected) opens on Overview, where the action
+// bar carries that stage's move.
+const REVIEW_STAGE_TABS = {
+  'For Verification': 'documents',
+  'For Endorsement': 'endorsement',
+  Endorsed: 'interview',
+  Interview: 'interview',
+};
+
+export const getReviewStageTab = (status) => REVIEW_STAGE_TABS[status] || 'overview';
+
 // Applications that still need a Staff or Department Chair action. It reads the
 // same exclusion list as countApplicationsToReview(), so the overview, the
 // review queue, and the dashboard can never show different numbers for the same

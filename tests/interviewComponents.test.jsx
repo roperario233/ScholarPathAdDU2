@@ -70,6 +70,34 @@ const render = (props) => renderToStaticMarkup(
 
 const buttonLabels = (html) => [...html.matchAll(/>([^<>]+)<\/button>/g)].map((match) => match[1].trim());
 
+describe('ApplicationReviewModal default tab', () => {
+  const selectedTab = (html) => (html.match(/id="review-tab-([a-z]+)"[^>]*aria-selected="true"/) || [])[1];
+
+  it('opens on the tab for the stage the application is in', () => {
+    expect(selectedTab(render({ application: application({ status: 'For Verification' }), role: 'admissions_office' })))
+      .toBe('documents');
+    expect(selectedTab(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_office' })))
+      .toBe('endorsement');
+    expect(selectedTab(render({ application: application({ status: 'Endorsed' }), role: 'admissions_office', interviewWorkspace: workspace() })))
+      .toBe('interview');
+    expect(selectedTab(render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'admissions_office',
+      interviewWorkspace: workspace(),
+    }))).toBe('interview');
+    expect(selectedTab(render({ application: application({ status: 'Submitted' }), role: 'admissions_office' })))
+      .toBe('overview');
+  });
+
+  it('keeps an explicitly requested tab over the stage default', () => {
+    expect(selectedTab(render({
+      application: application({ status: 'For Endorsement' }),
+      role: 'admissions_office',
+      initialTab: 'overview',
+    }))).toBe('overview');
+  });
+});
+
 describe('ApplicationReviewModal Interview tab', () => {
   it('opens the schedule form for the Admissions Office at Endorsed, with the panel limited to the applicant’s school', () => {
     const html = render({ application: application(), role: 'admissions_office', interviewWorkspace: workspace() });

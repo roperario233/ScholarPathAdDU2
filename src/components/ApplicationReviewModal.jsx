@@ -9,6 +9,7 @@ import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { getReviewStageTab } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getInterviewStateLabel, isInterviewComplete, isInterviewOutcomeDue, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
@@ -212,7 +213,13 @@ export default function ApplicationReviewModal({
     if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
     if (initialTab === 'endorsement' && !endorsementUnlocked) return 'overview';
     if (initialTab) return initialTab;
-    if (isAdmissionsReviewer && interviewUnlocked && application.status === 'Endorsed') return 'interview';
+    // Open on the stage the application is in, so the reviewer lands on the work
+    // that stage needs: the files at For Verification, the endorsement record at
+    // For Endorsement, the schedule from Endorsed on.
+    const stageTab = getReviewStageTab(application.status);
+    if (stageTab === 'documents' && documentsUnlocked) return 'documents';
+    if (stageTab === 'endorsement' && endorsementUnlocked) return 'endorsement';
+    if (stageTab === 'interview' && interviewUnlocked) return 'interview';
     return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
