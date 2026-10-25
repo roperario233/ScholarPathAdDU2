@@ -8,6 +8,7 @@ import {
   createInterviewDraft,
   describeInterviewForStudent,
   findInterviewConflicts,
+  findRosterConflicts,
   formatInterviewWhen,
   getEligiblePanelists,
   getInterviewDateKey,
@@ -16,6 +17,7 @@ import {
   isInterviewOutcomeDue,
   isoToManilaInputs,
   manilaInputToIso,
+  needsInterviewCalendarRepair,
   summarizeInterview,
   validateInterviewSchedule,
 } from '../src/lib/interview';
@@ -250,6 +252,69 @@ describe('findInterviewConflicts', () => {
   it('does not treat an online interview as a room booking', () => {
     const conflicts = findInterviewConflicts(validDraft({ mode: 'online', locationId: '', panel: [{ profileId: 'chair-cas', isLead: true }] }), { applications: [booked()], panelists });
     expect(conflicts).toEqual([]);
+  });
+});
+
+describe('findRosterConflicts', () => {
+  const scheduled = (overrides = {}) => ({
+    id: 'app-1',
+    status: 'Interview',
+    studentName: 'Ada Cruz',
+    interview: buildInterviewRecord({ draft: validDraft(), location, school: SEA, now: NOW }),
+    ...overrides,
+  });
+  const overlapping = (overrides = {}) => scheduled({
+    id: 'app-2',
+    studentName: 'Eli Tan',
+    interview: buildInterviewRecord({ draft: validDraft({ time: '09:15' }), location, school: SEA, now: NOW }),
+    ...overrides,
+  });
+  const panelists = [
+    { applicationId: 'app-1', profileId: 'chair-sea', name: 'Ana Reyes', removedAt: null },
+    { applicationId: 'app-2', profileId: 'chair-sea', name: 'Ana Reyes', removedAt: null },
+  ];
+
+  it('flags the same Chair and the same room across two scheduled interviews', () => {
+    const conflicts = findRosterConflicts([scheduled(), overlapping()], panelists);
+    expect(conflicts.map((entry) => entry.kind).sort()).toEqual(['location', 'panelist']);
+    expect(conflicts[0].applicationIds.sort()).toEqual(['app-1', 'app-2']);
+  });
+
+  it('ignores back-to-back slots, online rooms, and removed panel members', () => {
+    const backToBack = scheduled({
+      id: 'app-3',
+      interview: buildInterviewRecord({ draft: validDraft({ time: '09:30' }), location, school: SEA, now: NOW }),
+    });
+    expect(findRosterConflicts([scheduled(), backToBack], panelists)).toEqual([]);
+
+    const online = overlapping({
+      interview: buildInterviewRecord({
+        draft: validDraft({ mode: 'online', locationId: '', meetingUrl: 'https://meet.google.com/abc-defg-hij', time: '09:15' }),
+        school: SEA,
+        now: NOW,
+      }),
+    });
+    expect(findRosterConflicts([scheduled(), online], panelists).map((entry) => entry.kind)).toEqual(['panelist']);
+
+    const removed = panelists.map((row) => (row.applicationId === 'app-2' ? { ...row, removedAt: '2026-11-01T00:00:00.000Z' } : row));
+    expect(findRosterConflicts([scheduled(), overlapping()], removed).map((entry) => entry.kind)).toEqual(['location']);
+  });
+
+  it('counts only scheduled interviews', () => {
+    const cancelled = overlapping({ interview: { ...overlapping().interview, state: 'cancelled' } });
+    expect(findRosterConflicts([scheduled(), cancelled], panelists)).toEqual([]);
+  });
+});
+
+describe('needsInterviewCalendarRepair', () => {
+  it('asks for a repair only when Google and the record disagree', () => {
+    const record = buildInterviewRecord({ draft: validDraft(), location, school: SEA, now: NOW, calendar: { eventId: 'evt-1', htmlLink: 'https://calendar.example/evt-1' } });
+    expect(needsInterviewCalendarRepair(record)).toBe(false);
+    expect(needsInterviewCalendarRepair({ ...record, calendar: null })).toBe(true);
+    expect(needsInterviewCalendarRepair({ ...record, state: 'cancelled', calendar: { eventId: 'evt-1', removedAt: null } })).toBe(true);
+    expect(needsInterviewCalendarRepair({ ...record, state: 'cancelled', calendar: { eventId: 'evt-1', removedAt: '2026-11-02T00:00:00.000Z' } })).toBe(false);
+    expect(needsInterviewCalendarRepair({ ...record, mode: 'online', meetingUrl: '', calendar: { eventId: 'evt-1' } })).toBe(true);
+    expect(needsInterviewCalendarRepair(null)).toBe(false);
   });
 });
 

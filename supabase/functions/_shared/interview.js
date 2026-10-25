@@ -270,6 +270,67 @@ export const describeInterviewConflict = (conflict) => (
     : `${conflict.name} is already on the panel for ${conflict.studentName} (${formatInterviewDateShort(conflict.startsAt)}).`
 );
 
+/**
+ * Roster-level conflicts for the interview workspace pages. findInterviewConflicts
+ * checks one draft against the rest; this scans every scheduled interview against
+ * every other one, so the office can see a double-booked panelist or room before
+ * opening a case. Only scheduled interviews count, and faculty guests have no
+ * account, so they are not checked.
+ */
+export const findRosterConflicts = (applications = [], panelists = []) => {
+  const scheduled = (Array.isArray(applications) ? applications : [])
+    .filter((entry) => (
+      entry?.status === 'Interview'
+      && isStructuredInterview(entry.interview)
+      && entry.interview.state === 'scheduled'
+    ))
+    .map((entry) => ({
+      entry,
+      start: toDate(entry.interview.startsAt),
+      end: getInterviewEndsAt(entry.interview),
+    }))
+    .filter((row) => row.start && row.end);
+
+  const activePanel = (applicationId) => (Array.isArray(panelists) ? panelists : [])
+    .filter((row) => row.applicationId === applicationId && !row.removedAt && row.profileId);
+
+  const conflicts = [];
+  for (let index = 0; index < scheduled.length; index += 1) {
+    const left = scheduled[index];
+    for (let next = index + 1; next < scheduled.length; next += 1) {
+      const right = scheduled[next];
+      if (!(left.start < right.end && right.start < left.end)) continue;
+      const rightPanelIds = new Set(activePanel(right.entry.id).map((row) => row.profileId));
+      activePanel(left.entry.id).forEach((row) => {
+        if (!rightPanelIds.has(row.profileId)) return;
+        conflicts.push({
+          kind: 'panelist',
+          profileId: row.profileId,
+          name: row.name || 'A panel member',
+          startsAt: left.entry.interview.startsAt,
+          applicationIds: [left.entry.id, right.entry.id],
+          studentNames: [left.entry.studentName || 'an applicant', right.entry.studentName || 'an applicant'],
+        });
+      });
+      if (
+        left.entry.interview.mode === 'onsite'
+        && right.entry.interview.mode === 'onsite'
+        && left.entry.interview.locationId
+        && left.entry.interview.locationId === right.entry.interview.locationId
+      ) {
+        conflicts.push({
+          kind: 'location',
+          name: left.entry.interview.locationLabel || 'This location',
+          startsAt: left.entry.interview.startsAt,
+          applicationIds: [left.entry.id, right.entry.id],
+          studentNames: [left.entry.studentName || 'an applicant', right.entry.studentName || 'an applicant'],
+        });
+      }
+    }
+  }
+  return conflicts;
+};
+
 export const formatLocationLabel = (location) => {
   if (!location) return '';
   const place = [location.building, location.room].map((part) => String(part || '').trim()).filter(Boolean).join(', ');
@@ -356,6 +417,19 @@ export const isInterviewOutcomeDue = (interview, now = new Date()) => {
   if (!isStructuredInterview(interview) || interview.state !== 'scheduled') return false;
   const start = toDate(interview.startsAt);
   return Boolean(start) && start.getTime() <= toDate(now).getTime();
+};
+
+/**
+ * The saved record and Google disagree: a cancelled interview whose event
+ * survived, a scheduled interview with no event, or an online interview whose
+ * event carries no link. This is the single predicate behind the Interview tab's
+ * recovery action and the interview workspace pages, so they cannot disagree.
+ */
+export const needsInterviewCalendarRepair = (interview) => {
+  if (!interview) return false;
+  const calendar = interview.calendar || null;
+  return (interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt)
+    || (interview.state === 'scheduled' && (!calendar?.eventId || (interview.mode === 'online' && !interview.meetingUrl)));
 };
 
 export const getInterviewWhere = (interview) => {

@@ -19,6 +19,7 @@ import {
   isInterviewOutcomeDue,
   isStructuredInterview,
   isoToManilaInputs,
+  needsInterviewCalendarRepair,
 } from '../lib/interview';
 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
@@ -575,12 +576,9 @@ export default function InterviewPanel({
   const outcomeDue = isInterviewOutcomeDue(interview);
   // Repair is a recovery action, so it only appears when Google and the record
   // actually disagree: a cancelled interview whose event survived, a scheduled
-  // interview with no event, or an online interview whose event has no link.
-  const calendar = interview?.calendar || null;
-  const needsCalendarRepair = Boolean(interview) && (
-    (interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt)
-    || (interview.state === 'scheduled' && (!calendar?.eventId || (interview.mode === 'online' && !interview.meetingUrl)))
-  );
+  // interview with no event, or an online interview whose event has no link. The
+  // predicate lives beside the record helpers so the workspace pages agree.
+  const needsCalendarRepair = needsInterviewCalendarRepair(interview);
   const showForm = canCoordinate && (application.status === 'Endorsed' || editing);
 
   const run = async (action, successMessage) => {

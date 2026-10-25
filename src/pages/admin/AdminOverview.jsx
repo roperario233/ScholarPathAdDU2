@@ -19,6 +19,18 @@ const workspaces = [
     action: 'Open review queue',
   },
   {
+    view: 'admin-interviews',
+    label: 'Interview schedule',
+    description: 'Coordinate interviews, panels, and attendance.',
+    action: 'Open interview schedule',
+  },
+  {
+    view: 'admin-calendar',
+    label: 'Interview calendar',
+    description: 'Interviews and scholarship deadlines for the month.',
+    action: 'Open calendar',
+  },
+  {
     view: 'admin-catalog',
     label: 'AdDU internal scholarship catalog',
     description: 'Publish and update AdDU internal entries and the documents each one requires.',

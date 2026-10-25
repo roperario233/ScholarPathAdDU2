@@ -29,7 +29,11 @@ import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
+import AdminCalendarPage from './pages/admin/AdminCalendar';
+import AdminInterviewsPage from './pages/admin/AdminInterviews';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
+import DepartmentCalendarViewPage from './pages/DepartmentCalendarView';
+import DepartmentInterviewsViewPage from './pages/DepartmentInterviewsView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
@@ -2401,6 +2405,8 @@ function App() {
     ? [
       { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
       { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
+      { view: 'admin-interviews', label: 'Interviews', group: 'Admissions Office', visible: true },
+      { view: 'admin-calendar', label: 'Calendar', group: 'Admissions Office', visible: true },
       { view: 'admin-release', label: 'Recommendation and release', group: 'Admissions Office', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: isAdmissionsHead },
@@ -2415,6 +2421,8 @@ function App() {
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
     ...admissionsWorkspaceItems,
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
+    { view: 'chair-interviews', label: 'Interviews', visible: state.viewerRole === 'department_chair' },
+    { view: 'chair-calendar', label: 'Calendar', visible: state.viewerRole === 'department_chair' },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
@@ -2640,7 +2648,12 @@ function App() {
               onMarkRead={markNotificationRead}
               onShowApplications={() => navigate('applications')}
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
-              onOpenCalendar={() => navigate('calendar')}
+              onOpenCalendar={() => navigate(
+                state.viewerRole === 'department_chair'
+                  ? 'chair-calendar'
+                  : isAdmissionsReviewerRole(state.viewerRole) ? 'admin-calendar' : 'calendar',
+              )}
+              onOpenInterviews={() => navigate(state.viewerRole === 'department_chair' ? 'chair-interviews' : 'admin-interviews')}
               onOpenAdmin={() => navigate('admin')}
               onOpenAdminReview={() => navigate('admin-review')}
               onOpenRelease={() => navigate('admin-release')}
@@ -2723,6 +2736,44 @@ function App() {
             />
           )}
 
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-calendar' && (
+            <AdminCalendarPage
+              applications={state.applications}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
+              interviewWorkspace={interviewWorkspace}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+            />
+          )}
+
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-interviews' && (
+            <AdminInterviewsPage
+              applications={state.applications}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
+              interviewWorkspace={interviewWorkspace}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+            />
+          )}
+
           {isAdmissionsHead && state.activeView === 'admin-catalog' && (
             <AdminScholarshipCatalogPage
               scholarships={state.scholarships || []}
@@ -2762,6 +2813,34 @@ function App() {
               onEndorseApplication={endorseApplication}
               onAddComment={addReviewComment}
               onFlagForValidation={flagApplicationForValidation}
+              interviewWorkspace={interviewWorkspace}
+            />
+          )}
+
+          {state.viewerRole === 'department_chair' && state.activeView === 'chair-calendar' && (
+            <DepartmentCalendarViewPage
+              profile={currentProfile}
+              queue={departmentQueue}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              reviewComments={state.reviewComments || []}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              onAddComment={addReviewComment}
+              interviewWorkspace={interviewWorkspace}
+            />
+          )}
+
+          {state.viewerRole === 'department_chair' && state.activeView === 'chair-interviews' && (
+            <DepartmentInterviewsViewPage
+              profile={currentProfile}
+              queue={departmentQueue}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              reviewComments={state.reviewComments || []}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
             />
           )}
