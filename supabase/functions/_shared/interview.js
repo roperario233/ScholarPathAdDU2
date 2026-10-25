@@ -130,12 +130,21 @@ export const isSafeMeetingUrl = (value) => {
 
 // Department Chair accounts from the applicant's school (SOP 5a). The database
 // repeats the rule in validate_interview_panelist().
+/**
+ * Who can sit on the panel. SOP 5a draws the Department Chairs from the school
+ * where the applicant's program belongs, and the Admissions Office coordinates
+ * the interview (SOP step 5), so its two lanes may join any panel. Either kind of
+ * member can be the lead.
+ */
 export const getEligiblePanelists = (staffDirectory = [], application = {}) => {
   const school = String(application?.studentDepartment || '').trim();
-  if (!school) return [];
-  return (Array.isArray(staffDirectory) ? staffDirectory : [])
-    .filter((entry) => entry?.role === 'department_chair' && String(entry.department || '').trim() === school)
-    .sort((a, b) => String(a.fullName || '').localeCompare(String(b.fullName || '')));
+  const entries = Array.isArray(staffDirectory) ? staffDirectory : [];
+  const byName = (a, b) => String(a.fullName || '').localeCompare(String(b.fullName || ''));
+  const chairs = entries.filter((entry) => entry?.role === 'department_chair'
+    && school
+    && String(entry.department || '').trim() === school);
+  const office = entries.filter((entry) => entry?.role === 'admissions_office' || entry?.role === 'admissions_head');
+  return [...chairs.sort(byName), ...office.sort(byName)];
 };
 
 // A panel member in the schedule form: an account (`profileId`) or a typed
@@ -194,10 +203,12 @@ export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMe
     else if (!link && !autoMeeting) errors.meetingUrl = 'Paste the meeting link for the online interview.';
   }
 
+  // The panel is optional: an interview can be scheduled before the office has
+  // settled who sits on it. When members are listed, exactly one is the lead, and
+  // any of them — Department Chair, Admissions Office account, or faculty guest —
+  // may hold that role.
   const panel = (Array.isArray(draft.panel) ? draft.panel : []).map(normalizePanelMember);
-  if (!panel.length) {
-    errors.panel = 'Add at least one panel member from the applicant’s school.';
-  } else {
+  if (panel.length) {
     const leads = panel.filter((member) => member.isLead).length;
     const accountIds = panel.map((member) => member.profileId).filter(Boolean);
     if (leads !== 1) errors.panel = 'Mark exactly one panel member as the lead interviewer.';

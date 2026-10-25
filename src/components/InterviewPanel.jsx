@@ -40,14 +40,18 @@ const fmtWhen = (value) => {
 
 const todayManila = () => isoToManilaInputs(new Date().toISOString()).date;
 
-function PanelList({ panel }) {
+function PanelList({ panel, roleById = {} }) {
   if (!panel.length) return <p className="m-0 text-sm text-app-muted">No panel members recorded.</p>;
   return (
     <ul className="m-0 grid gap-1 p-0">
       {panel.map((member) => (
         <li key={member.id || member.profileId || member.guestName} className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
           <span className="min-w-0 truncate">{member.name}</span>
-          <span className="text-xs text-app-muted">{member.profileId ? 'Department Chair' : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}</span>
+          <span className="text-xs text-app-muted">
+            {member.profileId
+              ? (roleLabels[roleById[member.profileId]] || 'Panel member')
+              : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}
+          </span>
           {member.isLead ? <StatusBadge tone="info">Lead</StatusBadge> : null}
         </li>
       ))}
@@ -69,6 +73,9 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   // the reviewer can see the school the panel is drawn from (SOP 5a).
   const departmentById = Object.fromEntries(
     (workspace.staffDirectory || []).map((entry) => [entry.userId, entry.department || '']),
+  );
+  const roleById = Object.fromEntries(
+    (workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']),
   );
   // SOP 5a draws the panel from the school the applicant's program belongs to.
   // An incoming first-year is not enrolled yet, so that school is the one that
@@ -113,17 +120,25 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
     <div className="grid gap-4">
       <fieldset className="grid gap-2">
         <legend className="mb-1 text-sm font-semibold text-app-text">Interview mode</legend>
-        <div role="radiogroup" aria-label="Interview mode" className="inline-flex w-fit rounded-xl border border-app-border bg-app-surface p-1">
-          {INTERVIEW_MODES.map((mode) => (
-            <button
-              key={mode.value}
-              type="button"
-              role="radio"
-              aria-checked={draft.mode === mode.value}
-              onClick={() => setMode(mode.value)}
-              className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${draft.mode === mode.value ? 'bg-ateneo text-white shadow-sm' : 'text-app-muted hover:text-app-text'}`}
-            >{mode.label}</button>
-          ))}
+        <div role="radiogroup" aria-label="Interview mode" className="grid grid-cols-2 gap-1 rounded-xl border border-app-border bg-app-surface p-1">
+          {INTERVIEW_MODES.map((mode) => {
+            const selected = draft.mode === mode.value;
+            return (
+              <button
+                key={mode.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setMode(mode.value)}
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-lg px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${selected
+                  ? 'bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-sm'
+                  : 'text-app-muted hover:bg-blue-500/10 hover:text-app-text'}`}
+              >
+                {selected ? <Check size={16} aria-hidden="true" /> : null}
+                {mode.label}
+              </button>
+            );
+          })}
         </div>
       </fieldset>
 
@@ -238,10 +253,10 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             {applicantSchool
               ? (
                 <>
-                  Applicants are interviewed by a panel from {isIncomingApplicant ? 'the school that offers their first program choice' : 'the school that offers their program'} — <strong className="text-app-text">{applicantSchool}</strong>.
+                  Applicants are interviewed by a panel from {isIncomingApplicant ? 'the school that offers their first program choice' : 'the school that offers their program'} — <strong className="text-app-text">{applicantSchool}</strong>. Admissions Office members can join any panel, and any member can be the lead.
                 </>
               )
-              : 'No school is on file for this applicant yet, so a Department Chair cannot be added to the panel.'}
+              : 'No school is on file for this applicant yet, so only Admissions Office members can be added to the panel.'}
           </p>
         </div>
         {draft.panel.length ? (
@@ -250,7 +265,11 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               <li key={member.profileId || `guest-${index}`} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2">
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-app-text">{member.profileId ? (panelNameById[member.profileId] || 'Department Chair') : member.guestName}</span>
-                  <span className="block truncate text-xs text-app-muted">{member.profileId ? ['Department Chair', departmentById[member.profileId]].filter(Boolean).join(' · ') : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}</span>
+                  <span className="block truncate text-xs text-app-muted">
+                    {member.profileId
+                      ? [roleLabels[roleById[member.profileId]] || 'Panel member', departmentById[member.profileId]].filter(Boolean).join(' · ')
+                      : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}
+                  </span>
                 </span>
                 <label className="inline-flex min-h-10 items-center gap-2 text-xs text-app-muted">
                   <input type="radio" name="interview-lead" checked={member.isLead} onChange={() => setLead(index)} />
@@ -260,14 +279,14 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               </li>
             ))}
           </ul>
-        ) : <p className="m-0 text-sm text-app-muted">No panel members yet.</p>}
+        ) : <p className="m-0 text-sm text-app-muted">No panel members yet. The panel can be settled after the schedule is saved.</p>}
 
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <select value={chairToAdd} onChange={(event) => setChairToAdd(event.target.value)} disabled={!addable.length} aria-label="Department Chair from the applicant’s school">
-            <option value="">{eligible.length ? (addable.length ? 'Add a Department Chair from this school…' : 'Every Chair from this school is on the panel') : 'No Department Chair account for this school'}</option>
+          <select value={chairToAdd} onChange={(event) => setChairToAdd(event.target.value)} disabled={!addable.length} aria-label="Panel member">
+            <option value="">{eligible.length ? (addable.length ? 'Add a panel member…' : 'Everyone eligible is already on the panel') : 'No panel accounts available'}</option>
             {addable.map((entry) => (
               <option key={entry.userId} value={entry.userId}>
-                {entry.department ? `${entry.fullName} · ${entry.department}` : entry.fullName}
+                {[entry.fullName, entry.role === 'department_chair' ? entry.department : roleLabels[entry.role]].filter(Boolean).join(' · ')}
               </option>
             ))}
           </select>
@@ -286,7 +305,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             onClick={() => { addMember({ guestName: guestName.trim(), guestEmail: guestEmail.trim() }); setGuestName(''); setGuestEmail(''); }}
           >Add guest</Button>
         </div>
-        <span className="text-xs text-app-muted">Faculty guests have no ScholarPath account; they receive the calendar invitation by email when the integration is configured, or the .ics file you share.</span>
+        <span className="text-xs text-app-muted">Faculty guests have no ScholarPath account; they receive the calendar invitation by email.</span>
         {show('panel')}
       </section>
 
@@ -337,7 +356,7 @@ function CopyIconButton({ value, label }) {
 const CopyMeetingLinkButton = ({ value }) => <CopyIconButton value={value} label="Copy meeting link" />;
 const CopyLocationButton = ({ value }) => <CopyIconButton value={value} label="Copy location" />;
 
-function ScheduleSummary({ application, interview, panel, scholarshipTitle, recorderName }) {
+function ScheduleSummary({ application, interview, panel, scholarshipTitle, recorderName, roleById = {} }) {
   const templateUrl = buildGoogleCalendarTemplateUrl({ interview, scholarshipTitle });
   // What the provider actually holds for this interview. `removedAt` is null on a
   // cancelled interview whose Google event could not be deleted, which is exactly
@@ -404,24 +423,15 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
         </div>
         <div className="grid gap-0.5 sm:col-span-2">
           <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Panel · {interview.school || application.studentDepartment || 'Applicant school'}</dt>
-          <dd className="m-0"><PanelList panel={panel} /></dd>
+          <dd className="m-0"><PanelList panel={panel} roleById={roleById} /></dd>
         </div>
         {interview.instructions ? (
           <div className="grid gap-0.5 sm:col-span-2">
             <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Applicant instructions</dt>
-            <dd className="m-0 whitespace-pre-line text-sm text-app-text">{interview.instructions}</dd>
+            <dd className="m-0 whitespace-pre-line text-xs text-app-muted">{interview.instructions}</dd>
           </div>
         ) : null}
       </dl>
-      <p className="m-0 text-xs text-app-muted">
-        {calendarLive
-          ? 'The applicant and the panel were invited through Google Calendar. Panel members stay hidden from the applicant.'
-          : removalPending
-            ? 'The interview is cancelled but its Google Calendar event could not be removed. Use Repair calendar event to delete it.'
-            : interview.state === 'cancelled'
-              ? 'The Google Calendar event for this interview was removed.'
-              : 'No calendar invitation was sent. Share the meeting link directly.'}
-      </p>
       {interview.outcomeRecordedAt ? (
         <p className="m-0 text-xs text-app-muted">
           Recorded as {getInterviewStateLabel(interview.state).toLowerCase()} by {recorderName || roleLabels[interview.outcomeRecordedRole] || 'the panel'}{interview.outcomeRecordedRole && recorderName ? ` · ${roleLabels[interview.outcomeRecordedRole] || ''}` : ''} · {fmtWhen(interview.outcomeRecordedAt)}
@@ -461,7 +471,6 @@ function InterviewNotes({ notes, canAdd, onAddNote }) {
   };
   return (
     <div className="grid gap-3">
-      <p className="m-0 text-xs text-app-muted">Private — visible to the Admissions Office and the applicant’s Department Chair, never to the student.</p>
       {notes.length ? (
         <ul className="m-0 grid gap-2 p-0">
           {notes.map((note) => (
@@ -559,6 +568,7 @@ export default function InterviewPanel({
   const notes = (workspace.notes || []).filter((note) => note.applicationId === application.id);
   const isPanelist = role === 'department_chair' && panel.some((row) => row.profileId && row.profileId === workspace.viewerId);
   const nameById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
+  const roleById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']));
   const canCoordinate = isOffice && ['Endorsed', 'Interview'].includes(application.status);
   const canRecordOutcome = application.status === 'Interview' && (isOffice || isPanelist);
   const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isOffice || isPanelist);
@@ -644,6 +654,7 @@ export default function InterviewPanel({
               panel={panel}
               scholarshipTitle={scholarshipTitle}
               recorderName={nameById[interview.outcomeRecordedBy] || ''}
+              roleById={roleById}
             />
           ) : (
             <p className="m-0 text-sm text-app-muted">

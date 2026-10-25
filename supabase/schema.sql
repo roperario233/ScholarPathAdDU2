@@ -1371,7 +1371,10 @@ revoke all on public.interview_calendar_events from anon, authenticated;
 
 
 -- SOP 5a, server-side: an account panelist must be a Department Chair whose
--- department (school) is the applicant's.
+-- department (school) is the applicant's, or an Admissions Office Staff/Head
+-- account, which coordinates the interview (SOP step 5) and may join any panel.
+-- The lead may be any panel member. Applied by
+-- supabase/migrations/20261032000000_allow_admissions_panelists.sql.
 create or replace function public.validate_interview_panelist()
 returns trigger
 language plpgsql
@@ -1393,10 +1396,13 @@ begin
   select role, department into v_member_role, v_member_school
     from public.profiles
     where user_id = new.profile_id;
+  if v_member_role in ('admissions_office', 'admissions_head') then
+    return new;
+  end if;
   if v_member_role is distinct from 'department_chair'
     or nullif(btrim(coalesce(v_school, '')), '') is null
     or v_member_school is distinct from v_school then
-    raise exception 'Interview panelists must come from the school where the applicant''s program belongs (SOP 5a).'
+    raise exception 'Interview panelists must come from the school where the applicant''s program belongs (SOP 5a), or from the Admissions Office.'
       using errcode = '23514';
   end if;
   return new;

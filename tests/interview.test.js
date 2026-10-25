@@ -78,18 +78,19 @@ describe('Manila time helpers', () => {
 });
 
 describe('getEligiblePanelists (SOP 5a)', () => {
-  it('lists only Department Chairs from the applicant’s school', () => {
+  it('lists the Department Chairs of the applicant’s school first', () => {
     const panel = getEligiblePanelists(staffDirectory, { studentDepartment: SEA });
-    expect(panel.map((entry) => entry.userId)).toEqual(['chair-sea', 'chair-sea-2']);
+    expect(panel.map((entry) => entry.userId)).toEqual(['chair-sea', 'chair-sea-2', 'staff-1']);
   });
 
-  it('lists no one when the applicant’s school is unknown', () => {
-    expect(getEligiblePanelists(staffDirectory, { studentDepartment: '' })).toEqual([]);
+  it('still offers the Admissions Office when the applicant’s school is unknown', () => {
+    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: '' });
+    expect(panel.map((entry) => entry.userId)).toEqual(['staff-1']);
   });
 
-  it('never offers Admissions Office accounts as panelists', () => {
-    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: 'Office of Admissions' });
-    expect(panel).toEqual([]);
+  it('offers Admissions Office accounts on any panel', () => {
+    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: CAS });
+    expect(panel.map((entry) => entry.userId)).toEqual(['chair-cas', 'staff-1']);
   });
 });
 
@@ -98,11 +99,11 @@ describe('validateInterviewSchedule', () => {
     expect(validateInterviewSchedule(validDraft(), { now: NOW, activeLocationIds: ['loc-1'] })).toEqual({});
   });
 
-  it('requires a future start, a location, and a panel', () => {
+  it('requires a future start and a location, and allows an empty panel', () => {
     const errors = validateInterviewSchedule(validDraft({ date: '2026-10-30', locationId: '', panel: [] }), { now: NOW });
     expect(errors.time).toMatch(/future/);
     expect(errors.locationId).toMatch(/location/);
-    expect(errors.panel).toMatch(/applicant’s school/);
+    expect(errors.panel).toBeUndefined();
   });
 
   it('refuses an archived location', () => {
