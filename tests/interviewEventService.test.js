@@ -27,6 +27,7 @@ const jsonResponse = (body, status = 200) => ({
 
 const createFetchStub = (options = {}) => {
   const calls = [];
+  let writeIndex = 0;
   const impl = async (url, init = {}) => {
     const method = init.method || 'GET';
     calls.push({ url, method, body: init.body });
@@ -46,7 +47,14 @@ const createFetchStub = (options = {}) => {
       );
     }
     if (method === 'DELETE') return jsonResponse({}, 204);
-    if (method === 'POST' || method === 'PATCH') return jsonResponse(options.event || defaultEvent);
+    if (method === 'POST' || method === 'PATCH') {
+      // `eventSequence` answers successive writes with different bodies, which is
+      // how a repair that has to attach a conference is exercised.
+      const sequence = Array.isArray(options.eventSequence) ? options.eventSequence : [];
+      const next = sequence.length ? sequence[Math.min(writeIndex, sequence.length - 1)] : null;
+      writeIndex += 1;
+      return jsonResponse(next || options.event || defaultEvent);
+    }
     return jsonResponse({
       summary: 'ScholarPath AdDU — Scholarship Interviews',
       timeZone: 'Asia/Manila',
@@ -79,9 +87,19 @@ const createSupabaseStub = (fixtures = {}) => {
       eq: () => api,
       is: () => api,
       in: () => api,
+      order: () => api,
+      limit: () => api,
       maybeSingle: async () => ({ data: singleFor(table), error: null }),
+      insert: async (row) => {
+        writes.push({ table, kind: 'insert', row });
+        return { error: null };
+      },
+      update: async (row) => {
+        writes.push({ table, kind: 'update', row });
+        return { error: null };
+      },
       upsert: async (row, upsertOptions) => {
-        writes.push({ table, row, options: upsertOptions });
+        writes.push({ table, kind: 'upsert', row, options: upsertOptions });
         return { error: null };
       },
       then: (resolve, reject) => Promise.resolve({ data: listFor(table), error: null }).then(resolve, reject),
@@ -90,6 +108,12 @@ const createSupabaseStub = (fixtures = {}) => {
   };
   return { from, writes };
 };
+
+// The synced row is appended after the ledger retires the row it replaces, so the
+// assertion has to pick it out rather than assume writes[0].
+const syncedWrite = (supabase, state = 'synced') => supabase.writes
+  .filter((write) => write.kind === 'insert' && write.row.sync_state === state)
+  .at(-1);
 
 const application = (overrides = {}) => ({
   id: APP_ID,
@@ -246,11 +270,12 @@ describe('interview event service — scheduling', () => {
     expect(sent.guestsCanSeeOtherGuests).toBe(false);
     expect(sent.guestsCanInviteOthers).toBe(false);
     expect(sent.attendees.map((entry) => entry.email)).toEqual(['student@example.test', 'Chair@addu.edu.ph', 'guest@example.test']);
-    expect(supabase.writes[0].row).toMatchObject({
+    expect(syncedWrite(supabase).row).toMatchObject({
       application_id: APP_ID,
       sync_state: 'synced',
       event_id: 'evt-1',
       calendar_id: CALENDAR_ID,
+      is_current: true,
     });
   });
 
@@ -379,9 +404,10 @@ describe('interview event service — cancel and repair', () => {
       supabase,
       fetchImpl: fetchStub.impl,
     });
-    expect(body).toEqual({ ok: true, configured: true });
+    expect(body).toMatchObject({ ok: true, configured: true, removed: 1 });
     expect(fetchStub.calls.filter((call) => call.method === 'DELETE')).toHaveLength(1);
-    expect(supabase.writes.at(-1).row).toMatchObject({ event_id: 'evt-1', sync_state: 'cancelled' });
+    expect(supabase.writes.filter((write) => write.kind === 'insert').at(-1).row)
+      .toMatchObject({ event_id: 'evt-1', sync_state: 'cancelled', is_current: false });
   });
 
   it('creates the missing event from the saved record during a repair', async () => {
@@ -437,7 +463,7 @@ describe('interview event service — cancel and repair', () => {
       }),
       fetchImpl: fetchStub.impl,
     });
-    expect(body).toEqual({ ok: true, configured: true, repaired: 'deleted', calendar: null });
+    expect(body).toMatchObject({ ok: true, configured: true, repaired: 'deleted', removed: 1, calendar: null });
     expect(googleCalls(fetchStub).find((call) => call.method === 'DELETE').url).toContain('/events/evt-orphan');
   });
 
@@ -452,6 +478,145 @@ describe('interview event service — cancel and repair', () => {
     });
     expect(httpStatus).toBe(409);
     expect(body).toMatchObject({ ok: false, code: 'not_scheduled' });
+  });
+});
+
+// One interview, one Google event. A cancel that could not reach Google used to
+// leave the event live while the record forgot its id, so the next schedule
+// created a second event at the same time.
+describe('interview event service — one event per interview', () => {
+  const fixtures = () => ({
+    student: { full_name: 'Brendon Justine Belen', email: 'student@example.test', department: 'College of Computer Studies (CCS)' },
+    scholarship: { title: 'Grant-in-Aid (GIA)' },
+    panelists: [{ profile_id: 'chair-1', guest_name: null, guest_email: null }],
+    accountProfiles: [{ user_id: 'chair-1', full_name: 'Chair', email: 'chair@addu.edu.ph' }],
+  });
+
+  it('adopts the live ledger event instead of creating a second one', async () => {
+    const fetchStub = createFetchStub();
+    const supabase = createSupabaseStub({
+      ...fixtures(),
+      application: application(),
+      ledger: { event_id: 'evt-old', is_current: true, sync_state: 'synced' },
+    });
+    const { body } = await handleInterviewEvent({
+      action: 'create',
+      payload: { applicationId: APP_ID, schedule: schedule() },
+      config,
+      supabase,
+      fetchImpl: fetchStub.impl,
+    });
+    expect(body).toMatchObject({ ok: true, configured: true });
+    const writes = googleCalls(fetchStub).filter((call) => call.method === 'POST' || call.method === 'PATCH');
+    expect(writes).toHaveLength(1);
+    expect(writes[0].method).toBe('PATCH');
+    expect(writes[0].url).toContain('/events/evt-old');
+  });
+
+  it('keeps the reused meeting link when Google returns no conference', async () => {
+    const fetchStub = createFetchStub({ event: { id: 'evt-1', htmlLink: 'https://www.google.com/calendar/event?eid=1' } });
+    const supabase = createSupabaseStub({
+      ...fixtures(),
+      application: application({
+        status: 'Interview',
+        interview: structuredInterview({ meetingUrl: 'https://meet.google.com/old-link' }),
+      }),
+    });
+    const { body } = await handleInterviewEvent({
+      action: 'update',
+      payload: { applicationId: APP_ID, eventId: 'evt-1', schedule: schedule({ meetingUrl: '' }) },
+      config,
+      supabase,
+      fetchImpl: fetchStub.impl,
+    });
+    expect(body.meetingUrl).toBe('https://meet.google.com/old-link');
+    const sent = JSON.parse(googleCalls(fetchStub).find((call) => call.method === 'PATCH').body);
+    expect(sent.conferenceData).toBeUndefined();
+    expect(sent.location).toBe('https://meet.google.com/old-link');
+    expect(syncedWrite(supabase).row.meet_url).toBe('https://meet.google.com/old-link');
+  });
+
+  it('never reuses the meeting link of a cancelled interview', async () => {
+    const fetchStub = createFetchStub();
+    await handleInterviewEvent({
+      action: 'create',
+      payload: { applicationId: APP_ID, schedule: schedule() },
+      config,
+      supabase: createSupabaseStub({
+        ...fixtures(),
+        application: application({
+          status: 'Endorsed',
+          interview: structuredInterview({
+            state: 'cancelled',
+            meetingUrl: 'https://meet.google.com/dead',
+            calendar: null,
+            revision: 2,
+          }),
+        }),
+      }),
+      fetchImpl: fetchStub.impl,
+    });
+    const sent = JSON.parse(googleCalls(fetchStub).find((call) => call.method === 'POST').body);
+    expect(sent.conferenceData.createRequest.requestId).toBe(getMeetRequestId(APP_ID, 3));
+  });
+
+  it('deletes a duplicate event during a repair', async () => {
+    const fetchStub = createFetchStub({
+      items: [{ id: 'evt-1' }, { id: 'evt-2' }],
+      event: { id: 'evt-1', htmlLink: 'x', hangoutLink: 'https://meet.google.com/abc-defg-hij' },
+    });
+    const { body } = await handleInterviewEvent({
+      action: 'sync',
+      payload: { applicationId: APP_ID },
+      config,
+      supabase: createSupabaseStub({
+        application: application({ status: 'Interview', interview: structuredInterview() }),
+      }),
+      fetchImpl: fetchStub.impl,
+    });
+    expect(body).toMatchObject({ ok: true, repaired: 'updated', removed: 1 });
+    const deletes = googleCalls(fetchStub).filter((call) => call.method === 'DELETE');
+    expect(deletes).toHaveLength(1);
+    expect(deletes[0].url).toContain('/events/evt-2');
+  });
+
+  it('attaches a conference to an event that has no link', async () => {
+    const fetchStub = createFetchStub({
+      eventSequence: [
+        { id: 'evt-1', htmlLink: 'x' },
+        { id: 'evt-1', htmlLink: 'x', hangoutLink: 'https://meet.google.com/new-link' },
+      ],
+    });
+    const { body } = await handleInterviewEvent({
+      action: 'sync',
+      payload: { applicationId: APP_ID },
+      config,
+      supabase: createSupabaseStub({
+        application: application({ status: 'Interview', interview: structuredInterview({ meetingUrl: '' }) }),
+      }),
+      fetchImpl: fetchStub.impl,
+    });
+    expect(body).toMatchObject({ ok: true, repaired: 'relinked', meetingUrl: 'https://meet.google.com/new-link' });
+    const patches = googleCalls(fetchStub).filter((call) => call.method === 'PATCH');
+    expect(patches).toHaveLength(2);
+    expect(JSON.parse(patches[1].body).conferenceData.createRequest.conferenceSolutionKey)
+      .toEqual({ type: 'hangoutsMeet' });
+  });
+
+  it('reports a failed removal instead of pretending the event is gone', async () => {
+    const fetchStub = createFetchStub({ deleteFailure: 500 });
+    const supabase = createSupabaseStub({
+      application: application({ status: 'Interview', interview: structuredInterview() }),
+    });
+    const { body } = await handleInterviewEvent({
+      action: 'cancel',
+      payload: { applicationId: APP_ID, eventId: 'evt-1' },
+      config,
+      supabase,
+      fetchImpl: fetchStub.impl,
+    });
+    expect(body).toMatchObject({ ok: false, configured: true });
+    expect(supabase.writes.some((write) => write.kind === 'insert' && write.row.sync_state === 'failed')).toBe(true);
   });
 });
 

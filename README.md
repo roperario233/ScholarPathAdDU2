@@ -465,7 +465,10 @@ supabase functions deploy manage-interview-event --no-verify-jwt
 (`xxxx@group.calendar.google.com`). Never a `VITE_` variable, and never a URL.
 
 The Interview tab shows the connection state, with **Check connection** and
-**Repair calendar event**.
+**Repair calendar event**. Repair reconciles Google against the saved interview:
+it creates an event that never landed, patches one that drifted, deletes a
+duplicate, removes the event of a cancelled interview whose delete failed, and
+attaches a Meet conference to an online event that has none.
 
 ### 4. The 7-day refresh token
 
@@ -490,6 +493,8 @@ and scheduling still works with a pasted meeting link.
 | `calendar_forbidden` | the account has read-only access | re-share with *Make changes to events* |
 | `insufficient_scope` | the token was minted without `calendar.events` | re-consent |
 | a Meet link never appears | Google reported the conference as pending | use **Repair calendar event**, or paste a link |
+| two events at the same time | a cancel could not reach Google, so the next schedule created a second one | delete the orphan in Google Calendar once, then **Repair calendar event** (it attaches a real Meet link and sweeps any tracked duplicate) |
+| the calendar event shows a link but the app says *No meeting link* | the event was rebuilt from a reused link and owns no conference | **Repair calendar event** attaches one |
 
 If the calendar stays unreachable, set `GOOGLE_CALENDAR_ID=primary` and retry: a
 success proves the credentials are fine and the calendar id is the problem.

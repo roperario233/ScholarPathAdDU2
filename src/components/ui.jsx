@@ -1,3 +1,5 @@
+import { useRef } from 'react';
+
 const clsx = (...values) => values.flat(Infinity).filter(Boolean).join(' ');
 
 export const buttonClasses = {
@@ -88,9 +90,43 @@ export function EmptyState({ title, description, action, className = '' }) {
   );
 }
 
+/**
+ * The backdrop only dismisses a modal when the press and the click both land on
+ * the backdrop itself. A drag-select that starts inside the dialog and is released
+ * outside dispatches its `click` on the backdrop, which used to close the modal
+ * mid-selection.
+ */
+export const shouldDismissOverlay = ({ pressStartedOnOverlay, target, currentTarget }) =>
+  Boolean(pressStartedOnOverlay) && target === currentTarget;
+
 export function ModalShell({ title, closeLabel = 'Close', onClose, children, className = '', overlayClassName = '', ...props }) {
+  // A drag-select that starts on text inside the dialog and ends on the backdrop
+  // fires `click` on the backdrop — the nearest common ancestor of the press and
+  // the release — which used to dismiss the modal mid-selection (and with it the
+  // whole review modal underneath). The Meet link in the Interview tab was the
+  // usual casualty.
+  const pressStartedOnOverlay = useRef(false);
+  const markPress = (event) => {
+    pressStartedOnOverlay.current = event.target === event.currentTarget;
+  };
+  const handleOverlayClick = (event) => {
+    if (!onClose) return;
+    if (!shouldDismissOverlay({
+      pressStartedOnOverlay: pressStartedOnOverlay.current,
+      target: event.target,
+      currentTarget: event.currentTarget,
+    })) return;
+    pressStartedOnOverlay.current = false;
+    onClose();
+  };
   return (
-    <div className={clsx('modal-overlay', overlayClassName)} role="presentation" onClick={onClose}>
+    <div
+      className={clsx('modal-overlay', overlayClassName)}
+      role="presentation"
+      onPointerDown={markPress}
+      onMouseDown={markPress}
+      onClick={handleOverlayClick}
+    >
       <section className={clsx('rounded-app border bg-app-card p-5 shadow-app backdrop-blur', className)} role="dialog" aria-modal="true" aria-label={title || undefined} onClick={(event) => event.stopPropagation()} {...props}>
         {(title || onClose) && (
           <div className="card-header mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">

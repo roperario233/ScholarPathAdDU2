@@ -97,6 +97,17 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   const addMember = (member) => update({ panel: withLead([...draft.panel, { ...member, isLead: false }]) });
   const removeMember = (index) => update({ panel: withLead(draft.panel.filter((_, position) => position !== index)) });
   const setLead = (index) => update({ panel: draft.panel.map((member, position) => ({ ...member, isLead: position === index })) });
+  // The meeting field is a choice now that the integration can create the link:
+  // "auto" leaves it blank so Google creates the conference, "paste" records a
+  // link the office already has. Whichever is unavailable says why, instead of the
+  // schedule failing at save time.
+  const [meetingChoice, setMeetingChoice] = useState(() => (String(draft.meetingUrl || '').trim() ? 'paste' : 'auto'));
+  const autoMeetingAvailable = Boolean(workspace.calendarConfigured);
+  const effectiveMeetingChoice = autoMeetingAvailable ? meetingChoice : 'paste';
+  const chooseMeeting = (next) => {
+    setMeetingChoice(next);
+    if (next === 'auto') update({ meetingUrl: '' });
+  };
 
   return (
     <div className="grid gap-4">
@@ -163,26 +174,52 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             </span>
           ) : null}
           {show('locationId')}
+          <span className="text-xs text-app-muted">No Meet link is created for an on-site interview. Switching an online interview to on-site replaces its calendar event.</span>
         </div>
       ) : (
-        <label className="grid content-start gap-1 text-sm text-app-text">
-          <span className="font-semibold">Meeting link</span>
-          <input
-            type="url"
-            inputMode="url"
-            value={draft.meetingUrl}
-            onChange={(event) => update({ meetingUrl: event.target.value })}
-            placeholder={workspace.calendarConfigured ? 'Leave blank to generate a Google Meet link' : 'https://meet.google.com/…'}
-          />
-          <span className="text-xs text-app-muted">
-            {workspace.calendarConfigured
-              ? 'Leave this blank and a Google Meet link and calendar invitation are created when the schedule is saved.'
-              : workspace.calendarReauthRequired
-                ? 'The Google Calendar authorization expired, so a link is required. Re-authorize the office account to restore automatic Meet links.'
-                : 'Paste a Google Meet, Zoom, or Microsoft Teams link (https://). Automatic Meet links need the Google Calendar integration.'}
-          </span>
-          {show('meetingUrl')}
-        </label>
+        <div className="grid gap-2">
+          <fieldset className="grid gap-1">
+            <legend className="text-sm font-semibold text-app-text">Meeting</legend>
+            <div role="radiogroup" aria-label="Meeting link source" className="inline-flex w-fit rounded-xl border border-app-border bg-app-surface p-1">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={effectiveMeetingChoice === 'auto'}
+                disabled={!autoMeetingAvailable}
+                onClick={() => chooseMeeting('auto')}
+                className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 ${effectiveMeetingChoice === 'auto' ? 'bg-ateneo text-white shadow-sm' : 'text-app-muted hover:text-app-text'}`}
+              >Generate a Google Meet link</button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={effectiveMeetingChoice === 'paste'}
+                onClick={() => chooseMeeting('paste')}
+                className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${effectiveMeetingChoice === 'paste' ? 'bg-ateneo text-white shadow-sm' : 'text-app-muted hover:text-app-text'}`}
+              >Use an existing link</button>
+            </div>
+            <span className="text-xs text-app-muted">
+              {autoMeetingAvailable
+                ? `The link and the calendar invitation are created when the schedule is saved${workspace.calendarSummary ? ` on ${workspace.calendarSummary}` : ''}.`
+                : workspace.calendarReauthRequired
+                  ? 'The Google Calendar authorization expired, so a link has to be pasted. Re-authorize the office account to restore automatic Meet links.'
+                  : 'Automatic Meet links need the Google Calendar integration. Paste a Google Meet, Zoom, or Microsoft Teams link instead.'}
+            </span>
+          </fieldset>
+          {effectiveMeetingChoice === 'auto' ? null : (
+            <label className="grid content-start gap-1 text-sm text-app-text">
+              <span className="font-semibold">Meeting link</span>
+              <input
+                type="url"
+                inputMode="url"
+                value={draft.meetingUrl}
+                onChange={(event) => update({ meetingUrl: event.target.value })}
+                placeholder="https://meet.google.com/..."
+              />
+              <span className="text-xs text-app-muted">Paste the joining link. It is written into the calendar invitation and no Meet conference is created.</span>
+              {show('meetingUrl')}
+            </label>
+          )}
+        </div>
       )}
 
       <section className="grid gap-2" aria-labelledby="interview-panel-heading">
@@ -262,13 +299,51 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   );
 }
 
+function CopyButton({ value, label = 'Copy', copiedLabel = 'Copied' }) {
+  const [copied, setCopied] = useState(false);
+  if (!value) return null;
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(value);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          // Clipboard access can be blocked; the value stays selectable.
+        }
+      }}
+    >{copied ? copiedLabel : label}</Button>
+  );
+}
+
 function ScheduleSummary({ application, interview, panel, scholarshipTitle, recorderName }) {
   const templateUrl = buildGoogleCalendarTemplateUrl({ interview, scholarshipTitle });
+  // What the provider actually holds for this interview. `removedAt` is null on a
+  // cancelled interview whose Google event could not be deleted, which is exactly
+  // the state the repair action exists for.
+  const calendar = interview.calendar || null;
+  const calendarLive = Boolean(calendar?.eventId) && interview.state !== 'cancelled';
+  const removalPending = interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt;
+  const calendarRemoved = interview.state === 'cancelled' && Boolean(calendar?.removedAt);
+  const linkMissing = interview.state === 'scheduled' && interview.mode === 'online' && !interview.meetingUrl;
+  const inviteText = [
+    `Scholarship interview${scholarshipTitle ? ` · ${scholarshipTitle}` : ''}`,
+    formatInterviewWhen(interview.startsAt, interview.durationMinutes),
+    interview.mode === 'online' ? (interview.meetingUrl || 'Link to follow') : interview.locationLabel,
+    interview.instructions,
+  ].filter(Boolean).join('\n');
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge tone={stateTone(interview.state)}>{getInterviewStateLabel(interview.state)}</StatusBadge>
         <StatusBadge tone="neutral">{getInterviewModeLabel(interview.mode)}</StatusBadge>
+        {calendarLive ? <StatusBadge tone="success">In Google Calendar</StatusBadge> : null}
+        {removalPending ? <StatusBadge tone="warning">Calendar event still live</StatusBadge> : null}
+        {calendarRemoved ? <StatusBadge tone="neutral">Calendar event removed</StatusBadge> : null}
+        {linkMissing ? <StatusBadge tone="warning">No meeting link</StatusBadge> : null}
         {(Number(interview.revision) || 1) > 1 ? <span className="text-xs text-app-muted">Revision {interview.revision}</span> : null}
       </div>
       <dl className="m-0 grid gap-3 sm:grid-cols-2">
@@ -278,10 +353,23 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
         </div>
         <div className="grid gap-0.5">
           <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{interview.mode === 'online' ? 'Meeting link' : 'Location'}</dt>
-          <dd className="m-0 min-w-0 break-words text-sm text-app-text">
-            {interview.mode === 'online'
-              ? (interview.meetingUrl ? <a href={interview.meetingUrl} target="_blank" rel="noreferrer" className="font-semibold underline underline-offset-2">{interview.meetingUrl}</a> : 'Link to follow')
-              : (interview.locationLabel || 'Location to be announced')}
+          <dd className="m-0 min-w-0 text-sm text-app-text">
+            {interview.mode === 'online' ? (
+              interview.meetingUrl ? (
+                <span className="flex min-w-0 flex-wrap items-center gap-2">
+                  <input
+                    readOnly
+                    value={interview.meetingUrl}
+                    aria-label="Meeting link"
+                    className="min-w-0 flex-1"
+                    onFocus={(event) => event.target.select()}
+                  />
+                  <CopyButton value={interview.meetingUrl} label="Copy link" copiedLabel="Link copied" />
+                </span>
+              ) : (
+                <span className="text-app-muted">No link yet. Repair the calendar event to create one.</span>
+              )
+            ) : (interview.locationLabel || 'Location to be announced')}
           </dd>
         </div>
         <div className="grid gap-0.5 sm:col-span-2">
@@ -295,6 +383,15 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
           </div>
         ) : null}
       </dl>
+      <p className="m-0 text-xs text-app-muted">
+        {calendarLive
+          ? 'The applicant and the panel were invited through Google Calendar. Panel members stay hidden from the applicant.'
+          : removalPending
+            ? 'The interview is cancelled but its Google Calendar event could not be removed. Use Repair calendar event to delete it.'
+            : interview.state === 'cancelled'
+              ? 'The Google Calendar event for this interview was removed.'
+              : 'No calendar invitation was sent. Share the meeting link or the .ics file directly.'}
+      </p>
       {interview.outcomeRecordedAt ? (
         <p className="m-0 text-xs text-app-muted">
           Recorded as {getInterviewStateLabel(interview.state).toLowerCase()} by {recorderName || roleLabels[interview.outcomeRecordedRole] || 'the panel'}{interview.outcomeRecordedRole && recorderName ? ` · ${roleLabels[interview.outcomeRecordedRole] || ''}` : ''} · {fmtWhen(interview.outcomeRecordedAt)}
@@ -307,6 +404,7 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
           ) : templateUrl ? (
             <a href={templateUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-3 text-sm font-semibold text-app-text">Add to Google Calendar</a>
           ) : null}
+          <CopyButton value={inviteText} label="Copy invitation" copiedLabel="Invitation copied" />
           <Button type="button" onClick={() => downloadInterviewIcs({ interview, scholarshipTitle, applicationId: application.id })}>Download .ics</Button>
         </div>
       ) : null}
@@ -446,7 +544,11 @@ export default function InterviewPanel({
       if (result.errors) onShowErrors?.();
       return false;
     }
-    setFeedback({ tone: 'success', message: successMessage });
+    // A cancellation still succeeds when the Google event could not be removed;
+    // the warning has to reach the reviewer instead of reading as a clean save.
+    setFeedback(result?.warning
+      ? { tone: 'error', message: `${successMessage} ${result.warning}` }
+      : { tone: 'success', message: successMessage });
     return true;
   };
 

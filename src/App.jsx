@@ -1583,7 +1583,12 @@ function App() {
         record = {
           ...record,
           meetingUrl: record.mode === 'online' ? (record.meetingUrl || eventResult.meetingUrl || '') : '',
-          calendar: { provider: 'google', eventId: eventResult.eventId, htmlLink: eventResult.htmlLink || '' },
+          calendar: {
+            provider: 'google',
+            eventId: eventResult.eventId,
+            htmlLink: eventResult.htmlLink || '',
+            removedAt: null,
+          },
         };
       } else if (wantsAutoMeeting) {
         return { error: `The Google Meet link could not be generated (${eventResult?.reason || eventResult?.error || 'calendar service unavailable'}). Paste a meeting link instead.` };
@@ -1673,12 +1678,33 @@ function App() {
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the interview could not be saved.' };
     }
-    // The Google event is deleted below, so the record forgets it; scheduling
-    // again creates a new event instead of updating a deleted one.
-    const record = { ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason: trimmedReason }), calendar: null };
+    // The provider event is removed before the record forgets it. Deleting first
+    // means the Edge Function still sees the id it has to remove, and a failed
+    // delete leaves `calendar.removedAt` null so the tab can offer a repair —
+    // instead of silently orphaning an event that keeps its invitation and Meet
+    // link while the next schedule creates a second one.
+    const calendar = application.interview.calendar || null;
+    const eventId = String(calendar?.eventId || '').trim();
+    let removedAt = null;
+    let removalError = '';
+    if (eventId) {
+      const removal = await invokeSupabaseInterviewEvent({
+        action: 'cancel',
+        applicationId,
+        eventId,
+      }).catch(() => null);
+      if (removal?.ok) removedAt = new Date().toISOString();
+      else removalError = removal?.reason || removal?.error || 'The Google Calendar event could not be removed.';
+    }
+    const record = {
+      ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason: trimmedReason }),
+      calendar: eventId
+        ? { provider: calendar?.provider || 'google', eventId, htmlLink: calendar?.htmlLink || '', removedAt }
+        : null,
+    };
     const result = await writeInterviewRecord(application, record, `Interview cancelled: ${trimmedReason}.`);
-    if (result.ok && application.interview.calendar?.eventId) {
-      invokeSupabaseInterviewEvent({ action: 'cancel', applicationId, eventId: application.interview.calendar.eventId }).catch(() => undefined);
+    if (!result.error && eventId && !removedAt) {
+      return { ...result, warning: `${removalError} Use Repair calendar event to remove it.` };
     }
     return result;
   };
@@ -1716,10 +1742,25 @@ function App() {
       return { error: result?.reason || 'The calendar event could not be repaired.' };
     }
     if (result.repaired === 'deleted' || result.calendar === null) {
+      // A cancelled interview's event is gone: stamp the record so the tab stops
+      // offering a repair for it.
+      if (result.repaired === 'deleted' && application.interview.calendar) {
+        const stamped = {
+          ...application.interview,
+          calendar: {
+            ...application.interview.calendar,
+            provider: 'google',
+            removedAt: new Date().toISOString(),
+          },
+        };
+        const written = await writeInterviewRecord(application, stamped, 'Calendar event removed after the interview was cancelled.');
+        if (written.error) return written;
+      }
+      const removedCount = Number(result.removed) || 0;
       return {
         ok: true,
         message: result.repaired === 'deleted'
-          ? 'The calendar event for the cancelled interview was removed.'
+          ? `Removed ${removedCount || 1} calendar event${(removedCount || 1) === 1 ? '' : 's'} for the cancelled interview.`
           : 'Nothing needed repairing.',
       };
     }
@@ -1728,11 +1769,15 @@ function App() {
       meetingUrl: application.interview.mode === 'online'
         ? (application.interview.meetingUrl || result.meetingUrl || '')
         : '',
-      calendar: result.calendar,
+      calendar: { ...(result.calendar || {}), removedAt: null },
     };
     const written = await writeInterviewRecord(application, record, `Calendar event ${result.repaired}: ${summarizeInterview(record)}.`);
     if (written.error) return written;
-    return { ok: true, message: `The calendar event was ${result.repaired}.` };
+    const swept = Number(result.removed) > 0
+      ? ` Removed ${result.removed} duplicate event${Number(result.removed) === 1 ? '' : 's'}.`
+      : '';
+    const label = result.repaired === 'relinked' ? 'repaired with a new Meet link' : result.repaired;
+    return { ok: true, message: `The calendar event was ${label}.${swept}` };
   };
 
   // Attendance is recorded by a Department Chair on the panel, or by the

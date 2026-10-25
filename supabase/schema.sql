@@ -1327,21 +1327,25 @@ create unique index if not exists application_interview_panelists_active_account
   where removed_at is null and profile_id is not null;
 create index if not exists application_interview_panelists_profile_idx
   on public.application_interview_panelists (profile_id);
--- The durable provider-side mirror of an interview's calendar event. The app
+-- The durable provider-side history of an interview's calendar events. The app
 -- reads `applications.interview.calendar`, which is cleared when an interview is
--- cancelled; this row keeps the provider event id so a create or cancel that
--- failed can still be found and repaired. RLS is enabled with no policies: only
--- the manage-interview-event Edge Function (service role) reads or writes it.
--- Applied to the deployed project by the migration
--- supabase/migrations/20261030000000_add_interview_calendar_events.sql.
+-- cancelled; these rows keep every provider event id, so a create or cancel that
+-- failed can still be found, repaired, and swept. `is_current` marks the event the
+-- record points at. RLS is enabled with no policies: only the
+-- manage-interview-event Edge Function (service role) reads or writes it.
+-- Applied to the deployed project by the migrations
+-- supabase/migrations/20261030000000_add_interview_calendar_events.sql and
+-- supabase/migrations/20261031000000_interview_calendar_event_history.sql.
 create table if not exists public.interview_calendar_events (
-  application_id uuid primary key references public.applications(id) on delete cascade,
+  ledger_id bigserial primary key,
+  application_id uuid not null references public.applications(id) on delete cascade,
   provider text not null default 'google',
   calendar_id text not null,
   event_id text,
   html_link text,
   meet_url text,
   revision int,
+  is_current boolean not null default true,
   sync_state text not null default 'synced'
     check (sync_state in ('synced', 'failed', 'cancelled')),
   last_error text,
@@ -1351,6 +1355,13 @@ create table if not exists public.interview_calendar_events (
 );
 comment on table public.interview_calendar_events is
   'Durable provider-side record of an interview calendar event. Written by the manage-interview-event Edge Function only; survives a cleared applications.interview.calendar so a failed create or cancel can be found and repaired.';
+comment on column public.interview_calendar_events.is_current is
+  'True for the provider event applications.interview.calendar points at; false for a superseded or failed event that is still tracked so the repair action can sweep it.';
+create unique index if not exists interview_calendar_events_current_idx
+  on public.interview_calendar_events (application_id)
+  where is_current;
+create index if not exists interview_calendar_events_application_idx
+  on public.interview_calendar_events (application_id, updated_at desc);
 create index if not exists interview_calendar_events_failed_idx
   on public.interview_calendar_events (updated_at desc)
   where sync_state = 'failed';

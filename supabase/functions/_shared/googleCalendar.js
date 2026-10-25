@@ -313,6 +313,31 @@ export const upsertGoogleInterviewEvent = async ({ config, accessToken, event, e
 };
 
 /**
+ * Attaches a Meet conference to an event that has none.
+ *
+ * A schedule created from a reused or pasted link carries that link in its
+ * `location` but no `conferenceData`, so `extractMeetLink` has nothing to read and
+ * the interview record ends up with no link of its own. This is the repair that
+ * gives such an event a real conference. `conferenceDataVersion: 1` is required
+ * for any conference write, a PATCH merges the field into the existing event, and
+ * the deterministic request id makes a retry idempotent.
+ */
+export const ensureGoogleMeetConference = async ({ config, accessToken, eventId, requestId, fetchImpl = fetch }) => {
+  if (!eventId || !requestId) {
+    return { ok: false, code: GOOGLE_CODES.ERROR, error: 'An event id and a request id are required.' };
+  }
+  const saved = await upsertGoogleInterviewEvent({
+    config,
+    accessToken,
+    eventId,
+    fetchImpl,
+    event: { conferenceData: { createRequest: { requestId, conferenceSolutionKey: { type: 'hangoutsMeet' } } } },
+  });
+  if (!saved.ok) return saved;
+  return { ok: true, eventId: saved.eventId, htmlLink: saved.htmlLink, meetingUrl: saved.meetingUrl };
+};
+
+/**
  * Deletes the interview event. An event that is already gone (404/410) counts as
  * cancelled, so retrying a delete is safe.
  */
@@ -346,15 +371,16 @@ export const getGoogleInterviewEvent = async ({ config, accessToken, eventId, fe
 };
 
 /**
- * Finds the event this application already owns, through the private extended
- * properties written by buildGoogleInterviewEvent. This is the repair path: it
- * works even when the stored event id was lost.
+ * Every event this application owns, found through the private extended
+ * properties written by buildGoogleInterviewEvent. Returning all of them (not
+ * just the first) is what lets a repair sweep a duplicate instead of adopting one
+ * match and leaving the other live.
  */
-export const findGoogleInterviewEvent = async ({ config, accessToken, applicationId, fetchImpl = fetch }) => {
+export const findGoogleInterviewEvents = async ({ config, accessToken, applicationId, fetchImpl = fetch }) => {
   const result = await requestGoogle({
     url: eventsUrl(config, '', {
       privateExtendedProperty: `scholarpathApplicationId=${applicationId}`,
-      maxResults: '10',
+      maxResults: '20',
     }),
     init: { headers: { Authorization: `Bearer ${accessToken}` } },
     fetchImpl,
@@ -372,8 +398,20 @@ export const findGoogleInterviewEvent = async ({ config, accessToken, applicatio
   } catch {
     body = null;
   }
-  const items = Array.isArray(body?.items) ? body.items.filter((item) => item?.status !== 'cancelled') : [];
-  return { ok: true, event: items[0] || null };
+  const events = Array.isArray(body?.items)
+    ? body.items.filter((item) => item?.status !== 'cancelled' && item?.id)
+    : [];
+  return { ok: true, events };
+};
+
+/**
+ * The first event this application owns. Kept for the callers that only need to
+ * answer "does this application already have an event?".
+ */
+export const findGoogleInterviewEvent = async (params) => {
+  const found = await findGoogleInterviewEvents(params);
+  if (!found.ok) return found;
+  return { ok: true, event: found.events[0] || null };
 };
 
 /**
