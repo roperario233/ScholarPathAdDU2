@@ -3,10 +3,10 @@ import { areDocumentsReviewable, describeStatusActor } from './applicationRequir
 import { isAdduInternalProgram } from './eligibility';
 
 // The Admissions Office workspace is split into one route per function
-// (overview, application review, catalog management, results release, and
+// (dashboard, application review, catalog management, results release, and
 // announcements) and two accountability lanes: Staff prepare a case, the Head
 // decides it. These selectors keep every derivation out of the pages so the
-// queues, the overview metrics, and the dashboard count all read one source and
+// queues, the dashboard metrics, and the review count all read one source and
 // can be unit-tested without a DOM.
 
 const asList = (value) => (Array.isArray(value) ? value : []);
@@ -26,9 +26,9 @@ const REVIEW_STAGE_TABS = {
 export const getReviewStageTab = (status) => REVIEW_STAGE_TABS[status] || 'overview';
 
 // Applications that still need a Staff or Department Chair action. It reads the
-// same exclusion list as countApplicationsToReview(), so the overview, the
-// review queue, and the dashboard can never show different numbers for the same
-// data. Approval and release leave this queue for the Head's lane.
+// same exclusion list as countApplicationsToReview(), so the Dashboard and the
+// review queue can never show different numbers for the same data. Approval and
+// release leave this queue for the Head's lane.
 export const getReviewQueue = (applications = []) => asList(applications)
   .filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status));
 

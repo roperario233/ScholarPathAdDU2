@@ -1,11 +1,11 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole } from './lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
@@ -107,11 +107,13 @@ const normalizeRole = (role) => {
   return ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(role) ? role : 'student';
 };
 
-const landingViewForRole = (role) => (isAdmissionsStaffRole(role)
-  ? 'admin-review'
-  : isAdmissionsHeadRole(role)
-    ? 'admin'
-    : role === 'department_chair' ? 'review' : 'dashboard');
+// Both Admissions Office lanes land on the office Dashboard (the `admin` route),
+// and the review queue sits directly under it as the first work queue. A
+// Department Chair lands on the department review queue and a student on the
+// student dashboard. There is no separate role dashboard beside these pages.
+const landingViewForRole = (role) => (isAdmissionsReviewerRole(role)
+  ? 'admin'
+  : role === 'department_chair' ? 'review' : 'dashboard');
 
 // A student profile is complete enough for matching once the core academic
 // fields and the onboarding eligibility essentials are all recorded. `profile`
@@ -2396,25 +2398,26 @@ function App() {
     || !studentMatchProfile.citizenship
   );
 
-  // The Admissions Office workspace is split into one route per function, shown
-  // as a labeled group so the page navigation stays scannable. Both lanes read
-  // the overview and the review queue; only the Head manages the catalog,
-  // announcements, and the approval/release decisions.
+  // The Admissions Office workspace is split into one route per function. Both
+  // lanes read the Dashboard and the review queue; only the Head manages the
+  // catalog, announcements, and the approval/release decisions.
   const isAdmissionsHead = isAdmissionsHeadRole(state.viewerRole);
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
-      { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
-      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
-      { view: 'admin-interviews', label: 'Interviews', group: 'Admissions Office', visible: true },
-      { view: 'admin-calendar', label: 'Calendar', group: 'Admissions Office', visible: true },
-      { view: 'admin-release', label: 'Recommendation and release', group: 'Admissions Office', visible: isAdmissionsHead },
-      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: isAdmissionsHead },
-      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: isAdmissionsHead },
+      { view: 'admin', label: 'Dashboard', visible: true },
+      { view: 'admin-review', label: 'Review queue', visible: true },
+      { view: 'admin-interviews', label: 'Interviews', visible: true },
+      { view: 'admin-calendar', label: 'Calendar', visible: true },
+      { view: 'admin-release', label: 'Recommendation and release', visible: isAdmissionsHead },
+      { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
+      { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
     ]
     : [];
 
+  // Dashboard belongs to the student only: each staff, head, and Chair role has
+  // its own landing workspace (the office Dashboard, or Department Review).
   const navigationItems = [
-    { view: 'dashboard', label: 'Dashboard', visible: true },
+    { view: 'dashboard', label: 'Dashboard', visible: state.viewerRole === 'student' },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
@@ -2427,32 +2430,21 @@ function App() {
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => {
-    let renderedGroup = null;
-    return (
-      <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
-        {navigationItems.map((item) => {
-          const groupHeading = item.group && item.group !== renderedGroup ? item.group : null;
-          renderedGroup = item.group || null;
-          return (
-            <Fragment key={item.view}>
-              {groupHeading && (
-                <span className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-app-muted">{groupHeading}</span>
-              )}
-              <button
-                type="button"
-                className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
-                onClick={() => navigate(item.view)}
-                aria-current={state.activeView === item.view ? 'page' : undefined}
-              >
-                {item.label}
-              </button>
-            </Fragment>
-          );
-        })}
-      </nav>
-    );
-  };
+  const renderNavigation = (className = '') => (
+    <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
+      {navigationItems.map((item) => (
+        <button
+          key={item.view}
+          type="button"
+          className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
+          onClick={() => navigate(item.view)}
+          aria-current={state.activeView === item.view ? 'page' : undefined}
+        >
+          {item.label}
+        </button>
+      ))}
+    </nav>
+  );
 
   if (isBooting || !isSessionChecked) {
     return (
@@ -2625,11 +2617,10 @@ function App() {
         </aside>
 
         <section className="blue-action-view grid min-w-0 gap-5">
-          {state.activeView === 'dashboard' && (
+          {state.viewerRole === 'student' && state.activeView === 'dashboard' && (
             <DashboardViewPage
               profile={currentIdentity}
               isFirstLogin={state.showFirstLoginWelcome}
-              stats={stats}
               applications={studentApplications}
               scholarships={scholarshipCatalog}
               customDeadlines={state.customDeadlines}
@@ -2648,16 +2639,7 @@ function App() {
               onMarkRead={markNotificationRead}
               onShowApplications={() => navigate('applications')}
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
-              onOpenCalendar={() => navigate(
-                state.viewerRole === 'department_chair'
-                  ? 'chair-calendar'
-                  : isAdmissionsReviewerRole(state.viewerRole) ? 'admin-calendar' : 'calendar',
-              )}
-              onOpenInterviews={() => navigate(state.viewerRole === 'department_chair' ? 'chair-interviews' : 'admin-interviews')}
-              onOpenAdmin={() => navigate('admin')}
-              onOpenAdminReview={() => navigate('admin-review')}
-              onOpenRelease={() => navigate('admin-release')}
-              onOpenReview={() => navigate('review')}
+              onOpenCalendar={() => navigate('calendar')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
             />

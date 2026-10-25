@@ -9,7 +9,7 @@ import { fmtDate } from '../../lib/formatters';
 // The Admissions Office landing route. It carries only the metrics that steer the
 // day's work, the links into each functional workspace, and the cross-cutting
 // activity feed, so the queues and forms live on their own routes. Both lanes
-// share the overview; only the Head sees the approval, release, and policy
+// share the dashboard; only the Head sees the approval, release, and policy
 // workspaces and metrics.
 const workspaces = [
   {
@@ -74,7 +74,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
   return (
     <div className="grid gap-5">
       <AdminPageHeader
-        title={isHead ? 'Admissions Office Head overview' : 'Admissions Office overview'}
+        title={isHead ? 'Admissions Office Head dashboard' : 'Admissions Office dashboard'}
         description={isHead
           ? 'Run the full Standard Procedure when needed: prepare cases, approve recommendations, release approved results, and maintain the office catalog and announcements.'
           : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to decide.'}
