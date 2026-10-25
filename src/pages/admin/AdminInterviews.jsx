@@ -91,7 +91,6 @@ export default function AdminInterviews({
   })();
   const groups = groupInterviewsByDate(visibleEntries);
   const showScheduleList = filter === 'needs-scheduling';
-  const shownCount = showScheduleList ? needsSchedule.length : visibleEntries.length;
 
   const recordOutcome = async (applicationId, outcome) => {
     setBusyId(applicationId);
@@ -140,30 +139,28 @@ export default function AdminInterviews({
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="m-0 text-sm font-semibold text-app-text">
-          {shownCount} interview{shownCount === 1 ? '' : 's'}
-        </p>
-        <div className="w-full max-w-[14rem]">
-          <select
-            value={filter}
-            onChange={(event) => setFilter(event.target.value)}
-            aria-label="Filter interviews"
-            className="min-h-10 w-full"
-          >
-            {FILTERS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <Card title="Interviews">
+      <Card
+        title="Interviews"
+        action={(
+          <div className="w-[13rem] max-w-full">
+            <select
+              value={filter}
+              onChange={(event) => setFilter(event.target.value)}
+              aria-label="Filter interviews"
+              className="min-h-10 w-full"
+            >
+              {FILTERS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}</option>)}
+            </select>
+          </div>
+        )}
+      >
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {showScheduleList ? (
             needsSchedule.length ? needsSchedule.map((entry) => (
               <ScheduleRow key={entry.id} application={entry} onOpen={setSelectedId} />
             )) : <EmptyState title="Nothing to schedule" />
           ) : groups.length ? groups.map((group) => (
-            <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey} entries={group.entries}>
+            <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>
               <div className="grid gap-3">
                 {group.entries.map((entry) => (
                   <InterviewRosterRow

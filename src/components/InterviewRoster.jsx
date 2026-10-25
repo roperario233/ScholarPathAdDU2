@@ -50,55 +50,50 @@ export function InterviewRosterRow({
     : (entry.locationLabel || 'Location to be announced');
 
   return (
-    <article className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+    <article className="grid gap-2 rounded-[14px] border border-app-border bg-app-surface p-3.5">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="truncate">{entry.studentName}</h3>
-          <p className="mt-1 text-sm text-app-muted">
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-base">{entry.studentName}</h3>
+          <p className="mt-0.5 text-sm text-app-muted">
             {entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}
           </p>
-          <p className="mt-1 text-xs text-app-muted">
+          <p className="mt-0.5 text-xs text-app-muted">
             {formatInterviewTimeRange(entry)} · {where}
           </p>
+          <p className="mt-0.5 truncate text-xs text-app-muted">
+            {describePanel(panel)}
+            {notesCount ? ` · ${notesCount} note${notesCount === 1 ? '' : 's'}` : ''}
+          </p>
         </div>
-        <div className="flex min-w-0 flex-wrap justify-end gap-1.5">
-          <StatusBadge tone={getInterviewStateTone(entry.state)}>{getInterviewStateLabel(entry.state)}</StatusBadge>
-          {outcomeDue && canRecordOutcome ? <StatusBadge tone="warning">Attendance due</StatusBadge> : null}
-          {entry.revision > 1 ? <StatusBadge tone="warning">Rescheduled</StatusBadge> : null}
-          {entry.status === 'Interview' && entry.state === 'scheduled' && !panel.length ? <StatusBadge tone="warning">No panel</StatusBadge> : null}
-          {!entry.live && entry.state === 'scheduled' ? <StatusBadge tone="neutral">Closed</StatusBadge> : null}
-          {yourRole === 'lead' ? <StatusBadge tone="info">Lead</StatusBadge> : null}
-          {yourRole === 'member' ? <StatusBadge tone="neutral">On panel</StatusBadge> : null}
-          {yourRole === 'observer' ? <StatusBadge tone="neutral">View only</StatusBadge> : null}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-        <span className="min-w-0 truncate text-xs text-app-muted">
-          {describePanel(panel)}
-          {notesCount ? ` · ${notesCount} note${notesCount === 1 ? '' : 's'}` : ''}
-        </span>
-        <div className="flex flex-wrap gap-2">
-          {canRecordOutcome && outcomeDue ? (
-            <>
-              <Button type="button" variant="primary" disabled={busy} onClick={() => onRecordOutcome?.(entry.applicationId, 'completed')}>Mark attended</Button>
-              <Button type="button" disabled={busy} onClick={() => onRecordOutcome?.(entry.applicationId, 'no_show')}>Mark did not attend</Button>
-            </>
-          ) : null}
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <StatusBadge tone={getInterviewStateTone(entry.state)}>{getInterviewStateLabel(entry.state)}</StatusBadge>
+            {outcomeDue && canRecordOutcome ? <StatusBadge tone="warning">Attendance due</StatusBadge> : null}
+            {entry.revision > 1 ? <StatusBadge tone="warning">Rescheduled</StatusBadge> : null}
+            {entry.status === 'Interview' && entry.state === 'scheduled' && !panel.length ? <StatusBadge tone="warning">No panel</StatusBadge> : null}
+            {!entry.live && entry.state === 'scheduled' ? <StatusBadge tone="neutral">Closed</StatusBadge> : null}
+            {yourRole === 'lead' ? <StatusBadge tone="info">Lead</StatusBadge> : null}
+            {yourRole === 'member' ? <StatusBadge tone="neutral">On panel</StatusBadge> : null}
+            {yourRole === 'observer' ? <StatusBadge tone="neutral">View only</StatusBadge> : null}
+          </div>
           <Button type="button" onClick={() => onOpen?.(entry.applicationId)}>{openLabel}</Button>
         </div>
       </div>
+
+      {canRecordOutcome && outcomeDue ? (
+        <div className="flex flex-wrap gap-2 border-t border-app-border pt-2">
+          <Button type="button" variant="primary" disabled={busy} onClick={() => onRecordOutcome?.(entry.applicationId, 'completed')}>Mark attended</Button>
+          <Button type="button" disabled={busy} onClick={() => onRecordOutcome?.(entry.applicationId, 'no_show')}>Mark did not attend</Button>
+        </div>
+      ) : null}
     </article>
   );
 }
 
-export function InterviewDayGroup({ dateKey, entries = [], children }) {
+export function InterviewDayGroup({ dateKey, children }) {
   return (
-    <section className="grid gap-3" aria-label={formatInterviewDay(dateKey)}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="m-0 text-sm font-semibold text-app-text">{formatInterviewDay(dateKey)}</h3>
-        <span className="text-xs text-app-muted">{entries.length} interview{entries.length === 1 ? '' : 's'}</span>
-      </div>
+    <section className="grid gap-2" aria-label={formatInterviewDay(dateKey)}>
+      <h3 className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-app-muted">{formatInterviewDay(dateKey)}</h3>
       {children}
     </section>
   );
