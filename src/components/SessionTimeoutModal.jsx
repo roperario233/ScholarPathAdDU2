@@ -28,7 +28,7 @@ export default function SessionTimeoutModal({ reason, expiresAt, warningMs = 60_
         </Button>
       </div>
       {reason === 'absolute' && (
-        <p className="mb-0 mt-3 text-xs text-app-muted">Continuing can reset the inactivity timer, but it cannot extend the maximum session duration. Sign in again after expiry.</p>
+        <p className="mb-0 mt-3 text-xs text-app-muted">Continuing does not extend the maximum session duration.</p>
       )}
     </ModalShell>
   );

@@ -162,7 +162,7 @@ function SupportingDocumentsBlock({ readiness, documents, attachedIds, busy, err
     <section className="grid gap-3 rounded-2xl border border-dashed border-app-border bg-app-surface/60 p-4" aria-label="Additional supporting documents">
       <div className="grid gap-1">
         <h4 className="m-0 text-sm font-bold text-app-text">Additional supporting documents (optional)</h4>
-        <p className="m-0 text-xs text-app-muted">Add other Document Vault files that support your application, such as proof of your profile answers. They are sent with your application but are not required to submit. To add a new file, upload it in the Document Vault first.</p>
+        <p className="m-0 text-xs text-app-muted">Optional Document Vault files that support your application. They do not block submission.</p>
       </div>
       {readiness.supportingDocuments.length ? (
         <ul className="m-0 grid gap-2 p-0">
@@ -337,7 +337,7 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'documents' && (
             <section className="grid gap-3" aria-label="Required documents">
-              <p className="m-0 text-sm text-app-muted">Attach one file for each requirement. Files you upload here are saved to your Document Vault so you can reuse them for other applications. A file that proves a profile answer must match what My Profile says now; if you change the answer, upload a new proof. A file pending review is enough to submit; the Admissions Office verifies it during document verification.</p>
+              <p className="m-0 text-sm text-app-muted">Attach one file per requirement. Uploads go to your Document Vault and can be reused.</p>
               {readiness.requirements.length ? (
                 <ul className="m-0 grid gap-3 p-0">
                   {readiness.requirements.map((requirement) => (
@@ -371,7 +371,7 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Profile snapshot">
-              <p className="m-0 text-sm text-app-muted">Everything listed here is sent with your application and frozen when you submit. The Admissions Office and your Department Chair see the same values. Update them in My Profile if anything has changed.</p>
+              <p className="m-0 text-sm text-app-muted">Frozen on submit. The Admissions Office and your Department Chair see these values.</p>
               <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} /></Panel>
               {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
@@ -391,9 +391,9 @@ export default function ApplicationWorkspaceModal({
                   maxLength={ESSAY_MAX_LENGTH}
                   value={statement}
                   onChange={(event) => { setStatement(event.target.value); setStatementMessage(''); }}
-                  placeholder="Describe your circumstances, goals, and how this scholarship would support your studies."
+              placeholder="Describe your circumstances, goals, and how this scholarship helps."
                 />
-                <small className="field-hint">Starts from the default scholarship statement in My Profile. Changes here apply only to this application unless you save them as your default. {statement.length}/{ESSAY_MAX_LENGTH}</small>
+                <small className="field-hint">Starts from your default statement. Changes apply to this application unless you save them as your default. {statement.length}/{ESSAY_MAX_LENGTH}</small>
               </label>
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="button" onClick={saveStatement} disabled={statement === (application.statement || '')}>Save draft</Button>

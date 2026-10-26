@@ -200,10 +200,10 @@ function SelectField({ label, hint, error, value, onChange, options, placeholder
 }
 
 const assignmentNote = {
-  student: 'Set automatically from your degree program in Academic profile.',
-  department_chair: 'Your assigned department scopes the Department Review workspace and the interview panel, and is managed by the Admissions Office.',
-  admissions_office: 'Admissions Office Staff lane: application preparation, document verification, and the hand-off for endorsement.',
-  admissions_head: 'Full Office of Admissions & Aid authority: preparation, verification, endorsement, approval, release, catalog, and announcements.',
+  student: 'Set from your degree program.',
+  department_chair: 'Managed by the Admissions Office.',
+  admissions_office: 'Application preparation, document verification, and the endorsement hand-off.',
+  admissions_head: 'All office authority, plus endorsement, approval, release, catalog, and announcements.',
 };
 
 // Both Admissions Office lanes belong to the central office, so the read-only
@@ -213,14 +213,14 @@ const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'adm
 // The year standing decides which answers an application reads, so the
 // overview says which credential the student is matched on.
 const standingNote = (standing) => {
-  if (standing.isIncomingFirstYear) return 'As an incoming first-year, you are matched on your senior high school general average. An AdDU student number and QPI are not asked until you enroll.';
-  if (standing.isContinuing) return 'As an enrolled student, you are matched on your annual QPI and identified by your AdDU student number.';
-  return 'Choose your year standing in Academic profile to see the items that apply to you.';
+  if (standing.isIncomingFirstYear) return 'Matched on your senior high school general average.';
+  if (standing.isContinuing) return 'Matched on your annual QPI.';
+  return 'Choose your year standing in Academic profile.';
 };
 
 const completenessGroupNotes = {
-  application: 'Complete these before you can start an AdDU application. The Smart Eligibility Checker reads them, each submission saves them in your profile snapshot, and each application needs a current proof of them from your Document Vault.',
-  details: 'Not required to apply, but every answer except your mobile number is included in the profile snapshot of each application you submit, which the Admissions Office and your Department Chair review. A mobile number enables SMS reminders.',
+  application: 'Required to start an application. Each answer needs a current proof in your Document Vault.',
+  details: 'Included in every application you submit. A mobile number enables SMS reminders.',
 };
 
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
@@ -270,7 +270,7 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
   const intro = total
     ? `Required by open AdDU scholarships${audience}. Upload each once and reuse it.`
     : scholarships.length
-      ? 'The open scholarships list no required documents.'
+      ? 'No required documents listed.'
       : 'No AdDU internal scholarship is open right now.';
   return (
     <Card
@@ -413,7 +413,7 @@ function ProfilePhotoCard({ fullName = '', avatar = {}, isSaving = false, onChan
           <div className="grid gap-1">
             <strong className="text-sm font-bold text-app-text">Profile photo</strong>
             <p className="m-0 text-sm text-app-muted">
-              This photo appears in your header and on My Profile. It is not sent with your applications: each application has its own 2x2 ID photo requirement, which the Admissions Office verifies.
+              This photo appears in your header and on My Profile. It is not sent with applications.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -467,7 +467,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   const { values, errors, update } = form;
 
   return (
-    <SectionForm title="Personal information" description={isStudent ? 'How your name and contact details appear across ScholarPath. Your name, religion, and civil status are included in each application you submit.' : 'How your name and contact details appear across ScholarPath.'} form={form}>
+    <SectionForm title="Personal information" description={isStudent ? 'Your name, religion, and civil status are included in each application.' : 'Your name and contact details across ScholarPath.'} form={form}>
       <ProfilePhotoCard
         fullName={values.fullName || profile.fullName}
         avatar={avatar}
@@ -479,18 +479,18 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField label="Full name" error={errors.fullName}>
           <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
         </FormField>
-        <FormField label="Mobile number" hint="Optional. SMS deadline reminders use this Philippine mobile number when SMS notifications are on in Settings." error={errors.phone}>
+        <FormField label="Mobile number" hint="Optional. Used for SMS reminders." error={errors.phone}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
-        {isStudent && <SelectField label="Religion" hint="Optional. Included in each application you submit; choose “Prefer not to say” to leave it out." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
+        {isStudent && <SelectField label="Religion" hint="Optional. Included in each application." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
         {isStudent && <SelectField label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} />}
       </div>
       <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
         <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
       </FormField>
       {isStudent && (
-        <FormField label="Default scholarship statement" hint={`Optional. Prefills the statement of each new application, where you can tailor it per scholarship. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
-          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances. This becomes the starting statement for your applications." aria-invalid={Boolean(errors.essay)} />
+        <FormField label="Default scholarship statement" hint={`Optional. Prefills each new application. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
+          <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances." aria-invalid={Boolean(errors.essay)} />
         </FormField>
       )}
       <div className="grid gap-3 md:grid-cols-2">
@@ -516,14 +516,14 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
   });
   const { values, errors, update } = form;
   return (
-    <SectionForm title="Address" description="Where ScholarPath can reach you for scholarship correspondence. Your addresses are included in each application you submit." form={form}>
+    <SectionForm title="Address" description="Included in each application you submit." form={form}>
       <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
       </FormField>
       <FormField label="Country" hint={`Up to ${COUNTRY_MAX_LENGTH} characters.`} error={errors.country}>
         <input className={controlClass} value={values.country} onChange={(event) => update({ country: event.target.value.slice(0, COUNTRY_MAX_LENGTH) })} autoComplete="country-name" aria-invalid={Boolean(errors.country)} />
       </FormField>
-      <SettingToggle checked={values.sameAsCompleteAddress} onChange={(checked) => update({ sameAsCompleteAddress: checked })} title="Residing address is the same as my complete address" description="Turn this off to enter a different address where you currently reside." />
+      <SettingToggle checked={values.sameAsCompleteAddress} onChange={(checked) => update({ sameAsCompleteAddress: checked })} title="Residing address is the same as my complete address" description="Turn off to enter a different address." />
       {!values.sameAsCompleteAddress && (
         <FormField label="Residing address" error={errors.residingAddress}>
           <textarea className="min-h-24" value={values.residingAddress} onChange={(event) => update({ residingAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.residingAddress)} />
@@ -549,7 +549,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   const family = values.familyDetails;
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } });
   return (
-    <SectionForm title="Family details" description="Family composition supports household-income and dependent-based financial aid review, and is included in each application you submit." form={form}>
+    <SectionForm title="Family details" description="Supports household-income and dependent-based review. Included in each application." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Father's name" error={errors.fatherName}><input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} /></FormField>
         <FormField label="Father's occupation" error={errors.fatherOccupation}><input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} /></FormField>
@@ -611,19 +611,19 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   };
 
   return (
-    <SectionForm title="Academic profile" description="Your enrollment details drive degree-specific matching in the Smart Eligibility Checker." form={form}>
+    <SectionForm title="Academic profile" description="Drives degree-specific matching in the Smart Eligibility Checker." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value }, ['programChoice2', 'programChoice3'])} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
-        {standing.requiresStudentNumber && <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU registration record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
+        {standing.requiresStudentNumber && <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
       <div className="grid gap-2">
         <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" />
       </div>
-      <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates automatically when you change your degree program." />
-      {standing.requiresProgramChoices && <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once across your 1st, 2nd, and 3rd choices.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>}
+      <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates with your degree program." />
+      {standing.requiresProgramChoices && <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} onAttachProof={onAttachProof} />} />
-        {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
+        {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
       {standing.requiresHsStanding && <div className="grid gap-4 md:grid-cols-2"><SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} /><FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField></div>}
     </SectionForm>
@@ -647,17 +647,17 @@ export function FinancialSection({ profile, onSave, onDirtyChange, attributeVeri
   const { values, errors, update } = form;
 
   return (
-    <SectionForm title="Household and financial aid" description="Income ceilings and the Exclusion Flag Hierarchy use these answers. Specific exclusions override broad inclusions." form={form}>
+    <SectionForm title="Household and financial aid" description="Income ceilings and exclusion rules read these answers." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
+        <FormField label="Annual household income" hint="Combined yearly income in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
           <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
         </FormField>
       </div>
       <div className="grid gap-3 md:grid-cols-2">
         <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
         <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
-        <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling currently receives AdDU-administered financial aid." />
-        <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Tuition and fees are covered by a prepaid educational plan." />
+        <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
+        <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
       </div>
     </SectionForm>
   );
@@ -689,7 +689,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });
 
   return (
-    <SectionForm title="Eligibility background" description="Citizenship, disability, employment status, honors, and sponsor ties used by financial aid pipelines." form={form}>
+    <SectionForm title="Eligibility background" description="Citizenship, disability, employment, honors, and sponsor ties." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />

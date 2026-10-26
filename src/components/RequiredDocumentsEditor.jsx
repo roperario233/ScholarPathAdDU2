@@ -39,7 +39,7 @@ export default function RequiredDocumentsEditor({ scholarship, onDirty }) {
   return (
     <fieldset className="grid gap-3 rounded-2xl border border-app-border p-4">
       <legend className="px-1 text-sm font-semibold text-app-text">Required documents</legend>
-      <p className="m-0 text-xs text-app-muted">Students must attach one Document Vault file for each item that applies to their year standing before they can submit. Any listed document type satisfies the item.</p>
+      <p className="m-0 text-xs text-app-muted">One vault file per applicable item. Any listed type satisfies it.</p>
       <input type="hidden" name="requiredDocuments" value={JSON.stringify(items)} />
       <ul className="m-0 grid gap-3 p-0">
         {items.map((item, index) => {

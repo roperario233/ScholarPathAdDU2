@@ -186,7 +186,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
           </div>
           {!activeLocations.length ? (
             <span className="text-xs text-app-muted">
-              {canManageLocations ? 'Add the first interview location to schedule an on-site interview.' : 'No interview locations yet. Ask the Admissions Office Head to add one.'}
+              {canManageLocations ? 'Add the first location to schedule an on-site interview.' : 'No locations yet. Ask the Admissions Office Head to add one.'}
             </span>
           ) : null}
           <label className="grid content-start gap-1">
@@ -199,7 +199,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             <span className="text-xs text-app-muted">Use this when the room is not in the saved list.</span>
           </label>
           {show('locationId')}
-          <span className="text-xs text-app-muted">No Meet link is created for an on-site interview. Switching an online interview to on-site replaces its calendar event.</span>
+          <span className="text-xs text-app-muted">On-site interviews have no Meet link. Switching mode replaces the calendar event.</span>
         </div>
       ) : (
         <div className="grid gap-2">
@@ -224,10 +224,10 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             </div>
             <span className="text-xs text-app-muted">
               {autoMeetingAvailable
-                ? `The link and the calendar invitation are created when the schedule is saved${workspace.calendarSummary ? ` on ${workspace.calendarSummary}` : ''}.`
+                ? `A Meet link and calendar invitation are created when you save${workspace.calendarSummary ? ` on ${workspace.calendarSummary}` : ''}.`
                 : workspace.calendarReauthRequired
-                  ? 'The Google Calendar authorization expired, so a link has to be pasted. Re-authorize the office account to restore automatic Meet links.'
-                  : 'Automatic Meet links need the Google Calendar integration. Paste a Google Meet, Zoom, or Microsoft Teams link instead.'}
+                  ? 'Calendar access expired. Paste a link instead.'
+                  : 'Paste a Google Meet, Zoom, or Teams link.'}
             </span>
           </fieldset>
           {effectiveMeetingChoice === 'auto' ? null : (
@@ -240,7 +240,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
                 onChange={(event) => update({ meetingUrl: event.target.value })}
                 placeholder="https://meet.google.com/..."
               />
-              <span className="text-xs text-app-muted">Paste the joining link. It is written into the calendar invitation and no Meet conference is created.</span>
+              <span className="text-xs text-app-muted">Added to the calendar invitation.</span>
               {show('meetingUrl')}
             </label>
           )}
@@ -280,7 +280,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               </li>
             ))}
           </ul>
-        ) : <p className="m-0 text-sm text-app-muted">No panel members yet. The panel can be settled after the schedule is saved.</p>}
+        ) : <p className="m-0 text-sm text-app-muted">No panel members yet. You can add them after saving.</p>}
 
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <select value={chairToAdd} onChange={(event) => setChairToAdd(event.target.value)} disabled={!addable.length} aria-label="Panel member">
@@ -306,14 +306,14 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             onClick={() => { addMember({ guestName: guestName.trim(), guestEmail: guestEmail.trim() }); setGuestName(''); setGuestEmail(''); }}
           >Add guest</Button>
         </div>
-        <span className="text-xs text-app-muted">Faculty guests have no ScholarPath account; they receive the calendar invitation by email.</span>
+        <span className="text-xs text-app-muted">Guests receive the invitation by email.</span>
         {show('panel')}
       </section>
 
       <label className="grid content-start gap-1 text-sm text-app-text">
         <span className="font-semibold">Instructions for the applicant</span>
         <textarea rows="2" maxLength={500} value={draft.instructions} onChange={(event) => update({ instructions: event.target.value })} />
-        <span className="text-xs text-app-muted">The applicant sees these instructions with the schedule. Panel member names are never shown to the applicant.</span>
+        <span className="text-xs text-app-muted">The applicant sees this with the schedule. Panel names stay hidden.</span>
       </label>
 
       {conflicts.length ? (
@@ -657,7 +657,7 @@ export default function InterviewPanel({
           ) : (
             <p className="m-0 text-sm text-app-muted">
               {[interview.panel, interview.school].filter(Boolean).join(' · ') || 'Interview panel'} · {interview.scheduledAt ? `Scheduled ${fmtDate(interview.scheduledAt)}` : 'Schedule pending'}
-              <br />Recorded before structured interview scheduling; no attendance record is required for the recommendation.
+              <br />No attendance is required for legacy schedules.
             </p>
           )}
         </Panel>
@@ -669,8 +669,8 @@ export default function InterviewPanel({
           {outcomeDue ? (
             <>
               <p className="m-0 text-sm text-app-muted">
-                {isPanelist ? 'Record whether the applicant attended. ' : 'Record attendance on behalf of the panel. '}
-                The recommendation (SOP step 6) stays locked until the applicant is recorded as attended.
+                {isPanelist ? 'Record whether the applicant attended. ' : 'Record attendance for the panel. '}
+                The recommendation stays locked until attendance is recorded.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="primary" disabled={busy} onClick={() => run(() => workspace.onRecordOutcome(application.id, 'completed'), 'Recorded as attended. The Admissions Office can now record the recommendation.')}>Mark attended</Button>
@@ -687,7 +687,7 @@ export default function InterviewPanel({
         <Panel>
           <p className="m-0 text-sm text-app-muted">
             {application.status === 'Endorsed'
-              ? 'The Admissions Office has not scheduled the interview yet. Applicants are interviewed by a panel from their own school.'
+              ? 'Not scheduled yet. The panel comes from the applicant\'s school.'
               : 'No interview was recorded for this application.'}
           </p>
         </Panel>
@@ -699,8 +699,8 @@ export default function InterviewPanel({
             <h4 className={sectionHeading}>{application.status === 'Endorsed' ? 'Schedule the interview' : 'New schedule'}</h4>
             <p className="m-0 text-xs text-app-muted">
               {application.status === 'Endorsed'
-                ? 'Fill in the schedule, then confirm it with Schedule interview in the action bar below. The applicant and the panel are notified.'
-                : 'Save the new schedule with a reason. The applicant and the panel are notified of the change.'}
+                ? 'Confirm with Schedule interview in the action bar. Applicant and panel are notified.'
+                : 'Saving a new schedule notifies the applicant and panel.'}
             </p>
           </div>
           <ScheduleForm
@@ -752,7 +752,7 @@ export default function InterviewPanel({
         <ReasonModal
           title={interview?.state === 'cancelled' ? 'Schedule the interview again' : 'Reschedule interview'}
           label="Reason for the change"
-          hint="The applicant and the panel see that the schedule changed; the reason is kept in the schedule history."
+          hint="The applicant and panel see the change. The reason is kept in the schedule history."
           confirmLabel="Save new schedule"
           confirmVariant="primary"
           onConfirm={async (reason) => {
@@ -767,7 +767,7 @@ export default function InterviewPanel({
         <ReasonModal
           title="Cancel interview"
           label="Reason for cancelling"
-          hint="The applicant is told the interview is cancelled. You can schedule it again, or reject the application from the action bar."
+          hint="The applicant is told the interview is cancelled. You can schedule again or reject the application."
           confirmLabel="Cancel interview"
           onConfirm={async (reason) => {
             setReasonFor(null);

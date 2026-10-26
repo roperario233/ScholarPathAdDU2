@@ -281,7 +281,7 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
               <div>
                 <span className="eyebrow">Custom reminder</span>
                 <h3 id="deadline-modal-title">Add your own deadline</h3>
-                <p>Use this for document preparation, essay drafting, and other tasks that need a reminder before a deadline.</p>
+                <p>Use this for document prep, essays, or other tasks.</p>
               </div>
               <button type="button" className="deadline-modal-close" onClick={() => setShowAddForm(false)} aria-label="Close reminder modal">
                 <X size={18} />
@@ -309,7 +309,7 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
                   required
                 />
               </label>
-              <p className="deadline-form-note">Choose today or a future date. In-app reminders can be sent 7, 3, and 1 day before the deadline.</p>
+              <p className="deadline-form-note">Choose today or a future date. Reminders can arrive 7, 3, and 1 day before.</p>
               {formError && <p className="deadline-form-error">{formError}</p>}
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { setShowAddForm(false); setFormError(''); }}>Cancel</button>

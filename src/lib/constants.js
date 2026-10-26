@@ -121,17 +121,17 @@ export const getStageActionLabel = (status) => stageActionLabels[status] || stat
 // the detail modal show this instead of the static creation note, so a student
 // always knows what the current stage means and whether they need to act.
 const applicationStatusGuidance = {
-  Draft: 'Continue your application by attaching the required documents, writing your statement, and certifying it.',
-  Submitted: 'Your application is submitted and waiting for the Admissions Office to begin review. No action is needed right now.',
-  'Under Review': 'The Admissions Office has opened your application for review. We will notify you if anything needs correction.',
-  'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
-  'For Endorsement': 'Your documents are verified and the Admissions Office has sent your application for endorsement. No action is needed from you right now.',
-  Endorsed: 'Your application is in the endorsement phase. The Office of Admissions & Aid has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.',
-  Interview: 'Your interview is scheduled. Open the application for the date, time, and location or meeting link, and add it to your calendar.',
-  Recommended: 'The School Scholarship Sub-committee has recommended your application for approval.',
-  Approved: 'Your application has been approved and is awaiting release of results.',
-  Released: 'Your results have been released. Open the application to review the recorded outcome.',
-  Rejected: 'Your application did not proceed. The recorded reason is available in the status history.',
+  Draft: 'Attach the required documents, write your statement, then certify and submit.',
+  Submitted: 'Waiting for the Admissions Office to begin review.',
+  'Under Review': 'The Admissions Office is reviewing your application.',
+  'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified if a replacement is needed.',
+  'For Endorsement': 'Documents verified and sent for endorsement. No action needed.',
+  Endorsed: 'Endorsed. The Admissions Office will schedule your interview next.',
+  Interview: 'Your interview is scheduled. Open the application for the details.',
+  Recommended: 'The sub-committee has recommended your application for approval.',
+  Approved: 'Approved and awaiting release of results.',
+  Released: 'Results released. Open the application to review the outcome.',
+  Rejected: 'The application did not proceed. The reason is in the status history.',
 };
 
 export const getApplicationStatusGuidance = (status) => applicationStatusGuidance[status] || '';

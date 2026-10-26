@@ -152,7 +152,7 @@ describe('ApplicationReviewModal endorsement tab', () => {
     expect(buttonLabels(html).filter((label) => label === 'Endorse')).toHaveLength(0);
     // The endorsement decision is the Office of Admissions & Aid's, so the Chair
     // is told who holds it rather than offered a button.
-    expect(html).toContain('This application is awaiting the endorsement decision of the Office of Admissions &amp; Aid.');
+    expect(html).toContain('Awaiting the Office of Admissions &amp; Aid endorsement decision.');
   });
 
   it('keeps the Endorsement tab hidden until the case reaches endorsement', () => {

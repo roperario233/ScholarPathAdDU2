@@ -198,7 +198,7 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
             <span className="whitespace-pre-line">{doc.rejectionReason}</span>
           </p>
         ) : null}
-        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to the Admissions Office for verification.</p>
+        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to verification.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid content-start gap-1 text-xs font-semibold text-app-muted">
@@ -304,8 +304,8 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
       {isPhotoDocumentType(doc.documentType) ? (
         <p className="m-0 rounded-xl border border-sky-400/30 bg-sky-500/5 px-3 py-2 text-xs text-app-muted">
           {doc.documentType === 'Photos of Residence'
-            ? 'Check that the photos show the residence clearly, inside and out, with no people in the frame and no signs of editing.'
-            : "Check that the photo is recent, sharp, and unobstructed, with a plain background and the applicant's whole face visible."}
+            ? 'Check that the residence is clear, inside and out, with no people.'
+            : 'Check that the photo is recent, sharp, and unobstructed.'}
         </p>
       ) : null}
       {proofs.length ? (
@@ -482,7 +482,7 @@ export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto
           </div>
         </details>
       ))}
-      {legacy ? <p className="m-0 pt-2 text-xs text-app-muted">Submitted before eligibility answers, background, address, and family details were recorded with applications.</p> : null}
+      {legacy ? <p className="m-0 pt-2 text-xs text-app-muted">Submitted before the extended profile details were recorded.</p> : null}
       {snapshot.capturedAt ? <p className="m-0 pt-2 text-xs text-app-muted">Self-reported values as of {fmtDate(snapshot.capturedAt)}.</p> : null}
     </div>
   );

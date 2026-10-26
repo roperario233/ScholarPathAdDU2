@@ -306,7 +306,7 @@ export default function ApplicationReviewModal({
         return;
       }
       setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-        ? 'Application sent for endorsement. The Admissions Office Head now records the decision, and the hand-off record below keeps the note you added.'
+        ? 'Sent for endorsement. The Admissions Office Head records the decision next.'
         : 'The endorsement decision was recorded.');
       setEndorsementDecision(null);
       // Stay on the Endorsement tab either way: the recorded hand-off or decision
@@ -419,10 +419,10 @@ export default function ApplicationReviewModal({
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
   const lockedDocumentsMessage = !isAdmissionsReviewer
-    ? 'Supporting documents become available once the Admissions Office continues this application to verification. You can still flag it for central validation from the action bar.'
+    ? 'Documents become available at verification.'
     : linkedDocuments.length
-      ? `Supporting documents are reviewed at Standard Procedure step 3. Continue this application to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
-      : 'This application has no attached files. Continue it to verification to begin the document stage.';
+      ? `Continue to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
+      : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
     if (status === 'Recommended' && !isInterviewComplete(application.interview)) return 'The interview panel must record the applicant as attended first';
@@ -513,8 +513,8 @@ export default function ApplicationReviewModal({
     ? 'This application has reached a terminal stage.'
     : application.status === 'For Endorsement'
       ? (role === 'department_chair'
-        ? 'This application is awaiting the endorsement decision of the Office of Admissions & Aid. The record stays available in the Endorsement tab.'
-        : 'This application is awaiting the endorsement decision of the Admissions Office Head. The hand-off record stays available in the Endorsement tab and the status history.')
+        ? 'Awaiting the Office of Admissions & Aid endorsement decision.'
+        : 'Awaiting the Admissions Office Head endorsement decision.')
       : isAdmissionsHead
         ? 'No stage action is available at this stage.'
         : role === 'department_chair'
@@ -562,7 +562,7 @@ export default function ApplicationReviewModal({
               <FactTile label="Year standing" value={snapshot?.yearStandingLabel || ''} />
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
-            {snapshot ? <p className="m-0 text-xs text-app-muted">Values are self-reported at submission; a badge reflects Document Vault proof reviewed by the Admissions Office. “Profile now” marks a value the student changed after submitting.</p> : null}
+            {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show Document Vault proof; “Profile now” marks a value changed since.</p> : null}
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
               <Panel className="grid content-start gap-2">
@@ -653,7 +653,7 @@ export default function ApplicationReviewModal({
                     ) : null}
                   </Panel>
                 ) : (
-                  <Panel><p className="m-0 text-sm text-app-muted">No document attached yet. A required submission stays Not attached until the student attaches a Document Vault file.</p></Panel>
+                  <Panel><p className="m-0 text-sm text-app-muted">No file attached yet. It stays Not attached until the student adds a vault file.</p></Panel>
                 )}
               </div>
             </div>
@@ -724,7 +724,7 @@ export default function ApplicationReviewModal({
         {showDeliberationField ? (
           <label className="grid gap-1 text-sm text-app-text">
             <span className="font-semibold">Sub-committee note</span>
-            <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the School Scholarship Sub-committee deliberation." />
+            <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the sub-committee deliberation." />
           </label>
         ) : null}
 
@@ -750,8 +750,8 @@ export default function ApplicationReviewModal({
                 return (
                   <span key={`block-${status}`} id={`review-block-${status}`} className="sr-only">
                     {status === 'Recommended'
-                      ? 'The interview panel must record the applicant as attended before the sub-committee recommendation (SOP step 6).'
-                      : `${reason} before this application can be endorsed or advance to a later stage.`}
+                      ? 'The panel must record the applicant as attended first.'
+                      : `${reason} first.`}
                   </span>
                 );
               })}

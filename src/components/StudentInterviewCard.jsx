@@ -28,7 +28,7 @@ export default function StudentInterviewCard({ application, scholarshipTitle = '
         </div>
       </div>
       {structured && interview.state === 'cancelled' ? (
-        <p className="m-0 text-sm text-app-text">This interview was cancelled. The Admissions Office will notify you if it is scheduled again.</p>
+        <p className="m-0 text-sm text-app-text">This interview was cancelled. The Admissions Office will notify you if it is rescheduled.</p>
       ) : null}
       <dl className="m-0 grid gap-3 sm:grid-cols-2">
         <div className="grid gap-0.5">

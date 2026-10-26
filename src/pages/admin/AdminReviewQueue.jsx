@@ -86,8 +86,8 @@ export default function AdminReviewQueue({
       <AdminPageHeader
         title="Application review queue"
         description={isHead
-          ? 'Run every Standard Procedure stage: start reviews, verify documents, hand off to the Department Chair, schedule interviews, and record recommendations. Approval and release are also available in the recommendation and release workspace.'
-          : 'Opening an application starts its review. Continue it to verification to review its attached documents, then schedule the interview with a panel from the applicant’s school after endorsement.'}
+          ? 'Run every stage, plus approval and release.'
+          : 'Prepare cases, verify documents, and schedule interviews.'}
         badge={`${reviewApplications.length} awaiting action`}
         badgeTone={reviewApplications.length ? 'warning' : 'success'}
       />

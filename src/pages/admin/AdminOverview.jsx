@@ -15,7 +15,7 @@ const workspaces = [
   {
     view: 'admin-review',
     label: 'Application review queue',
-    description: 'Start application reviews, verify attached documents at the verification stage, and schedule interviews.',
+    description: 'Reviews, document checks, and interview scheduling.',
     action: 'Open review queue',
   },
   {
@@ -27,27 +27,27 @@ const workspaces = [
   {
     view: 'admin-calendar',
     label: 'Interview calendar',
-    description: 'Interviews and scholarship deadlines for the month.',
+    description: 'Interviews and deadlines for the month.',
     action: 'Open calendar',
   },
   {
     view: 'admin-catalog',
     label: 'AdDU internal scholarship catalog',
-    description: 'Publish and update AdDU internal entries and the documents each one requires.',
+    description: 'Publish internal tracks and their required documents.',
     action: 'Open catalog',
     headOnly: true,
   },
   {
     view: 'admin-release',
     label: 'Recommendation and results release',
-    description: 'Approve sub-committee recommendations, release approved results, and export the accepted list.',
+    description: 'Approve recommendations, release results, and export the accepted list.',
     action: 'Open recommendation and release',
     headOnly: true,
   },
   {
     view: 'admin-announcements',
     label: 'Office announcements',
-    description: 'Publish application windows, answers to inquiries, and office notices.',
+    description: 'Publish office notices and application windows.',
     action: 'Open announcements',
     headOnly: true,
   },
@@ -81,8 +81,8 @@ export default function AdminOverview({ applications = [], documents = [], role 
       <AdminPageHeader
         title={isHead ? 'Admissions Office Head dashboard' : 'Admissions Office dashboard'}
         description={isHead
-          ? 'Run the full Standard Procedure when needed: prepare cases, record endorsements, approve recommendations, release approved results, and maintain the office catalog and announcements.'
-          : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to endorse and decide.'}
+          ? 'Every stage, plus approval, release, catalog, and announcements.'
+          : 'Prepare cases and verify documents for the Head to decide.'}
         badge={isHead ? 'Approval authority' : 'Internal operations'}
       />
 
@@ -137,7 +137,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
                 </div>
                 <p className="m-0 text-sm text-app-muted">{event.note || `Application moved to ${event.stage}.`}</p>
               </article>
-            )) : <EmptyState title="No application activity yet" description="Status and SOP events will appear here once applications enter the review pipeline." />}
+            )) : <EmptyState title="No application activity yet" description="Status and SOP events appear here as cases move." />}
           </div>
         </Card>
       </section>

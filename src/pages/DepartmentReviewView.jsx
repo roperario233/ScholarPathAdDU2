@@ -41,7 +41,7 @@ export default function DepartmentReviewView({
         <div className="page-title-copy">
           <span className="page-section-label">Department Chair workspace</span>
           <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applicants from your department, follow the endorsement the Office of Admissions &amp; Aid records, and sit on the interview panel the Admissions Office schedules for your school. Endorsement is a central Admissions Office decision.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read your department's applications, endorsements, and interviews. Endorsement is a central decision.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>
@@ -73,9 +73,9 @@ export default function DepartmentReviewView({
                   <div className="rounded-xl bg-app-card/60 p-3 text-sm text-app-muted">
                     {entry.endorsement?.note
                       || (entry.status === 'For Verification'
-                        ? 'With the Admissions Office for document verification. The endorsement decision belongs to the Office of Admissions & Aid.'
+                        ? 'With the Admissions Office for verification.'
                         : entry.status === 'For Endorsement'
-                          ? 'Documents verified. Awaiting the endorsement decision of the Office of Admissions & Aid.'
+                          ? 'Documents verified. Awaiting endorsement.'
                           : 'No endorsement has been recorded.')}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
@@ -104,7 +104,7 @@ export default function DepartmentReviewView({
                   </div>
                 </article>
               );
-            }) : <EmptyState title="No applicants in queue" description="Applications from your department appear here as the Admissions Office processes them." />}
+            }) : <EmptyState title="No applicants in queue" description="Applications appear here as the Office processes them." />}
           </div>
         </Card>
 

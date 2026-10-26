@@ -135,7 +135,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       interviewWorkspace: workspace({ viewerId: 'chair-sea' }),
     });
     expect(html).toContain('id="review-tab-interview"');
-    expect(html).toContain('has not scheduled the interview yet');
+    expect(html).toContain('Not scheduled yet.');
     expect(html).not.toContain('Schedule the interview');
     expect(buttonLabels(html)).not.toContain('Schedule interview');
   });
@@ -182,7 +182,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       role: 'admissions_office',
       interviewWorkspace: workspace(),
     });
-    expect(html).toContain('must record the applicant as attended before the sub-committee recommendation');
+    expect(html).toContain('The panel must record the applicant as attended first.');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="The interview panel must record the applicant as attended first"[^>]*>Recommend for approval<\/button>/);
 
     const attended = render({
@@ -190,7 +190,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       role: 'admissions_office',
       interviewWorkspace: workspace(),
     });
-    expect(attended).not.toContain('must record the applicant as attended before');
+    expect(attended).not.toContain('must record the applicant as attended first.');
     expect(attended).toMatch(/<button(?![^>]*disabled="")[^>]*>Recommend for approval<\/button>/);
   });
 });

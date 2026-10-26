@@ -11,12 +11,12 @@ export default function DashboardView({ profile, isFirstLogin, applications, sch
     const draftApplication = applications.find((entry) => entry.status === 'Draft');
     const reviewApplication = applications.find((entry) => ['Submitted', 'Under Review', 'For Verification'].includes(entry.status));
     const nextAction = hasIncompleteProfile
-      ? { label: 'Complete your academic profile', detail: 'Add your program, QPI, income, and student number to improve match accuracy.', action: onCompleteProfile, actionLabel: 'Complete profile', icon: CircleAlert }
+      ? { label: 'Complete your academic profile', detail: 'Add your academic and financial details to improve matches.', action: onCompleteProfile, actionLabel: 'Complete profile', icon: CircleAlert }
       : draftApplication
-          ? { label: 'Finish a saved application', detail: `${draftApplication.scholarshipTitle} is a draft. Attach its required documents, then certify and submit.`, action: () => (onContinueApplication ? onContinueApplication(draftApplication.id) : onShowApplications()), actionLabel: 'Continue application', icon: ArrowRight }
+          ? { label: 'Finish a saved application', detail: `${draftApplication.scholarshipTitle} is a draft. Attach its documents and submit.`, action: () => (onContinueApplication ? onContinueApplication(draftApplication.id) : onShowApplications()), actionLabel: 'Continue application', icon: ArrowRight }
           : reviewApplication
-            ? { label: 'Check your application status', detail: `${reviewApplication.scholarshipTitle} is currently ${reviewApplication.status.toLowerCase()}.`, action: onShowApplications, actionLabel: 'View application', icon: ArrowRight }
-            : { label: 'Explore your scholarship matches', detail: 'Review ranked opportunities and track the scholarships that fit your profile.', action: onOpenExplorer, actionLabel: 'Explore scholarships', icon: ArrowRight };
+            ? { label: 'Check your application status', detail: `${reviewApplication.scholarshipTitle} is ${reviewApplication.status.toLowerCase()}.`, action: onShowApplications, actionLabel: 'View application', icon: ArrowRight }
+            : { label: 'Explore your scholarship matches', detail: 'Review opportunities that fit your profile.', action: onOpenExplorer, actionLabel: 'Explore scholarships', icon: ArrowRight };
     const NextActionIcon = nextAction.icon;
     const today = new Date();
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
@@ -78,7 +78,7 @@ export default function DashboardView({ profile, isFirstLogin, applications, sch
                 return <span key={`${day || 'blank'}-${index}`} className={`relative grid aspect-square place-items-center rounded-md ${!day ? '' : isToday ? 'bg-blue-500 font-bold text-white' : hasDeadline ? 'bg-amber-400/20 font-bold text-amber-700 dark:text-amber-200' : 'text-app-text'}`}>{day}{hasDeadline && !isToday && <i className="absolute bottom-0.5 h-1 w-1 rounded-full bg-amber-500" aria-hidden="true" />}</span>;
               })}
             </div>
-            <p className="mt-3 text-xs text-app-muted">{hasDeadlineThisMonth ? 'Highlighted dates have scholarship deadlines or reminders.' : 'No deadlines marked this month.'}</p>
+            <p className="mt-3 text-xs text-app-muted">{hasDeadlineThisMonth ? 'Highlighted dates have deadlines or reminders.' : 'No deadlines this month.'}</p>
           </button>
         </section>
 
@@ -87,7 +87,7 @@ export default function DashboardView({ profile, isFirstLogin, applications, sch
             <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-2">
               {eligibleScholarships.length ? eligibleScholarships.map((scholarship) => (
                 <ScholarshipRow key={scholarship.id} scholarship={scholarship} onApply={onTrackScholarship} profile={profile} />
-              )) : <EmptyState title="No eligible matches yet" description="Review the Smart Eligibility Checker on the Scholarships page and confirm your saved profile details." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Check eligibility</button>} />}
+              )) : <EmptyState title="No eligible matches yet" description="Check the Smart Eligibility Checker and your saved profile." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={onOpenEligibility}>Check eligibility</button>} />}
             </div>
           </Card>
 
@@ -95,7 +95,7 @@ export default function DashboardView({ profile, isFirstLogin, applications, sch
             <div className="grid max-h-[560px] gap-3 overflow-y-auto pr-2">
               {notifications.length ? notifications.slice(0, 3).map((entry) => (
                 <NotificationItem key={entry.id} entry={entry} onMarkRead={onMarkRead} />
-              )) : <EmptyState title="No new alerts" description="Deadline reminders and status updates appear here as you use the app." />}
+              )) : <EmptyState title="No new alerts" description="Deadline reminders and status updates appear here." />}
               {announcements.slice(0, 2).map((entry) => (
                 <AnnouncementItem key={entry.id} entry={entry} />
               ))}
