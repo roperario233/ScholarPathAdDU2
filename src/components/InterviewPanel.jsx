@@ -579,6 +579,11 @@ export default function InterviewPanel({
   // interview with no event, or an online interview whose event has no link. The
   // predicate lives beside the record helpers so the workspace pages agree.
   const needsCalendarRepair = needsInterviewCalendarRepair(interview);
+  // Repair is not a scheduling action: a cancelled interview whose Google event
+  // survived the waiver must still be cleanable after the application moved on to
+  // the recommendation, where scheduling itself is no longer offered.
+  const canRepairCalendar = isOffice && needsCalendarRepair
+    && Boolean(workspace.calendarConfigured) && Boolean(workspace.onRepairCalendar);
   const showForm = canCoordinate && (application.status === 'Endorsed' || editing);
 
   const run = async (action, successMessage) => {
@@ -618,15 +623,15 @@ export default function InterviewPanel({
         <Panel className="grid gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className={sectionHeading}>Interview schedule</h4>
-            {canCoordinate && structured ? (
+            {structured && (canCoordinate || canRepairCalendar) ? (
               <div className="flex flex-wrap gap-2">
-                {interview.state !== 'completed' ? (
+                {canCoordinate && interview.state !== 'completed' ? (
                   <Button type="button" disabled={busy} onClick={startEditing}>{interview.state === 'cancelled' ? 'Schedule again' : 'Reschedule'}</Button>
                 ) : null}
-                {['scheduled', 'no_show'].includes(interview.state) ? (
+                {canCoordinate && ['scheduled', 'no_show'].includes(interview.state) ? (
                   <Button type="button" variant="danger" disabled={busy} onClick={() => setReasonFor('cancel')}>Cancel interview</Button>
                 ) : null}
-                {needsCalendarRepair && workspace.calendarConfigured && workspace.onRepairCalendar ? (
+                {canRepairCalendar ? (
                   <Button
                     type="button"
                     variant="ghost"

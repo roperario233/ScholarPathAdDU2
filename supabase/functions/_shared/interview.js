@@ -413,6 +413,37 @@ export const isInterviewComplete = (interview) => {
   return interview.state === 'completed';
 };
 
+// A structured interview that still holds a slot and a calendar invitation.
+// A completed, cancelled, or no-show record is history, not live work.
+export const isInterviewLive = (interview) => isStructuredInterview(interview) && interview.state === 'scheduled';
+
+/**
+ * The waiver description behind the review surface's warning dialog (SOP step
+ * 5 → 6). The recommendation normally follows an attended interview; the
+ * Admissions Office may record it without one, after the live schedule is
+ * cancelled. One description feeds the dialog copy, the recorded cancellation
+ * reason, and the timeline note, so they cannot disagree. The reviewer's reason
+ * is captured by the dialog itself (it is required), not by this helper.
+ */
+export const describeInterviewWaiver = (interview) => {
+  const state = isStructuredInterview(interview) ? interview.state : '';
+  const live = isInterviewLive(interview);
+  return {
+    needed: !isInterviewComplete(interview),
+    live,
+    state,
+    cancels: live,
+    when: live ? formatInterviewWhen(interview.startsAt, interview.durationMinutes) : '',
+    where: live ? getInterviewWhere(interview) : '',
+    headline: 'Record the recommendation without an interview?',
+    detail: live
+      ? 'The scheduled interview will be cancelled, its calendar invitation removed, and the applicant and the panel will be notified.'
+      : state === 'no_show'
+        ? 'The panel recorded the applicant as not attending. No live schedule remains to cancel.'
+        : 'No interview outcome has been recorded for this application.',
+  };
+};
+
 export const isInterviewOutcomeDue = (interview, now = new Date()) => {
   if (!isStructuredInterview(interview) || interview.state !== 'scheduled') return false;
   const start = toDate(interview.startsAt);

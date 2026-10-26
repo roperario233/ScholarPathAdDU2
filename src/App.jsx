@@ -13,7 +13,7 @@ import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAt
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
 import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
@@ -1343,8 +1343,12 @@ function App() {
   // the Supabase write before touching local state so a failed write can never
   // leave the queue showing a stage the database never recorded, and it returns
   // { ok } / { error } so the review surface can report the outcome.
+  // `options.baseApplication` lets a caller that already wrote a stage payload
+  // (the interview waiver cancels the schedule first) thread the fresh row in, so
+  // this write does not overwrite the timeline with a stale copy.
   const changeApplicationStatus = async (applicationId, status, options = {}) => {
-    const application = state.applications.find((entry) => entry.id === applicationId);
+    const application = options.baseApplication
+      || state.applications.find((entry) => entry.id === applicationId);
     if (!application) return { error: 'The application could not be found.' };
     // Manuscript 3.3.3: forward stages require every attached Document Vault
     // file to be Verified. The reviewer UI disables these actions and the
@@ -1379,7 +1383,7 @@ function App() {
       actor,
       at: new Date().toISOString().slice(0, 10),
     };
-    const { note: _note, ...stageFields } = options || {};
+    const { note: _note, baseApplication: _baseApplication, ...stageFields } = options || {};
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the stage change could not be saved.' };
     }
@@ -1594,7 +1598,9 @@ function App() {
     // The database trigger (20261029000001) is the primary sender; this is the
     // idempotent retry for the in-app and email channels.
     notifySupabaseInterviewUpdate(application.id).catch(() => undefined);
-    return { ok: true };
+    // The written row is returned so a caller that follows with a stage change can
+    // carry this timeline forward instead of rewriting the pre-cancel copy.
+    return { ok: true, record, timeline, application: { ...application, interview: record, timeline } };
   };
 
   const scheduleInterview = async (applicationId, draft) => {
@@ -1639,6 +1645,44 @@ function App() {
     return writeInterviewRecord(application, prepared.record, `Interview rescheduled (${trimmedReason}): ${summarizeInterview(prepared.record)}.`);
   };
 
+  // Removes the provider event and records the cancellation. Deleting first means
+  // the Edge Function still sees the id it has to remove, and a failed delete
+  // leaves `calendar.removedAt` null so the tab can offer a repair — instead of
+  // silently orphaning an event that keeps its invitation and Meet link while the
+  // next schedule creates a second one. Shared by the explicit Cancel action and
+  // the interview waiver that precedes a recommendation; `note` lets the waiver
+  // record its own timeline wording.
+  const cancelInterviewRecord = async (application, reason, note = '') => {
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the interview could not be saved.' };
+    }
+    const calendar = application.interview?.calendar || null;
+    const eventId = String(calendar?.eventId || '').trim();
+    let removedAt = null;
+    let removalError = '';
+    if (eventId) {
+      const removal = await invokeSupabaseInterviewEvent({
+        action: 'cancel',
+        applicationId: application.id,
+        eventId,
+      }).catch(() => null);
+      if (removal?.ok) removedAt = new Date().toISOString();
+      else removalError = removal?.reason || removal?.error || 'The Google Calendar event could not be removed.';
+    }
+    const record = {
+      ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason }),
+      calendar: eventId
+        ? { provider: calendar?.provider || 'google', eventId, htmlLink: calendar?.htmlLink || '', removedAt }
+        : null,
+    };
+    const result = await writeInterviewRecord(application, record, note || `Interview cancelled: ${reason}.`);
+    if (result.error) return result;
+    return {
+      ...result,
+      warning: eventId && !removedAt ? `${removalError} Use Repair calendar event to remove it.` : '',
+    };
+  };
+
   const cancelInterview = async (applicationId, reason = '') => {
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
       return { error: 'Only the Admissions Office can cancel an interview.' };
@@ -1650,38 +1694,9 @@ function App() {
     }
     const trimmedReason = String(reason || '').trim();
     if (!trimmedReason) return { error: 'Record why the interview is being cancelled.' };
-    if (!isSupabaseWorkspaceLoaded) {
-      return { error: 'Supabase is not configured, so the interview could not be saved.' };
-    }
-    // The provider event is removed before the record forgets it. Deleting first
-    // means the Edge Function still sees the id it has to remove, and a failed
-    // delete leaves `calendar.removedAt` null so the tab can offer a repair —
-    // instead of silently orphaning an event that keeps its invitation and Meet
-    // link while the next schedule creates a second one.
-    const calendar = application.interview.calendar || null;
-    const eventId = String(calendar?.eventId || '').trim();
-    let removedAt = null;
-    let removalError = '';
-    if (eventId) {
-      const removal = await invokeSupabaseInterviewEvent({
-        action: 'cancel',
-        applicationId,
-        eventId,
-      }).catch(() => null);
-      if (removal?.ok) removedAt = new Date().toISOString();
-      else removalError = removal?.reason || removal?.error || 'The Google Calendar event could not be removed.';
-    }
-    const record = {
-      ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason: trimmedReason }),
-      calendar: eventId
-        ? { provider: calendar?.provider || 'google', eventId, htmlLink: calendar?.htmlLink || '', removedAt }
-        : null,
-    };
-    const result = await writeInterviewRecord(application, record, `Interview cancelled: ${trimmedReason}.`);
-    if (!result.error && eventId && !removedAt) {
-      return { ...result, warning: `${removalError} Use Repair calendar event to remove it.` };
-    }
-    return result;
+    const result = await cancelInterviewRecord(application, trimmedReason);
+    if (result.error) return result;
+    return result.warning ? { ok: true, warning: result.warning } : { ok: true };
   };
 
   // Repairs Google from the saved record: creates the event the database expects
@@ -1844,31 +1859,63 @@ function App() {
 
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
-  const recordDeliberation = (applicationId, decision, note = '') => {
+  //
+  // The recommendation normally follows an attended interview. The Admissions
+  // Office may record it without one: the review surface warns first
+  // (ProceedWithoutInterviewModal) and passes `waiveInterview`, so the live
+  // schedule is cancelled before the stage moves — no invitation outlives the
+  // case — and the waiver is recorded on the deliberation. The database trigger
+  // (enforce_interview_outcome_before_recommendation) accepts exactly that shape.
+  const recordDeliberation = async (applicationId, decision, note = '', options = {}) => {
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
+      return { error: 'Only the Admissions Office can record a deliberation.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Interview') {
-      return Promise.resolve({ error: 'This application is not awaiting a deliberation.' });
+      return { error: 'This application is not awaiting a deliberation.' };
     }
-    // SOP step 5 → 6: the recommendation follows an attended interview. The
-    // review modal disables the action and the database trigger
-    // (enforce_interview_outcome_before_recommendation) repeats the rule.
-    if (decision !== 'Rejected' && !isInterviewComplete(application.interview)) {
-      return Promise.resolve({ error: 'The interview panel must record the applicant as attended before the recommendation.' });
+    const waived = options?.waiveInterview === true && decision !== 'Rejected';
+    // The waiver is a recorded decision, so its reason is required. It is kept on
+    // the deliberation, in the timeline, and in the cancellation the applicant and
+    // panel receive.
+    const waiverReason = String(options?.waiverReason || '').trim();
+    if (waived && !waiverReason) {
+      return { error: 'Record why the recommendation proceeds without an interview.' };
+    }
+    if (decision !== 'Rejected' && !isInterviewComplete(application.interview) && !waived) {
+      return { error: 'The interview panel must record the applicant as attended before the recommendation.' };
+    }
+    // Cancelling first keeps the application at `Interview`, so the interview
+    // trigger notifies the applicant and the panel; the status write then tells
+    // the applicant the recommendation was recorded.
+    let base = application;
+    let waiverWarning = '';
+    if (waived && isInterviewLive(application.interview)) {
+      const cancelled = await cancelInterviewRecord(
+        application,
+        waiverReason,
+        `Interview waived: ${waiverReason}.`,
+      );
+      if (cancelled.error) return cancelled;
+      base = cancelled.application;
+      waiverWarning = cancelled.warning || '';
     }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
+    const waiverLine = waived ? `The interview was waived. Reason: ${waiverReason}.` : '';
     const record = {
       decidedBy: 'School Scholarship Sub-committee',
       decision: nextStatus === 'Recommended' ? 'Recommended' : nextStatus,
       note,
       decidedAt: new Date().toISOString().slice(0, 10),
+      ...(waived ? { interviewWaived: true, interviewWaiverReason: waiverReason } : {}),
     };
-    return changeApplicationStatus(applicationId, nextStatus, {
-      note: note || `Sub-committee deliberation recorded as ${nextStatus}.`,
+    const result = await changeApplicationStatus(applicationId, nextStatus, {
+      note: [note, waiverLine].filter(Boolean).join(' ') || `Sub-committee deliberation recorded as ${nextStatus}.`,
       deliberation: record,
+      baseApplication: base,
     });
+    if (result?.error) return result;
+    return waiverWarning ? { ...result, warning: waiverWarning } : result;
   };
 
   // SOP step 7 — the Admissions Office Head approves the sub-committee's

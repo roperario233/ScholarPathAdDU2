@@ -1558,21 +1558,36 @@ $$;
 revoke all on function public.record_interview_outcome(uuid, text) from public, anon;
 grant execute on function public.record_interview_outcome(uuid, text) to authenticated;
 
--- The Recommend gate: the sub-committee recommendation (SOP step 6) follows a
--- completed interview. A record scheduled before this migration carries no
--- version and is grandfathered. Rejected is always allowed.
+-- The Recommend gate: the sub-committee recommendation (SOP step 6) normally
+-- follows a completed interview. The Admissions Office may record it without one
+-- (ProceedWithoutInterviewModal warns first and App.jsx cancels the live schedule
+-- before the stage moves), so a cancelled record is accepted and a `no_show`
+-- record needs the `deliberation.interviewWaived` marker. A record still
+-- `scheduled` keeps blocking, so the stage never moves past a live invitation. A
+-- record scheduled before the interview overhaul carries no version and is
+-- grandfathered. Rejected is always allowed. Mirrors the client gate in
+-- recordDeliberation (App.jsx) and the helper in _shared/interview.js.
 create or replace function public.enforce_interview_outcome_before_recommendation()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  v_state text;
+  v_waived boolean;
 begin
+  v_state := coalesce(new.interview ->> 'state', '');
+  -- The marker the client writes on the deliberation. Containment cannot raise on
+  -- a hand-edited row, unlike a boolean cast of an arbitrary JSON value.
+  v_waived := coalesce(new.deliberation @> '{"interviewWaived": true}'::jsonb, false);
   if old.status = 'Interview'
     and new.status = 'Recommended'
     and (new.interview ? 'version')
-    and coalesce(new.interview ->> 'state', '') <> 'completed' then
-    raise exception 'The interview panel must record the applicant as attended before the recommendation.'
+    and v_state <> 'completed'
+    and v_state <> 'cancelled'
+    and not (v_state = 'no_show' and v_waived) then
+    raise exception 'The interview panel must record the applicant as attended, or the recommendation must record the interview waiver.'
       using errcode = '23514';
   end if;
   return new;

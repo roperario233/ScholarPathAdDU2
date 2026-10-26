@@ -14,6 +14,29 @@ export function Button({ variant = 'secondary', className = '', children, ...pro
   return <button className={clsx(buttonClasses.base, buttonClasses[variant], className)} {...props}>{children}</button>;
 }
 
+// Decorative warning glyph for actions that need a confirmation. The caller sets
+// the colour and size; the visible label carries the meaning, so the icon is
+// hidden from assistive tech.
+export function WarningIcon({ className = 'h-4 w-4' }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
 export function Card({ title, action, children, className = '', ...props }) {
   return (
     <section className={clsx('relative overflow-hidden rounded-app border bg-app-card p-5 shadow-app backdrop-blur before:absolute before:inset-x-0 before:top-0 before:h-1 before:bg-gradient-to-r before:from-ateneo before:via-sky-400 before:to-cyan-300', className)} {...props}>
@@ -99,7 +122,7 @@ export function EmptyState({ title, description, action, className = '' }) {
 export const shouldDismissOverlay = ({ pressStartedOnOverlay, target, currentTarget }) =>
   Boolean(pressStartedOnOverlay) && target === currentTarget;
 
-export function ModalShell({ title, closeLabel = 'Close', onClose, children, className = '', overlayClassName = '', ...props }) {
+export function ModalShell({ title, closeLabel = 'Close', onClose, children, className = '', overlayClassName = '', header = null, ...props }) {
   // A drag-select that starts on text inside the dialog and ends on the backdrop
   // fires `click` on the backdrop — the nearest common ancestor of the press and
   // the release — which used to dismiss the modal mid-selection (and with it the
@@ -128,12 +151,15 @@ export function ModalShell({ title, closeLabel = 'Close', onClose, children, cla
       onClick={handleOverlayClick}
     >
       <section className={clsx('rounded-app border bg-app-card p-5 shadow-app backdrop-blur', className)} role="dialog" aria-modal="true" aria-label={title || undefined} onClick={(event) => event.stopPropagation()} {...props}>
-        {(title || onClose) && (
+        {/* `header` replaces the title/Close row for dialogs that need their own
+            layout (for example the centred warning header). `title` still names
+            the dialog for assistive tech. */}
+        {header || ((title || onClose) && (
           <div className="card-header mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
             {title && <h2 className="min-w-0 flex-1">{title}</h2>}
             {onClose && <div className="shrink-0"><Button variant="secondary" type="button" onClick={onClose}>{closeLabel}</Button></div>}
           </div>
-        )}
+        ))}
         {children}
       </section>
     </div>

@@ -13,7 +13,9 @@ import {
   getEligiblePanelists,
   getInterviewDateKey,
   getInterviewReminderKey,
+  describeInterviewWaiver,
   isInterviewComplete,
+  isInterviewLive,
   isInterviewOutcomeDue,
   isoToManilaInputs,
   manilaInputToIso,
@@ -217,6 +219,42 @@ describe('the Recommend gate', () => {
   it('grandfathers an interview recorded before structured scheduling', () => {
     expect(isInterviewComplete({ scheduledAt: '2026-10-01', panel: 'SEA Scholarship Panel' })).toBe(true);
     expect(isInterviewComplete(null)).toBe(false);
+  });
+
+  // The Admissions Office may record the recommendation without an interview
+  // outcome. The waiver cancels a live schedule first, so only a `scheduled`
+  // record is treated as live work.
+  it('treats only a scheduled interview as live work', () => {
+    const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
+    expect(isInterviewLive(record)).toBe(true);
+    expect(isInterviewLive({ ...record, state: 'completed' })).toBe(false);
+    expect(isInterviewLive({ ...record, state: 'no_show' })).toBe(false);
+    expect(isInterviewLive({ ...record, state: 'cancelled' })).toBe(false);
+    expect(isInterviewLive({ scheduledAt: '2026-10-01', panel: 'SEA Scholarship Panel' })).toBe(false);
+    expect(isInterviewLive(null)).toBe(false);
+  });
+
+  it('describes the waiver, the schedule it cancels, and the recorded reason', () => {
+    const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
+    const scheduled = describeInterviewWaiver(record);
+    expect(scheduled.needed).toBe(true);
+    expect(scheduled.cancels).toBe(true);
+    expect(scheduled.when).toBe('Tue, Nov 3, 2026 · 9:00 AM – 9:30 AM (Philippine time)');
+    expect(scheduled.where).toBe('Interview Room A (Finster Hall, F213)');
+    expect(scheduled.detail).toContain('will be cancelled');
+
+    const noShow = describeInterviewWaiver({ ...record, state: 'no_show' });
+    expect(noShow.cancels).toBe(false);
+    expect(noShow.detail).toContain('not attending');
+
+    const completed = describeInterviewWaiver({ ...record, state: 'completed' });
+    expect(completed.needed).toBe(false);
+    expect(completed.cancels).toBe(false);
+
+    const missing = describeInterviewWaiver(null);
+    expect(missing.needed).toBe(true);
+    expect(missing.cancels).toBe(false);
+    expect(missing.detail).toContain('No interview outcome');
   });
 
   it('asks for the outcome only once the interview has started', () => {
