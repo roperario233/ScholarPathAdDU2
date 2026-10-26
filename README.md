@@ -187,7 +187,7 @@ pages.
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
 | `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date with attendance actions, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
 | `admin-calendar` | Interview calendar | Both | The office's month view of scheduled interviews against the AdDU scholarship deadlines it publishes, with a day agenda; the Head's venue manager lives here |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
@@ -195,18 +195,20 @@ pages.
 | `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
 
 Stage authority is role-scoped: Staff may move an application through
-`Submitted`, `Under Review`, `For Verification`, `For Endorsement` (hand-off),
-`Endorsed` → `Interview` → `Recommended`, but cannot approve or release. The Head
-can perform all of those Staff moves and also `Recommended → Approved →
-Released`. The same rule is repeated in the database
+`Submitted`, `Under Review`, `For Verification`, and `For Endorsement` (the
+hand-off), and on through `Endorsed` → `Interview` → `Recommended`, but cannot
+endorse, approve, or release. The Head can perform all of those Staff moves and
+also records the endorsement (`For Endorsement` → `Endorsed`) and
+`Recommended → Approved → Released`. The same rule is repeated in the database
 (`enforce_admissions_office_lane_transitions`) and in the role-scoped transition
-map, so a client-side bug cannot let Staff approve or release.
+map, so a client-side bug cannot let Staff endorse, approve, or release.
 
-The Department Chair workspace opens the same application review modal. Its
-**Endorsement** tab appears once an application reaches document verification and
-shows the endorsement record (hand-off and decision), one internal comment
-thread, and the Endorse action. Students never see the thread, and every comment
-stays in the append-only review record.
+The Department Chair workspace opens the same application review modal read-only.
+Its **Endorsement** tab appears once an application reaches endorsement and shows
+the hand-off record and the Office of Admissions & Aid decision, plus one internal
+comment thread; the Chair has no Endorse action, because endorsement is a
+central Admissions Office decision. Students never see the thread, and every
+comment stays in the append-only review record.
 
 The Chair also has a dedicated **Calendar** (`chair-calendar`) and **Interviews**
 (`chair-interviews`) page. The calendar marks the interviews the Chair sits on

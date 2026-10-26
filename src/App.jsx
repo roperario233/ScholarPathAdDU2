@@ -13,7 +13,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -1361,15 +1361,11 @@ function App() {
         return { error: 'Your role cannot move this application to that stage.' };
       }
     }
-    const actor = state.viewerRole === 'department_chair'
-      ? 'Department Chair'
-      : roleLabels[state.viewerRole] || 'Admissions Office';
+    const actor = roleLabels[state.viewerRole] || 'Admissions Office';
     const defaultNote = status === 'For Verification'
-      ? (state.viewerRole === 'department_chair'
-        ? 'Flagged for central document validation.'
-        : 'Continued to document verification. Attached files are queued for Admissions Office review.')
+      ? 'Continued to document verification. Attached files are queued for Admissions Office review.'
       : status === 'For Endorsement'
-        ? 'Sent to endorsement. The application is now with the Department Chair for endorsement.'
+        ? 'Sent to endorsement. The application is now with the Admissions Office Head for endorsement.'
         : status === 'Under Review'
           ? `${actor} opened this application for review. Attached documents are reviewed at the verification stage.`
           : status === 'Approved'
@@ -1429,19 +1425,11 @@ function App() {
     return { ok: true };
   };
 
-  // A Department Chair flags submitted applications for central validation by
-  // moving them to For Verification and recording the reason in the timeline.
-  const flagApplicationForValidation = (applicationId) => (
-    changeApplicationStatus(applicationId, 'For Verification', {
-      note: 'Flagged for central document validation.',
-    })
-  );
-
-  // SOP step 4 — the Department Chair endorses qualified applications to the
-  // next stage (interview and other evaluation).
+  // SOP step 4: the Admissions Office Head records the endorsement of an
+  // application the Staff sent over. The Department Chair has no endorsement role.
   const endorseApplication = async (applicationId, note = '') => {
-    if (state.viewerRole !== 'department_chair') {
-      return { error: 'Only the Department Chair can endorse at this stage.' };
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Head can endorse at this stage.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'For Endorsement') {
@@ -1449,41 +1437,21 @@ function App() {
     }
     // Manuscript 3.3.3: never record an endorsement for an application whose
     // attached documents are not all Verified. The status write refuses that
-    // change too, so checking first keeps a department_reviews row from being
-    // written against an application that never advanced.
+    // change too, so checking first keeps the client from a stale attempt.
     if (!isApplicationVerifiedForEndorsement(application, state.documents)) {
       return { error: 'Every attached document must be Verified before endorsement.' };
     }
     const record = {
-      reviewedBy: currentProfile.fullName || 'Department Chair',
+      reviewedBy: currentProfile.fullName || 'Admissions Office Head',
       decision: 'Endorsed',
-      note: note || 'Sent to endorsement based on academic standing and verified documents.',
+      note: note || 'Endorsed based on academic standing and verified documents.',
       decidedAt: new Date().toISOString().slice(0, 10),
     };
-    const result = await changeApplicationStatus(applicationId, 'Endorsed', {
+    return changeApplicationStatus(applicationId, 'Endorsed', {
       note: record.note,
       endorsement: record,
     });
-    if (result?.error) return result;
-    if (isSupabaseWorkspaceLoaded) {
-      // The endorsement itself is the authoritative write; the department review
-      // row is an auxiliary audit record, so a failure there does not roll it back.
-      // Promise.resolve keeps this safe even if the helper hands back a bare
-      // Postgrest thenable, which has no .catch of its own.
-      Promise.resolve(upsertSupabaseDepartmentReview({
-        applicationId,
-        reviewerId: currentProfile.id,
-        studentName: application.studentName,
-        department: currentProfile.department,
-        qpi: application.studentQpi,
-        householdIncome: application.studentHouseholdIncome,
-        status: 'Endorsed',
-        recommendation: record.note,
-      })).catch(() => undefined);
-    }
-    return { ok: true };
   };
-
   // The internal endorsement thread. The database RLS policies are the authority;
   // this guard keeps a student session (or a Chair outside its department) from
   // attempting a write the server would reject anyway.
@@ -2792,9 +2760,7 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
-              onEndorseApplication={endorseApplication}
               onAddComment={addReviewComment}
-              onFlagForValidation={flagApplicationForValidation}
               interviewWorkspace={interviewWorkspace}
             />
           )}
@@ -2807,7 +2773,6 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
-              onEndorseApplication={endorseApplication}
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
             />
@@ -2821,7 +2786,6 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
-              onEndorseApplication={endorseApplication}
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
             />

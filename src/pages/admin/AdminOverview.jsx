@@ -61,6 +61,11 @@ export default function AdminOverview({ applications = [], documents = [], role 
   );
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
   const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
+  // SOP step 4 cases the Head must endorse. Staff hand them off; the Head decides.
+  const endorsementApplications = useMemo(
+    () => applications.filter((entry) => entry.status === 'For Endorsement'),
+    [applications],
+  );
   const blockingDocuments = useMemo(
     () => getDocumentsAwaitingReview(applications, documents),
     [applications, documents],
@@ -76,14 +81,15 @@ export default function AdminOverview({ applications = [], documents = [], role 
       <AdminPageHeader
         title={isHead ? 'Admissions Office Head dashboard' : 'Admissions Office dashboard'}
         description={isHead
-          ? 'Run the full Standard Procedure when needed: prepare cases, approve recommendations, release approved results, and maintain the office catalog and announcements.'
-          : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to decide.'}
+          ? 'Run the full Standard Procedure when needed: prepare cases, record endorsements, approve recommendations, release approved results, and maintain the office catalog and announcements.'
+          : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to endorse and decide.'}
         badge={isHead ? 'Approval authority' : 'Internal operations'}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {isHead ? (
           <>
+            <StatCard label="Awaiting your endorsement" value={endorsementApplications.length} note="Verified cases ready for your decision" />
             <StatCard label="Awaiting your approval" value={approvalApplications.length} note="Sub-committee recommendations" />
             <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for release" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released to applicants" />
@@ -93,7 +99,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
           <>
             <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
             <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
-            <StatCard label="Awaiting approval" value={approvalApplications.length} note="With the Admissions Office Head" />
+            <StatCard label="Awaiting endorsement" value={endorsementApplications.length} note="With the Admissions Office Head" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Head" />
           </>
         )}

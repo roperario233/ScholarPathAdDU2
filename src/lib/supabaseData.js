@@ -455,9 +455,12 @@ export const createSupabaseInterviewNote = async ({ applicationId, authorId, aut
   return { ...result, data: result.data ? toInterviewNote(result.data, { [authorId]: authorName }) : null };
 };
 
-// Department review records mirror chair decisions for schema-level auditing.
-// Kept async so it always returns a real Promise: a Postgrest builder is only a
-// thenable (no .catch/.finally), and a fire-and-forget caller needs .catch.
+// Department review records mirror historical Department Chair decisions for
+// schema-level auditing. Endorsement is now the Admissions Office Head's
+// decision and is recorded on the application itself, so nothing writes here for
+// a new case. Kept async so it always returns a real Promise: a Postgrest builder
+// is only a thenable (no .catch/.finally), and a fire-and-forget caller needs
+// .catch.
 export const upsertSupabaseDepartmentReview = async ({ applicationId, reviewerId, studentName, department, qpi, householdIncome, status, recommendation }) => {
   if (!ensureReady()) return { data: null, error: null };
   return supabase.from('department_reviews').upsert({
@@ -474,7 +477,7 @@ export const upsertSupabaseDepartmentReview = async ({ applicationId, reviewerId
 
 const recommendationNote = (status) => (
   status === 'Endorsed'
-    ? 'Sent to endorsement by the Department Chair.'
+    ? 'Endorsed by the Office of Admissions & Aid.'
     : 'Returned for central document validation.'
 );
 

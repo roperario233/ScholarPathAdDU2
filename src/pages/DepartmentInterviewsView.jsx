@@ -29,7 +29,6 @@ export default function DepartmentInterviewsView({
   scholarships = [],
   reviewComments = [],
   onChangeApplication,
-  onEndorseApplication,
   onAddComment,
   interviewWorkspace = null,
 }) {
@@ -170,7 +169,6 @@ export default function DepartmentInterviewsView({
           onAddComment={onAddComment}
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
-          onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
         />
       )}

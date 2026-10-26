@@ -55,7 +55,6 @@ export default function DepartmentCalendarView({
   scholarships = [],
   reviewComments = [],
   onChangeApplication,
-  onEndorseApplication,
   onAddComment,
   interviewWorkspace = null,
 }) {
@@ -167,7 +166,6 @@ export default function DepartmentCalendarView({
           onAddComment={onAddComment}
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
-          onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
         />
       )}

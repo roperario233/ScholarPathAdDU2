@@ -3,7 +3,7 @@ export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For V
 
 // Standard Procedure for Scholarship Applications stage sequence (SOP steps 3-8).
 // Step 2 (Submission) maps to `Submitted`, step 3 (Document Verification) maps to
-// `For Verification`, the Admissions Office's hand-off to the Department Chair is
+// `For Verification`, the Admissions Office's hand-off to the Head for endorsement is
 // `For Endorsement`, step 4 (Endorsement) maps to `Endorsed`, step 5 (Interview)
 // maps to `Interview`, step 6 (Evaluation and Deliberation) maps to `Recommended`,
 // step 7 (Recommendation and Approval) maps to `Approved`, and step 8 (Release of
@@ -25,8 +25,8 @@ const nextStatusMap = {
 };
 
 // The Admissions Office is two lanes with one accountability boundary. Staff
-// prepare a case (intake, document verification, the hand-off to the Department
-// Chair, the interview schedule, and the sub-committee recommendation); the Head
+// prepare a case (intake, document verification, the hand-off to the Head for
+// endorsement, the interview schedule, and the sub-committee recommendation); the Head
 // decides it (approval and release) and owns the office's policy surfaces.
 // Stage authority is still this one map: App.jsx's changeApplicationStatus guard,
 // the review modal's action bar, and the database trigger all read it.
@@ -34,6 +34,11 @@ export const ADMISSIONS_OFFICE_ROLES = ['admissions_office', 'admissions_head'];
 
 // The decisions the Head owns: SOP step 7 (approval) and step 8 (release).
 export const ADMISSIONS_APPROVAL_STATUSES = ['Recommended', 'Approved'];
+
+// Every decision the Head owns, including the SOP step-4 endorsement. The Head's
+// "applications to review" count reads this, so a case waiting on the endorsement
+// decision is never missing from it.
+export const ADMISSIONS_HEAD_DECISION_STATUSES = ['For Endorsement', ...ADMISSIONS_APPROVAL_STATUSES];
 
 export const isAdmissionsStaffRole = (role) => role === 'admissions_office';
 export const isAdmissionsHeadRole = (role) => role === 'admissions_head';
@@ -44,14 +49,14 @@ const roleNextStatusMap = {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
     // The Admissions Office Staff finish document verification and hand the
-    // application to the Department Chair for endorsement (SOP step 4).
+    // application to the Head for endorsement (SOP step 4).
     'For Verification': ['For Endorsement', 'Rejected'],
     // SOP steps 5 and 6: staff coordinate the interview (its panel comes from
     // the applicant's school, SOP 5a) and record the sub-committee
     // recommendation (scheduleInterview and recordDeliberation in App.jsx read
     // this map through their status guard). Approval and release are not staff
     // decisions. A Chair on the interview panel records attendance and notes
-    // without any status move, so the Chair map below is unchanged.
+    // without any status move, so the Chair map below stays empty.
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
   },
@@ -62,18 +67,17 @@ const roleNextStatusMap = {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
     'For Verification': ['For Endorsement', 'Rejected'],
+    // The Head records the endorsement (SOP step 4); Staff only hand off.
+    'For Endorsement': ['Endorsed', 'Rejected'],
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },
-  department_chair: {
-    // A Chair may flag a live application for central validation...
-    Submitted: ['For Verification'],
-    'Under Review': ['For Verification'],
-    // ...and endorses it once the Admissions Office has sent it to endorsement.
-    'For Endorsement': ['Endorsed'],
-  },
+  // The Department Chair has read-only department visibility and panel work
+  // (attendance and evaluation notes). Endorsement is an Admissions Office
+  // decision (SOP step 4), so the Chair has no stage move.
+  department_chair: {},
 };
 
 export const getNextApplicationStatuses = (status, role) => {
@@ -111,10 +115,7 @@ const stageActionLabels = {
   Rejected: 'Reject…',
 };
 
-export const getStageActionLabel = (status, role) => {
-  if (status === 'For Verification' && role === 'department_chair') return 'Flag for central validation';
-  return stageActionLabels[status] || status;
-};
+export const getStageActionLabel = (status) => stageActionLabels[status] || status;
 
 // Student-facing next-step copy for the application workspace. The card and
 // the detail modal show this instead of the static creation note, so a student
@@ -124,8 +125,8 @@ const applicationStatusGuidance = {
   Submitted: 'Your application is submitted and waiting for the Admissions Office to begin review. No action is needed right now.',
   'Under Review': 'The Admissions Office has opened your application for review. We will notify you if anything needs correction.',
   'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.',
-  'For Endorsement': 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.',
-  Endorsed: 'Your application is in the endorsement phase. The Department Chair has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.',
+  'For Endorsement': 'Your documents are verified and the Admissions Office has sent your application for endorsement. No action is needed from you right now.',
+  Endorsed: 'Your application is in the endorsement phase. The Office of Admissions & Aid has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.',
   Interview: 'Your interview is scheduled. Open the application for the date, time, and location or meeting link, and add it to your calendar.',
   Recommended: 'The School Scholarship Sub-committee has recommended your application for approval.',
   Approved: 'Your application has been approved and is awaiting release of results.',
@@ -176,10 +177,11 @@ export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
-//   - Admissions Office Staff: every application awaiting a staff or Chair action
-//     (the same filter as the staff review queue route).
-//   - Admissions Office Head: the approval and release decisions the Head owns.
-//   - Department Chair: applications from their department awaiting chair action.
+//   - Admissions Office Staff: every application awaiting a staff action (the
+//     same filter as the staff review queue route).
+//   - Admissions Office Head: the endorsement, approval, and release decisions
+//     the Head owns.
+//   - Department Chair: the department's live applications, which the Chair reads.
 export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
 
@@ -188,13 +190,15 @@ export const countApplicationsToReview = (applications = [], { role, studentId, 
   }
 
   if (isAdmissionsHeadRole(role)) {
-    return list.filter((entry) => ADMISSIONS_APPROVAL_STATUSES.includes(entry.status)).length;
+    return list.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
   }
 
+  // The Chair has no stage action, so the count is what the department has
+  // in flight at the Admissions Office, shown read-only.
   if (role === 'department_chair') {
     return list.filter((entry) => (
       (entry.studentDepartment || '') === (department || '')
-      && ['Submitted', 'Under Review', 'For Endorsement'].includes(entry.status)
+      && ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(entry.status)
     )).length;
   }
 

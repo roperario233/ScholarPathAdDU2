@@ -145,7 +145,9 @@ export default function AdminReviewQueue({
                     ) : entry.status === 'For Verification' ? (
                       <Button type="button" onClick={() => openReview(entry.id, 'documents')}>Review documents</Button>
                     ) : entry.status === 'For Endorsement' ? (
-                      <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>Open endorsement</Button>
+                      <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>
+                        {isHead ? 'Decide endorsement' : 'Open endorsement'}
+                      </Button>
                     ) : (
                       <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
                     )}

@@ -201,9 +201,9 @@ function SelectField({ label, hint, error, value, onChange, options, placeholder
 
 const assignmentNote = {
   student: 'Set automatically from your degree program in Academic profile.',
-  department_chair: 'Your assigned department scopes the Department Review queue and is managed by the Admissions Office.',
-  admissions_office: 'Admissions Office Staff lane: application preparation and document verification.',
-  admissions_head: 'Full Admissions Office authority: preparation, verification, approval, release, catalog, and announcements.',
+  department_chair: 'Your assigned department scopes the Department Review workspace and the interview panel, and is managed by the Admissions Office.',
+  admissions_office: 'Admissions Office Staff lane: application preparation, document verification, and the hand-off for endorsement.',
+  admissions_head: 'Full Office of Admissions & Aid authority: preparation, verification, endorsement, approval, release, catalog, and announcements.',
 };
 
 // Both Admissions Office lanes belong to the central office, so the read-only

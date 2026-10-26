@@ -20,9 +20,7 @@ export default function DepartmentReviewView({
   scholarships = [],
   reviewComments = [],
   onChangeApplication,
-  onEndorseApplication,
   onAddComment,
-  onFlagForValidation,
   interviewWorkspace = null,
 }) {
   const [selectedId, setSelectedId] = useState(null);
@@ -43,7 +41,7 @@ export default function DepartmentReviewView({
         <div className="page-title-copy">
           <span className="page-section-label">Department Chair workspace</span>
           <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applicants from your department, endorse verified applications, and sit on the interview panel the Admissions Office schedules for your school.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Review applicants from your department, follow the endorsement the Office of Admissions &amp; Aid records, and sit on the interview panel the Admissions Office schedules for your school. Endorsement is a central Admissions Office decision.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>
@@ -56,7 +54,7 @@ export default function DepartmentReviewView({
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
-        <Card title="Endorsement queue" action={<StatusBadge tone={awaitingEndorsement.length ? 'warning' : 'success'}>{awaitingEndorsement.length} awaiting decision</StatusBadge>} className="min-w-0">
+        <Card title="Department applications" action={<StatusBadge tone={awaitingEndorsement.length ? 'warning' : 'success'}>{awaitingEndorsement.length} awaiting endorsement</StatusBadge>} className="min-w-0">
           <div className="grid max-h-[620px] gap-3 overflow-y-auto pr-1">
             {queue.length ? queue.map((entry) => {
               // An application can only be endorsed once every attached vault file
@@ -75,10 +73,10 @@ export default function DepartmentReviewView({
                   <div className="rounded-xl bg-app-card/60 p-3 text-sm text-app-muted">
                     {entry.endorsement?.note
                       || (entry.status === 'For Verification'
-                        ? 'With the Admissions Office for document verification. Your endorsement action opens once the office sends it to endorsement.'
+                        ? 'With the Admissions Office for document verification. The endorsement decision belongs to the Office of Admissions & Aid.'
                         : entry.status === 'For Endorsement'
-                          ? 'Sent to endorsement by the Admissions Office. Ready for your endorsement decision.'
-                          : 'No recommendation has been recorded.')}
+                          ? 'Documents verified. Awaiting the endorsement decision of the Office of Admissions & Aid.'
+                          : 'No endorsement has been recorded.')}
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
                     <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
@@ -100,18 +98,13 @@ export default function DepartmentReviewView({
                         <Button
                           type="button"
                           onClick={() => { setReviewTab('endorsement'); setSelectedId(entry.id); }}
-                        >Open endorsement</Button>
+                        >View endorsement</Button>
                       ) : null}
-                      <Button
-                        type="button"
-                        disabled={!['Submitted', 'Under Review'].includes(entry.status)}
-                        onClick={() => onFlagForValidation?.(entry.id)}
-                      >Flag for validation</Button>
                     </div>
                   </div>
                 </article>
               );
-            }) : <EmptyState title="No applicants in queue" description="Department endorsements will appear here once student applications are routed for review." />}
+            }) : <EmptyState title="No applicants in queue" description="Applications from your department appear here as the Admissions Office processes them." />}
           </div>
         </Card>
 
@@ -128,7 +121,6 @@ export default function DepartmentReviewView({
           onAddComment={onAddComment}
           onClose={() => { setSelectedId(null); setReviewTab(null); }}
           onStatusChange={onChangeApplication}
-          onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
         />
       )}

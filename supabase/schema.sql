@@ -329,6 +329,7 @@ begin
       (old.status = 'Submitted' and new.status in ('Under Review', 'For Verification', 'Rejected'))
       or (old.status = 'Under Review' and new.status in ('For Verification', 'Rejected'))
       or (old.status = 'For Verification' and new.status in ('For Endorsement', 'Rejected'))
+      or (old.status = 'For Endorsement' and new.status in ('Endorsed', 'Rejected'))
       or (old.status = 'Endorsed' and new.status in ('Interview', 'Rejected'))
       or (old.status = 'Interview' and new.status in ('Recommended', 'Rejected'))
       or (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
@@ -468,36 +469,20 @@ for update using (
 create policy "admissions_head_applications_update" on applications
 for update using (
   public.is_admissions_head()
-  and status in ('Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved')
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved')
 ) with check (
   public.is_admissions_head()
-  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
 );
 create policy "chair_applications_read" on applications
 for select using (
   public.current_profile_role() = 'department_chair'
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 );
-create policy "chair_applications_flag_for_validation" on applications
-for update using (
-  public.current_profile_role() = 'department_chair'
-  and status in ('Submitted', 'Under Review')
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-) with check (
-  public.current_profile_role() = 'department_chair'
-  and status = 'For Verification'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-);
-create policy "chair_applications_endorse" on applications
-for update using (
-  public.current_profile_role() = 'department_chair'
-  and status = 'For Endorsement'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-) with check (
-  public.current_profile_role() = 'department_chair'
-  and status = 'Endorsed'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-);
+-- The Department Chair has read-only department visibility (chair_applications_read
+-- above) plus SOP 5a panel work. Endorsement moved to the Office of Admissions &
+-- Aid: Staff hand off (For Endorsement) and the Head records the decision
+-- (Endorsed), so the Chair has no stage-move policy.
 -- Students attach or detach only their own vault files, and only while the
 -- application is still a Draft.
 create policy "application_documents_self_read" on application_documents
@@ -524,9 +509,9 @@ create policy "notifications_self_access" on notifications
 for all using (auth.uid() = profile_id) with check (auth.uid() = profile_id);
 create policy "department_reviews_restricted" on department_reviews
 for select using (auth.uid() = reviewer_id);
-create policy "chair_department_reviews_access" on department_reviews
-for all using (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id)
-with check (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id);
+-- Historical Chair endorsement rows stay readable through
+-- department_reviews_restricted above. Endorsement is now recorded on the
+-- application itself, so the Chair no longer writes audit rows here.
 create policy "staff_review_comments_read" on application_review_comments
 for select using (
   public.is_admissions_office()

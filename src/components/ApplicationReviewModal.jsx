@@ -15,8 +15,8 @@ import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getInterviewStateLabel, isInterviewComplete, isInterviewOutcomeDue, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
-// SOP step 5 onward: the Interview tab appears once the Department Chair has
-// endorsed the application and stays readable afterwards.
+// SOP step 5 onward: the Interview tab appears once the Office of Admissions &
+// Aid has endorsed the application and stays readable afterwards.
 const INTERVIEW_TAB_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 const WIDE_QUERY = '(min-width: 1024px)';
 
@@ -141,8 +141,8 @@ export default function ApplicationReviewModal({
   onAddComment,
 }) {
   // Both Admissions Office lanes can run the preparation stages; the Head is a
-  // superset and also decides approval and release. Department Chairs keep their
-  // endorsement-only lane.
+  // superset and also decides the endorsement (SOP step 4), approval, and
+  // release. Department Chairs read the department's cases without a stage move.
   const isAdmissionsHead = isAdmissionsHeadRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const isWide = useIsWide();
@@ -163,10 +163,10 @@ export default function ApplicationReviewModal({
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
   const documentsUnlocked = areApplicationDocumentsVisible(application.status);
-  // SOP step 4 starts when the Admissions Office hands the case to the
-  // Department Chair, so the Endorsement tab stays hidden while it is still with
-  // the office. It stays visible afterwards so the recorded hand-off, decision,
-  // and discussion remain readable.
+  // SOP step 4 starts when the Admissions Office hands the case to the Head for
+  // the endorsement decision, so the Endorsement tab stays hidden while the case
+  // is still being verified. It stays visible afterwards so the recorded
+  // hand-off, decision, and discussion remain readable.
   const endorsementUnlocked = areEndorsementRecordsVisible(application.status);
   const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
@@ -306,7 +306,7 @@ export default function ApplicationReviewModal({
         return;
       }
       setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-        ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
+        ? 'Application sent for endorsement. The Admissions Office Head now records the decision, and the hand-off record below keeps the note you added.'
         : 'The endorsement decision was recorded.');
       setEndorsementDecision(null);
       // Stay on the Endorsement tab either way: the recorded hand-off or decision
@@ -434,10 +434,9 @@ export default function ApplicationReviewModal({
       setRejectReasonOpen(true);
       return;
     }
-    // The hand-off to the Department Chair records an optional note, so the
-    // action bar opens the decision dialog. The review surface stays open
-    // afterwards instead of closing on the reviewer before they can read the
-    // recorded hand-off.
+    // The hand-off for endorsement records an optional note, so the action bar
+    // opens the decision dialog. The review surface stays open afterwards instead
+    // of closing on the reviewer before they can read the recorded hand-off.
     if (status === 'For Endorsement' && isAdmissionsReviewer) {
       setEndorsementError('');
       setEndorsementDecision({ mode: 'handoff' });
@@ -457,9 +456,7 @@ export default function ApplicationReviewModal({
     // the note says that explicitly for the reviewer and the student's history.
     const options = status === 'For Verification'
       ? {
-        note: role === 'department_chair'
-          ? 'Flagged for central document validation.'
-          : 'Continued to document verification. Attached files are queued for Admissions Office review.',
+        note: 'Continued to document verification. Attached files are queued for Admissions Office review.',
       }
       : undefined;
     // Scheduling confirms the Interview tab's draft. An incomplete draft opens
@@ -514,8 +511,10 @@ export default function ApplicationReviewModal({
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
-    : application.status === 'For Endorsement' && isAdmissionsReviewer
-      ? 'This application is with the Department Chair for endorsement. The hand-off record stays available in the Endorsement tab and the status history.'
+    : application.status === 'For Endorsement'
+      ? (role === 'department_chair'
+        ? 'This application is awaiting the endorsement decision of the Office of Admissions & Aid. The record stays available in the Endorsement tab.'
+        : 'This application is awaiting the endorsement decision of the Admissions Office Head. The hand-off record stays available in the Endorsement tab and the status history.')
       : isAdmissionsHead
         ? 'No stage action is available at this stage.'
         : role === 'department_chair'

@@ -501,10 +501,10 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 export const ENDORSEMENT_BLOCKED_STATUSES = ENDORSEMENT_STAGE_STATUSES;
 
-// SOP step 4 (endorsement) starts when the Admissions Office hands the case to
-// the Department Chair. Until `For Endorsement` the stage has not begun, so the
-// review surface keeps its Endorsement tab hidden instead of restating the action
-// bar; the tab stays readable through the later stages.
+// SOP step 4 (endorsement) starts when the Admissions Office Staff hand the case
+// to the Head for the endorsement decision. Until `For Endorsement` the stage has
+// not begun, so the review surface keeps its Endorsement tab hidden instead of
+// restating the action bar; the tab stays readable through the later stages.
 export const areEndorsementRecordsVisible = (status) => ENDORSEMENT_STAGE_STATUSES.includes(status);
 
 // Document Vault review starts at the SOP document-verification stage. Before

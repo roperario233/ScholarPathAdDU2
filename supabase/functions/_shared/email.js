@@ -200,17 +200,18 @@ export const renderReminderEmail = ({ title, itemTitle, deadline, daysBefore, si
  * "For Verification" is the SOP document-verification stage, so it names the
  * office holding the files and tells the applicant when to expect the next
  * message instead of the generic "status changed" copy. "Endorsed" is stored as
- * the chair's decision but shown as the step-4 endorsement phase.
+ * the Office of Admissions & Aid decision but shown as the step-4 endorsement
+ * phase.
  */
 export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office', { interview = null } = {}) => {
   if (status === 'For Verification') {
     return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
   }
   if (status === 'For Endorsement') {
-    return 'Your documents are verified and the Admissions Office has sent your application to your Department Chair for endorsement. No action is needed from you right now.';
+    return 'Your documents are verified and the Admissions Office has sent your application for endorsement. No action is needed from you right now.';
   }
   if (status === 'Endorsed') {
-    return 'Your application is in the endorsement phase: the Department Chair has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.';
+    return 'Your application is in the endorsement phase: the Office of Admissions & Aid has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.';
   }
   // SOP step 5: the first schedule rides the status notification, so the
   // message carries the date, the mode, and the location or meeting link.
