@@ -1115,7 +1115,7 @@ main .deadline-item > .deadline-actions {
     transition: none;
   }
 }
-.application-detail-modal { width: min(620px, 100%); max-height: min(80vh, 680px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
+.application-detail-modal { width: min(880px, 100%); max-height: min(88vh, 840px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
 .application-detail-modal h2 { margin: 0; }
 /* Keep the modal header fixed and scroll only the body so the scrollbar no
    longer tracks the rounded corner of the modal surface. */
@@ -1123,7 +1123,7 @@ main .deadline-item > .deadline-actions {
 /* Staff review modal: fixed header, tabs, and action bar around one scrolling
    body, wide enough for the side-by-side document list and inline preview. The
    Documents tab splits that body into two independently scrolling panes. */
-.application-review-modal { width: min(1180px, 100%); height: min(92vh, 900px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
+.application-review-modal { width: min(1320px, 100%); height: min(94vh, 980px); display: flex; flex-direction: column; overflow: hidden; padding: 1.5rem; }
 .application-review-modal h2 { margin: 0; }
 .application-review-modal-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; padding-right: 0.4rem; padding-bottom: 1rem; }
 /* The modal opens on the applicant, so the scholarship title reads as a compact
@@ -1163,6 +1163,9 @@ main .deadline-item > .deadline-actions {
   }
 }
 @media (max-width: 640px) {
+  /* The taller detail cap (88vh) is close to a handset's address-bar-inflated
+     viewport, so pin it to the dynamic viewport minus the overlay padding. */
+  .application-detail-modal { max-height: calc(100dvh - 1.5rem); }
   .application-review-modal { height: calc(100dvh - 1.5rem); padding: 1rem; }
   .application-review-actions button { min-height: 2.75rem; }
 }

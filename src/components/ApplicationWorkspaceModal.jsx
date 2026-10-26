@@ -309,7 +309,7 @@ export default function ApplicationWorkspaceModal({
 
   return (
     <>
-      <ModalShell title={application.scholarshipTitle} onClose={handleClose} className="application-detail-modal !w-[min(880px,100%)] !max-h-[min(90vh,860px)]">
+      <ModalShell title={application.scholarshipTitle} onClose={handleClose} className="application-detail-modal !w-[min(1080px,100%)] !max-h-[min(92vh,920px)] max-sm:!max-h-[calc(100dvh-1.5rem)]">
         <div className="application-detail-modal-body grid content-start gap-4">
           <p className="m-0 text-sm text-app-muted">
             Application workspace · Deadline {fmtDate(scholarship?.deadline)} · {readiness.attachedCount} of {readiness.requiredCount} required documents attached
