@@ -9,7 +9,7 @@ import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import ProceedWithoutInterviewModal from './ProceedWithoutInterviewModal';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getReviewStageTab } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -330,16 +330,22 @@ export default function ApplicationReviewModal({
   // the profile values the review directory loads now.
   const snapshot = application.profileSnapshot || null;
   const academic = snapshot?.academic || null;
+  // The badges are read from the files the application attaches now, so a file
+  // the Admissions Office verified at the verification stage stops reading
+  // Unverified from the snapshot frozen before that decision. The frozen badge
+  // stays the fallback for a linked file this reviewer session could not load.
+  const liveVerifications = snapshot ? getApplicationLiveAttributeVerifications(application, documents) : null;
+  const verificationBadge = (key, frozenBadge) => liveVerifications?.[key] || frozenBadge;
   const isQpi = !academic || academic.credential === 'qpi';
   const currentQpi = application.studentQpi != null && application.studentQpi !== '' ? Number(application.studentQpi).toFixed(2) : '';
   const snapshotAcademic = academic?.value == null || academic.value === '' ? '' : (isQpi ? Number(academic.value).toFixed(2) : String(academic.value));
   const currentIncome = application.studentHouseholdIncome != null && application.studentHouseholdIncome !== '' ? Number(application.studentHouseholdIncome) : null;
   const snapshotIncome = snapshot?.householdIncome?.value ?? null;
   const academicFact = snapshot
-    ? { label: academic?.label || 'Academic record', value: snapshotAcademic, verification: academic?.verification, currentValue: isQpi && currentQpi && snapshotAcademic && currentQpi !== snapshotAcademic ? currentQpi : '' }
+    ? { label: academic?.label || 'Academic record', value: snapshotAcademic, verification: verificationBadge(academic?.credential || 'qpi', academic?.verification), currentValue: isQpi && currentQpi && snapshotAcademic && currentQpi !== snapshotAcademic ? currentQpi : '' }
     : { label: 'QPI', value: currentQpi };
   const incomeFact = snapshot
-    ? { label: 'Household income', value: snapshotIncome == null ? '' : fmtCurrency(snapshotIncome), verification: snapshot.householdIncome?.verification, currentValue: currentIncome != null && snapshotIncome != null && currentIncome !== Number(snapshotIncome) ? fmtCurrency(currentIncome) : '' }
+    ? { label: 'Household income', value: snapshotIncome == null ? '' : fmtCurrency(snapshotIncome), verification: verificationBadge('householdIncome', snapshot.householdIncome?.verification), currentValue: currentIncome != null && snapshotIncome != null && currentIncome !== Number(snapshotIncome) ? fmtCurrency(currentIncome) : '' }
     : { label: 'Household income', value: currentIncome == null ? '' : fmtCurrency(currentIncome) };
 
   const stageRecords = [
@@ -614,7 +620,7 @@ export default function ApplicationReviewModal({
               <FactTile label="Year standing" value={snapshot?.yearStandingLabel || ''} />
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
-            {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show Document Vault proof; “Profile now” marks a value changed since.</p> : null}
+            {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
               <Panel className="grid content-start gap-2">
@@ -715,6 +721,7 @@ export default function ApplicationReviewModal({
         {visibleActiveTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
+            <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
             <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} />
           </Panel>
         )}
