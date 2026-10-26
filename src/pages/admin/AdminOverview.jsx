@@ -26,8 +26,8 @@ const workspaces = [
   },
   {
     view: 'admin-calendar',
-    label: 'Interview calendar',
-    description: 'Interviews and deadlines for the month.',
+    label: 'Office calendar',
+    description: 'Interviews, scholarship deadlines, recorded decisions, and office planning entries.',
     action: 'Open calendar',
   },
   {

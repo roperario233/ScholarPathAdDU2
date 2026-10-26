@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
+import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
 import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
@@ -13,7 +14,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -2120,6 +2121,70 @@ function App() {
     event.currentTarget.reset();
   };
 
+  // Office planning entries on the office calendar (verification windows, release
+  // target dates, internal meetings). They are dates only: they do not create
+  // notifications or deliveries. The Head publishes and removes them; both office
+  // lanes and Department Chairs read them, and a student session never loads the
+  // slice, so there is nothing to filter on the student side.
+  const addOfficeCalendarEntry = async ({ title, entryDate, kind, notes } = {}) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { ok: false, error: 'Only the Admissions Office Head can add office calendar entries.' };
+    }
+    const cleanTitle = String(title || '').trim();
+    if (!cleanTitle || !entryDate) {
+      return { ok: false, error: 'A title and a date are required.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { ok: false, error: 'Supabase is not configured, so the entry could not be saved.' };
+    }
+    const entry = {
+      id: `office-${crypto.randomUUID()}`,
+      title: cleanTitle,
+      entryDate: String(entryDate),
+      kind: OFFICE_ENTRY_KINDS.includes(kind) ? kind : 'office',
+      notes: String(notes || '').trim(),
+      createdAt: new Date().toISOString().slice(0, 10),
+    };
+    setState((previous) => ({
+      ...previous,
+      officeCalendarEntries: [...(previous.officeCalendarEntries || []), entry],
+    }));
+    const { error } = await createSupabaseOfficeCalendarEntry({ ...entry, createdBy: state.authUser?.id });
+    if (error) {
+      // Drop the optimistic row so the calendar never shows an entry the database
+      // refused (for example when the caller is not the Head lane).
+      setState((previous) => ({
+        ...previous,
+        officeCalendarEntries: (previous.officeCalendarEntries || []).filter((item) => item.id !== entry.id),
+      }));
+      return { ok: false, error: error.message || 'The entry could not be saved.' };
+    }
+    return { ok: true, entry };
+  };
+
+  const deleteOfficeCalendarEntry = async (entryId) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { ok: false, error: 'Only the Admissions Office Head can remove office calendar entries.' };
+    }
+    const previousEntry = (state.officeCalendarEntries || []).find((item) => item.id === entryId);
+    if (!previousEntry) {
+      return { ok: false, error: 'That entry is no longer on the calendar.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      officeCalendarEntries: (previous.officeCalendarEntries || []).filter((item) => item.id !== entryId),
+    }));
+    const { error } = await deleteSupabaseOfficeCalendarEntry(entryId);
+    if (error) {
+      setState((previous) => ({
+        ...previous,
+        officeCalendarEntries: [...(previous.officeCalendarEntries || []), previousEntry],
+      }));
+      return { ok: false, error: error.message || 'The entry could not be removed.' };
+    }
+    return { ok: true };
+  };
+
   const saveScholarship = async (scholarship) => {
     if (!isAdmissionsHeadRole(state.viewerRole)) {
       window.alert('Only the Admissions Office Head can publish catalog entries.');
@@ -2702,6 +2767,9 @@ function App() {
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
+              officeCalendarEntries={state.officeCalendarEntries || []}
+              onAddOfficeEntry={isAdmissionsHeadRole(state.viewerRole) ? addOfficeCalendarEntry : undefined}
+              onDeleteOfficeEntry={isAdmissionsHeadRole(state.viewerRole) ? deleteOfficeCalendarEntry : undefined}
             />
           )}
 
@@ -2775,6 +2843,7 @@ function App() {
               onChangeApplication={changeApplicationStatus}
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
+              officeCalendarEntries={state.officeCalendarEntries || []}
             />
           )}
 

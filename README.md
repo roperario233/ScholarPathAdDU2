@@ -189,7 +189,7 @@ pages.
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
 | `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
 | `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date with attendance actions, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
-| `admin-calendar` | Interview calendar | Both | The office's month view of scheduled interviews against the AdDU scholarship deadlines it publishes, with a day agenda; the Head's venue manager lives here |
+| `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Head's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Head's venue manager and planning-entry form live here |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
 | `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
 | `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
@@ -213,9 +213,12 @@ comment stays in the append-only review record.
 The Chair also has a dedicated **Calendar** (`chair-calendar`) and **Interviews**
 (`chair-interviews`) page. The calendar marks the interviews the Chair sits on
 apart from the rest of the department, alongside the AdDU scholarship deadlines,
-and the interviews page lists the Chair's panel work with attendance and
-evaluation-note actions. Scheduling, rescheduling, and cancellation stay with the
-Admissions Office, so the Chair pages never offer those controls, and the
+the decisions the Admissions Office recorded on the department's cases, and the
+office's planning dates; its agenda groups those layers, with the Chair's own
+panel work first. The interviews page lists the Chair's panel work with
+attendance and evaluation-note actions. Scheduling, rescheduling, and
+cancellation stay with the Admissions Office, and only its Head publishes or
+removes a planning entry, so the Chair pages never offer those controls, and the
 Department Chair still sees only their own department.
 
 ## Provisioning staff accounts

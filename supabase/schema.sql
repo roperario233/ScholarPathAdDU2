@@ -1704,6 +1704,50 @@ alter table custom_deadlines enable row level security;
 create policy "custom_deadlines_self_access" on custom_deadlines
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
 
+-- ---------------------------------------------------------------------------
+-- Office calendar planning entries (Admissions Office and Department Chairs).
+--
+-- The office calendar derives its interviews, catalog deadlines, and recorded
+-- stage decisions from records the app already holds. These rows are the office's
+-- own planning dates. Applied to a deployed project by
+-- supabase/migrations/20261033000000_add_office_calendar_entries.sql; `id` is
+-- text because the client generates `office-<uuid>` ids.
+-- ---------------------------------------------------------------------------
+create table if not exists office_calendar_entries (
+  id text primary key,
+  title text not null,
+  entry_date date not null,
+  kind text not null default 'office' check (kind in ('office', 'deadline', 'meeting')),
+  notes text not null default '',
+  created_by uuid references profiles(user_id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists office_calendar_entries_entry_date_idx
+on office_calendar_entries (entry_date);
+
+alter table office_calendar_entries enable row level security;
+
+drop policy if exists "staff_office_calendar_entries_read" on office_calendar_entries;
+drop policy if exists "admissions_head_office_calendar_entries_insert" on office_calendar_entries;
+drop policy if exists "admissions_head_office_calendar_entries_update" on office_calendar_entries;
+drop policy if exists "admissions_head_office_calendar_entries_delete" on office_calendar_entries;
+
+create policy "staff_office_calendar_entries_read" on office_calendar_entries
+for select using (
+  public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair')
+);
+
+create policy "admissions_head_office_calendar_entries_insert" on office_calendar_entries
+for insert with check (public.is_admissions_head() and created_by = auth.uid());
+
+create policy "admissions_head_office_calendar_entries_update" on office_calendar_entries
+for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+
+create policy "admissions_head_office_calendar_entries_delete" on office_calendar_entries
+for delete using (public.is_admissions_head());
+
+
 alter table notification_email_log enable row level security;
 
 create policy "notification_email_log_self_read" on notification_email_log

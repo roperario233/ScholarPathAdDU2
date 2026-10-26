@@ -7,10 +7,10 @@ import { toCalendarDateKey } from '../lib/calendarMarks';
 //
 // `showMarkDots` keeps the student calendar's single dot exactly as it was, while
 // the staff calendars get one tone-coded dot per mark kind (interview, deadline,
-// your panel, department interview).
+// your panel, department interview, recorded decision, office entry).
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-const PRIMARY_MARK_KINDS = new Set(['deadline', 'interview', 'your-panel', 'department-interview']);
+const PRIMARY_MARK_KINDS = new Set(['deadline', 'interview', 'your-panel', 'department-interview', 'decision', 'office']);
 const SECONDARY_MARK_KINDS = new Set(['custom', 'reminder']);
 
 const DOT_TONES = {
@@ -18,9 +18,16 @@ const DOT_TONES = {
   'your-panel': 'bg-blue-600',
   'department-interview': 'bg-slate-400',
   deadline: 'bg-amber-500',
+  decision: 'bg-indigo-500',
+  office: 'bg-violet-500',
   reminder: 'bg-emerald-500',
   custom: 'bg-emerald-500',
 };
+
+// A staff day can carry interviews, a catalog deadline, recorded decisions, and
+// office entries at once, so the cell shows up to four tone-coded dots and then
+// a "+n" count instead of silently dropping the rest.
+const MAX_CELL_DOTS = 4;
 
 export const getCalendarMarkTone = (kind) => DOT_TONES[kind] || 'bg-slate-400';
 
@@ -110,9 +117,12 @@ export default function MonthCalendar({
               {hasMarks && !showMarkDots && <span className="deadline-dot" />}
               {hasMarks && showMarkDots && (
                 <span className="absolute bottom-1 right-1 flex items-center gap-0.5">
-                  {marks.slice(0, 3).map((mark) => (
+                  {marks.slice(0, MAX_CELL_DOTS).map((mark) => (
                     <span key={mark.kind} className={`h-1.5 w-1.5 rounded-full ${getCalendarMarkTone(mark.kind)}`} />
                   ))}
+                  {marks.length > MAX_CELL_DOTS ? (
+                    <span className="text-[9px] font-semibold leading-none text-app-muted">+{marks.length - MAX_CELL_DOTS}</span>
+                  ) : null}
                 </span>
               )}
             </button>

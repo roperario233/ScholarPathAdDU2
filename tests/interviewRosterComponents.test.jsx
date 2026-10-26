@@ -86,6 +86,24 @@ const applications = () => [
   application({ id: 'app-endorsed', status: 'Endorsed', interview: null }),
 ];
 
+// One office planning entry on the Manila today, so the "Office next" list and the
+// calendar mark both render without depending on the machine's month.
+const officeEntries = () => [
+  { id: 'office-1', title: 'Verification window closes', entryDate: todayKey, kind: 'deadline', notes: 'Finish queued files.' },
+];
+
+// A case the Head released today, so the recorded-decision layer has one event on
+// the Manila day the calendar opens on.
+const decisionLogged = () => [
+  ...applications(),
+  application({
+    id: 'app-released',
+    status: 'Released',
+    interview: null,
+    statusLog: [{ id: 'log-1', toStatus: 'Released', actorRole: 'admissions_head', at: `${todayKey}T02:00:00.000Z` }],
+  }),
+];
+
 const officeProps = (overrides = {}) => ({
   applications: applications(),
   documents: [],
@@ -168,12 +186,17 @@ describe('AdminInterviews', () => {
 });
 
 describe('AdminCalendar', () => {
-  it('marks interviews and catalog deadlines on the month grid', () => {
-    const html = renderToStaticMarkup(<AdminCalendar {...officeProps()} />);
-    expect(html).toContain('Interview calendar');
+  it('marks interviews, catalog deadlines, recorded decisions, and office entries', () => {
+    const html = renderToStaticMarkup(
+      <AdminCalendar {...officeProps({ applications: decisionLogged(), officeCalendarEntries: officeEntries() })} />,
+    );
+    expect(html).toContain('Office calendar');
     expect(html).toContain('Scholarship deadline');
+    expect(html).toContain('Recorded decision');
+    expect(html).toContain('Office entry');
     expect(html).toContain('1 scholarship deadline');
-    expect(html).toContain('1 interview');
+    expect(html).toContain('1 recorded decision');
+    expect(html).toContain('1 office entry');
     expect(html).toContain('Next up');
   });
 
@@ -185,6 +208,19 @@ describe('AdminCalendar', () => {
     expect(html).not.toContain('Attendance to record');
   });
 
+  it('offers the mark filters and a Today jump', () => {
+    const html = renderToStaticMarkup(<AdminCalendar {...officeProps()} />);
+    expect(html).toContain('>Decisions<');
+    expect(html).toContain('>Deadlines<');
+    expect(html).toContain('>Today<');
+  });
+
+  it('lists the upcoming office entries beside the interviews', () => {
+    const html = renderToStaticMarkup(<AdminCalendar {...officeProps({ officeCalendarEntries: officeEntries() })} />);
+    expect(html).toContain('Office next');
+    expect(html).toContain('Verification window closes');
+  });
+
   it('reserves venue management for the Admissions Office Head', () => {
     const staff = renderToStaticMarkup(<AdminCalendar {...officeProps()} />);
     expect(staff).not.toContain('>Venues<');
@@ -192,6 +228,25 @@ describe('AdminCalendar', () => {
       <AdminCalendar {...officeProps({ role: 'admissions_head', interviewWorkspace: workspace({ onSaveLocation: () => ({ ok: true }) }) })} />,
     );
     expect(head).toContain('>Venues<');
+  });
+
+  it('reserves office planning entries for the Admissions Office Head', () => {
+    const staff = renderToStaticMarkup(<AdminCalendar {...officeProps({ officeCalendarEntries: officeEntries() })} />);
+    expect(staff).not.toContain('Office planning entries');
+    expect(staff).not.toContain('Add to calendar');
+    const head = renderToStaticMarkup(
+      <AdminCalendar
+        {...officeProps({
+          role: 'admissions_head',
+          officeCalendarEntries: officeEntries(),
+          onAddOfficeEntry: () => ({ ok: true }),
+          onDeleteOfficeEntry: () => ({ ok: true }),
+        })}
+      />,
+    );
+    expect(head).toContain('Office planning entries');
+    expect(head).toContain('Add to calendar');
+    expect(head).toContain('Upcoming entries');
   });
 });
 
@@ -229,5 +284,21 @@ describe('DepartmentCalendarView', () => {
     expect(html).toContain('On your panel');
     expect(html).toContain('Your next interviews');
     expect(html).not.toContain('Awaiting your endorsement');
+  });
+
+  it('adds the recorded decisions and office planning dates read-only', () => {
+    const html = renderToStaticMarkup(
+      <DepartmentCalendarView {...chairProps({
+        queue: decisionLogged(),
+        officeCalendarEntries: officeEntries(),
+      })} />,
+    );
+    expect(html).toContain('Recorded decision');
+    expect(html).toContain('Office entry');
+    expect(html).toContain('1 recorded decision');
+    expect(html).toContain('1 office entry');
+    expect(html).toContain('Office next');
+    expect(html).not.toContain('Schedule interview');
+    expect(html).not.toContain('Add to calendar');
   });
 });
