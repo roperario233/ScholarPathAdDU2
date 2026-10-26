@@ -21,7 +21,7 @@ const workspaces = [
   {
     view: 'admin-interviews',
     label: 'Interview schedule',
-    description: 'Coordinate interviews, panels, and attendance.',
+    description: 'Coordinate interviews, panels, and invitations.',
     action: 'Open interview schedule',
   },
   {

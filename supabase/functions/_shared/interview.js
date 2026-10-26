@@ -376,9 +376,6 @@ export const buildInterviewRecord = ({ draft, previous = null, location = null, 
     instructions: String(draft.instructions || '').trim(),
     scheduledBy: actorId,
     scheduledAt: at,
-    outcomeRecordedAt: null,
-    outcomeRecordedBy: null,
-    outcomeRecordedRole: null,
     history,
   };
 };
@@ -404,51 +401,11 @@ export const buildCancelledInterview = ({ previous, actorId = null, reason = '',
   };
 };
 
-// The Recommend gate (SOP step 5 → 6). An interview scheduled before this
-// overhaul has no attendance record and is grandfathered, exactly like the
-// database gate in enforce_interview_outcome_before_recommendation().
-export const isInterviewComplete = (interview) => {
-  if (!interview) return false;
-  if (!isStructuredInterview(interview)) return true;
-  return interview.state === 'completed';
-};
-
 // A structured interview that still holds a slot and a calendar invitation.
-// A completed, cancelled, or no-show record is history, not live work.
+// A cancelled record is history, not live work. `completed` and `no_show` are
+// legacy states recorded before attendance tracking was removed; they are read
+// back as history and are never written by the app any more.
 export const isInterviewLive = (interview) => isStructuredInterview(interview) && interview.state === 'scheduled';
-
-/**
- * The waiver description behind the review surface's warning dialog (SOP step
- * 5 → 6). The recommendation normally follows an attended interview; the
- * Admissions Office may record it without one, after the live schedule is
- * cancelled. One description feeds the dialog copy, the recorded cancellation
- * reason, and the timeline note, so they cannot disagree. The reviewer's reason
- * is captured by the dialog itself (it is required), not by this helper.
- */
-export const describeInterviewWaiver = (interview) => {
-  const state = isStructuredInterview(interview) ? interview.state : '';
-  const live = isInterviewLive(interview);
-  return {
-    needed: !isInterviewComplete(interview),
-    live,
-    state,
-    cancels: live,
-    when: live ? formatInterviewWhen(interview.startsAt, interview.durationMinutes) : '',
-    where: live ? getInterviewWhere(interview) : '',
-    headline: 'Record the recommendation without an interview?',
-    detail: live
-      ? 'The scheduled interview will be cancelled, its calendar invitation removed, and the applicant and the panel will be notified.'
-      : state === 'no_show'
-        ? 'The panel recorded the applicant as not attending. No live schedule remains to cancel.'
-        : 'No interview outcome has been recorded for this application.',
-  };
-};
-
-export const isInterviewOutcomeDue = (interview, now = new Date()) => {
-  if (!isStructuredInterview(interview) || interview.state !== 'scheduled') return false;
-  const start = toDate(interview.startsAt);
-  return Boolean(start) && start.getTime() <= toDate(now).getTime();
-};
 
 /**
  * The saved record and Google disagree: a cancelled interview whose event
@@ -461,12 +418,6 @@ export const needsInterviewCalendarRepair = (interview) => {
   const calendar = interview.calendar || null;
   return (interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt)
     || (interview.state === 'scheduled' && (!calendar?.eventId || (interview.mode === 'online' && !interview.meetingUrl)));
-};
-
-export const getInterviewWhere = (interview) => {
-  if (!interview) return '';
-  if (interview.mode === 'online') return interview.meetingUrl ? `Online · ${interview.meetingUrl}` : 'Online · meeting link to follow';
-  return interview.locationLabel || 'Location to be announced';
 };
 
 /**

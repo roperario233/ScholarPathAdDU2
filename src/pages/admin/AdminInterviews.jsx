@@ -1,12 +1,10 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../../components/InterviewRoster';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import {
   getInterviewEntries,
-  getInterviewsNeedingOutcome,
   getInterviewsNeedingSchedule,
   getNoteCountForApplication,
   getPanelForApplication,
@@ -16,12 +14,10 @@ import {
 import { findRosterConflicts, formatInterviewDateShort } from '../../lib/interview';
 
 // SOP step 5 for the Admissions Office. Scheduling and rescheduling open the
-// shared review surface; attendance may be recorded inline.
+// shared review surface.
 const FILTERS = [
   { key: 'upcoming', label: 'Upcoming' },
   { key: 'needs-scheduling', label: 'Needs scheduling' },
-  { key: 'attendance', label: 'Attendance due' },
-  { key: 'completed', label: 'Completed & no-show' },
   { key: 'cancelled', label: 'Cancelled' },
   { key: 'all', label: 'All interviews' },
 ];
@@ -65,14 +61,10 @@ export default function AdminInterviews({
   const now = new Date();
   const [filter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : 'upcoming');
   const [selectedId, setSelectedId] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [feedback, setFeedback] = useState(null);
 
   const entries = getInterviewEntries(applications);
   const upcoming = getUpcomingInterviews(applications, { now });
   const needsSchedule = getInterviewsNeedingSchedule(applications);
-  const needsOutcome = getInterviewsNeedingOutcome(applications, now);
-  const completed = entries.filter((entry) => ['completed', 'no_show'].includes(entry.state));
   const cancelled = entries.filter((entry) => entry.state === 'cancelled');
   const conflicts = findRosterConflicts(applications, interviewWorkspace?.panelists || []);
   const selected = applications.find((entry) => entry.id === selectedId) || null;
@@ -80,29 +72,14 @@ export default function AdminInterviews({
     && !interviewWorkspace.calendarChecking
     && (!interviewWorkspace.calendarConfigured || interviewWorkspace.calendarReauthRequired);
 
-  const entryById = new Map(entries.map((entry) => [entry.applicationId, entry]));
   const visibleEntries = (() => {
     if (filter === 'upcoming') return upcoming;
-    if (filter === 'attendance') return needsOutcome.map((entry) => entryById.get(entry.id)).filter(Boolean);
-    if (filter === 'completed') return completed;
     if (filter === 'cancelled') return cancelled;
     if (filter === 'all') return entries;
     return [];
   })();
   const groups = groupInterviewsByDate(visibleEntries);
   const showScheduleList = filter === 'needs-scheduling';
-
-  const recordOutcome = async (applicationId, outcome) => {
-    setBusyId(applicationId);
-    setFeedback(null);
-    const result = await interviewWorkspace?.onRecordOutcome?.(applicationId, outcome);
-    setBusyId(null);
-    if (result?.error) {
-      setFeedback({ tone: 'error', message: result.error });
-      return;
-    }
-    setFeedback({ tone: 'success', message: 'Outcome recorded.' });
-  };
 
   return (
     <div className="grid content-start gap-5 self-start">
@@ -111,27 +88,6 @@ export default function AdminInterviews({
         badge={`${upcoming.length} upcoming`}
         badgeTone={upcoming.length ? 'info' : 'neutral'}
       />
-
-      {feedback ? (
-        <div
-          className={`flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border p-3 text-sm ${
-            feedback.tone === 'error'
-              ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200'
-              : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
-          }`}
-          role="status"
-        >
-          <span className="min-w-0">{feedback.message}</span>
-          <button
-            type="button"
-            className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-            onClick={() => setFeedback(null)}
-            aria-label="Dismiss message"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      ) : null}
 
       {calendarNeedsAttention ? (
         <p className="m-0 text-sm text-amber-700 dark:text-amber-200">
@@ -168,10 +124,7 @@ export default function AdminInterviews({
                     entry={entry}
                     panel={getPanelForApplication(interviewWorkspace?.panelists || [], entry.applicationId)}
                     notesCount={getNoteCountForApplication(interviewWorkspace?.notes || [], entry.applicationId)}
-                    canRecordOutcome={entry.status === 'Interview'}
-                    busy={busyId === entry.applicationId}
                     onOpen={setSelectedId}
-                    onRecordOutcome={recordOutcome}
                   />
                 ))}
               </div>

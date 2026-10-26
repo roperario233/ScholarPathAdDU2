@@ -1,11 +1,9 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../components/InterviewRoster';
 import { Card, EmptyState, StatusBadge } from '../components/ui';
 import {
   getInterviewEntries,
-  getInterviewsNeedingOutcome,
   getPanelApplicationIds,
   getPanelForApplication,
   getNoteCountForApplication,
@@ -14,12 +12,12 @@ import {
 } from '../lib/interviewRoster';
 
 // SOP step 5 for the Department Chair: panel work only. Scheduling belongs to the
-// Admissions Office, so this page records attendance and opens the Interview tab.
+// Admissions Office, so this page opens the Interview tab and never writes a
+// stage.
 const FILTERS = [
   { key: 'panel', label: 'Your panel' },
   { key: 'department', label: 'Department' },
-  { key: 'outcomes', label: 'Outcomes to record' },
-  { key: 'completed', label: 'Completed & no-show' },
+  { key: 'history', label: 'Panel history' },
 ];
 
 export default function DepartmentInterviewsView({
@@ -35,22 +33,14 @@ export default function DepartmentInterviewsView({
   const now = new Date();
   const [filter, setFilter] = useState('panel');
   const [selectedId, setSelectedId] = useState(null);
-  const [busyId, setBusyId] = useState(null);
-  const [feedback, setFeedback] = useState(null);
 
   const panelists = interviewWorkspace?.panelists || [];
   const notes = interviewWorkspace?.notes || [];
   const viewerId = interviewWorkspace?.viewerId || '';
   const panelIds = getPanelApplicationIds(panelists, viewerId);
   const entries = getInterviewEntries(queue);
-  const entryById = new Map(entries.map((entry) => [entry.applicationId, entry]));
   const panelEntries = entries.filter((entry) => panelIds.has(entry.applicationId));
   const panelUpcoming = getUpcomingInterviews(queue, { now }).filter((entry) => panelIds.has(entry.applicationId));
-  const outcomes = getInterviewsNeedingOutcome(queue, now)
-    .filter((entry) => panelIds.has(entry.id))
-    .map((entry) => entryById.get(entry.id))
-    .filter(Boolean);
-  const completed = panelEntries.filter((entry) => ['completed', 'no_show'].includes(entry.state));
   const scheduled = entries.filter((entry) => entry.live && entry.state === 'scheduled');
   const selected = queue.find((entry) => entry.id === selectedId) || null;
 
@@ -65,23 +55,12 @@ export default function DepartmentInterviewsView({
   const visibleEntries = (() => {
     if (filter === 'panel') return panelEntries.filter((entry) => entry.live && entry.state === 'scheduled');
     if (filter === 'department') return scheduled;
-    if (filter === 'outcomes') return outcomes;
-    if (filter === 'completed') return completed;
-    return panelEntries;
+    // Panel history: the panel's interviews that no longer hold a slot — a
+    // cancelled schedule, or a legacy outcome recorded before attendance was
+    // removed.
+    return panelEntries.filter((entry) => !(entry.live && entry.state === 'scheduled'));
   })();
   const groups = groupInterviewsByDate(visibleEntries);
-
-  const recordOutcome = async (applicationId, outcome) => {
-    setBusyId(applicationId);
-    setFeedback(null);
-    const result = await interviewWorkspace?.onRecordOutcome?.(applicationId, outcome);
-    setBusyId(null);
-    if (result?.error) {
-      setFeedback({ tone: 'error', message: result.error });
-      return;
-    }
-    setFeedback({ tone: 'success', message: 'Outcome recorded.' });
-  };
 
   return (
     <div className="grid content-start gap-5 self-start">
@@ -90,31 +69,8 @@ export default function DepartmentInterviewsView({
           <span className="page-section-label">Department Chair interviews</span>
           <h2>{profile.department || 'Department'} interview panel</h2>
         </div>
-        <StatusBadge tone={outcomes.length ? 'warning' : 'info'}>
-          {outcomes.length ? `${outcomes.length} outcome${outcomes.length === 1 ? '' : 's'} due` : `${panelUpcoming.length} on your panel`}
-        </StatusBadge>
+        <StatusBadge tone="info">{panelUpcoming.length} on your panel</StatusBadge>
       </section>
-
-      {feedback ? (
-        <div
-          className={`flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border p-3 text-sm ${
-            feedback.tone === 'error'
-              ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200'
-              : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
-          }`}
-          role="status"
-        >
-          <span className="min-w-0">{feedback.message}</span>
-          <button
-            type="button"
-            className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-            onClick={() => setFeedback(null)}
-            aria-label="Dismiss message"
-          >
-            <X size={16} />
-          </button>
-        </div>
-      ) : null}
 
       <Card
         title="Interviews"
@@ -144,11 +100,8 @@ export default function DepartmentInterviewsView({
                       panel={getPanelForApplication(panelists, entry.applicationId)}
                       notesCount={getNoteCountForApplication(notes, entry.applicationId)}
                       yourRole={yourRole}
-                      canRecordOutcome={yourRole !== 'observer' && entry.status === 'Interview'}
-                      busy={busyId === entry.applicationId}
                       openLabel={yourRole === 'observer' ? 'View interview' : 'Open interview'}
                       onOpen={setSelectedId}
-                      onRecordOutcome={recordOutcome}
                     />
                   );
                 })}

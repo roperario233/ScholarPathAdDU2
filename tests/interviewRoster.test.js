@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   getInterviewEntries,
   getInterviewMarksByDate,
-  getInterviewsNeedingOutcome,
   getInterviewsNeedingReschedule,
   getInterviewsNeedingSchedule,
   getInterviewsForDate,
@@ -75,14 +74,6 @@ describe('the work lists', () => {
     });
     expect(getInterviewsNeedingSchedule([waiting, booked, cancelled]).map((entry) => entry.id))
       .toEqual(['app-waiting', 'app-cancelled-endorsed']);
-  });
-
-  it('counts a past start that is still scheduled, and nothing else', () => {
-    const due = application({ id: 'app-due', interview: interview({ startsAt: '2026-11-02T23:00:00.000Z' }) });
-    const later = application({ id: 'app-later' });
-    const completed = application({ id: 'app-completed', interview: interview({ state: 'completed' }) });
-    const cancelled = application({ id: 'app-cancelled', interview: interview({ state: 'cancelled' }) });
-    expect(getInterviewsNeedingOutcome([due, later, completed, cancelled], NOW).map((entry) => entry.id)).toEqual(['app-due']);
   });
 
   it('treats an ongoing interview as upcoming and a cancelled one as needing a reschedule', () => {

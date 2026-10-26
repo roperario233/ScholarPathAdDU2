@@ -55,8 +55,9 @@ const roleNextStatusMap = {
     // the applicant's school, SOP 5a) and record the sub-committee
     // recommendation (scheduleInterview and recordDeliberation in App.jsx read
     // this map through their status guard). Approval and release are not staff
-    // decisions. A Chair on the interview panel records attendance and notes
-    // without any status move, so the Chair map below stays empty.
+    // decisions. A Chair on the interview panel reads the schedule and records
+    // evaluation notes without any status move, so the Chair map below stays
+    // empty.
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
   },
@@ -75,8 +76,8 @@ const roleNextStatusMap = {
     Approved: ['Released'],
   },
   // The Department Chair has read-only department visibility and panel work
-  // (attendance and evaluation notes). Endorsement is an Admissions Office
-  // decision (SOP step 4), so the Chair has no stage move.
+  // (the schedule and private evaluation notes). Endorsement is an Admissions
+  // Office decision (SOP step 4), so the Chair has no stage move.
   department_chair: {},
 };
 

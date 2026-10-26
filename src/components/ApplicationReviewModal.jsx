@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Button, ModalShell, Panel, StatusBadge, WarningIcon } from './ui';
+import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview, useDocumentPreviewUrl } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
 import VerifyDocumentModal from './VerifyDocumentModal';
@@ -7,13 +7,12 @@ import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, S
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
-import ProceedWithoutInterviewModal from './ProceedWithoutInterviewModal';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
 import { getReviewStageTab } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
-import { createInterviewDraft, getInterviewStateLabel, isInterviewComplete, isInterviewOutcomeDue, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
+import { createInterviewDraft, getInterviewStateLabel, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -187,22 +186,15 @@ export default function ApplicationReviewModal({
   const otherDocuments = [...supportingDocuments, ...linkedDocuments.filter((doc) => !listedIds.has(doc.id))];
 
   // SOP step 5. The Admissions Office coordinates the interview; SOP 5a draws
-  // the panel from the applicant's school, so a Department Chair on the panel
-  // records the outcome. The schedule draft lives here because the action bar's
-  // "Schedule interview" button confirms it.
+  // the panel from the applicant's school. The schedule draft lives here because
+  // the action bar's "Schedule interview" button confirms it.
   const applicationPanelists = (interviewWorkspace?.panelists || []).filter((row) => (
     row.applicationId === application.id && !row.removedAt
-  ));
-  const isInterviewPanelist = role === 'department_chair' && applicationPanelists.some((row) => (
-    row.profileId && row.profileId === interviewWorkspace?.viewerId
   ));
   const interviewUnlocked = Boolean(interviewWorkspace) && (
     INTERVIEW_TAB_STATUSES.includes(application.status)
     || (application.status === 'Rejected' && Boolean(application.interview))
   );
-  const interviewOutcomeDue = application.status === 'Interview'
-    && (isAdmissionsReviewer || isInterviewPanelist)
-    && isInterviewOutcomeDue(application.interview);
   const [interviewDraft, setInterviewDraft] = useState(() => createInterviewDraft(application, applicationPanelists));
   const [interviewShowErrors, setInterviewShowErrors] = useState(false);
   const interviewErrors = validateInterviewSchedule(interviewDraft, {
@@ -237,11 +229,6 @@ export default function ApplicationReviewModal({
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyError, setVerifyError] = useState('');
   const [actionError, setActionError] = useState('');
-  // A recommendation without an interview outcome is confirmed first, because it
-  // cancels the live schedule and notifies the applicant and the panel.
-  const [waiverConfirmOpen, setWaiverConfirmOpen] = useState(false);
-  const [waiverBusy, setWaiverBusy] = useState(false);
-  const [waiverError, setWaiverError] = useState('');
   // The Endorsement tab records the stage decision with a recommendation note;
   // the dialog never writes status directly.
   const [endorsementDecision, setEndorsementDecision] = useState(null);
@@ -351,12 +338,12 @@ export default function ApplicationReviewModal({
   const stageRecords = [
     application.endorsement && {
       key: 'endorsement',
-      title: 'Endorsement · SOP step 4',
+      title: 'Endorsement',
       lines: [application.endorsement.note, `By ${application.endorsement.reviewedBy} · ${fmtDate(application.endorsement.decidedAt)}`],
     },
     application.interview && {
       key: 'interview',
-      title: 'Interview · SOP step 5',
+      title: 'Interview',
       lines: isStructuredInterview(application.interview)
         ? [
           summarizeInterview(application.interview),
@@ -369,12 +356,12 @@ export default function ApplicationReviewModal({
     },
     application.deliberation && {
       key: 'deliberation',
-      title: 'Deliberation · SOP step 6',
+      title: 'Deliberation',
       lines: [[application.deliberation.decision, application.deliberation.note].filter(Boolean).join(' · '), `By ${application.deliberation.decidedBy} · ${fmtDate(application.deliberation.decidedAt)}`],
     },
     application.release && {
       key: 'release',
-      title: 'Release of results · SOP step 8',
+      title: 'Release of results',
       lines: [`Released to ${application.release.releasedTo} · Reference ${application.release.reference}`, fmtDate(application.release.releasedAt)],
     },
   ].filter(Boolean);
@@ -402,15 +389,13 @@ export default function ApplicationReviewModal({
       badge: application.status === 'For Endorsement' ? 'Decision due' : null,
       alert: application.status === 'For Endorsement',
     }] : []),
-    // SOP step 5: the schedule, the panel from the applicant's school, the
-    // attendance record, and the private evaluation notes.
+    // SOP step 5: the schedule, the panel from the applicant's school, and the
+    // private evaluation notes.
     ...(interviewUnlocked ? [{
       key: 'interview',
       label: 'Interview',
-      badge: isAdmissionsReviewer && application.status === 'Endorsed'
-        ? 'Schedule due'
-        : interviewOutcomeDue ? 'Outcome due' : null,
-      alert: (isAdmissionsReviewer && application.status === 'Endorsed') || interviewOutcomeDue,
+      badge: isAdmissionsReviewer && application.status === 'Endorsed' ? 'Schedule due' : null,
+      alert: isAdmissionsReviewer && application.status === 'Endorsed',
     }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
@@ -437,9 +422,6 @@ export default function ApplicationReviewModal({
       : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
-    // The interview attendance gate is a warning, not a block: the action opens
-    // ProceedWithoutInterviewModal, which cancels a live schedule before the
-    // recommendation is written.
     return '';
   };
   const runAction = async (status) => {
@@ -464,14 +446,8 @@ export default function ApplicationReviewModal({
       setEndorsementDecision({ mode: 'endorse' });
       return;
     }
-    // The recommendation normally follows an attended interview. When it does
-    // not, the reviewer confirms the waiver first; App.jsx cancels the live
-    // schedule before the stage moves.
-    if (status === 'Recommended' && !isInterviewComplete(application.interview)) {
-      setWaiverError('');
-      setWaiverConfirmOpen(true);
-      return;
-    }
+    // The recommendation ends the interview stage. App.jsx closes a live
+    // schedule before the stage moves; no attendance decision is recorded.
     setActionError('');
     // The transition writes the stage and its timeline note. "For Verification"
     // routes the attached files into the Admissions Office document queue, so
@@ -530,42 +506,6 @@ export default function ApplicationReviewModal({
       return;
     }
     onClose();
-  };
-  // The confirmed waiver. The write records the recommendation, cancels a live
-  // schedule first, and notifies the applicant and panel through the interview
-  // trigger. A failed Google delete does not undo the recommendation: the
-  // warning points at the Interview tab's repair action instead.
-  const confirmWaiver = async ({ reason } = {}) => {
-    const waiverReason = String(reason || '').trim();
-    if (!waiverReason) {
-      setWaiverError('Record why the recommendation proceeds without an interview.');
-      return;
-    }
-    setWaiverError('');
-    setActionError('');
-    setWaiverBusy(true);
-    try {
-      const result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote, {
-        waiveInterview: true,
-        waiverReason,
-      });
-      if (result?.error) {
-        setWaiverError(result.error);
-        return;
-      }
-      setWaiverConfirmOpen(false);
-      if (result?.warning) {
-        setActiveTab('interview');
-        setActionError(result.warning);
-        return;
-      }
-      onClose();
-    } catch (error) {
-      // A rejected write must never leave the dialog stuck on "Recording…".
-      setWaiverError(error?.message || 'The recommendation could not be recorded. Please try again.');
-    } finally {
-      setWaiverBusy(false);
-    }
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
@@ -814,27 +754,17 @@ export default function ApplicationReviewModal({
               })}
               {forwardStatuses.map((status, index) => {
                 const reason = blockReasonFor(status);
-                // The recommendation is offered without an interview outcome, so the
-                // button warns that confirming it records the waiver and cancels the
-                // live schedule.
-                const interviewWarning = status === 'Recommended' && !isInterviewComplete(application.interview);
                 return (
                   <Button
                     key={status}
                     type="button"
                     variant={index === forwardStatuses.length - 1 ? 'primary' : 'secondary'}
-                    className={interviewWarning ? 'gap-2' : undefined}
                     disabled={Boolean(reason) || actionBusy}
-                    title={reason || (interviewWarning ? 'No interview outcome recorded. Confirming the waiver cancels any scheduled interview.' : undefined)}
+                    title={reason || undefined}
                     aria-describedby={reason ? `review-block-${status}` : undefined}
                     onClick={() => runAction(status)}
                   >
-                    {actionBusy && status === 'Interview' ? 'Scheduling…' : (
-                      <>
-                        {interviewWarning ? <WarningIcon className="h-4 w-4 shrink-0" /> : null}
-                        {getStageActionLabel(status, role)}
-                      </>
-                    )}
+                    {actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role)}
                   </Button>
                 );
               })}
@@ -851,16 +781,6 @@ export default function ApplicationReviewModal({
         onClose={() => { setEndorsementDecision(null); setEndorsementError(''); }}
         busy={endorsementBusy}
         error={endorsementError}
-      />
-    ) : null}
-    {waiverConfirmOpen ? (
-      <ProceedWithoutInterviewModal
-        application={application}
-        interview={application.interview}
-        onConfirm={confirmWaiver}
-        onClose={() => { setWaiverConfirmOpen(false); setWaiverError(''); }}
-        busy={waiverBusy}
-        error={waiverError}
       />
     ) : null}
     {rejectReasonOpen ? (

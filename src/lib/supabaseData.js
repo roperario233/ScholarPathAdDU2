@@ -456,15 +456,6 @@ export const replaceSupabaseInterviewPanel = async (applicationId, panel = [], n
   return { data: (inserted.data || []).map((row) => toInterviewPanelist(row, nameById)), error: inserted.error };
 };
 
-// The panel (or the Admissions Office on its behalf) records attendance through
-// record_interview_outcome, which checks the caller and returns the updated
-// public interview record.
-export const recordSupabaseInterviewOutcome = async (applicationId, outcome) => {
-  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
-  const { data, error } = await supabase.rpc('record_interview_outcome', { p_application_id: applicationId, p_outcome: outcome });
-  return { data: data || null, error };
-};
-
 export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, rating, body }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const result = await supabase.from('application_interview_notes').insert({

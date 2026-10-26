@@ -13,8 +13,8 @@ import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAt
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -1758,31 +1758,6 @@ function App() {
     return { ok: true, message: `The calendar event was ${label}.${swept}` };
   };
 
-  // Attendance is recorded by a Department Chair on the panel, or by the
-  // Admissions Office on the panel's behalf (for example, a panel of faculty
-  // guests only). record_interview_outcome re-checks the caller server-side.
-  const recordInterviewOutcome = async (applicationId, outcome) => {
-    const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application) return { error: 'The application could not be found.' };
-    const allowed = isAdmissionsReviewerRole(state.viewerRole)
-      || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
-    if (!allowed) return { error: 'Only the interview panel or the Admissions Office can record the outcome.' };
-    if (!isSupabaseWorkspaceLoaded) {
-      return { error: 'Supabase is not configured, so the outcome could not be saved.' };
-    }
-    const result = await recordSupabaseInterviewOutcome(applicationId, outcome);
-    if (result.error) {
-      return { error: result.error.message || 'The interview outcome could not be saved.' };
-    }
-    setState((previous) => ({
-      ...previous,
-      applications: previous.applications.map((entry) => (entry.id === applicationId
-        ? { ...entry, interview: result.data || { ...entry.interview, state: outcome } }
-        : entry)),
-    }));
-    return { ok: true };
-  };
-
   const addInterviewNote = async (applicationId, { body, rating = null } = {}) => {
     const allowed = isAdmissionsReviewerRole(state.viewerRole)
       || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
@@ -1852,7 +1827,6 @@ function App() {
     onSchedule: scheduleInterview,
     onReschedule: rescheduleInterview,
     onCancel: cancelInterview,
-    onRecordOutcome: recordInterviewOutcome,
     onAddNote: addInterviewNote,
     onSaveLocation: isAdmissionsHeadRole(state.viewerRole) ? saveInterviewLocation : undefined,
   };
@@ -1860,13 +1834,14 @@ function App() {
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
   //
-  // The recommendation normally follows an attended interview. The Admissions
-  // Office may record it without one: the review surface warns first
-  // (ProceedWithoutInterviewModal) and passes `waiveInterview`, so the live
-  // schedule is cancelled before the stage moves — no invitation outlives the
-  // case — and the waiver is recorded on the deliberation. The database trigger
-  // (enforce_interview_outcome_before_recommendation) accepts exactly that shape.
-  const recordDeliberation = async (applicationId, decision, note = '', options = {}) => {
+  // Attendance is not tracked, so the recommendation itself is what ends the
+  // interview stage. A schedule that is still live is closed first: cancelling
+  // keeps the application at `Interview`, so the interview trigger notifies the
+  // applicant and the panel about the cancellation, and the status write that
+  // follows then tells the applicant the recommendation was recorded. No live
+  // invitation can outlive the stage, which is what the database trigger
+  // (enforce_interview_closed_before_recommendation) still refuses.
+  const recordDeliberation = async (applicationId, decision, note = '') => {
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
       return { error: 'Only the Admissions Office can record a deliberation.' };
     }
@@ -1874,48 +1849,32 @@ function App() {
     if (!application || application.status !== 'Interview') {
       return { error: 'This application is not awaiting a deliberation.' };
     }
-    const waived = options?.waiveInterview === true && decision !== 'Rejected';
-    // The waiver is a recorded decision, so its reason is required. It is kept on
-    // the deliberation, in the timeline, and in the cancellation the applicant and
-    // panel receive.
-    const waiverReason = String(options?.waiverReason || '').trim();
-    if (waived && !waiverReason) {
-      return { error: 'Record why the recommendation proceeds without an interview.' };
-    }
-    if (decision !== 'Rejected' && !isInterviewComplete(application.interview) && !waived) {
-      return { error: 'The interview panel must record the applicant as attended before the recommendation.' };
-    }
-    // Cancelling first keeps the application at `Interview`, so the interview
-    // trigger notifies the applicant and the panel; the status write then tells
-    // the applicant the recommendation was recorded.
     let base = application;
-    let waiverWarning = '';
-    if (waived && isInterviewLive(application.interview)) {
-      const cancelled = await cancelInterviewRecord(
+    let closeWarning = '';
+    if (decision !== 'Rejected' && isInterviewLive(application.interview)) {
+      const closed = await cancelInterviewRecord(
         application,
-        waiverReason,
-        `Interview waived: ${waiverReason}.`,
+        'The recommendation was recorded, closing the interview stage.',
+        'Interview schedule closed when the recommendation was recorded.',
       );
-      if (cancelled.error) return cancelled;
-      base = cancelled.application;
-      waiverWarning = cancelled.warning || '';
+      if (closed.error) return closed;
+      base = closed.application;
+      closeWarning = closed.warning || '';
     }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
-    const waiverLine = waived ? `The interview was waived. Reason: ${waiverReason}.` : '';
     const record = {
       decidedBy: 'School Scholarship Sub-committee',
       decision: nextStatus === 'Recommended' ? 'Recommended' : nextStatus,
       note,
       decidedAt: new Date().toISOString().slice(0, 10),
-      ...(waived ? { interviewWaived: true, interviewWaiverReason: waiverReason } : {}),
     };
     const result = await changeApplicationStatus(applicationId, nextStatus, {
-      note: [note, waiverLine].filter(Boolean).join(' ') || `Sub-committee deliberation recorded as ${nextStatus}.`,
+      note: note || `Sub-committee deliberation recorded as ${nextStatus}.`,
       deliberation: record,
       baseApplication: base,
     });
     if (result?.error) return result;
-    return waiverWarning ? { ...result, warning: waiverWarning } : result;
+    return closeWarning ? { ...result, warning: closeWarning } : result;
   };
 
   // SOP step 7 — the Admissions Office Head approves the sub-committee's

@@ -1,13 +1,10 @@
 import { Button, StatusBadge } from './ui';
-import {
-  getInterviewStateLabel,
-  isInterviewOutcomeDue,
-} from '../lib/interview';
+import { getInterviewStateLabel } from '../lib/interview';
 import { formatInterviewTimeRange } from '../lib/interviewRoster';
 
 // One roster row, shared by the Admissions Office and Department Chair interview
 // pages. Presentation only: every write goes back through the page, which routes
-// it to the shared ApplicationReviewModal or the guarded recordInterviewOutcome.
+// it to the shared ApplicationReviewModal.
 const STATE_TONES = { scheduled: 'info', completed: 'success', no_show: 'warning', cancelled: 'danger' };
 
 export const getInterviewStateTone = (state) => STATE_TONES[state] || 'neutral';
@@ -36,13 +33,9 @@ export function InterviewRosterRow({
   panel = [],
   notesCount = 0,
   yourRole = null,
-  canRecordOutcome = false,
   onOpen,
-  onRecordOutcome,
-  busy = false,
   openLabel = 'Open interview',
 }) {
-  const outcomeDue = entry.live && isInterviewOutcomeDue(entry.interview);
   const where = entry.mode === 'online'
     ? (entry.meetingUrl
       ? <a href={entry.meetingUrl} target="_blank" rel="noreferrer" className="underline">Online · Join meeting</a>
@@ -68,7 +61,6 @@ export function InterviewRosterRow({
         <div className="flex shrink-0 flex-col items-end gap-2">
           <div className="flex flex-wrap justify-end gap-1.5">
             <StatusBadge tone={getInterviewStateTone(entry.state)}>{getInterviewStateLabel(entry.state)}</StatusBadge>
-            {outcomeDue && canRecordOutcome ? <StatusBadge tone="warning">Attendance due</StatusBadge> : null}
             {entry.revision > 1 ? <StatusBadge tone="warning">Rescheduled</StatusBadge> : null}
             {entry.status === 'Interview' && entry.state === 'scheduled' && !panel.length ? <StatusBadge tone="warning">No panel</StatusBadge> : null}
             {!entry.live && entry.state === 'scheduled' ? <StatusBadge tone="neutral">Closed</StatusBadge> : null}
@@ -79,13 +71,6 @@ export function InterviewRosterRow({
           <Button type="button" onClick={() => onOpen?.(entry.applicationId)}>{openLabel}</Button>
         </div>
       </div>
-
-      {canRecordOutcome && outcomeDue ? (
-        <div className="flex flex-wrap gap-2 border-t border-app-border pt-2">
-          <Button type="button" variant="primary" disabled={busy} onClick={() => onRecordOutcome?.(entry.applicationId, 'completed')}>Mark attended</Button>
-          <Button type="button" disabled={busy} onClick={() => onRecordOutcome?.(entry.applicationId, 'no_show')}>Mark did not attend</Button>
-        </div>
-      ) : null}
     </article>
   );
 }

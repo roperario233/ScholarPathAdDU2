@@ -67,7 +67,6 @@ const workspace = (overrides = {}) => ({
   calendarReauthRequired: false,
   calendarSummary: 'ScholarPath Interviews',
   calendarReason: '',
-  onRecordOutcome: () => ({ ok: true }),
   ...overrides,
 });
 
@@ -129,14 +128,15 @@ const chairProps = (overrides = {}) => ({
 describe('InterviewRosterRow', () => {
   const entryFor = (app) => getInterviewEntries([app])[0];
 
-  it('shows the office the attendance action once the interview has started', () => {
+  it('renders the schedule, the panel, and one open action without attendance controls', () => {
     const html = renderToStaticMarkup(
-      <InterviewRosterRow entry={entryFor(application({ id: 'app-due', interview: interview({ startsAt: DUE }) }))} panel={panelists.slice(1, 2)} canRecordOutcome />,
+      <InterviewRosterRow entry={entryFor(application({ id: 'app-due', interview: interview({ startsAt: DUE }) }))} panel={panelists.slice(1, 2)} />,
     );
-    expect(html).toContain('Mark attended');
-    expect(html).toContain('Mark did not attend');
     expect(html).toContain('Ana Reyes');
-    expect(html).not.toContain('You are the lead');
+    expect(html).toContain('Open interview');
+    expect(html).not.toContain('Mark attended');
+    expect(html).not.toContain('Mark did not attend');
+    expect(html).not.toContain('Attendance due');
   });
 
   it('keeps a Chair who is not on the panel read-only', () => {
@@ -148,12 +148,12 @@ describe('InterviewRosterRow', () => {
     expect(html).not.toContain('Mark attended');
   });
 
-  it('gives a Chair on the panel the attendance action and names their role', () => {
+  it('names the role a Chair holds on the panel', () => {
     const html = renderToStaticMarkup(
-      <InterviewRosterRow entry={entryFor(application({ id: 'app-due', interview: interview({ startsAt: DUE }) }))} panel={panelists.slice(1, 2)} yourRole="lead" canRecordOutcome />,
+      <InterviewRosterRow entry={entryFor(application({ id: 'app-due', interview: interview({ startsAt: DUE }) }))} panel={panelists.slice(1, 2)} yourRole="lead" />,
     );
     expect(html).toContain('>Lead</span>');
-    expect(html).toContain('Mark attended');
+    expect(html).not.toContain('Mark attended');
   });
 
   it('formats the day heading from the Manila date key', () => {
@@ -255,7 +255,11 @@ describe('DepartmentInterviewsView', () => {
     const html = renderToStaticMarkup(<DepartmentInterviewsView {...chairProps()} />);
     expect(html).toContain('Department Chair interviews');
     expect(html).toContain('Lead');
-    expect(html).toContain('Mark attended');
+    // Attendance is not tracked, so the Chair page offers no outcome action and
+    // no scheduling control.
+    expect(html).not.toContain('Mark attended');
+    expect(html).not.toContain('Mark did not attend');
+    expect(html).not.toContain('Attendance due');
     expect(html).not.toContain('Schedule interview');
     expect(html).not.toContain('Reschedule');
   });

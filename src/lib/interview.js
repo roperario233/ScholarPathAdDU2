@@ -1,6 +1,6 @@
 // SOP step 5 interview helpers. The definitions live in the shared Edge Function
 // module so the app, the notification emails, and the tests cannot disagree on
-// the schedule format, the panel rule (SOP 5a), or the Recommend gate.
+// the schedule format or the panel rule (SOP 5a).
 import { buildInterviewIcs } from '../../supabase/functions/_shared/interview.js';
 
 export * from '../../supabase/functions/_shared/interview.js';

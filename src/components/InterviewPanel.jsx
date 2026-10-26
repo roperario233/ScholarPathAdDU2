@@ -16,7 +16,6 @@ import {
   getEligiblePanelists,
   getInterviewModeLabel,
   getInterviewStateLabel,
-  isInterviewOutcomeDue,
   isStructuredInterview,
   isoToManilaInputs,
   needsInterviewCalendarRepair,
@@ -357,7 +356,7 @@ function CopyIconButton({ value, label }) {
 const CopyMeetingLinkButton = ({ value }) => <CopyIconButton value={value} label="Copy meeting link" />;
 const CopyLocationButton = ({ value }) => <CopyIconButton value={value} label="Copy location" />;
 
-function ScheduleSummary({ application, interview, panel, scholarshipTitle, recorderName, roleById = {} }) {
+function ScheduleSummary({ application, interview, panel, scholarshipTitle, roleById = {} }) {
   const templateUrl = buildGoogleCalendarTemplateUrl({ interview, scholarshipTitle });
   // What the provider actually holds for this interview. `removedAt` is null on a
   // cancelled interview whose Google event could not be deleted, which is exactly
@@ -433,11 +432,6 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, reco
           </div>
         ) : null}
       </dl>
-      {interview.outcomeRecordedAt ? (
-        <p className="m-0 text-xs text-app-muted">
-          Recorded as {getInterviewStateLabel(interview.state).toLowerCase()} by {recorderName || roleLabels[interview.outcomeRecordedRole] || 'the panel'}{interview.outcomeRecordedRole && recorderName ? ` · ${roleLabels[interview.outcomeRecordedRole] || ''}` : ''} · {fmtWhen(interview.outcomeRecordedAt)}
-        </p>
-      ) : null}
       {interview.state !== 'cancelled' && (interview.calendar?.htmlLink || templateUrl) ? (
         <div className="flex flex-wrap gap-2">
           <a
@@ -540,9 +534,10 @@ function ScheduleHistory({ history, nameById }) {
  *
  * The Admissions Office coordinates: it fills the schedule (confirmed by the
  * action bar's "Schedule interview"), reschedules, and cancels. SOP 5a draws the
- * panel from the applicant's school, so a Department Chair on the panel records
- * attendance and the private evaluation notes; the Admissions Office may record
- * them on the panel's behalf. A Chair who is not on the panel reads everything.
+ * panel from the applicant's school, so a Department Chair on the panel reads the
+ * schedule and records the private evaluation notes; the Admissions Office may
+ * record them on the panel's behalf. A Chair who is not on the panel reads
+ * everything.
  */
 export default function InterviewPanel({
   application,
@@ -571,9 +566,7 @@ export default function InterviewPanel({
   const nameById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
   const roleById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']));
   const canCoordinate = isOffice && ['Endorsed', 'Interview'].includes(application.status);
-  const canRecordOutcome = application.status === 'Interview' && (isOffice || isPanelist);
   const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isOffice || isPanelist);
-  const outcomeDue = isInterviewOutcomeDue(interview);
   // Repair is a recovery action, so it only appears when Google and the record
   // actually disagree: a cancelled interview whose event survived, a scheduled
   // interview with no event, or an online interview whose event has no link. The
@@ -656,34 +649,12 @@ export default function InterviewPanel({
               interview={interview}
               panel={panel}
               scholarshipTitle={scholarshipTitle}
-              recorderName={nameById[interview.outcomeRecordedBy] || ''}
               roleById={roleById}
             />
           ) : (
             <p className="m-0 text-sm text-app-muted">
               {[interview.panel, interview.school].filter(Boolean).join(' · ') || 'Interview panel'} · {interview.scheduledAt ? `Scheduled ${fmtDate(interview.scheduledAt)}` : 'Schedule pending'}
-              <br />No attendance is required for legacy schedules.
             </p>
-          )}
-        </Panel>
-      ) : null}
-
-      {canRecordOutcome && structured && interview.state === 'scheduled' && !editing ? (
-        <Panel className="grid gap-2">
-          <h4 className={sectionHeading}>Interview outcome</h4>
-          {outcomeDue ? (
-            <>
-              <p className="m-0 text-sm text-app-muted">
-                {isPanelist ? 'Record whether the applicant attended. ' : 'Record attendance for the panel. '}
-                The recommendation stays locked until attendance is recorded.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="primary" disabled={busy} onClick={() => run(() => workspace.onRecordOutcome(application.id, 'completed'), 'Recorded as attended. The Admissions Office can now record the recommendation.')}>Mark attended</Button>
-                <Button type="button" disabled={busy} onClick={() => run(() => workspace.onRecordOutcome(application.id, 'no_show'), 'Recorded as not attended. The Admissions Office can reschedule or reject the application.')}>Mark did not attend</Button>
-              </div>
-            </>
-          ) : (
-            <p className="m-0 text-sm text-app-muted">Attendance can be recorded once the interview starts ({formatInterviewWhen(interview.startsAt, interview.durationMinutes)}).</p>
           )}
         </Panel>
       ) : null}

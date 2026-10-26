@@ -1495,112 +1495,38 @@ for insert with check (
   )
 );
 
--- The panel (or the Admissions Office on its behalf) records attendance. Only
--- the interview state and its attribution change; the application status does
--- not, so the Chair's status policies stay exactly as they were.
-create or replace function public.record_interview_outcome(p_application_id uuid, p_outcome text)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_application public.applications%rowtype;
-  v_role text := public.current_profile_role();
-  v_interview jsonb;
-begin
-  if p_outcome not in ('completed', 'no_show') then
-    raise exception 'Record the interview as attended or not attended.' using errcode = '22023';
-  end if;
-
-  select * into v_application
-    from public.applications
-    where id = p_application_id
-    for update;
-  if not found then
-    raise exception 'Application not found.' using errcode = '42501';
-  end if;
-
-  if not (
-    v_role in ('admissions_office', 'admissions_head')
-    or (v_role = 'department_chair' and public.is_interview_panelist(p_application_id))
-  ) then
-    raise exception 'Only the interview panel or the Admissions Office can record the interview outcome.' using errcode = '42501';
-  end if;
-
-  if v_application.status <> 'Interview' then
-    raise exception 'This application is not at the interview stage.' using errcode = '23514';
-  end if;
-
-  v_interview := coalesce(v_application.interview, '{}'::jsonb);
-  if coalesce(v_interview ->> 'state', '') <> 'scheduled' then
-    raise exception 'Only a scheduled interview can have its outcome recorded.' using errcode = '23514';
-  end if;
-  if (v_interview ->> 'startsAt') is null or (v_interview ->> 'startsAt')::timestamptz > now() then
-    raise exception 'The outcome can be recorded once the interview has started.' using errcode = '23514';
-  end if;
-
-  v_interview := v_interview || jsonb_build_object(
-    'state', p_outcome,
-    'outcomeRecordedAt', now(),
-    'outcomeRecordedBy', auth.uid(),
-    'outcomeRecordedRole', v_role
-  );
-
-  update public.applications
-    set interview = v_interview, updated_at = now()
-    where id = p_application_id;
-
-  return v_interview;
-end;
-$$;
-
-revoke all on function public.record_interview_outcome(uuid, text) from public, anon;
-grant execute on function public.record_interview_outcome(uuid, text) to authenticated;
-
--- The Recommend gate: the sub-committee recommendation (SOP step 6) normally
--- follows a completed interview. The Admissions Office may record it without one
--- (ProceedWithoutInterviewModal warns first and App.jsx cancels the live schedule
--- before the stage moves), so a cancelled record is accepted and a `no_show`
--- record needs the `deliberation.interviewWaived` marker. A record still
--- `scheduled` keeps blocking, so the stage never moves past a live invitation. A
--- record scheduled before the interview overhaul carries no version and is
--- grandfathered. Rejected is always allowed. Mirrors the client gate in
--- recordDeliberation (App.jsx) and the helper in _shared/interview.js.
-create or replace function public.enforce_interview_outcome_before_recommendation()
+-- The Recommend gate: the sub-committee recommendation (SOP step 6) ends the
+-- interview stage, so a live schedule must be closed first. App.jsx cancels a
+-- `scheduled` record before it writes the recommendation, which keeps the
+-- application at `Interview` for the cancellation notification and leaves no
+-- invitation or Meet link behind. A record scheduled before the interview
+-- overhaul carries no version and is grandfathered. Rejected is always allowed.
+-- Mirrors the client flow in recordDeliberation (App.jsx).
+create or replace function public.enforce_interview_closed_before_recommendation()
 returns trigger
 language plpgsql
 security definer
 set search_path = public
 as $$
-declare
-  v_state text;
-  v_waived boolean;
 begin
-  v_state := coalesce(new.interview ->> 'state', '');
-  -- The marker the client writes on the deliberation. Containment cannot raise on
-  -- a hand-edited row, unlike a boolean cast of an arbitrary JSON value.
-  v_waived := coalesce(new.deliberation @> '{"interviewWaived": true}'::jsonb, false);
   if old.status = 'Interview'
     and new.status = 'Recommended'
     and (new.interview ? 'version')
-    and v_state <> 'completed'
-    and v_state <> 'cancelled'
-    and not (v_state = 'no_show' and v_waived) then
-    raise exception 'The interview panel must record the applicant as attended, or the recommendation must record the interview waiver.'
+    and coalesce(new.interview ->> 'state', '') = 'scheduled' then
+    raise exception 'The interview schedule must be closed before the recommendation.'
       using errcode = '23514';
   end if;
   return new;
 end;
 $$;
 
-drop trigger if exists enforce_interview_outcome_before_recommendation on public.applications;
-create trigger enforce_interview_outcome_before_recommendation
+drop trigger if exists enforce_interview_closed_before_recommendation on public.applications;
+create trigger enforce_interview_closed_before_recommendation
   before update on public.applications
-  for each row execute function public.enforce_interview_outcome_before_recommendation();
+  for each row execute function public.enforce_interview_closed_before_recommendation();
 
-revoke all on function public.enforce_interview_outcome_before_recommendation() from public;
-revoke all on function public.enforce_interview_outcome_before_recommendation() from anon, authenticated;
+revoke all on function public.enforce_interview_closed_before_recommendation() from public;
+revoke all on function public.enforce_interview_closed_before_recommendation() from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Document Vault storage.

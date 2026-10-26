@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ApplicationReviewModal from '../src/components/ApplicationReviewModal';
-import ProceedWithoutInterviewModal from '../src/components/ProceedWithoutInterviewModal';
 import StudentInterviewCard from '../src/components/StudentInterviewCard';
 
 const SEA = 'School of Engineering and Architecture (SEA)';
@@ -54,7 +53,6 @@ const workspace = (overrides = {}) => ({
   onSchedule: () => ({ ok: true }),
   onReschedule: () => ({ ok: true }),
   onCancel: () => ({ ok: true }),
-  onRecordOutcome: () => ({ ok: true }),
   onAddNote: () => ({ ok: true }),
   ...overrides,
 });
@@ -152,7 +150,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(render({ application: application(), role: 'admissions_office' })).not.toContain('id="review-tab-interview"');
   });
 
-  it('lets a Chair on the panel record attendance and notes', () => {
+  it('lets a Chair on the panel read the schedule and add notes without attendance controls', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'department_chair',
@@ -162,8 +160,12 @@ describe('ApplicationReviewModal Interview tab', () => {
         panelists: [{ id: 'p-1', applicationId: 'app-1', profileId: 'chair-sea', name: 'Ana Reyes', isLead: true, removedAt: null }],
       }),
     });
-    expect(html).toContain('Outcome due');
-    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Mark attended', 'Mark did not attend', 'Add note']));
+    expect(html).toContain('Interview Room A');
+    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add note']));
+    expect(buttonLabels(html)).not.toContain('Mark attended');
+    expect(buttonLabels(html)).not.toContain('Mark did not attend');
+    expect(html).not.toContain('Outcome due');
+    // Scheduling stays with the Admissions Office.
     expect(buttonLabels(html)).not.toContain('Reschedule');
   });
 
@@ -182,31 +184,20 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(buttonLabels(html)).not.toContain('Add note');
   });
 
-  it('offers the recommendation without an interview outcome, behind a warning', () => {
-    // The attendance gate no longer disables the action: the reviewer confirms the
-    // waiver in ProceedWithoutInterviewModal, which states that the schedule is
-    // cancelled before the recommendation is written.
+  it('offers the recommendation as a normal stage action', () => {
+    // Attendance is not tracked, so the recommendation carries no warning icon
+    // and no waiver dialog: App.jsx closes a live schedule as part of the move.
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'admissions_office',
       interviewWorkspace: workspace(),
     });
     expect(html).not.toContain('The panel must record the applicant as attended first.');
-    // The action carries a warning glyph and explains the consequence on hover.
+    expect(html).not.toContain('Outcome due');
     const pending = buttonMarkup(html, 'Recommend for approval');
     expect(pending).not.toContain('disabled=""');
-    expect(pending).toContain('title="No interview outcome recorded');
-    expect(pending).toContain('<svg');
-
-    const attended = render({
-      application: application({ status: 'Interview', interview: { ...pastInterview, state: 'completed' } }),
-      role: 'admissions_office',
-      interviewWorkspace: workspace(),
-    });
-    const attendedButton = buttonMarkup(attended, 'Recommend for approval');
-    expect(attendedButton).not.toContain('disabled=""');
-    expect(attendedButton).not.toContain('<svg');
-    expect(attendedButton).not.toContain('title="No interview outcome recorded');
+    expect(pending).not.toContain('title="No interview outcome recorded');
+    expect(pending).not.toContain('<svg');
   });
   it('still offers the calendar repair after the recommendation waived the interview', () => {
     // The waiver cancels the schedule while the application is at Interview. If
@@ -229,42 +220,6 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(html).toContain('Cancelled');
     expect(buttonLabels(html)).toContain('Repair calendar event');
     expect(buttonLabels(html)).not.toContain('Schedule again');
-  });
-});
-
-describe('ProceedWithoutInterviewModal', () => {
-  const renderWaiver = (interview) => renderToStaticMarkup(
-    <ProceedWithoutInterviewModal
-      application={application({ status: 'Interview', interview })}
-      interview={interview}
-      onConfirm={() => undefined}
-      onClose={() => undefined}
-    />,
-  );
-
-  it('names the interview it will cancel and what the waiver records', () => {
-    const html = renderWaiver(pastInterview);
-    expect(html).toContain('Record the recommendation without an interview?');
-    // The header is a centred warning: icon above the question.
-    expect(html).toContain('justify-items-center');
-    expect(html).toMatch(/<svg[^>]*aria-hidden="true"/);
-    expect(html).toContain('Interview to cancel');
-    expect(html).toContain('Mon, Jan 5, 2026');
-    expect(html).toContain('Interview Room A (Finster Hall, F213)');
-    expect(html).toContain('The applicant and the interview panel are notified of the cancellation.');
-    expect(html).toContain('The waiver and this reason are recorded in the application history.');
-    // The reason is part of the record, so the field is required.
-    expect(html).toContain('Reason for proceeding without an interview (required)');
-    expect(html).toContain('<textarea');
-    expect(html).toContain('Kept in the schedule history and the deliberation.');
-    expect(html).toContain('Proceed without interview');
-  });
-
-  it('does not claim a cancellation when no live schedule remains', () => {
-    const noShow = renderWaiver({ ...pastInterview, state: 'no_show' });
-    expect(noShow).not.toContain('Interview to cancel');
-    expect(noShow).toContain('recorded the applicant as not attending');
-    expect(noShow).not.toContain('are notified of the cancellation');
   });
 });
 

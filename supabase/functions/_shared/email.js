@@ -375,7 +375,7 @@ export const renderInterviewUpdateEmail = ({ audience = 'student', kind = 'sched
       ? 'The Admissions Office cancelled this interview. No action is needed unless it is scheduled again.'
       : 'The Admissions Office cancelled your interview. You will be notified if it is scheduled again.')
     : forPanel
-      ? `You are on the interview panel for this applicant. After the interview, record attendance and your evaluation in the application's Interview tab.`
+      ? `You are on the interview panel for this applicant. Review the schedule and add your evaluation in the application's Interview tab after the interview.`
       : 'The Admissions Office changed your interview schedule. Please review the new details below.';
   const link = `${siteUrl}?view=${forPanel ? 'review' : 'applications'}`;
   const rows = [

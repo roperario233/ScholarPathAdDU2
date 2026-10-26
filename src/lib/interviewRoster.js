@@ -12,7 +12,6 @@ import {
   DEFAULT_INTERVIEW_DURATION,
   getInterviewDateKey,
   getInterviewEndsAt,
-  isInterviewOutcomeDue,
   isStructuredInterview,
   isoToManilaInputs,
 } from './interview';
@@ -96,13 +95,9 @@ export const getInterviewsNeedingSchedule = (applications = []) => asList(applic
   ))
   .sort((left, right) => new Date(left.updatedAt || 0) - new Date(right.updatedAt || 0));
 
-// A scheduled interview whose start time has passed still needs the panel's
-// attendance, so it stays on the office's and the panel's to-do list.
-export const getInterviewsNeedingOutcome = (applications = [], now = new Date()) => asList(applications)
-  .filter((entry) => entry?.status === 'Interview' && isInterviewOutcomeDue(entry.interview, now))
-  .sort((left, right) => new Date(left.interview.startsAt || 0) - new Date(right.interview.startsAt || 0));
-
-// Cancelled and no-show interviews both need a new schedule from the office.
+// Cancelled interviews need a new schedule from the office. `no_show` is a
+// legacy state from before attendance tracking was removed; those rows are still
+// recoverable here.
 export const getInterviewsNeedingReschedule = (applications = []) => getInterviewEntries(applications)
   .filter((entry) => entry.status === 'Interview' && ['cancelled', 'no_show'].includes(entry.state));
 

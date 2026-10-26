@@ -13,10 +13,7 @@ import {
   getEligiblePanelists,
   getInterviewDateKey,
   getInterviewReminderKey,
-  describeInterviewWaiver,
-  isInterviewComplete,
   isInterviewLive,
-  isInterviewOutcomeDue,
   isoToManilaInputs,
   manilaInputToIso,
   needsInterviewCalendarRepair,
@@ -208,22 +205,10 @@ describe('interview records', () => {
   });
 });
 
-describe('the Recommend gate', () => {
-  it('requires the panel to record the applicant as attended', () => {
-    const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
-    expect(isInterviewComplete(record)).toBe(false);
-    expect(isInterviewComplete({ ...record, state: 'no_show' })).toBe(false);
-    expect(isInterviewComplete({ ...record, state: 'completed' })).toBe(true);
-  });
-
-  it('grandfathers an interview recorded before structured scheduling', () => {
-    expect(isInterviewComplete({ scheduledAt: '2026-10-01', panel: 'SEA Scholarship Panel' })).toBe(true);
-    expect(isInterviewComplete(null)).toBe(false);
-  });
-
-  // The Admissions Office may record the recommendation without an interview
-  // outcome. The waiver cancels a live schedule first, so only a `scheduled`
-  // record is treated as live work.
+describe('the interview record', () => {
+  // The interview stage records a schedule only. Attendance is not tracked, so a
+  // `scheduled` record is the only live work and the recommendation is what
+  // closes the stage.
   it('treats only a scheduled interview as live work', () => {
     const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
     expect(isInterviewLive(record)).toBe(true);
@@ -234,34 +219,12 @@ describe('the Recommend gate', () => {
     expect(isInterviewLive(null)).toBe(false);
   });
 
-  it('describes the waiver, the schedule it cancels, and the recorded reason', () => {
+  it('does not record an attendance outcome on a new schedule', () => {
     const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
-    const scheduled = describeInterviewWaiver(record);
-    expect(scheduled.needed).toBe(true);
-    expect(scheduled.cancels).toBe(true);
-    expect(scheduled.when).toBe('Tue, Nov 3, 2026 · 9:00 AM – 9:30 AM (Philippine time)');
-    expect(scheduled.where).toBe('Interview Room A (Finster Hall, F213)');
-    expect(scheduled.detail).toContain('will be cancelled');
-
-    const noShow = describeInterviewWaiver({ ...record, state: 'no_show' });
-    expect(noShow.cancels).toBe(false);
-    expect(noShow.detail).toContain('not attending');
-
-    const completed = describeInterviewWaiver({ ...record, state: 'completed' });
-    expect(completed.needed).toBe(false);
-    expect(completed.cancels).toBe(false);
-
-    const missing = describeInterviewWaiver(null);
-    expect(missing.needed).toBe(true);
-    expect(missing.cancels).toBe(false);
-    expect(missing.detail).toContain('No interview outcome');
-  });
-
-  it('asks for the outcome only once the interview has started', () => {
-    const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
-    expect(isInterviewOutcomeDue(record, new Date('2026-11-03T00:59:00.000Z'))).toBe(false);
-    expect(isInterviewOutcomeDue(record, new Date('2026-11-03T01:00:00.000Z'))).toBe(true);
-    expect(isInterviewOutcomeDue({ ...record, state: 'completed' }, new Date('2026-11-04T00:00:00.000Z'))).toBe(false);
+    expect(record).not.toHaveProperty('outcomeRecordedAt');
+    expect(record).not.toHaveProperty('outcomeRecordedBy');
+    expect(record).not.toHaveProperty('outcomeRecordedRole');
+    expect(record.state).toBe('scheduled');
   });
 });
 
@@ -415,7 +378,7 @@ describe('interview notification copy', () => {
     expect(student.text).toContain('Reason: Room unavailable');
     const panel = renderInterviewUpdateEmail({ audience: 'panelist', kind: 'scheduled', interview: record, scholarshipTitle: 'GIA', applicantName: 'Ada Cruz', siteUrl: 'https://example.test/' });
     expect(panel.subject).toBe('Interview panel assignment: Ada Cruz');
-    expect(panel.text).toContain('record attendance and your evaluation');
+    expect(panel.text).toContain('add your evaluation');
     // The panelist email states the task in plain language, without the SOP code.
     expect(panel.text).not.toContain('SOP 5a');
     expect(renderInterviewUpdateSms({ kind: 'cancelled', interview: record, scholarshipTitle: 'GIA' }).message).toContain('was cancelled');
