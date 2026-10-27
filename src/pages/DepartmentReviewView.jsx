@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
-import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
+import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -41,7 +41,7 @@ export default function DepartmentReviewView({
         <div className="page-title-copy">
           <span className="page-section-label">Department Chair workspace</span>
           <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read your department's applications, endorsements, and interviews. Endorsement is a central decision.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read your department&apos;s applications, endorsements, and interviews. Endorsement is a central decision.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>

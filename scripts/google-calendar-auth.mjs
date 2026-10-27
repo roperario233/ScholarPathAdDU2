@@ -111,7 +111,7 @@ const report = async (code) => {
   line('calendar id', suggested ? suggested.id : '<copy the interview calendar id>');
 
   console.log('\n=== Apply them ===');
-  console.log(`supabase secrets set "GOOGLE_OAUTH_CLIENT_ID=${clientId}" "GOOGLE_OAUTH_CLIENT_SECRET=${clientSecret}" "GOOGLE_CALENDAR_REFRESH_TOKEN=${token.body.refresh_token}" "GOOGLE_CALENDAR_ID=${suggested ? suggested.id : ''}"`);
+  console.log(`supabase secrets set "GOOGLE_OAUTH_CLIENT_ID=<your-client-id>" "GOOGLE_OAUTH_CLIENT_SECRET=<your-client-secret>" "GOOGLE_CALENDAR_REFRESH_TOKEN=${token.body.refresh_token}" "GOOGLE_CALENDAR_ID=${suggested ? suggested.id : ''}"`);
   console.log('\nOr paste the same four values in the Dashboard: Project Settings -> Edge Functions -> Secrets.');
   console.log('Re-run this script every Monday while the OAuth app is External + Testing (7-day refresh tokens).\n');
 };
