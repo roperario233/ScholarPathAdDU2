@@ -416,16 +416,49 @@ export const splitLegacyFullName = (fullName) => {
 // directions and let records saved before this control existed keep resolving.
 // An incoming first-year has no college QPI yet (its programs key off senior
 // high school standing), while every continuing year reports a QPI.
+//
+// The labels follow the Admissions Office calendar: offers open in the summer, so
+// a standing names the year the applicant is going into. A first-year applicant is
+// therefore the incoming first-year, which is why `1st` is retired from the picker
+// (a record saved with it still resolves — see YEAR_STANDING_LABELS). The stored
+// values stay stable because the eligibility branch, the Document Vault standing
+// scope, and the database checks all read them.
 export const yearStandingOptions = [
   { value: 'incoming-1st', label: 'Incoming 1st year' },
-  { value: '1st', label: '1st year' },
-  { value: '2nd', label: '2nd year' },
-  { value: '3rd', label: '3rd year' },
-  { value: '4th', label: '4th year' },
-  { value: '5th', label: '5th year' },
+  { value: '2nd', label: 'Incoming 2nd year' },
+  { value: '3rd', label: 'Incoming 3rd year' },
+  { value: '4th', label: 'Incoming 4th year' },
+  { value: '5th', label: 'Incoming 5th year' },
 ];
 
-const YEAR_STANDING_VALUES = new Set(yearStandingOptions.map((option) => option.value));
+// Every label the app can print, including the retired `1st`, so a stored profile
+// or a frozen snapshot recorded before this change still shows a year.
+export const YEAR_STANDING_LABELS = {
+  'incoming-1st': 'Incoming 1st year',
+  '1st': '1st year',
+  '2nd': 'Incoming 2nd year',
+  '3rd': 'Incoming 3rd year',
+  '4th': 'Incoming 4th year',
+  '5th': 'Incoming 5th year',
+};
+
+export const getYearStandingLabel = (value) => YEAR_STANDING_LABELS[value] || '';
+
+// A student who is already enrolled reports the year they are going into, so
+// `Incoming 1st year` belongs to the applicant status and is never offered here.
+export const continuingYearStandingOptions = yearStandingOptions.filter((option) => option.value !== 'incoming-1st');
+
+// Which standings the picker offers for an answered FORM 230-SCH applicant
+// status. An incoming first-year has nothing to pick (the status already says it),
+// while an unanswered status keeps the full list so a profile saved before the
+// status existed is never locked out.
+export const getYearStandingOptions = (applicantStatus = '') => {
+  if (applicantStatus === 'incoming') return [];
+  if (applicantStatus === 'current' || applicantStatus === 'transferee') return continuingYearStandingOptions;
+  return yearStandingOptions;
+};
+
+const YEAR_STANDING_VALUES = new Set(['1st', ...yearStandingOptions.map((option) => option.value)]);
 const YEAR_LEVEL_ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th' };
 
 // Reconstructs the single standing from stored attributes: a saved standing
@@ -455,7 +488,7 @@ export const resolveYearStanding = (value) => {
 // the rules independently. Accepts a standing value or a profile-shaped object.
 // An unanswered standing requires nothing yet; an incoming first-year reports
 // senior high school standing and has no AdDU student number or college QPI,
-// while every continuing year (1st–5th) reports both.
+// while every continuing year reports a QPI.
 export const getStandingRequirements = (value) => {
   const yearStanding = value && typeof value === 'object' ? deriveYearStanding(value) : value;
   const resolved = resolveYearStanding(yearStanding);
@@ -463,7 +496,6 @@ export const getStandingRequirements = (value) => {
   return {
     ...resolved,
     isContinuing,
-    requiresStudentNumber: isContinuing,
     requiresQpi: isContinuing,
     requiresHsStanding: resolved.isIncomingFirstYear,
     // Only an incoming first-year ranks program choices (1st, 2nd, 3rd), because
@@ -473,6 +505,17 @@ export const getStandingRequirements = (value) => {
     // program/course being applied for; an enrolled student keeps the plain form.
     programLabel: resolved.isIncomingFirstYear ? 'Program / Course (to be enrolled)' : 'Program / Course',
   };
+};
+
+// An AdDU student number is issued to an enrolled Ateneo student, so it is tied to
+// the FORM 230-SCH applicant status rather than to the year standing alone: an
+// incoming first-year has not been issued one yet, and a transferee's record
+// belongs to the institution they left. My Profile therefore asks for it only for
+// a current Ateneo student, and every surface (the onboarding modal, the section
+// validator, the completeness gate, and the App routing gates) reads this one rule.
+export const requiresStudentNumber = (profile = {}) => {
+  const standing = getStandingRequirements(profile);
+  return standing.isContinuing && profile.isTransferee !== 'Yes';
 };
 
 export const academicStandingOptions = [
@@ -563,9 +606,10 @@ export const communityServiceOptions = [
 ];
 
 // FORM 230-SCH "Applicant Status". The three answers are a display layer over
-// `yearStanding` (Incoming 1st year or 1st-5th year) plus `isTransferee`, so the
-// eligibility branch between the QPI and the senior high school average is never
-// rewritten by a status change.
+// `yearStanding` (Incoming 1st year, then Incoming 2nd-5th year) plus
+// `isTransferee`, so the eligibility branch between the QPI and the senior high
+// school average is never rewritten by a status change. The status also decides
+// which of the two controls My Profile shows (see getYearStandingOptions).
 export const APPLICANT_STATUS_VALUES = ['incoming', 'current', 'transferee'];
 export const applicantStatusOptions = [
   { value: 'incoming', label: 'Incoming First Year' },
@@ -581,10 +625,42 @@ export const isTransfereeOptions = [
 
 export const getApplicantStatus = ({ yearStanding, isTransferee } = {}) => {
   const standing = deriveYearStanding({ yearStanding });
-  if (!standing) return '';
   if (standing === 'incoming-1st') return 'incoming';
+  // A recorded transferee answer still describes the applicant while the year is
+  // being re-picked, so the status control is not left blank behind it.
+  if (!standing) return isTransferee === 'Yes' ? 'transferee' : '';
   return isTransferee === 'Yes' ? 'transferee' : 'current';
 };
+
+// The academic-profile draft after the applicant status changes. The status is kept
+// in the draft as its own answer, so choosing Current or Transferee before a year
+// is picked no longer snaps the control back to blank while the form re-derives the
+// status from an unanswered standing. The year standing and the transferee answer
+// move with it, so the two controls can never disagree: an incoming first-year is
+// always Incoming 1st year and never a transferee, and a year the new status does
+// not offer is cleared instead of guessed. Only an incoming first-year ranks a 2nd
+// and 3rd program choice, so those are dropped on the way out.
+export const applyApplicantStatus = (values = {}, status = '') => {
+  const keepsStanding = status === 'incoming'
+    ? false
+    : getYearStandingOptions(status).some((option) => option.value === values.yearStanding);
+  return {
+    applicantStatus: status,
+    yearStanding: status === 'incoming' ? 'incoming-1st' : keepsStanding ? values.yearStanding : '',
+    isTransferee: status === 'transferee' ? 'Yes' : status ? 'No' : '',
+    ...(status === 'incoming' ? {} : { programChoice2: '', programChoice3: '' }),
+  };
+};
+
+// Answering the status by picking the year instead: the incoming standing is the
+// Incoming First Year status, so the two controls stay in step either way. A
+// continuing year leaves the status to the student, because only they know whether
+// they are a transferee.
+export const applyYearStanding = (value = '') => (
+  value === 'incoming-1st'
+    ? { yearStanding: value, applicantStatus: 'incoming', isTransferee: 'No' }
+    : { yearStanding: value }
+);
 
 export const getApplicantStatusLabel = (profile = {}) => {
   const status = getApplicantStatus(profile);
@@ -1001,7 +1077,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
   const result = collect({
     // An incoming first-year has not been issued an AdDU student number yet, so
     // only a continuing student is required to provide one.
-    studentNumber: standing.requiresStudentNumber
+    // An AdDU student number is issued to a current Ateneo student, so only that
+    // applicant status requires one; a transferee and an incoming first-year are
+    // not asked, and a value they already stored is kept instead of cleared.
+    studentNumber: requiresStudentNumber(form)
       ? validateStudentNumber(form.studentNumber)
       : (isBlank(form.studentNumber) ? ok('') : validateStudentNumber(form.studentNumber)),
     degreeProgram: !form.degreeProgram || (academicPrograms.length && !academicPrograms.some((program) => program.value === form.degreeProgram))
@@ -1016,20 +1095,32 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     qpi: standing.requiresQpi ? validateQpi(form.qpi) : (isBlank(form.qpi) ? ok('') : validateQpi(form.qpi)),
     // Senior high school standing lives with the academic profile (see My
     // Profile); incoming first-years are matched on it instead of a QPI.
-    hsStrand: oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.'),
+    // The strand is an incoming-first-year answer: My Profile shows it only for that
+    // standing, so another standing keeps whatever it already recorded and a hidden
+    // field can never fail the section.
+    hsStrand: standing.requiresHsStanding
+      ? oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.')
+      : ok(hsStrandOptions.some((option) => option.value === (form.hsStrand || '')) ? (form.hsStrand || '') : ''),
     hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
-    // FORM 230-SCH ranks a 1st and 2nd choice for every applicant ("in case
-    // there is a scholarship slot in other programs"), so the 2nd and 3rd choices
-    // stay available outside the incoming-first-year standing. They are optional
-    // for an enrolled student, whose degree program is already fixed.
-    programChoice2: validateOptionalProgramChoice(form.programChoice2, academicPrograms),
-    programChoice3: validateOptionalProgramChoice(form.programChoice3, academicPrograms),
+    // FORM 230-SCH ranks a 1st and 2nd choice for an incoming first-year ("in case
+    // there is a scholarship slot in other programs"). A student who is already
+    // enrolled holds a degree program, so its pickers are not offered and any
+    // inherited list is cleared instead of kept.
+    programChoice2: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice2, academicPrograms) : ok(''),
+    programChoice3: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice3, academicPrograms) : ok(''),
     // Applicant Status: a transferee already attended college. The answer is kept
     // apart from the year standing so the QPI / senior high school average branch
     // never changes. A blank answer is allowed here, like civil status and the
     // other optional selects, because the first-login modal does not ask for it;
     // the completeness checklist and the database gate require it to apply.
-    isTransferee: oneOf(form.isTransferee || '', isTransfereeOptions, 'Choose your applicant status.'),
+    // An incoming first-year is not a transferee, and an answered standing already
+    // separates a current student from a transferee, so the answer is recorded
+    // instead of being left blank while the control always shows one of the three.
+    isTransferee: standing.isIncomingFirstYear
+      ? ok('No')
+      : standing.yearStanding
+        ? ok(form.isTransferee === 'Yes' ? 'Yes' : 'No')
+        : oneOf(form.isTransferee || '', isTransfereeOptions, 'Choose your applicant status.'),
     // FORM 230-SCH education details, stored with the descriptive profile fields.
     schoolLastAttended: ok({
       name: validateText(form.schoolLastAttended?.name, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
@@ -1050,9 +1141,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     if (!result.values.hsStrand && !result.errors.hsStrand) result.errors.hsStrand = 'Choose your senior high school strand.';
     if (result.values.hsAverage === '' && !result.errors.hsAverage) result.errors.hsAverage = 'Add your senior high school general average.';
   }
-  // Program choices must be distinct when more than one is provided. The
-  // comparison is trimmed so a stray space can never slip a duplicate past the
-  // picker's exact-value filtering.
+  // An incoming first-year's program choices must be distinct from each other.
+  // The comparison is trimmed so a stray space can never slip a duplicate past the
+  // picker's exact-value filtering. (A non-incoming standing carries no choices,
+  // so both comparisons are skipped.)
   {
     const firstChoice = String(result.values.degreeProgram ?? '').trim();
     const secondChoice = String(result.values.programChoice2 ?? '').trim();
@@ -1216,7 +1308,9 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   add(isStudent ? 'application' : 'details', 'fullName', 'Full name', 'personal', !validateFullName(profile.fullName).error);
   if (isStudent) {
     add('application', 'yearStanding', 'Year standing', 'academic', standing.yearStanding);
-    if (standing.requiresStudentNumber) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
+    // An AdDU student number is issued to a current Ateneo student, so a transferee
+    // and an incoming first-year are never asked for one.
+    if (requiresStudentNumber(profile)) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
     add('application', 'degreeProgram', standing.isIncomingFirstYear ? 'Program to be enrolled' : 'Degree program', 'academic', !isBlank(profile.degreeProgram));
     add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
     if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);

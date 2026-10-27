@@ -10,7 +10,7 @@ import { DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApp
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
@@ -128,7 +128,9 @@ const isIncompleteStudentProfile = (profile, attributes = {}) => {
   return (
     !profile?.degree_program
     || !standing.yearStanding
-    || (standing.requiresStudentNumber && !profile?.student_number)
+    // The AdDU student number belongs to a current Ateneo student, so a transferee
+    // and an incoming first-year are not asked for it.
+    || (requiresStudentNumber(attributes) && !profile?.student_number)
     || profile?.household_income == null
     // An incoming first-year has no college QPI yet, so it is not required.
     || (standing.requiresQpi && profile?.qpi == null)
@@ -672,7 +674,7 @@ function App() {
       if (active && userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
         if (readStoredState()?.profileSkipped) return;
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialIsTransferee: attributes.isTransferee || '', initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
       } catch {
         if (active) await endSession('revoked', sessionOwnerId || readStoredState()?.ownerId);
@@ -1033,7 +1035,7 @@ function App() {
       }
       if (authResult.user?.id && resolvedRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialIsTransferee: attributes.isTransferee || '', initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -2607,7 +2609,8 @@ function App() {
   const hasIncompleteStudentProfile = state.viewerRole === 'student' && (
     !currentIdentity.degreeProgram
     || !studentStanding.yearStanding
-    || (studentStanding.requiresStudentNumber && !currentIdentity.studentNumber)
+    // The AdDU student number belongs to a current Ateneo student only.
+    || (requiresStudentNumber(studentMatchProfile) && !currentIdentity.studentNumber)
     || currentIdentity.householdIncome == null
     || currentIdentity.householdIncome === ''
     // An incoming first-year is matched on senior high school standing, not QPI.
@@ -2718,6 +2721,7 @@ function App() {
           initialProgramChoice3={profileOnboarding.initialProgramChoice3}
           initialStudentNumber={profileOnboarding.initialStudentNumber}
           initialYearStanding={profileOnboarding.initialYearStanding}
+          initialIsTransferee={profileOnboarding.initialIsTransferee}
           initialAcademicStanding={profileOnboarding.initialAcademicStanding}
           initialCitizenship={profileOnboarding.initialCitizenship}
           initialHsStrand={profileOnboarding.initialHsStrand}

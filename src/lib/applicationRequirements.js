@@ -23,13 +23,13 @@ import {
   getShsFinancialAid,
   getStandingRequirements,
   getVerifiableAttributeOption,
+  getYearStandingLabel,
   honorsRankOptions,
   ipCommunityOptions,
   isProofRequired,
   isTransfereeProfile,
   pwdOptions,
   religionOptions,
-  yearStandingOptions,
 } from './profile';
 import {
   UNSET_ATTRIBUTE_STATUS,
@@ -692,7 +692,7 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
     degreeProgram: profile.degreeProgram || '',
     department: profile.department || '',
     yearStanding,
-    yearStandingLabel: yearStandingOptions.find((option) => option.value === yearStanding)?.label || '',
+    yearStandingLabel: getYearStandingLabel(yearStanding),
     academic: {
       credential: academic.credential,
       label: academic.label,

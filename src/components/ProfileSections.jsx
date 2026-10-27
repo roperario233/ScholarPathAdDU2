@@ -28,6 +28,8 @@ import {
   PRONOUNS_MAX_LENGTH,
   SCHOOL_FIELD_MAX_LENGTH,
   applicantStatusOptions,
+  applyApplicantStatus,
+  applyYearStanding,
   communityServiceOptions,
   composeFullName,
   grantLevelOptions,
@@ -47,6 +49,7 @@ import {
   getProgramChoiceOptions,
   getStandingRequirements,
   getVerifiableAttributeOption,
+  getYearStandingOptions,
   honorsRankOptions,
   hsStrandOptions,
   ipCommunityOptions,
@@ -59,7 +62,7 @@ import {
   validatePasswordChange,
   validatePersonalSection,
   religionOptions,
-  yearStandingOptions,
+  requiresStudentNumber,
 } from '../lib/profile';
 
 const controlClass = 'h-12 py-0';
@@ -723,6 +726,9 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       yearStanding: deriveYearStanding(profile),
       academicStanding: asText(profile.academicStanding),
       isTransferee: asText(profile.isTransferee),
+      // Held in the draft so the status control keeps the answer the student just
+      // picked while the year standing is still unanswered.
+      applicantStatus: getApplicantStatus(profile),
       qpi: asText(profile.qpi),
       hsStrand: asText(profile.hsStrand),
       hsAverage: asText(profile.hsAverage),
@@ -743,16 +749,27 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   const { values, errors, update } = form;
   const standing = getStandingRequirements(values.yearStanding);
   const isTransferee = values.isTransferee === 'Yes';
-  // FORM 230-SCH Applicant Status. The status select writes the year standing and
-  // the transferee answer together, so the two controls can never disagree.
-  const applicantStatus = getApplicantStatus(values);
+  // FORM 230-SCH Applicant Status. The status is its own answer in the draft (it
+  // would otherwise be re-derived from an unanswered year standing and snap back to
+  // the placeholder), and picking it moves the year standing and the transferee
+  // answer with it so the two controls can never disagree.
+  const applicantStatus = values.applicantStatus;
+  // An incoming first-year has no year to pick, and an enrolled applicant is never
+  // offered "Incoming 1st year".
+  const standingOptions = getYearStandingOptions(applicantStatus);
+  // The AdDU student number belongs to a current Ateneo student, so a transferee
+  // and an incoming first-year never see the field.
+  const needsStudentNumber = requiresStudentNumber(values);
+  // A standing saved as the retired `1st year` is no longer offered, so the picker
+  // asks for the year again instead of silently showing an empty control.
+  const standingOffered = standingOptions.some((option) => option.value === values.yearStanding);
   const setApplicantStatus = (status) => {
-    const enrolledYear = /^\d/.test(values.yearStanding) ? values.yearStanding : '1st';
-    if (status === 'incoming') {
-      update({ yearStanding: 'incoming-1st', isTransferee: 'No' }, ['programChoice2', 'programChoice3']);
-      return;
-    }
-    update({ yearStanding: enrolledYear, isTransferee: status === 'transferee' ? 'Yes' : 'No' }, ['programChoice2', 'programChoice3']);
+    // Switching the status rearranges these fields, so a stale inline error from
+    // the arrangement the student just left is cleared with it.
+    update(applyApplicantStatus(values, status), ['yearStanding', 'studentNumber', 'qpi', 'hsStrand', 'hsAverage', 'programChoice2', 'programChoice3']);
+  };
+  const setYearStanding = (value) => {
+    update(applyYearStanding(value), ['yearStanding', 'studentNumber', 'qpi', 'hsStrand', 'hsAverage', 'programChoice2', 'programChoice3']);
   };
   // The QPI and the senior high school general average are each read for one
   // standing, so their badges follow the standing this form is showing instead
@@ -783,33 +800,43 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   return (
     <SectionForm title="Academic profile" description="Drives degree-specific matching in the Smart Eligibility Checker." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Applicant status" hint="FORM 230-SCH asks every applicant for this." value={applicantStatus} onChange={setApplicantStatus} options={applicantStatusOptions} placeholder="Choose applicant status" error={errors.isTransferee} />
-        <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value, ...(value === 'incoming-1st' ? { isTransferee: 'No' } : {}) }, ['programChoice2', 'programChoice3'])} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
-        {standing.requiresStudentNumber && <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
+        <SelectField label="Applicant status" value={applicantStatus} onChange={setApplicantStatus} options={applicantStatusOptions} placeholder="Choose applicant status" error={errors.isTransferee} />
+        {standingOptions.length ? (
+          <SelectField label="Year standing" hint={!values.yearStanding || standingOffered ? 'Choose the year you are going into.' : 'Your saved 1st year standing is no longer offered — choose the year you are going into.'} value={values.yearStanding} onChange={setYearStanding} options={standingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
+        ) : null}
+        {needsStudentNumber && <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
       <div className="grid gap-2">
         <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" />
       </div>
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates with your degree program." />
       <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="note">{COURSE_SHIFT_REMINDER}</p>
-      {standing.requiresProgramChoices ? null : <p className="m-0 text-sm text-app-muted">Optional. FORM 230-SCH asks for a second choice in case a scholarship slot opens in another program.</p>}
-      <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>
+      {standing.requiresProgramChoices && (
+        <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>
+      )}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
-      <div className="grid gap-4 md:grid-cols-2"><SelectField label="Senior high school strand" hint={standing.requiresHsStanding ? undefined : 'Optional.'} value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />{standing.requiresHsStanding && <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>}</div>
-      <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
-        <div>
-          <p className="m-0 text-sm font-semibold text-app-text">{isTransferee ? 'College last attended' : standing.requiresHsStanding ? 'Senior high school last attended' : 'School last attended before AdDU'}</p>
-          <small className="field-hint mt-1 block">{isTransferee || standing.requiresHsStanding ? 'The school name is needed to apply.' : 'Optional.'}</small>
+      {standing.requiresHsStanding && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />
+          <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>
         </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <FormField label="School name"><input className={controlClass} value={values.schoolLastAttended.name} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, name: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
-          <FormField label="City"><input className={controlClass} value={values.schoolLastAttended.city} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, city: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
-          <FormField label="Province"><input className={controlClass} value={values.schoolLastAttended.province} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, province: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
+      )}
+      {(standing.requiresHsStanding || isTransferee) && (
+        <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
+          <div>
+            <p className="m-0 text-sm font-semibold text-app-text">{isTransferee ? 'College last attended' : 'Senior high school last attended'}</p>
+            <small className="field-hint mt-1 block">The school name is needed to apply.</small>
+          </div>
+          <div className="grid gap-3 md:grid-cols-3">
+            <FormField label="School name"><input className={controlClass} value={values.schoolLastAttended.name} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, name: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
+            <FormField label="City"><input className={controlClass} value={values.schoolLastAttended.city} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, city: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
+            <FormField label="Province"><input className={controlClass} value={values.schoolLastAttended.province} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, province: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
+          </div>
         </div>
-      </div>
+      )}
       <FormField label="Awards received" hint={`Optional. ${values.awards.length}/${AWARDS_MAX_LENGTH} characters.`} error={errors.awards}>
         <textarea className="min-h-24" value={values.awards} onChange={(event) => update({ awards: event.target.value.slice(0, AWARDS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.awards)} />
       </FormField>
@@ -889,7 +916,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
         <SelectField label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update(value ? { honorsRank: value } : { honorsRank: value, graduatingClassSize: '' })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <FormField label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Required to support your honors standing.' : 'FORM 230-SCH asks every applicant for this.'} error={errors.graduatingClassSize}>
+        <FormField label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Required to support your honors standing.' : undefined} error={errors.graduatingClassSize}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
         </FormField>
       </div>

@@ -860,10 +860,12 @@ as $$
     );
 $$;
 
--- Same checks as 20261028000000 plus the FORM 230-SCH core items and Applicant
--- Status. Mirrors getProfileCompleteness() (group `application`) in
--- src/lib/profile.js; the Applicant Status branch comes from
--- 20261037000000_add_applicant_status_to_profile_gate.sql.
+-- Same checks as 20261028000000 plus the FORM 230-SCH core items, Applicant
+-- Status, and the current-student AdDU student number. Mirrors
+-- getProfileCompleteness() (group `application`) in src/lib/profile.js; the
+-- Applicant Status branch comes from
+-- 20261037000000_add_applicant_status_to_profile_gate.sql and the student-number
+-- branch from 20261038000000_require_student_number_for_current_students.sql.
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text
 language plpgsql
@@ -880,7 +882,7 @@ begin
   if char_length(btrim(coalesce(p_profile ->> 'fullName', ''))) < 2 then return 'Full name'; end if;
   if v_standing = '' then return 'Year standing'; end if;
   if v_transferee not in ('Yes', 'No') then return 'Applicant status'; end if;
-  if v_standing <> 'incoming-1st' and coalesce(btrim(p_profile ->> 'studentNumber'), '') !~ '^[0-9]{4,12}$' then
+  if v_transferee = 'No' and coalesce(btrim(p_profile ->> 'studentNumber'), '') !~ '^[0-9]{4,12}$' then
     return 'AdDU student number';
   end if;
   if coalesce(btrim(p_profile ->> 'degreeProgram'), '') = '' then return 'Degree program'; end if;

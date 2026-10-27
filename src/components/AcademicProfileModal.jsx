@@ -8,6 +8,7 @@ import {
   getProgramChoiceOptions,
   getStandingRequirements,
   hsStrandOptions,
+  requiresStudentNumber,
   validateOnboardingEssentials,
   yearStandingOptions,
 } from '../lib/profile';
@@ -48,6 +49,7 @@ export default function AcademicProfileModal({
   initialProgramChoice3,
   initialStudentNumber,
   initialYearStanding,
+  initialIsTransferee,
   initialAcademicStanding,
   initialCitizenship,
   initialPhone,
@@ -69,6 +71,10 @@ export default function AcademicProfileModal({
   const [programChoice3, setProgramChoice3] = useState(initialProgramChoice3 || '');
   const [studentNumber, setStudentNumber] = useState(initialStudentNumber || '');
   const [yearStanding, setYearStanding] = useState(initialYearStanding || '');
+  // The modal has no applicant-status control, so the AdDU student number follows
+  // the answer already recorded on the profile: it is asked only while the student
+  // has not declared themselves a transferee.
+  const needsStudentNumber = requiresStudentNumber({ yearStanding, isTransferee: initialIsTransferee });
   const [academicStanding, setAcademicStanding] = useState(initialAcademicStanding || '');
   const [citizenship, setCitizenship] = useState(initialCitizenship || '');
   const [phone, setPhone] = useState(initialPhone || '');
@@ -139,7 +145,7 @@ export default function AcademicProfileModal({
     && householdIncome !== ''
     && (standing.requiresHsStanding
       ? Boolean(hsStrand) && hsAverage !== ''
-      : Boolean(studentNumber) && qpi !== '');
+      : (!needsStudentNumber || Boolean(studentNumber)) && qpi !== '');
 
   const handleContinue = () => {
     if (isSaving) return;
@@ -150,6 +156,9 @@ export default function AcademicProfileModal({
       programChoice2,
       programChoice3,
       yearStanding,
+      // The modal has no status control, but the AdDU student number is only asked
+      // of a current student, so the recorded answer decides whether it is needed.
+      isTransferee: initialIsTransferee || '',
       academicStanding,
       qpi,
       hsStrand,
@@ -197,7 +206,7 @@ export default function AcademicProfileModal({
         <div className="mt-5 grid gap-4" onKeyDown={handleKeyDown}>
           <div className="grid gap-4 sm:grid-cols-2">
             <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError('yearStanding', 'studentNumber', 'qpi', 'programChoice2', 'programChoice3'); }} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
-            {standing.requiresStudentNumber && (
+            {needsStudentNumber && (
               <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}>
                 <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError('studentNumber'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required aria-invalid={Boolean(errors.studentNumber)} />
               </FormField>

@@ -272,7 +272,7 @@ describe('profile snapshot', () => {
       capturedAt: '2026-10-12T00:00:00.000Z',
       fullName: 'Ana Reyes',
       yearStanding: '2nd',
-      yearStandingLabel: '2nd year',
+      yearStandingLabel: 'Incoming 2nd year',
       academic: { credential: 'qpi', value: 3.2, verification: 'Verified' },
       householdIncome: { value: 180000, verification: 'Unverified' },
       citizenship: { value: 'Filipino', verification: 'Unverified' },
