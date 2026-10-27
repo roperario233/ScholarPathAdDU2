@@ -93,6 +93,24 @@ describe('renderReminderEmail', () => {
     expect(renderReminderEmail(reminderArgs).subject).toBe(reminderArgs.title);
   });
 
+  it('spans every single-cell row across the two-column card so it never collapses', () => {
+    const { html } = renderReminderEmail(reminderArgs);
+    // renderDetailRows() defines a two-column grid, so the header, heading, intro,
+    // CTA and footer rows must colspan both columns or they shrink into the left column.
+    expect(html).toMatch(/<td class="sp-header" colspan="2"/);
+    expect(html).toMatch(/<td class="sp-heading-cell" colspan="2"/);
+    expect(html).toMatch(/<td class="sp-intro-cell" colspan="2"/);
+    expect(html).toMatch(/<td class="sp-cta-cell" colspan="2"/);
+    expect(html).toMatch(/<td class="sp-footer" colspan="2"/);
+  });
+
+  it('declares light and dark color schemes with a dark-mode block', () => {
+    const { html } = renderReminderEmail(reminderArgs);
+    expect(html).toContain('name="color-scheme" content="light dark"');
+    expect(html).toContain('@media (prefers-color-scheme: dark)');
+    expect(html).toContain('.sp-card');
+  });
+
   it('renders Resend-compatible table HTML with no script, button or div elements', () => {
     const { html } = renderReminderEmail(reminderArgs);
     expect(html.startsWith('<!DOCTYPE html>')).toBe(true);
