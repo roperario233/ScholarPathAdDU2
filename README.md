@@ -175,6 +175,54 @@ rejected file with another capture or upload. The two requirements come from the
 default lists in `src/lib/applicationRequirements.js`; existing catalog rows get
 them from `supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
 
+## Database maintenance
+
+Three helpers live in `supabase/`. None of them is a migration, none changes the
+schema, and nothing runs them automatically.
+
+- `supabase/application_status_log_checks.sql` — read-only checks over the
+  append-only status log (RQ2).
+- `supabase/maintenance_out_of_scope_applications.sql` — the issue #3 queries
+  and the deactivation statement for catalog rows outside the three Appendix A
+  tracks.
+- `supabase/maintenance_reset_transactional_data.sql` — the clean-demo reset.
+
+### Resetting the demo data
+
+Run `supabase/maintenance_reset_transactional_data.sql` against the project to
+clear every application, document, notification, and office-workflow row while
+keeping the catalog and the accounts. It keeps `profiles` (so every role can
+still sign in, with its answers and notification preferences intact),
+`annual_qpi_records`, `student_financial_profiles`, `scholarships`,
+`academic_programs`, and `interview_locations`.
+
+The script snapshots what it removes into the `backups` schema
+(`backups.reset_<date>_<table>`) before deleting, runs inside one transaction
+that aborts if a row survives, and revokes the snapshot from the API roles. Drop
+it once the reset is accepted with `drop schema backups cascade;`. The status log
+is cleared before the applications (its foreign key does not cascade) and the
+documents after them, so no deletion trigger blocks the run.
+
+### Reclaiming orphaned Storage files
+
+`documents.storage_path` and `profiles.avatar_path` are the only handles the app
+has on a file, so a row deleted without its object leaves bytes in the private
+bucket that nothing can reach. Delete the rows first (the reset above does), then
+sweep the buckets:
+
+```powershell
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+npm run cleanup:storage              # dry run: one line per orphan, grouped by folder
+npm run cleanup:storage -- --apply   # delete, then re-run the dry run to confirm 0
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+The service role is required because the bucket policies only let a folder owner
+delete, and most orphans sit in folders of accounts that no longer exist. The
+project URL is read from `.env`; the key must come from the shell for a single
+run and never from a `VITE_` variable. Deleting `storage.objects` rows directly
+is not a substitute: it hides the files without freeing the space.
+
 ## Admissions Office workspace
 
 The Admissions Office is one office with two accountability lanes. **Admissions
