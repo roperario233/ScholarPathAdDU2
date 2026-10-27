@@ -5,9 +5,9 @@ import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
 import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
-import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
+import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
 import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
-import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
+import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
@@ -44,12 +44,17 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
+import { getReviewPageLabel, getReviewerScope, getScopedQueue, isReviewerRole } from './lib/reviewScope';
 
 const roleLabels = {
   student: 'Student',
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
-  department_chair: 'Department Chair',
+  // The academic reviewer ladder: Dean (school), Assistant Dean (cluster), and
+  // Chairperson (department). None of them takes a stage action.
+  dean: 'Dean',
+  assistant_dean: 'Assistant Dean',
+  department_chair: 'Chairperson',
 };
 
 // The Google Calendar integration state the review surfaces read. `configured`
@@ -109,7 +114,7 @@ const identitySubtitle = (name, ...parts) => {
 // unknown value resolve to the staff lane / student respectively.
 const normalizeRole = (role) => {
   if (role === 'osa_admin') return 'admissions_office';
-  return ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(role) ? role : 'student';
+  return ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'].includes(role) ? role : 'student';
 };
 
 // Both Admissions Office lanes land on the office Dashboard (the `admin` route),
@@ -118,7 +123,7 @@ const normalizeRole = (role) => {
 // student dashboard. There is no separate role dashboard beside these pages.
 const landingViewForRole = (role) => (isAdmissionsReviewerRole(role)
   ? 'admin'
-  : role === 'department_chair' ? 'review' : 'dashboard');
+  : isReviewerRole(role) ? 'review' : 'dashboard');
 
 // A student profile is complete enough for matching once the core academic
 // fields and the onboarding eligibility essentials are all recorded. `profile`
@@ -592,6 +597,8 @@ function App() {
       const profile = profileResult.profile;
       const profileDetails = await getProfileDetails(user.id);
       if (!active) return;
+      const reviewScopeFields = await getProfileReviewScope(user.id);
+      if (!active) return;
       const profileAvatar = await getProfileAvatar(user.id);
       if (!active) return;
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
@@ -618,6 +625,9 @@ function App() {
             hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
             bio: profileDetails.bio,
             avatarPath: profileAvatar.avatarPath || '',
+            // The reviewer scope ladder (src/lib/reviewScope.js): a Dean owns a
+            // school, an Assistant Dean a cluster, a Chairperson a department.
+            ...reviewScopeFields,
           },
           profileDraft: {
             ...base.profileDraft,
@@ -844,7 +854,9 @@ function App() {
   const identityRoleLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole]);
   const identityDetailLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole], currentIdentity.department);
   const activeAcademicPrograms = state.academicPrograms?.length ? state.academicPrograms : academicPrograms;
-  const activeAcademicProgramCategories = [...new Set(activeAcademicPrograms.map((program) => program.category))];
+  // The picker groups programs by "School — Cluster" with the academic department
+  // as each option's description, so all four levels are reachable from one list.
+  const activeAcademicProgramGroups = getAcademicProgramGroups(activeAcademicPrograms);
   const scholarshipCatalog = isSupabaseWorkspaceLoaded && state.scholarships?.length
     ? getAdduInternalPrograms(state.scholarships)
     : [];
@@ -904,14 +916,16 @@ function App() {
     eligibleMatches: eligibleScholarships.length,
     // Role-aware so the dashboard agrees with the review queues: a student sees
     // their own live applications, an Admissions Office Staff account sees the
-    // cases it joined plus the unclaimed intake pool, and a Department Chair sees
-    // their department's pending queue.
+    // cases it joined plus the unclaimed intake pool, and a reviewer at any level of
+    // the academic ladder sees the pending queue inside its own scope.
     openApplications: countApplicationsToReview(state.applications, {
       role: state.viewerRole,
       studentId: currentProfile.id,
       department: currentProfile.department,
       caseOfficers: state.caseOfficers,
       userId: currentProfile.id,
+      reviewScope: getReviewerScope({ ...currentProfile, role: state.viewerRole }),
+      programs: activeAcademicPrograms,
     }),
     unreadNotifications: unreadNotifications.length,
   }), [
@@ -967,6 +981,7 @@ function App() {
       const profileResult = authResult.user?.id ? await getUserProfile(authResult.user.id) : { profile: null };
       const profile = profileResult.profile;
       const profileDetails = authResult.user?.id ? await getProfileDetails(authResult.user.id) : { bio: '', eligibilityAttributes: {} };
+      const reviewScopeFields = authResult.user?.id ? await getProfileReviewScope(authResult.user.id) : {};
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const accountId = authResult.user?.id;
       const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
@@ -996,6 +1011,8 @@ function App() {
               hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
               bio: profileDetails.bio,
             } : {}),
+            // The reviewer scope ladder (src/lib/reviewScope.js).
+            ...reviewScopeFields,
           },
           rememberMe: credentials.rememberMe || false,
           savedEmail: credentials.rememberMe ? credentials.email : base.savedEmail,
@@ -1151,7 +1168,9 @@ function App() {
 
     const result = await updateUserProfile(profileOnboarding.id, {
       degreeProgram: program.value,
-      department: program.department,
+      // `profiles.department` stores the SCHOOL, not the academic department: it is
+      // the label the reviewer scope ladder and the identity line read.
+      department: program.school,
       studentNumber: resolvedStudentNumber,
       householdIncome,
       qpi: resolvedQpi,
@@ -1173,7 +1192,7 @@ function App() {
     });
 
     updateState((previous) => ({
-      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber: resolvedStudentNumber, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, phone },
+      authUser: { ...previous.authUser, department: program.school, degreeProgram: program.value, studentNumber: resolvedStudentNumber, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, phone },
       profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, ...eligibilityAttributes },
       profileSkipped: false,
     }));
@@ -1657,9 +1676,9 @@ function App() {
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application) return { error: 'The application could not be found.' };
-    if (state.viewerRole === 'department_chair'
-      && (application.studentDepartment || '') !== (currentProfile.department || '')) {
-      return { error: 'Your department scope does not include this application.' };
+    if (isReviewerRole(state.viewerRole)
+      && !getScopedQueue([application], { ...currentProfile, role: state.viewerRole }, activeAcademicPrograms).length) {
+      return { error: 'Your review scope does not include this application.' };
     }
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write a note before adding it to the case file.' };
@@ -1728,7 +1747,7 @@ function App() {
       draft,
       previous,
       location,
-      school: application.studentDepartment || '',
+      school: application.studentSchool || '',
       actorId: currentProfile.id,
       reason,
     });
@@ -1951,7 +1970,7 @@ function App() {
 
   const addInterviewNote = async (applicationId, { body, recommendationLevel = null, rating = null } = {}) => {
     const allowed = isAdmissionsReviewerRole(state.viewerRole)
-      || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
+      || (isReviewerRole(state.viewerRole) && isPanelistOn(applicationId));
     if (!allowed) return { error: 'Only the interview panel or the Admissions Office can add an evaluation note.' };
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write the evaluation note first.' };
@@ -2011,6 +2030,10 @@ function App() {
   const interviewWorkspace = {
     viewerId: currentProfile.id,
     staffDirectory: state.staffDirectory || [],
+    // The panel picker resolves the applicant's school, cluster, and department from
+    // the program through this taxonomy (SOP 5a), so a reviewer at any level of the
+    // ladder whose scope covers the applicant can be suggested.
+    academicPrograms: activeAcademicPrograms,
     locations: state.interviewLocations || [],
     panelists: state.interviewPanelists || [],
     notes: state.interviewNotes || [],
@@ -2528,7 +2551,9 @@ function App() {
     const accountFields = pickFields(patch, isStudent ? ACCOUNT_FIELD_KEYS : STAFF_EDITABLE_FIELD_KEYS);
     if (isStudent && accountFields.degreeProgram) {
       const selectedProgram = activeAcademicPrograms.find((program) => program.value === accountFields.degreeProgram) || getAcademicProgram(accountFields.degreeProgram);
-      accountFields.department = selectedProgram.department;
+      // `profiles.department` is the SCHOOL the program belongs to; the academic
+      // department is the narrower level the reviewer scope ladder resolves.
+      accountFields.department = selectedProgram.school;
     }
     const eligibilityAttributes = isStudent ? pickEligibilityAttributes(patch) : {};
     const hasEligibilityAttributes = Object.keys(eligibilityAttributes).length > 0;
@@ -2638,10 +2663,11 @@ function App() {
   // Department queue is derived from applications joined to the student's
   // school-level department, so it stays consistent with profiles.department
   // from the academic program taxonomy rather than a separately seeded table.
-  const departmentQueue = state.applications.filter((entry) => (
-    (entry.studentDepartment || '') === currentProfile.department
-    && entry.status !== 'Draft'
-  ));
+  // One scoped queue for every reviewer level: a Dean sees its school, an Assistant
+  // Dean its cluster, and a Chairperson its department and the programs under it. A
+  // Chairperson an operator has not scoped yet keeps the old school-wide read.
+  const departmentQueue = getScopedQueue(state.applications, { ...currentProfile, role: state.viewerRole }, activeAcademicPrograms)
+    .filter((entry) => entry.status !== 'Draft');
   const studentStanding = getStandingRequirements(studentMatchProfile);
   const hasIncompleteStudentProfile = state.viewerRole === 'student' && (
     !currentIdentity.degreeProgram
@@ -2683,9 +2709,9 @@ function App() {
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
     ...admissionsWorkspaceItems,
-    { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
-    { view: 'chair-interviews', label: 'Interviews', visible: state.viewerRole === 'department_chair' },
-    { view: 'chair-calendar', label: 'Calendar', visible: state.viewerRole === 'department_chair' },
+    { view: 'review', label: getReviewPageLabel(state.viewerRole), visible: isReviewerRole(state.viewerRole) },
+    { view: 'chair-interviews', label: 'Interviews', visible: isReviewerRole(state.viewerRole) },
+    { view: 'chair-calendar', label: 'Calendar', visible: isReviewerRole(state.viewerRole) },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
@@ -2768,7 +2794,7 @@ function App() {
           initialQpi={profileOnboarding.initialQpi}
           initialHasActiveGovernmentGrant={profileOnboarding.initialHasActiveGovernmentGrant}
           academicPrograms={activeAcademicPrograms}
-          academicProgramCategories={activeAcademicProgramCategories}
+          academicProgramGroups={activeAcademicProgramGroups}
           documents={studentDocuments}
           attributeVerifications={attributeVerifications}
           onSave={saveAcademicProfile}
@@ -3124,7 +3150,7 @@ function App() {
             />
           )}
 
-          {state.activeView === 'review' && state.viewerRole === 'department_chair' && (
+          {state.activeView === 'review' && isReviewerRole(state.viewerRole) && (
             <DepartmentReviewViewPage
               profile={currentProfile}
               queue={departmentQueue}
@@ -3137,7 +3163,7 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'department_chair' && state.activeView === 'chair-calendar' && (
+          {isReviewerRole(state.viewerRole) && state.activeView === 'chair-calendar' && (
             <DepartmentCalendarViewPage
               profile={currentProfile}
               queue={departmentQueue}
@@ -3151,7 +3177,7 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'department_chair' && state.activeView === 'chair-interviews' && (
+          {isReviewerRole(state.viewerRole) && state.activeView === 'chair-interviews' && (
             <DepartmentInterviewsViewPage
               profile={currentProfile}
               queue={departmentQueue}
@@ -3170,7 +3196,7 @@ function App() {
               role={state.viewerRole}
               roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
-              academicProgramCategories={activeAcademicProgramCategories}
+              academicProgramGroups={activeAcademicProgramGroups}
               initialSection={profilePresetSection}
               onSaveProfile={saveProfile}
               onSaveFinancialProfile={saveFinancialProfile}

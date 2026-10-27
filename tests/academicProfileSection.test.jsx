@@ -3,15 +3,15 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AcademicSection } from '../src/components/ProfileSections';
 
 const programs = [
-  { value: 'BS Information Technology', label: 'BS Information Technology', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' },
-  { value: 'BS Accountancy', label: 'BS Accountancy', department: 'School of Business and Governance (SBG)', category: 'Business' },
+  { value: 'BS Information Technology', label: 'BS Information Technology', school: 'School of Arts and Sciences (SAS)', cluster: 'Computer Studies', department: 'Information Technology and Information Systems Department' },
+  { value: 'BS Accountancy', label: 'BS Accountancy', school: 'School of Business and Governance (SBG)', cluster: 'Accountancy', department: 'Accountancy Department' },
+  { value: 'BS Nursing', label: 'BS Nursing', school: 'School of Nursing (SON)', cluster: null, department: 'Nursing Department' },
 ];
 
 const render = (profile) => renderToStaticMarkup(
   <AcademicSection
     profile={{ fullName: 'Ana Reyes', degreeProgram: 'BS Information Technology', academicStanding: 'good', ...profile }}
     academicPrograms={programs}
-    academicProgramCategories={['Computer Studies', 'Business']}
     onSave={() => {}}
     onDirtyChange={() => {}}
   />,
@@ -71,5 +71,33 @@ describe('My Profile academic profile', () => {
     const html = render({ yearStanding: '', isTransferee: '' });
     expect(html).toContain('Incoming 1st year');
     expect(html).toContain('Incoming 2nd year');
+  });
+});
+
+describe('My Profile academic profile hierarchy', () => {
+  it('shows all four levels for a clustered program', () => {
+    const html = render({ yearStanding: '2nd', isTransferee: 'No', studentNumber: '2023001', qpi: '3.2' });
+    // School -> Cluster -> Department, with the program itself in the picker.
+    expect(html).toContain('School of Arts and Sciences (SAS)');
+    expect(html).toContain('Computer Studies');
+    expect(html).toContain('Information Technology and Information Systems Department');
+    expect(html).toContain('BS Information Technology');
+    // The old misnamed row is gone.
+    expect(html).not.toContain('School / Department');
+    expect(html).not.toContain('College of');
+  });
+
+  it('leaves the cluster out for a school that has no sub-clusters', () => {
+    const html = renderToStaticMarkup(
+      <AcademicSection
+        profile={{ fullName: 'Ana Reyes', degreeProgram: 'BS Nursing', yearStanding: '2nd', isTransferee: 'No', studentNumber: '2023001', qpi: '3.2', academicStanding: 'good' }}
+        academicPrograms={programs}
+        onSave={() => {}}
+        onDirtyChange={() => {}}
+      />,
+    );
+    expect(html).toContain('School of Nursing (SON)');
+    expect(html).toContain('Nursing Department');
+    expect(html).not.toContain('>Cluster<');
   });
 });

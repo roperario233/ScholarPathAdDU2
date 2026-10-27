@@ -60,7 +60,7 @@ export const getInterviewEntries = (applications = []) => asList(applications)
       durationMinutes: Number(interview.durationMinutes) || DEFAULT_INTERVIEW_DURATION,
       studentName: entry.studentName || 'Applicant',
       studentProgram: entry.studentProgram || '',
-      studentDepartment: entry.studentDepartment || '',
+      studentSchool: entry.studentSchool || '',
       scholarshipTitle: entry.scholarshipTitle || 'Scholarship',
       locationLabel: interview.mode === 'online'
         ? ''

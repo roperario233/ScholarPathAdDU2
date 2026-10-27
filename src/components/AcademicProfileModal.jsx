@@ -13,6 +13,7 @@ import {
   yearStandingOptions,
 } from '../lib/profile';
 import { describeAttributeVerification, deriveAttributeVerifications, getAttributeVerificationTone } from '../lib/verification';
+import { getAcademicProgramGroups } from '../lib/academicPrograms';
 
 // Text boxes and selects share one fixed height (matching the SelectPicker
 // trigger) so side-by-side controls line up.
@@ -59,7 +60,7 @@ export default function AcademicProfileModal({
   initialHsAverage,
   initialHasActiveGovernmentGrant,
   academicPrograms = [],
-  academicProgramCategories = [],
+  academicProgramGroups = [],
   documents = [],
   attributeVerifications = {},
   onSave,
@@ -102,10 +103,9 @@ export default function AcademicProfileModal({
   );
   const verifications = { ...attributeVerifications, ...standingVerifications };
   const selectedProgram = academicPrograms.find((entry) => entry.value === program) || academicPrograms[0];
-  const programOptions = academicProgramCategories.flatMap((category) => [
-    { value: `group-${category}`, label: category, isGroup: true },
-    ...academicPrograms.filter((option) => option.category === category),
-  ]);
+  // Grouped by "School — Cluster" so the picker walks all four levels, with the
+  // academic department as each program's description.
+  const programOptions = academicProgramGroups?.length ? academicProgramGroups : getAcademicProgramGroups(academicPrograms);
   const choiceOptions = {
     degreeProgram: getProgramChoiceOptions(programOptions, { slot: 'degreeProgram', degreeProgram: program, programChoice2, programChoice3 }),
     programChoice2: getProgramChoiceOptions(programOptions, { slot: 'programChoice2', degreeProgram: program, programChoice2, programChoice3 }),
@@ -257,7 +257,15 @@ export default function AcademicProfileModal({
           <small className="-mt-2 block text-xs leading-relaxed text-app-muted">Excludes scholarships that cannot be combined with another grant. You can add the rest later.</small>
           {program && selectedProgram && (
             <div className="rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3">
-              <span className="mb-1 block text-xs uppercase tracking-[0.08em] text-app-muted">School / Department</span>
+              <span className="mb-1 block text-xs uppercase tracking-[0.08em] text-app-muted">School</span>
+              <strong className="text-app-primary">{selectedProgram.school}</strong>
+              {selectedProgram.cluster && (
+                <>
+                  <span className="mb-1 mt-2 block text-xs uppercase tracking-[0.08em] text-app-muted">Cluster</span>
+                  <strong className="text-app-primary">{selectedProgram.cluster}</strong>
+                </>
+              )}
+              <span className="mb-1 mt-2 block text-xs uppercase tracking-[0.08em] text-app-muted">Academic department</span>
               <strong className="text-app-primary">{selectedProgram.department}</strong>
             </div>
           )}

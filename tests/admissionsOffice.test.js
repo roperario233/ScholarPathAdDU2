@@ -401,7 +401,8 @@ describe('filterIntakePool', () => {
       submittedAt: '2026-10-01T00:00:00.000Z',
       scholarshipId: 'gia',
       scholarshipTitle: 'Grant-in-Aid (GIA)',
-      studentDepartment: 'College of Computer Studies (CCS)',
+      studentProgram: 'BS Computer Science',
+      studentSchool: 'School of Arts and Sciences (SAS)',
     }),
     application({
       id: 'new',
@@ -409,7 +410,8 @@ describe('filterIntakePool', () => {
       submittedAt: '2026-10-09T00:00:00.000Z',
       scholarshipId: 'jubilee',
       scholarshipTitle: 'Jubilee Scholarship Fund',
-      studentDepartment: 'School of Business and Governance (SBG)',
+      studentProgram: 'BS Accountancy',
+      studentSchool: 'School of Business and Governance (SBG)',
     }),
     application({
       id: 'taken',
@@ -417,7 +419,8 @@ describe('filterIntakePool', () => {
       submittedAt: '2026-09-20T00:00:00.000Z',
       scholarshipId: 'gia',
       scholarshipTitle: 'Grant-in-Aid (GIA)',
-      studentDepartment: 'College of Computer Studies (CCS)',
+      studentProgram: 'BS Information Technology',
+      studentSchool: 'School of Arts and Sciences (SAS)',
     }),
     application({ id: 'closed', status: 'Approved' }),
   ];
@@ -435,13 +438,18 @@ describe('filterIntakePool', () => {
       .toEqual(['taken', 'old', 'new']);
   });
 
-  it('narrows by stage, scholarship, department, and search text', () => {
+  it('narrows by stage, scholarship, school, department, and search text', () => {
     expect(filterIntakePool(applications, roster, { stage: 'Submitted', coverage: 'all' }, TODAY).map((entry) => entry.id))
       .toEqual(['old', 'new']);
     expect(filterIntakePool(applications, roster, { scholarshipId: 'gia', coverage: 'all' }, TODAY).map((entry) => entry.id))
       .toEqual(['taken', 'old']);
-    expect(filterIntakePool(applications, roster, { department: 'School of Business and Governance (SBG)' }, TODAY).map((entry) => entry.id))
+    // School is the profile's stored level; department comes from the program.
+    expect(filterIntakePool(applications, roster, { school: 'School of Business and Governance (SBG)' }, TODAY).map((entry) => entry.id))
       .toEqual(['new']);
+    expect(filterIntakePool(applications, roster, { department: 'Accountancy Department' }, TODAY).map((entry) => entry.id))
+      .toEqual(['new']);
+    expect(filterIntakePool(applications, roster, { department: 'Computer Science Department' }, TODAY).map((entry) => entry.id))
+      .toEqual(['old']);
     expect(filterIntakePool(applications, roster, { query: 'grant-in-aid', coverage: 'all' }, TODAY).map((entry) => entry.id))
       .toEqual(['taken', 'old']);
   });

@@ -5,6 +5,7 @@ import ReasonModal from './ReasonModal';
 import InterviewLocationsModal from './InterviewLocationsModal';
 import { fmtDate } from '../lib/formatters';
 import { getStandingRequirements } from '../lib/profile';
+import { buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isReviewerRole } from '../lib/reviewScope';
 import {
   DEFAULT_INTERVIEW_INSTRUCTIONS,
   INTERVIEW_DURATIONS,
@@ -68,22 +69,27 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   const [guestEmail, setGuestEmail] = useState('');
   const [chairToAdd, setChairToAdd] = useState('');
   const activeLocations = (workspace.locations || []).filter((entry) => entry.isActive);
-  const eligible = getEligiblePanelists(workspace.staffDirectory, application);
+  // SOP 5a: the panel is drawn from the applicant's school, so every reviewer level
+  // whose scope covers the applicant qualifies — Chairperson of its department first,
+  // then the Assistant Dean of its cluster, the Dean of its school, and finally the
+  // Admissions Office lanes, which coordinate the interview.
+  const applicantScope = getApplicationScope(application, buildProgramScopeIndex(workspace.academicPrograms));
+  const eligible = getEligiblePanelists(workspace.staffDirectory, application, applicantScope);
   const onPanel = new Set(draft.panel.map((member) => member.profileId).filter(Boolean));
   const addable = eligible.filter((entry) => !onPanel.has(entry.userId));
-  // The Chair picker and the added-member rows name each Chair's department, so
-  // the reviewer can see the school the panel is drawn from (SOP 5a).
+  // The Chair picker and the added-member rows name each reviewer's scope, so the
+  // reviewer can see which level of the school the panel is drawn from (SOP 5a).
   const departmentById = Object.fromEntries(
-    (workspace.staffDirectory || []).map((entry) => [entry.userId, entry.department || '']),
+    (workspace.staffDirectory || []).map((entry) => [entry.userId, getReviewScopeLabel(entry) || entry.department || '']),
   );
   const roleById = Object.fromEntries(
     (workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']),
   );
-  // SOP 5a draws the panel from the school the applicant's program belongs to.
-  // An incoming first-year is not enrolled yet, so that school is the one that
-  // offers their first program choice; an application without a frozen snapshot
-  // keeps the neutral wording.
-  const applicantSchool = application.studentDepartment || '';
+  // SOP 5a draws the panel from the school the applicant's program belongs to. An
+  // incoming first-year is not enrolled yet, so that school is the one that offers
+  // their first program choice; an application without a frozen snapshot keeps the
+  // neutral wording.
+  const applicantSchool = applicantScope.school || application.studentSchool || '';
   const isIncomingApplicant = getStandingRequirements(application.profileSnapshot || {}).isIncomingFirstYear;
   const conflicts = findInterviewConflicts(draft, {
     applications: workspace.applications,
@@ -288,7 +294,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
             <option value="">{eligible.length ? (addable.length ? 'Add a panel member…' : 'Everyone eligible is already on the panel') : 'No panel accounts available'}</option>
             {addable.map((entry) => (
               <option key={entry.userId} value={entry.userId}>
-                {[entry.fullName, entry.role === 'department_chair' ? entry.department : roleLabels[entry.role]].filter(Boolean).join(' · ')}
+                {[entry.fullName, isReviewerRole(entry.role) ? (getReviewScopeLabel(entry) || entry.department) : roleLabels[entry.role]].filter(Boolean).join(' · ')}
               </option>
             ))}
           </select>
@@ -424,7 +430,7 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, role
           </dd>
         </div>
         <div className="grid gap-0.5 sm:col-span-2">
-          <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Panel · {interview.school || application.studentDepartment || 'Applicant school'}</dt>
+          <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Panel · {interview.school || applicantSchool || 'Applicant school'}</dt>
           <dd className="m-0"><PanelList panel={panel} roleById={roleById} /></dd>
         </div>
         {interview.instructions ? (
@@ -571,7 +577,7 @@ export default function InterviewPanel({
   const structured = isStructuredInterview(interview);
   const panel = (workspace.panelists || []).filter((row) => row.applicationId === application.id && !row.removedAt);
   const notes = (workspace.notes || []).filter((note) => note.applicationId === application.id);
-  const isPanelist = role === 'department_chair' && panel.some((row) => row.profileId && row.profileId === workspace.viewerId);
+  const isPanelist = isReviewerRole(role) && panel.some((row) => row.profileId && row.profileId === workspace.viewerId);
   const nameById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
   const roleById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']));
   const canCoordinate = isOffice && ['Endorsed', 'Interview'].includes(application.status);
@@ -720,7 +726,7 @@ export default function InterviewPanel({
         </Panel>
       ) : null}
 
-      {isOffice || role === 'department_chair' ? (
+      {isOffice || isReviewerRole(role) ? (
         <Panel className="grid gap-2">
           <h4 className={sectionHeading}>Panel evaluation notes</h4>
           <InterviewNotes

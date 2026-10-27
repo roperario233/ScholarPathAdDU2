@@ -242,7 +242,7 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
     const metadata = authUser.user_metadata || {};
     const role = metadata.role === 'osa_admin'
       ? 'admissions_office'
-      : ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(metadata.role)
+      : ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'].includes(metadata.role)
         ? metadata.role
         : 'student';
     const fullName = metadata.full_name?.trim() || authUser.email?.split('@')[0] || 'ScholarPath user';
@@ -342,6 +342,33 @@ export const getProfileDetails = async (userId) => {
     const profileDetails = !detailError && stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
 
     return { ...base, profileDetails };
+  } catch {
+    return empty;
+  }
+};
+
+// The reviewer scope ladder (src/lib/reviewScope.js): a Dean owns a school, an
+// Assistant Dean a cluster, a Chairperson a department. The three columns come from
+// 20261042000001_reviewer_scope_ladder.sql, so they are read in their own tolerant
+// query exactly like `profile_details`: a project with that migration pending still
+// signs in, and the account simply has no scope yet (which keeps the legacy
+// school-wide read for a Chairperson).
+export const getProfileReviewScope = async (userId) => {
+  const empty = { reviewSchool: '', reviewCluster: '', reviewDepartment: '' };
+  if (!hasSupabaseConfig || !supabase || !userId) return empty;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('review_school, review_cluster, review_department')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return empty;
+    return {
+      reviewSchool: data.review_school || '',
+      reviewCluster: data.review_cluster || '',
+      reviewDepartment: data.review_department || '',
+    };
   } catch {
     return empty;
   }

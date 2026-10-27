@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ADMISSIONS_HEAD_DECISION_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
+import { academicPrograms } from '../src/lib/academicPrograms';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
   studentId: overrides.studentId || 'student-1',
-  studentDepartment: overrides.studentDepartment || 'College of Computer Studies (CCS)',
+  studentDepartment: overrides.studentDepartment || 'School of Arts and Sciences (SAS)',
+  studentSchool: overrides.studentSchool || 'School of Arts and Sciences (SAS)',
   status: overrides.status || 'Submitted',
   ...overrides,
 });
@@ -77,6 +79,7 @@ describe('countApplicationsToReview', () => {
       id: 'a-other-dept',
       studentId: 'student-2',
       studentDepartment: 'School of Business and Governance (SBG)',
+      studentSchool: 'School of Business and Governance (SBG)',
       status: 'For Endorsement',
     }),
   ];
@@ -132,10 +135,11 @@ describe('countApplicationsToReview', () => {
     expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(4);
   });
 
-  it('counts only the department\'s pending queue for a Department Chair', () => {
+  it('counts only the scoped pending queue for a Chairperson', () => {
+    // An unscoped Chairperson keeps the legacy school-wide read.
     expect(countApplicationsToReview(applications, {
       role: 'department_chair',
-      department: 'College of Computer Studies (CCS)',
+      department: 'School of Arts and Sciences (SAS)',
     })).toBe(3);
 
     expect(countApplicationsToReview(applications, {
@@ -149,8 +153,44 @@ describe('countApplicationsToReview', () => {
     })).toBe(0);
   });
 
-  it('counts the department cases a Chair can read once documents are under verification', () => {
-    // The Chair has no stage action, so the count is what the department has in
+  it('scopes a Chairperson to one department and an Assistant Dean to a cluster', () => {
+    const ladder = [
+      application({ id: 'l-cs', studentProgram: 'BS Computer Science', studentDepartment: 'Computer Science Department', studentSchool: 'School of Arts and Sciences (SAS)', status: 'Submitted' }),
+      application({ id: 'l-bio', studentProgram: 'BS Biology Major in General Biology', studentDepartment: 'Biology Department', studentSchool: 'School of Arts and Sciences (SAS)', status: 'Submitted' }),
+    ];
+    const chair = { role: 'department_chair', reviewDepartment: 'Computer Science Department' };
+    expect(countApplicationsToReview(ladder, { role: chair.role, reviewScope: chair, programs: academicPrograms })).toBe(1);
+
+    // The Assistant Dean of the cluster sees its own cluster's cases only.
+    expect(countApplicationsToReview(ladder, {
+      role: 'assistant_dean',
+      reviewScope: { role: 'assistant_dean', reviewSchool: 'School of Arts and Sciences (SAS)', reviewCluster: 'Computer Studies' },
+      programs: academicPrograms,
+    })).toBe(1);
+
+    expect(countApplicationsToReview(ladder, {
+      role: 'assistant_dean',
+      reviewScope: { role: 'assistant_dean', reviewSchool: 'School of Arts and Sciences (SAS)', reviewCluster: 'Natural Sciences and Mathematics' },
+      programs: academicPrograms,
+    })).toBe(1);
+
+    // A Dean of the school sees both.
+    expect(countApplicationsToReview(ladder, {
+      role: 'dean',
+      reviewScope: { role: 'dean', reviewSchool: 'School of Arts and Sciences (SAS)' },
+      programs: academicPrograms,
+    })).toBe(2);
+
+    // A Dean of another school sees neither.
+    expect(countApplicationsToReview(ladder, {
+      role: 'dean',
+      reviewScope: { role: 'dean', reviewSchool: 'School of Nursing (SON)' },
+      programs: academicPrograms,
+    })).toBe(0);
+  });
+
+  it('counts the scoped cases a reviewer can read once documents are under verification', () => {
+    // A reviewer has no stage action, so the count is what their scope has in
     // flight with the Admissions Office, including files under verification.
     const withVerification = [
       ...applications,
@@ -158,7 +198,7 @@ describe('countApplicationsToReview', () => {
     ];
     expect(countApplicationsToReview(withVerification, {
       role: 'department_chair',
-      department: 'College of Computer Studies (CCS)',
+      department: 'School of Arts and Sciences (SAS)',
     })).toBe(4);
   });
 

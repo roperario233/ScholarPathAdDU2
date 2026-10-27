@@ -5,6 +5,8 @@ import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import { AVATAR_ACCEPT } from '../lib/avatarStorage';
 import { COURSE_SHIFT_REMINDER } from '../lib/applicationForm';
+import { getAcademicProgramGroups } from '../lib/academicPrograms';
+import { REVIEW_ROLE_LABELS, getReviewScopeLabel, isReviewerRole } from '../lib/reviewScope';
 import { SelectPicker } from '../pages/LoginScreen';
 import { describeAttributeVerification, deriveAttributeVerifications, getAttributeVerificationTone, isAttributeProofSettled } from '../lib/verification';
 import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
@@ -230,7 +232,12 @@ function SelectField({ label, hint, error, value, onChange, options, placeholder
 
 const assignmentNote = {
   student: 'Set from your degree program.',
-  department_chair: 'Managed by the Admissions Office.',
+  // The academic reviewer ladder. A Dean owns a school, an Assistant Dean a cluster,
+  // and a Chairperson a department; each scope is assigned by an operator, never
+  // self-editable, because it decides which cases the account can read.
+  dean: 'Every department in your school. Managed by the Admissions Office.',
+  assistant_dean: 'Every department in your cluster. Managed by the Admissions Office.',
+  department_chair: 'Your department and its degree programs. Managed by the Admissions Office.',
   admissions_office: 'Application preparation, document verification, and the endorsement hand-off.',
   admissions_head: 'All office authority, plus endorsement, approval, release, catalog, and announcements.',
 };
@@ -607,7 +614,17 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       <div className="grid gap-3 md:grid-cols-2">
         <ReadOnlyField label="Sign-in email" value={profile.email} note="Managed by your sign-in account." className="md:col-span-2" />
         <ReadOnlyField label="Role" value={roleLabel} />
-        <ReadOnlyField label={isAdmissionsRole(role) ? 'Office' : 'School / Department'} value={profile.department} note={assignmentNote[role]} />
+        <ReadOnlyField label={isAdmissionsRole(role) ? 'Office' : 'School'} value={profile.department} note={assignmentNote[role]} />
+        {isReviewerRole(role) && (
+          <ReadOnlyField
+            label="Review scope"
+            value={getReviewScopeLabel({ ...profile, role }) || 'Not assigned yet'}
+            note={REVIEW_ROLE_LABELS[role]
+              ? `${REVIEW_ROLE_LABELS[role]} — the cases this account can read.`
+              : ''}
+            className="md:col-span-2"
+          />
+        )}
       </div>
     </SectionForm>
   );
@@ -718,7 +735,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function AcademicSection({ profile, academicPrograms, academicProgramCategories, documents = [], onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
+export function AcademicSection({ profile, academicPrograms, academicProgramGroups, documents = [], onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       studentNumber: asText(profile.studentNumber),
@@ -785,10 +802,10 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   );
   const verifications = { ...attributeVerifications, ...standingVerifications };
   const selectedProgram = academicPrograms.find((program) => program.value === values.degreeProgram);
-  const programOptions = academicProgramCategories.flatMap((category) => [
-    { value: `group-${category}`, label: category, isGroup: true },
-    ...academicPrograms.filter((program) => program.category === category),
-  ]);
+  // One group header per "School — Cluster" pair, in taxonomy order, with the
+  // academic department as each program's description, so a single picker walks
+  // all four levels: School, Cluster, Department, degree program.
+  const programOptions = academicProgramGroups?.length ? academicProgramGroups : getAcademicProgramGroups(academicPrograms);
   // Each ranked choice hides the programs already chosen in the other two slots,
   // so the same program cannot be ranked twice (issue #20).
   const choiceOptions = {
@@ -809,7 +826,18 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       <div className="grid gap-2">
         <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" />
       </div>
-      <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates with your degree program." />
+      {selectedProgram && (
+        <div className="grid gap-4 md:grid-cols-2">
+          <ReadOnlyField
+            label="School"
+            value={selectedProgram.school}
+            note="Updates with your degree program."
+            className={selectedProgram.cluster ? '' : 'md:col-span-2'}
+          />
+          {selectedProgram.cluster && <ReadOnlyField label="Cluster" value={selectedProgram.cluster} />}
+          <ReadOnlyField label="Academic department" value={selectedProgram.department} className="md:col-span-2" />
+        </div>
+      )}
       <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="note">{COURSE_SHIFT_REMINDER}</p>
       {standing.requiresProgramChoices && (
         <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>

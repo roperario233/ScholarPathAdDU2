@@ -1,6 +1,7 @@
 import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from './constants';
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 import { isAdduInternalProgram } from './eligibility';
+import { findAcademicProgram } from './academicPrograms';
 
 // The Admissions Office workspace is split into one route per function
 // (dashboard, application review, catalog management, results release, and
@@ -180,24 +181,36 @@ export const DEFAULT_INTAKE_POOL_FILTERS = {
   stage: 'all',
   query: '',
   scholarshipId: 'all',
+  school: 'all',
   department: 'all',
   waitingOverDays: 0,
   sort: 'oldest',
 };
 
-// The scholarships and departments that actually appear in the open cases, so the
-// facets never offer an empty result.
+// The academic levels an applicant is filed under. `studentSchool` is the profile's
+// stored school; the department comes from the degree program through the taxonomy,
+// so the office can facet on either level (School -> Cluster -> Department -> Program).
+const schoolOf = (entry = {}) => String(entry.studentSchool || '').trim();
+const departmentOf = (entry = {}) => findAcademicProgram(entry.studentProgram)?.department || '';
+
+// The scholarships, schools, and departments that actually appear in the open cases,
+// so the facets never offer an empty result.
 export const getIntakePoolFacets = (applications = []) => {
   const scholarships = new Map();
+  const schools = new Set();
   const departments = new Set();
   asList(applications).filter(isOpenCase).forEach((entry) => {
     if (entry.scholarshipId) scholarships.set(entry.scholarshipId, entry.scholarshipTitle || 'Scholarship');
-    if (entry.studentDepartment) departments.add(entry.studentDepartment);
+    const school = schoolOf(entry);
+    if (school) schools.add(school);
+    const department = departmentOf(entry);
+    if (department) departments.add(department);
   });
   return {
     scholarships: [...scholarships.entries()]
       .map(([value, label]) => ({ value, label }))
       .sort((left, right) => left.label.localeCompare(right.label)),
+    schools: [...schools].sort((left, right) => left.localeCompare(right)),
     departments: [...departments].sort((left, right) => left.localeCompare(right)),
   };
 };
@@ -217,13 +230,14 @@ export const filterIntakePool = (applications = [], caseOfficers = [], filters =
     if (merged.coverage === 'with-officers' && !hasOfficers) return false;
     if (merged.stage && merged.stage !== 'all' && entry.status !== merged.stage) return false;
     if (merged.scholarshipId && merged.scholarshipId !== 'all' && entry.scholarshipId !== merged.scholarshipId) return false;
-    if (merged.department && merged.department !== 'all' && (entry.studentDepartment || '') !== merged.department) return false;
+    if (merged.school && merged.school !== 'all' && schoolOf(entry) !== merged.school) return false;
+    if (merged.department && merged.department !== 'all' && departmentOf(entry) !== merged.department) return false;
     if (waitingOverDays > 0) {
       const days = getSubmissionWaitDays(entry, today);
       if (days == null || days < waitingOverDays) return false;
     }
     if (query) {
-      const haystack = [entry.studentName, entry.scholarshipTitle, entry.studentProgram, entry.studentDepartment]
+      const haystack = [entry.studentName, entry.scholarshipTitle, entry.studentProgram, schoolOf(entry), departmentOf(entry)]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();

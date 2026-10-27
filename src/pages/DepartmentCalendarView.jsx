@@ -27,6 +27,7 @@ import {
 } from '../lib/interviewRoster';
 import { getInterviewStateLabel } from '../lib/interview';
 import { getApplicationStatusLabel } from '../lib/constants';
+import { REVIEW_ROLE_LABELS, getReviewScopeLabel } from '../lib/reviewScope';
 import { fmtDate } from '../lib/formatters';
 
 // SOP step 5 for the Department Chair. The Admissions Office coordinates the
@@ -184,8 +185,8 @@ export default function DepartmentCalendarView({
     <div className="grid content-start gap-5 self-start">
       <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
         <div className="page-title-copy">
-          <span className="page-section-label">Department Chair calendar</span>
-          <h2>{profile.department || 'Department'} calendar</h2>
+          <span className="page-section-label">{REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} calendar</span>
+          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} calendar</h2>
         </div>
         <StatusBadge tone="info">{panelUpcoming.length} on your panel</StatusBadge>
       </section>

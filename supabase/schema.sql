@@ -19,7 +19,22 @@ alter table profiles add column if not exists student_number text;
 alter table profiles drop constraint if exists profiles_role_check;
 update profiles set role = 'admissions_office' where role = 'osa_admin';
 alter table profiles add constraint profiles_role_check
-  check (role in ('student', 'admissions_office', 'admissions_head', 'department_chair'));
+  check (role in ('student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'));
+
+-- The reviewer scope ladder: a Dean owns a School, an Assistant Dean a Cluster, and a
+-- Chairperson a Department (and its degree programs). `department` still holds the
+-- school label, which the legacy fallback for an unscoped Chairperson compares. See
+-- supabase/migrations/20261042000001_reviewer_scope_ladder.sql and
+-- src/lib/reviewScope.js.
+alter table profiles add column if not exists review_school text;
+alter table profiles add column if not exists review_cluster text;
+alter table profiles add column if not exists review_department text;
+alter table profiles drop constraint if exists profiles_review_scope_check;
+alter table profiles add constraint profiles_review_scope_check check (
+  (review_cluster is null or role = 'assistant_dean')
+  and (review_department is null or role = 'department_chair')
+  and (review_school is null or role in ('dean', 'assistant_dean', 'department_chair'))
+);
 
 -- Server-side mirror of the notification center settings (see
 -- src/lib/demoState.js `notificationPreferences`). Required so the scheduled
@@ -193,12 +208,21 @@ alter table notifications add column if not exists source_key text;
 create unique index if not exists notifications_profile_source_key_unique
   on notifications (profile_id, source_key);
 
+-- The AdDU Higher Education Unit (Jacinto Campus) undergraduate hierarchy:
+--   School -> Cluster -> Department -> Degree program
+-- `school` is the value `profiles.department` stores (the reviewer scope label);
+-- `department` is the level the reviewer scope ladder resolves against; `cluster`
+-- is null for SEA, SOE, and SON, which have no sub-clusters. `value` is the stable
+-- key referenced by `profiles.degree_program` and
+-- `scholarships.eligible_degrees`, so it is never renamed.
+-- See supabase/migrations/20261042000000_academic_program_hierarchy.sql.
 create table if not exists academic_programs (
   id uuid primary key default gen_random_uuid(),
   value text not null unique,
   label text not null,
+  school text not null,
+  cluster text,
   department text not null,
-  category text not null,
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -282,6 +306,54 @@ security definer
 set search_path = public
 stable
 as $$ select role from public.profiles where user_id = auth.uid() limit 1 $$;
+
+-- The single access predicate behind every academic-reviewer policy. Mirrors
+-- src/lib/reviewScope.js; see 20261042000001_reviewer_scope_ladder.sql.
+create or replace function public.reviewer_scopes_to_student(p_student_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles s
+    join public.profiles c on c.user_id = auth.uid()
+    left join public.academic_programs ap on ap.value = s.degree_program
+    where s.user_id = p_student_id
+      and (
+        (
+          c.role = 'department_chair'
+          and (
+            (
+              nullif(btrim(coalesce(c.review_department, '')), '') is not null
+              and ap.department is not null
+              and ap.department = c.review_department
+            )
+            or (
+              nullif(btrim(coalesce(c.review_department, '')), '') is null
+              and nullif(btrim(coalesce(c.department, '')), '') is not null
+              and s.department = c.department
+            )
+          )
+        )
+        or (
+          c.role = 'assistant_dean'
+          and nullif(btrim(coalesce(c.review_school, '')), '') is not null
+          and ap.school = c.review_school
+          and (nullif(btrim(coalesce(c.review_cluster, '')), '') is null or ap.cluster = c.review_cluster)
+        )
+        or (
+          c.role = 'dean'
+          and nullif(btrim(coalesce(c.review_school, '')), '') is not null
+          and ap.school = c.review_school
+        )
+      )
+  )
+$$;
+revoke all on function public.reviewer_scopes_to_student(uuid) from public, anon;
+grant execute on function public.reviewer_scopes_to_student(uuid) to authenticated;
 
 create or replace function public.current_profile_department()
 returns text
@@ -476,8 +548,8 @@ create policy "admissions_office_documents_update" on documents
 for update using (public.is_admissions_office()) with check (public.is_admissions_office());
 create policy "chair_documents_read" on documents
 for select using (
-  public.current_profile_role() = 'department_chair'
-  and exists (select 1 from profiles p where p.user_id = documents.owner_id and p.department = public.current_profile_department())
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
+  and public.reviewer_scopes_to_student(documents.owner_id)
 );
 create policy "applications_self_access" on applications
 for all using (auth.uid() = student_id) with check (auth.uid() = student_id);
@@ -501,8 +573,8 @@ for update using (
 );
 create policy "chair_applications_read" on applications
 for select using (
-  public.current_profile_role() = 'department_chair'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
+  and public.reviewer_scopes_to_student(applications.student_id)
 );
 -- The Department Chair has read-only department visibility (chair_applications_read
 -- above) plus SOP 5a panel work. Endorsement moved to the Office of Admissions &
@@ -541,12 +613,11 @@ create policy "staff_review_comments_read" on application_review_comments
 for select using (
   public.is_admissions_office()
   or (
-    public.current_profile_role() = 'department_chair'
+    public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
     and exists (
       select 1 from applications a
-      join profiles p on p.user_id = a.student_id
       where a.id = application_review_comments.application_id
-        and p.department = public.current_profile_department()
+        and public.reviewer_scopes_to_student(a.student_id)
     )
   )
 );
@@ -557,12 +628,11 @@ for insert with check (
   and (
     public.is_admissions_office()
     or (
-      public.current_profile_role() = 'department_chair'
+      public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
       and exists (
         select 1 from applications a
-        join profiles p on p.user_id = a.student_id
         where a.id = application_id
-          and p.department = public.current_profile_department()
+          and public.reviewer_scopes_to_student(a.student_id)
       )
     )
   )
@@ -1345,12 +1415,11 @@ create policy "status_log_staff_read" on public.application_status_log
 for select using (
   public.is_admissions_office()
   or (
-    public.current_profile_role() = 'department_chair'
+    public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
     and exists (
       select 1 from public.applications a
-      join public.profiles p on p.user_id = a.student_id
       where a.id = application_status_log.application_id
-        and p.department = public.current_profile_department()
+        and public.reviewer_scopes_to_student(a.student_id)
     )
   )
 );
@@ -1782,11 +1851,11 @@ revoke all on public.interview_calendar_events from anon, authenticated;
 
 
 
--- SOP 5a, server-side: an account panelist must be a Department Chair whose
--- department (school) is the applicant's, or an Admissions Office Staff/Head
--- account, which coordinates the interview (SOP step 5) and may join any panel.
--- The lead may be any panel member. Applied by
--- supabase/migrations/20261032000000_allow_admissions_panelists.sql.
+-- SOP 5a, server-side: every reviewer level whose scope covers the applicant may sit
+-- on the panel — the Chairperson of its department, the Assistant Dean of its
+-- cluster, or the Dean of its school — plus either Admissions Office lane, which
+-- coordinates the interview (SOP step 5). The lead may be any panel member. Applied
+-- by supabase/migrations/20261042000001_reviewer_scope_ladder.sql.
 create or replace function public.validate_interview_panelist()
 returns trigger
 language plpgsql
@@ -1794,30 +1863,58 @@ security definer
 set search_path = public
 as $$
 declare
+  v_student_school text;
   v_school text;
-  v_member_role text;
-  v_member_school text;
+  v_cluster text;
+  v_department text;
+  v_role text;
+  v_review_school text;
+  v_review_cluster text;
+  v_review_department text;
+  v_legacy_school text;
 begin
   if new.profile_id is null then
     return new;
   end if;
-  select p.department into v_school
+  select p.department, ap.school, ap.cluster, ap.department
+    into v_student_school, v_school, v_cluster, v_department
     from public.applications a
     join public.profiles p on p.user_id = a.student_id
+    left join public.academic_programs ap on ap.value = p.degree_program
     where a.id = new.application_id;
-  select role, department into v_member_role, v_member_school
+  select role, review_school, review_cluster, review_department, department
+    into v_role, v_review_school, v_review_cluster, v_review_department, v_legacy_school
     from public.profiles
     where user_id = new.profile_id;
-  if v_member_role in ('admissions_office', 'admissions_head') then
+
+  if v_role in ('admissions_office', 'admissions_head') then
     return new;
   end if;
-  if v_member_role is distinct from 'department_chair'
-    or nullif(btrim(coalesce(v_school, '')), '') is null
-    or v_member_school is distinct from v_school then
-    raise exception 'Interview panelists must come from the school where the applicant''s program belongs (SOP 5a), or from the Admissions Office.'
-      using errcode = '23514';
+  if v_role = 'dean'
+    and nullif(btrim(coalesce(v_review_school, '')), '') is not null
+    and v_school is not null
+    and v_review_school = v_school then
+    return new;
   end if;
-  return new;
+  if v_role = 'assistant_dean'
+    and nullif(btrim(coalesce(v_review_school, '')), '') is not null
+    and v_school is not null
+    and v_review_school = v_school
+    and (nullif(btrim(coalesce(v_review_cluster, '')), '') is null or v_review_cluster = v_cluster) then
+    return new;
+  end if;
+  if v_role = 'department_chair' then
+    if nullif(btrim(coalesce(v_review_department, '')), '') is not null then
+      if v_department is not null and v_review_department = v_department then
+        return new;
+      end if;
+    elsif nullif(btrim(coalesce(v_legacy_school, '')), '') is not null
+      and v_student_school = v_legacy_school then
+      return new;
+    end if;
+  end if;
+  raise exception 'Interview panelists must be the Chairperson of the applicant''s department, the Assistant Dean of its cluster, or the Dean of its school (SOP 5a), or an Admissions Office account.'
+    using errcode = '23514';
 end;
 $$;
 
@@ -1856,12 +1953,11 @@ security definer
 set search_path = public
 stable
 as $$
-  select public.current_profile_role() = 'department_chair'
+  select public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
     and exists (
       select 1 from public.applications a
-      join public.profiles p on p.user_id = a.student_id
       where a.id = p_application_id
-        and p.department = public.current_profile_department()
+        and public.reviewer_scopes_to_student(a.student_id)
     )
 $$;
 
@@ -2001,11 +2097,13 @@ create policy "documents_storage_chair_read" on storage.objects
 for select to authenticated
 using (
   bucket_id = 'documents'
-  and public.current_profile_role() = 'department_chair'
+  and public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair')
+  -- The first path segment is the owner's user_id. It is matched as text, not cast
+  -- to uuid, so a malformed object name can never raise inside the policy.
   and exists (
     select 1 from public.profiles p
     where p.user_id::text = (storage.foldername(name))[1]
-      and p.department = public.current_profile_department()
+      and public.reviewer_scopes_to_student(p.user_id)
   )
 );
 

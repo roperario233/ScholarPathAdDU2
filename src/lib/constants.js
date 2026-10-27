@@ -1,3 +1,5 @@
+import { buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isReviewerRole } from './reviewScope';
+
 export const coverageTypes = ['all', 'Full Tuition', 'Partial Tuition', 'Allowance'];
 export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
 
@@ -75,14 +77,17 @@ const roleNextStatusMap = {
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },
-  // The Department Chair has read-only department visibility and panel work
-  // (the schedule and private evaluation notes). Endorsement is an Admissions
-  // Office decision (SOP step 4), so the Chair has no stage move.
+  // The academic reviewer ladder — Dean (school), Assistant Dean (cluster), and
+  // Chairperson (department) — has read-only visibility over its scope plus panel
+  // work (the schedule and private evaluation notes). Endorsement is an Admissions
+  // Office decision (SOP step 4), so no reviewer level has a stage move.
   department_chair: {},
+  assistant_dean: {},
+  dean: {},
 };
 
 export const getNextApplicationStatuses = (status, role) => {
-  if (role === 'department_chair') return roleNextStatusMap.department_chair[status] || [];
+  if (isReviewerRole(role)) return roleNextStatusMap[role]?.[status] || [];
   if (isAdmissionsReviewerRole(role)) return roleNextStatusMap[role][status] || [];
   return nextStatusMap[status] || [];
 };
@@ -210,8 +215,10 @@ export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED
 //     caller) it falls back to the whole office queue.
 //   - Admissions Office Head: the endorsement, approval, and release decisions
 //     the Head owns.
-//   - Department Chair: the department's live applications, which the Chair reads.
-export const countApplicationsToReview = (applications = [], { role, studentId, department, caseOfficers, userId } = {}) => {
+//   - Department Chair / Assistant Dean / Dean: the live applications inside their
+//     review scope (they take no stage action, so the count is what their scope has
+//     in flight at the Admissions Office, shown read-only).
+export const countApplicationsToReview = (applications = [], { role, studentId, department, caseOfficers, userId, reviewScope, programs } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
 
   if (isAdmissionsStaffRole(role)) {
@@ -231,11 +238,15 @@ export const countApplicationsToReview = (applications = [], { role, studentId, 
     return list.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
   }
 
-  // The Chair has no stage action, so the count is what the department has
-  // in flight at the Admissions Office, shown read-only.
-  if (role === 'department_chair') {
+  // A reviewer at any level reads a scoped slice with no stage action, so the count
+  // is what that scope has in flight at the Admissions Office.
+  if (isReviewerRole(role)) {
+    // `reviewScope` may be the already-normalised scope (with a `level`) or the
+    // reviewer's profile fields; normalise the latter here.
+    const scope = reviewScope?.level ? reviewScope : getReviewerScope({ role, department, ...(reviewScope || {}) });
+    const programIndex = buildProgramScopeIndex(programs);
     return list.filter((entry) => (
-      (entry.studentDepartment || '') === (department || '')
+      isApplicationInReviewerScope(entry, scope, programIndex)
       && ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(entry.status)
     )).length;
   }

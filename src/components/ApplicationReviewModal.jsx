@@ -6,6 +6,7 @@ import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
 import ApplicationPrintButton from './ApplicationPrintSheet';
 import { FinancialDetailsNotice, useApplicationFinancialSections } from './ApplicationFinancialDetails';
+import { isReviewerRole } from '../lib/reviewScope';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
@@ -568,12 +569,12 @@ export default function ApplicationReviewModal({
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
     : application.status === 'For Endorsement'
-      ? (role === 'department_chair'
+      ? (isReviewerRole(role)
         ? 'Awaiting the Office of Admissions & Aid endorsement decision.'
         : 'Awaiting the Admissions Office Head endorsement decision.')
       : isAdmissionsHead
         ? 'No stage action is available at this stage.'
-        : role === 'department_chair'
+        : isReviewerRole(role)
           ? 'The next action at this stage belongs to the Admissions Office.'
           : 'No stage action is available to your role at this stage.';
 
@@ -584,7 +585,7 @@ export default function ApplicationReviewModal({
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full">
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
-            <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentDepartment || 'Department on file'}</p>
+            <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentSchool || 'School on file'}</p>
           </div>
           <StatusBadge tone={statusTone(application.status)}>{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
@@ -815,7 +816,7 @@ export default function ApplicationReviewModal({
               <StatusHistoryList
                 statusLog={statusLog}
                 timeline={application.timeline}
-                showActorName={isAdmissionsReviewer || role === 'department_chair'}
+                showActorName={isAdmissionsReviewer || isReviewerRole(role)}
               />
             </Panel>
           </div>

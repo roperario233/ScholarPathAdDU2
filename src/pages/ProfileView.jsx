@@ -22,7 +22,7 @@ export default function ProfileView({
   role,
   roleLabel,
   academicPrograms = [],
-  academicProgramCategories = [],
+  academicProgramGroups = [],
   attributeVerifications = {},
   scholarships = [],
   documents = [],
@@ -122,7 +122,7 @@ export default function ProfileView({
           {activeSection === 'address' && isStudent && <AddressSection {...sectionProps} />}
           {activeSection === 'family' && isStudent && <FamilySection {...sectionProps} />}
           {activeSection === 'academic' && isStudent && (
-            <AcademicSection {...sectionProps} documents={documents} academicPrograms={academicPrograms} academicProgramCategories={academicProgramCategories} />
+            <AcademicSection {...sectionProps} documents={documents} academicPrograms={academicPrograms} academicProgramGroups={academicProgramGroups} />
           )}
           {activeSection === 'financial' && isStudent && <FinancialSection {...sectionProps} />}
           {activeSection === 'finances' && isStudent && <FinancesSection {...sectionProps} onSave={onSaveFinancialProfile} migrationMissing={financialMissing} />}

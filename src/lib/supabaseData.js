@@ -1,4 +1,6 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
+import { isHierarchyProgram } from './academicPrograms';
+import { isReviewerRole } from './reviewScope';
 import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
 import { AVATAR_BUCKET, buildAvatarStoragePath } from './avatarStorage';
 
@@ -57,7 +59,10 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
     attachedDocuments: documentIdsByApplication[row.id] || [],
     studentName: student.full_name || 'Student applicant',
     studentProgram: student.degree_program || '',
-    studentDepartment: student.department || '',
+    // The profile's stored school. The academic department and cluster are derived
+    // from the program through the taxonomy (src/lib/reviewScope.js), so a student
+    // who changes program changes department without a second column to keep in step.
+    studentSchool: student.department || '',
     studentQpi: student.qpi ?? null,
     studentHouseholdIncome: student.household_income ?? null,
     endorsement: row.endorsement ?? null,
@@ -74,12 +79,16 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
   };
 };
 
+// School -> Cluster -> Department -> Degree program. `school` is the value
+// `profiles.department` stores and `department` is what the reviewer scope ladder
+// resolves against, so both must survive the row mapping.
 const toAcademicProgram = (row) => ({
   id: row.id,
   value: row.value,
   label: row.label,
-  department: row.department,
-  category: row.category,
+  school: row.school || '',
+  cluster: row.cluster || '',
+  department: row.department || '',
 });
 
 const toAnnouncement = (row) => ({ ...row, createdAt: row.created_at });
@@ -175,7 +184,10 @@ const toInterviewNote = (row, nameById = {}) => ({
   createdAt: row.created_at,
 });
 
-const STAFF_ROLES = ['admissions_office', 'admissions_head', 'department_chair'];
+// Reviewer accounts read a department-scoped slice of the office workflow. All three
+// academic levels (Dean, Assistant Dean, Chairperson) sit on this ladder; the two
+// Admissions Office lanes read every case.
+const STAFF_ROLES = ['admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'];
 
 const ensureReady = () => hasSupabaseConfig && supabase;
 
@@ -188,13 +200,13 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
     supabase.from('announcements').select('*').order('created_at', { ascending: false }),
     supabase.from('notifications').select('*').eq('profile_id', userId).order('created_at', { ascending: false }),
-    role === 'department_chair'
+    isReviewerRole(role)
       ? supabase.from('department_reviews').select('*').eq('department', department).order('created_at', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId),
     // Staff queues need applicant context. students_read is limited to their own
     // profile by RLS, so this select is safe for every role.
-    supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income'),
+    supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income, review_school, review_cluster, review_department'),
     // Office calendar planning entries are a staff-only slice. A student session
     // never asks for them, so they cannot leak into the student calendar.
     role === 'student'
@@ -300,7 +312,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   // so instead of quietly treating every case as unopened.
   let caseOfficers = [];
   let caseOfficersReady = true;
-  if (role !== 'student' && role !== 'department_chair') {
+  if (role !== 'student' && !isReviewerRole(role)) {
     const caseOfficersResult = await supabase
       .from('application_case_officers')
       .select('*')
@@ -316,17 +328,26 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   // SOP step 5 interview data. Staff only; a pending migration yields empty
   // lists rather than failing the whole workspace.
   const nameById = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, entry.full_name || '']));
-  // The staff accounts visible to this session: the interview panel picker reads
-  // the Department Chairs of the applicant's school from it (SOP 5a).
+  // The staff accounts visible to this session: the interview panel picker draws the
+  // Dean, Assistant Dean, and Chairperson whose scope covers the applicant from it
+  // (SOP 5a), so each entry carries its review scope as well as its school.
   const staffDirectory = (profilesResult.data || [])
     .filter((entry) => STAFF_ROLES.includes(entry.role))
-    .map((entry) => ({ userId: entry.user_id, fullName: entry.full_name || 'Staff member', role: entry.role, department: entry.department || '' }));
+    .map((entry) => ({
+      userId: entry.user_id,
+      fullName: entry.full_name || 'Staff member',
+      role: entry.role,
+      department: entry.department || '',
+      reviewSchool: entry.review_school || '',
+      reviewCluster: entry.review_cluster || '',
+      reviewDepartment: entry.review_department || '',
+    }));
   let interviewLocations = [];
   let interviewPanelists = [];
   let interviewNotes = [];
   if (role !== 'student') {
     const [locationsResult, panelistsResult, notesResult] = await Promise.all([
-      role === 'department_chair'
+      isReviewerRole(role)
         ? Promise.resolve({ data: [], error: null })
         : supabase.from('interview_locations').select('*').order('name', { ascending: true }),
       applicationIds.length
@@ -375,11 +396,16 @@ export const loadSupabaseAcademicPrograms = async () => {
   const result = await supabase.from('academic_programs').select('*').order('sort_order', { ascending: true });
   if (result.error) return { success: false, fallback: false, message: result.error.message };
 
-  return {
-    success: true,
-    fallback: false,
-    academicPrograms: (result.data || []).map(toAcademicProgram),
-  };
+  const academicPrograms = (result.data || []).map(toAcademicProgram);
+  // Pending-migration tolerance: a project whose `academic_programs` table has not
+  // been migrated to the four-level hierarchy returns rows with no `school` or
+  // `department`. Falling back to the bundled catalog keeps the academic profile
+  // readable instead of painting empty school and department lines.
+  if (academicPrograms.length && !academicPrograms.every(isHierarchyProgram)) {
+    return { success: false, fallback: true };
+  }
+
+  return { success: true, fallback: false, academicPrograms };
 };
 
 export const createSupabaseScholarship = async (scholarship) => {

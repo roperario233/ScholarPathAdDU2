@@ -39,7 +39,8 @@ const application = (overrides = {}) => ({
   status: 'Interview',
   studentName: 'Ada Cruz',
   studentProgram: 'BS Computer Engineering',
-  studentDepartment: SEA,
+  studentSchool: SEA,
+  studentDepartment: 'Computer Engineering Department',
   scholarshipTitle: 'Grant-in-Aid (GIA)',
   scholarshipId: 'scholarship-1',
   updatedAt: '2026-11-01',
@@ -56,7 +57,7 @@ const panelists = [
 const workspace = (overrides = {}) => ({
   viewerId: 'staff-1',
   staffDirectory: [
-    { userId: 'chair-sea', fullName: 'Ana Reyes', role: 'department_chair', department: SEA },
+    { userId: 'chair-sea', fullName: 'Ana Reyes', role: 'department_chair', department: SEA, reviewDepartment: 'Computer Engineering Department' },
     { userId: 'staff-1', fullName: 'Dana Uy', role: 'admissions_office', department: 'Office of Admissions' },
   ],
   locations: [{ id: 'loc-1', name: 'Interview Room A', building: 'Finster Hall', room: 'F213', isActive: true }],
@@ -116,7 +117,7 @@ const officeProps = (overrides = {}) => ({
 });
 
 const chairProps = (overrides = {}) => ({
-  profile: { department: SEA, role: 'department_chair' },
+  profile: { department: SEA, role: 'department_chair', reviewDepartment: 'Computer Engineering Department' },
   queue: applications(),
   documents: [],
   scholarships: [scholarship],
@@ -253,7 +254,7 @@ describe('AdminCalendar', () => {
 describe('DepartmentInterviewsView', () => {
   it('shows the Chair their panel work without scheduling controls', () => {
     const html = renderToStaticMarkup(<DepartmentInterviewsView {...chairProps()} />);
-    expect(html).toContain('Department Chair interviews');
+    expect(html).toContain('Chairperson interviews');
     expect(html).toContain('Lead');
     // Attendance is not tracked, so the Chair page offers no outcome action and
     // no scheduling control.
@@ -284,7 +285,7 @@ describe('DepartmentInterviewsView', () => {
 describe('DepartmentCalendarView', () => {
   it('shows the department month view and the panel agenda', () => {
     const html = renderToStaticMarkup(<DepartmentCalendarView {...chairProps()} />);
-    expect(html).toContain('Department Chair calendar');
+    expect(html).toContain('Chairperson calendar');
     expect(html).toContain('On your panel');
     expect(html).toContain('Your next interviews');
     expect(html).not.toContain('Awaiting your endorsement');

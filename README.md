@@ -74,7 +74,7 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Personal information | Everyone | Profile photo (take one with the camera or choose an existing image), full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
-| Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
+| Academic profile | Students | Degree program (sets the school, cluster, and academic department the profile is filed under), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
 | Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
 | Eligibility background | Students | Citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
 | Account security | Everyone | Change password or email a reset link |
@@ -295,10 +295,11 @@ these seeded credentials:
 | --- | --- | --- | --- |
 | Admissions Office Staff | `john67.admissions@gmail.com` | `john6767` | Admissions Office overview and review queue |
 | Admissions Office Head | `samantha.headadmissions@gmail.com` | `scholarpath67` | Admissions Office overview, approval/release, catalog, and announcements |
-| Department Chair (SEA) | `miguel.chair.sea@gmail.com` | `scholarpath67` | Department Review and interview panel (School of Engineering and Architecture scoped) |
+| Dean (SEA) | `miguel.chair.sea@gmail.com` | `scholarpath67` | School Review and interview panel (every department in the School of Engineering and Architecture) |
 | Admissions Office Staff (earlier seed) | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
 | Admissions Office Head (earlier seed) | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
-| Department Chair (earlier seed, CCS) | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
+| Assistant Dean (Computer Studies) | `ogs@addu.edu.ph` | — | Cluster Review (the Computer Studies cluster inside the School of Arts and Sciences) |
+| Chairperson (IT & IS Department) | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (the Information Technology and Information Systems Department) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
 any real deployment. The addresses deliberately sit on Gmail rather than
@@ -331,7 +332,8 @@ set role = 'admissions_head', department = 'Office of Admissions'
 where email = 'samantha.headadmissions@gmail.com';
 
 update public.profiles
-set role = 'department_chair', department = 'School of Engineering and Architecture (SEA)'
+set role = 'dean', department = 'School of Engineering and Architecture (SEA)',
+    review_school = 'School of Engineering and Architecture (SEA)'
 where email = 'miguel.chair.sea@gmail.com';
 
 -- Earlier seeded accounts (kept for reference; the credentials table above
@@ -345,15 +347,44 @@ set role = 'admissions_head', department = 'Office of Admissions'
 where email = 'scholarpath.admissionshead@gmail.com';
 
 update public.profiles
-set role = 'department_chair', department = 'College of Computer Studies (CCS)'
+set role = 'assistant_dean', department = 'School of Arts and Sciences (SAS)',
+    review_school = 'School of Arts and Sciences (SAS)', review_cluster = 'Computer Studies'
+where email = 'ogs@addu.edu.ph';
+
+update public.profiles
+set role = 'department_chair', department = 'School of Arts and Sciences (SAS)',
+    review_department = 'Information Technology and Information Systems Department'
 where email = 'scholarpath.chair@gmail.com';
 ```
 
-The Department Chair `department` scopes the Department Review queue and the
-interview panel, so it must match the applicant department the chair should see.
-`miguel.chair.sea@gmail.com` is scoped to `School of Engineering and
-Architecture (SEA)`; the earlier `scholarpath.chair@gmail.com` seed stays scoped
-to `College of Computer Studies (CCS)`. Sign-in resolves the role
+## Academic reviewer ladder
+
+Reviewers own one level of the AdDU hierarchy
+**School → Cluster → Department → Degree Program**:
+
+| Role value | Title | Scope column | Sees |
+| --- | --- | --- | --- |
+| `dean` | Dean | `review_school` | every cluster and department in that school |
+| `assistant_dean` | Assistant Dean | `review_school` + `review_cluster` | every department in that cluster |
+| `department_chair` | Chairperson | `review_department` | that department and its degree programs |
+
+None of them takes a stage move — endorsement, approval, and release stay with the
+Admissions Office. `public.reviewer_scopes_to_student()` is the single predicate
+behind every reviewer row-level policy, and `src/lib/reviewScope.js` mirrors it for
+the pages. The applicant's level is resolved from their degree program through
+`academic_programs`, so adding a program or department needs no policy change.
+
+`profiles.department` holds the **school** for students and reviewers, which is the
+label the sidebar and the SOP 5a panel heading show; it is not the academic
+department. A Chairperson whose `review_department` is still empty keeps a legacy
+school-wide read, so an account that has not been assigned a department yet is never
+locked out of its own queue. Assign the scope with an operator-run `update` like the
+ones above; it is never self-editable.
+
+The reviewer scope above is what decides which cases a reviewer can read, so it must
+always name a level that exists in `academic_programs` (`school`, `school`+`cluster`,
+or `department`). `profiles.department` stays the school label for every role, which
+is also what the SOP 5a panel heading and the sidebar show. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
 Office Staff and Head routes, and the Department Review view, appear in the

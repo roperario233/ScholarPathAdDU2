@@ -248,6 +248,14 @@ export default function AdminIntakePool({
                 ))}
               </select>
             </FormField>
+            <FormField label="School">
+              <select value={filters.school} onChange={(event) => updateFilter({ school: event.target.value })}>
+                <option value="all">All schools</option>
+                {facets.schools.map((school) => (
+                  <option key={school} value={school}>{school}</option>
+                ))}
+              </select>
+            </FormField>
             <FormField label="Department">
               <select value={filters.department} onChange={(event) => updateFilter({ department: event.target.value })}>
                 <option value="all">All departments</option>
