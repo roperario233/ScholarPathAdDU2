@@ -64,7 +64,7 @@ export default function VerifyDocumentModal({
                 {proof.hasDeclared ? formatProofValue(proof.key, proof.declared) : proof.hasAttested ? formatProofValue(proof.key, proof.attested) : 'as declared in the profile snapshot'}
               </span>
             ))}
-            <span className="text-xs text-app-muted">Verify only if the file shows these values. Otherwise reject it with “Document does not support the value declared in the profile”.</span>
+            <span className="text-xs text-app-muted">Verify only if the file shows these values; otherwise reject it.</span>
           </div>
         ) : null}
 

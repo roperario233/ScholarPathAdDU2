@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_APPROVAL_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
+import { ADMISSIONS_HEAD_DECISION_STATUSES, AUTOMATIC_STAGE_STATUSES, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel } from '../src/lib/constants';
 
 const application = (overrides = {}) => ({
   id: overrides.id || 'app-1',
@@ -10,14 +10,20 @@ const application = (overrides = {}) => ({
 });
 
 describe('role-aware application stage actions', () => {
-  it('lets the Department Chair endorse but not conduct central review decisions', () => {
-    expect(getNextApplicationStatuses('For Endorsement', 'department_chair')).toEqual(['Endorsed']);
+  it('gives the endorsement decision to the Admissions Office Head, never the Department Chair', () => {
+    // SOP step 4 is a central decision: Staff hand the case off and the Head
+    // records the endorsement. The Chair has read-only department visibility.
+    expect(getNextApplicationStatuses('For Endorsement', 'admissions_head')).toEqual(['Endorsed', 'Rejected']);
+    expect(getNextApplicationStatuses('For Endorsement', 'admissions_office')).toEqual([]);
+    expect(getNextApplicationStatuses('For Endorsement', 'department_chair')).toEqual([]);
     expect(getNextApplicationStatuses('Endorsed', 'department_chair')).toEqual([]);
     expect(getNextApplicationStatuses('Interview', 'department_chair')).toEqual([]);
   });
 
   it('reserves preparation actions for Admissions Office Staff', () => {
     expect(getNextApplicationStatuses('For Verification', 'admissions_office')).toEqual(['For Endorsement', 'Rejected']);
+    // The Staff lane stops at the hand-off on purpose: only the Head endorses.
+    expect(getNextApplicationStatuses('For Endorsement', 'admissions_office')).toEqual([]);
     // scheduleInterview and recordDeliberation in App.jsx pass through this map.
     expect(getNextApplicationStatuses('Endorsed', 'admissions_office')).toEqual(['Interview', 'Rejected']);
     expect(getNextApplicationStatuses('Interview', 'admissions_office')).toEqual(['Recommended', 'Rejected']);
@@ -29,6 +35,7 @@ describe('role-aware application stage actions', () => {
   it('gives the Admissions Office Head the full pipeline plus approval and release', () => {
     expect(getNextApplicationStatuses('Submitted', 'admissions_head')).toEqual(['Under Review', 'For Verification', 'Rejected']);
     expect(getNextApplicationStatuses('For Verification', 'admissions_head')).toEqual(['For Endorsement', 'Rejected']);
+    expect(getNextApplicationStatuses('For Endorsement', 'admissions_head')).toEqual(['Endorsed', 'Rejected']);
     expect(getNextApplicationStatuses('Endorsed', 'admissions_head')).toEqual(['Interview', 'Rejected']);
     expect(getNextApplicationStatuses('Interview', 'admissions_head')).toEqual(['Recommended', 'Rejected']);
     expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
@@ -88,10 +95,13 @@ describe('countApplicationsToReview', () => {
     expect(countApplicationsToReview(applications, { role: 'admissions_office' })).toBe(4);
   });
 
-  it('counts the approval and release decisions for the Admissions Office Head', () => {
-    const expected = applications.filter((entry) => ADMISSIONS_APPROVAL_STATUSES.includes(entry.status)).length;
+  it('counts the endorsement, approval, and release decisions for the Admissions Office Head', () => {
+    // The Head owns SOP step 4 as well as approval and release, so a case waiting
+    // on the endorsement decision is part of the Head's review count.
+    expect(ADMISSIONS_HEAD_DECISION_STATUSES).toEqual(['For Endorsement', 'Recommended', 'Approved']);
+    const expected = applications.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
     expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(expected);
-    expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(2);
+    expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(4);
   });
 
   it('counts only the department\'s pending queue for a Department Chair', () => {
@@ -111,6 +121,19 @@ describe('countApplicationsToReview', () => {
     })).toBe(0);
   });
 
+  it('counts the department cases a Chair can read once documents are under verification', () => {
+    // The Chair has no stage action, so the count is what the department has in
+    // flight with the Admissions Office, including files under verification.
+    const withVerification = [
+      ...applications,
+      application({ id: 'a-docverify', studentId: 'student-3', status: 'For Verification' }),
+    ];
+    expect(countApplicationsToReview(withVerification, {
+      role: 'department_chair',
+      department: 'College of Computer Studies (CCS)',
+    })).toBe(4);
+  });
+
   it('tolerates malformed collections', () => {
     expect(countApplicationsToReview(undefined, { role: 'student', studentId: 'student-1' })).toBe(0);
     expect(countApplicationsToReview(null, { role: 'admissions_office' })).toBe(0);
@@ -120,16 +143,12 @@ describe('countApplicationsToReview', () => {
 // getNextApplicationStatuses is the single source of stage authority: the role
 // maps in constants.js are what App.jsx's changeApplicationStatus guard reads.
 describe('department chair transition map', () => {
-  it('lets a Chair flag live applications for central validation', () => {
-    expect(getNextApplicationStatuses('Submitted', 'department_chair')).toEqual(['For Verification']);
-    expect(getNextApplicationStatuses('Under Review', 'department_chair')).toEqual(['For Verification']);
-  });
-
-  it('lets a Chair endorse only an application sent to endorsement', () => {
-    expect(getNextApplicationStatuses('For Verification', 'department_chair')).toEqual([]);
-    expect(getNextApplicationStatuses('For Endorsement', 'department_chair')).toEqual(['Endorsed']);
-    expect(getNextApplicationStatuses('Endorsed', 'department_chair')).toEqual([]);
-    expect(getNextApplicationStatuses('Approved', 'department_chair')).toEqual([]);
+  it('leaves the Chair with no stage move', () => {
+    // Endorsement moved to the Office of Admissions & Aid: Staff hand off and the
+    // Head endorses. The Chair keeps read-only department visibility and the
+    // SOP 5a panel work, neither of which is a status transition.
+    ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved']
+      .forEach((status) => expect(getNextApplicationStatuses(status, 'department_chair')).toEqual([]));
   });
 });
 
@@ -150,9 +169,9 @@ describe('transition map completeness', () => {
       .forEach((status) => expect(getApplicationStatusLabel(status)).toBe(status));
   });
 
-  it('labels the Admissions Office hand-off as sending the application to endorsement', () => {
+  it('labels the Admissions Office hand-off as sending the application for endorsement', () => {
     expect(getStageActionLabel('For Endorsement', 'admissions_office')).toBe('Send to endorsement');
-    expect(getStageActionLabel('Endorsed', 'department_chair')).toBe('Endorse');
+    expect(getStageActionLabel('Endorsed', 'admissions_head')).toBe('Endorse');
   });
 
   it('returns only known statuses for every role and status pair', () => {
@@ -176,7 +195,7 @@ describe('transition map completeness', () => {
         });
       });
     });
-    expect(getStageActionLabel('For Verification', 'department_chair')).toBe('Flag for central validation');
+    expect(getStageActionLabel('For Verification', 'department_chair')).toBe('Continue to verification');
     expect(getStageActionLabel('For Verification', 'admissions_office')).toBe('Continue to verification');
     expect(getStageActionLabel('Interview', 'admissions_office')).toBe('Schedule interview');
   });

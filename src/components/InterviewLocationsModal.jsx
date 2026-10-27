@@ -56,7 +56,7 @@ export default function InterviewLocationsModal({ locations = [], onSave, onClos
   return (
     <ModalShell title="Interview locations" onClose={busy ? undefined : onClose} className="w-[min(640px,100%)] max-h-[90vh] overflow-y-auto">
       <div className="grid gap-4">
-        <p className="m-0 text-sm text-app-muted">These venues appear in the location dropdown for on-site interviews. Archive a venue to retire it; interviews already scheduled keep their location label.</p>
+        <p className="m-0 text-sm text-app-muted">Venues appear in the on-site location list. Archiving keeps existing schedules readable.</p>
 
         <form
           className="grid gap-3 rounded-[14px] border border-app-border bg-app-surface p-3"

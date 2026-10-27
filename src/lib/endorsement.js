@@ -1,8 +1,9 @@
 import { describeStatusActor } from './applicationRequirements';
 
-// Endorsement is SOP step 4: the Admissions Office hands a fully verified
-// application to the Department Chair, who records one decision. The review
-// modal's Endorsement tab only needs the hand-off/decision record, the internal
+// Endorsement is SOP step 4: the Admissions Office Staff hand a fully verified
+// application to the Admissions Office Head, who records the decision. The
+// Department Chair keeps read-only department visibility. The review modal's
+// Endorsement tab only needs the hand-off/decision record, the internal
 // comments, and the timing; stage authority still lives in App.jsx.
 
 // Advisory only: it highlights a case that has waited, but never blocks it.

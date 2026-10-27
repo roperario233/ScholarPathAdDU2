@@ -1,19 +1,20 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
+import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
 import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, isAdmissionsStaffRole } from './lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewComplete, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, recordSupabaseInterviewOutcome, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, upsertSupabaseDepartmentReview, createSupabaseReviewComment } from './lib/supabaseData';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -29,7 +30,11 @@ import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
+import AdminCalendarPage from './pages/admin/AdminCalendar';
+import AdminInterviewsPage from './pages/admin/AdminInterviews';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
+import DepartmentCalendarViewPage from './pages/DepartmentCalendarView';
+import DepartmentInterviewsViewPage from './pages/DepartmentInterviewsView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
@@ -42,6 +47,33 @@ const roleLabels = {
   admissions_head: 'Admissions Office Head',
   department_chair: 'Department Chair',
 };
+
+// The Google Calendar integration state the review surfaces read. `configured`
+// means "a Meet link can be generated right now", so a broken or expired
+// authorization reads as not configured and the schedule form asks for a pasted
+// link instead of failing at save. `code`/`reason` let the panel say what to fix
+// (an expired token, a calendar the account cannot see) instead of echoing
+// Google's wording.
+const emptyInterviewCalendarState = {
+  configured: false,
+  checked: true,
+  checking: false,
+  reauthRequired: false,
+  code: '',
+  reason: '',
+  calendarId: '',
+  calendar: null,
+};
+
+const interviewCalendarState = (result) => ({
+  ...emptyInterviewCalendarState,
+  configured: result?.ok === true,
+  reauthRequired: result?.code === 'reauth_required',
+  code: result?.code || '',
+  reason: result?.reason || '',
+  calendarId: result?.calendarId || '',
+  calendar: result?.calendar || null,
+});
 
 // The identity rows (sidebar panel and mobile header) should not repeat a staff
 // member's name as its own role label, or echo a department whose words are
@@ -76,11 +108,13 @@ const normalizeRole = (role) => {
   return ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(role) ? role : 'student';
 };
 
-const landingViewForRole = (role) => (isAdmissionsStaffRole(role)
-  ? 'admin-review'
-  : isAdmissionsHeadRole(role)
-    ? 'admin'
-    : role === 'department_chair' ? 'review' : 'dashboard');
+// Both Admissions Office lanes land on the office Dashboard (the `admin` route),
+// and the review queue sits directly under it as the first work queue. A
+// Department Chair lands on the department review queue and a student on the
+// student dashboard. There is no separate role dashboard beside these pages.
+const landingViewForRole = (role) => (isAdmissionsReviewerRole(role)
+  ? 'admin'
+  : role === 'department_chair' ? 'review' : 'dashboard');
 
 // A student profile is complete enough for matching once the core academic
 // fields and the onboarding eligibility essentials are all recorded. `profile`
@@ -257,9 +291,12 @@ function App() {
   // avatarPath (profiles.avatar_path) is what rides along in app state.
   const [avatarPreview, setAvatarPreview] = useState({ path: '', url: '' });
   const [isSavingAvatar, setIsSavingAvatar] = useState(false);
-  // Whether the optional Google Calendar integration (manage-interview-event)
-  // is configured. Without it an online interview needs a pasted meeting link.
-  const [interviewCalendar, setInterviewCalendar] = useState({ configured: false, checked: false });
+  // The state of the optional Google Calendar integration (manage-interview-event).
+  // It is verified against Google, not just against the presence of the secrets,
+  // so an expired refresh token or an unreachable calendar is visible before the
+  // Admissions Office tries to schedule. Without a working integration an online
+  // interview needs a pasted meeting link.
+  const [interviewCalendar, setInterviewCalendar] = useState({ ...emptyInterviewCalendarState, checked: false, checking: true });
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -424,12 +461,17 @@ function App() {
       return undefined;
     }
     let active = true;
-    invokeSupabaseInterviewEvent({ action: 'status' })
+    // `status` only proves the secrets exist; `verify` refreshes the token and
+    // reads the target calendar, so a revoked authorization or a calendar the
+    // office account cannot see is caught here instead of at the moment an
+    // interview is being scheduled. The state starts as `checking` while this
+    // runs (see the initial value above), so the body never sets state directly.
+    invokeSupabaseInterviewEvent({ action: 'verify' })
       .then((result) => {
-        if (active) setInterviewCalendar({ configured: Boolean(result?.configured), checked: true });
+        if (active) setInterviewCalendar(interviewCalendarState(result));
       })
       .catch(() => {
-        if (active) setInterviewCalendar({ configured: false, checked: true });
+        if (active) setInterviewCalendar({ ...emptyInterviewCalendarState });
       });
     return () => { active = false; };
   }, [isSupabaseWorkspaceLoaded, state.viewerRole, interviewCalendar.checked]);
@@ -1301,8 +1343,12 @@ function App() {
   // the Supabase write before touching local state so a failed write can never
   // leave the queue showing a stage the database never recorded, and it returns
   // { ok } / { error } so the review surface can report the outcome.
+  // `options.baseApplication` lets a caller that already wrote a stage payload
+  // (the interview waiver cancels the schedule first) thread the fresh row in, so
+  // this write does not overwrite the timeline with a stale copy.
   const changeApplicationStatus = async (applicationId, status, options = {}) => {
-    const application = state.applications.find((entry) => entry.id === applicationId);
+    const application = options.baseApplication
+      || state.applications.find((entry) => entry.id === applicationId);
     if (!application) return { error: 'The application could not be found.' };
     // Manuscript 3.3.3: forward stages require every attached Document Vault
     // file to be Verified. The reviewer UI disables these actions and the
@@ -1320,15 +1366,11 @@ function App() {
         return { error: 'Your role cannot move this application to that stage.' };
       }
     }
-    const actor = state.viewerRole === 'department_chair'
-      ? 'Department Chair'
-      : roleLabels[state.viewerRole] || 'Admissions Office';
+    const actor = roleLabels[state.viewerRole] || 'Admissions Office';
     const defaultNote = status === 'For Verification'
-      ? (state.viewerRole === 'department_chair'
-        ? 'Flagged for central document validation.'
-        : 'Continued to document verification. Attached files are queued for Admissions Office review.')
+      ? 'Continued to document verification. Attached files are queued for Admissions Office review.'
       : status === 'For Endorsement'
-        ? 'Sent to endorsement. The application is now with the Department Chair for endorsement.'
+        ? 'Sent to endorsement. The application is now with the Admissions Office Head for endorsement.'
         : status === 'Under Review'
           ? `${actor} opened this application for review. Attached documents are reviewed at the verification stage.`
           : status === 'Approved'
@@ -1341,7 +1383,7 @@ function App() {
       actor,
       at: new Date().toISOString().slice(0, 10),
     };
-    const { note: _note, ...stageFields } = options || {};
+    const { note: _note, baseApplication: _baseApplication, ...stageFields } = options || {};
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the stage change could not be saved.' };
     }
@@ -1367,6 +1409,20 @@ function App() {
         timeline: [...(entry.timeline || []), stageEvent],
       } : entry),
     }));
+    // A rejection ends the interview. Delete the Google Calendar event so the
+    // applicant and the panel stop receiving a live invitation (and its Meet
+    // link) for a closed case. The ledger in interview_calendar_events keeps the
+    // event id if this call fails, so it can still be repaired.
+    if (status === 'Rejected'
+      && application.status === 'Interview'
+      && application.interview?.calendar?.eventId
+      && isAdmissionsReviewerRole(state.viewerRole)) {
+      invokeSupabaseInterviewEvent({
+        action: 'cancel',
+        applicationId,
+        eventId: application.interview.calendar.eventId,
+      }).catch(() => undefined);
+    }
     // The database trigger (20261014000003) is the primary sender; this is the
     // retry for a tab that closed first and only sends the idempotent in-app and
     // email channels. The trigger owns the SMS channel.
@@ -1374,19 +1430,11 @@ function App() {
     return { ok: true };
   };
 
-  // A Department Chair flags submitted applications for central validation by
-  // moving them to For Verification and recording the reason in the timeline.
-  const flagApplicationForValidation = (applicationId) => (
-    changeApplicationStatus(applicationId, 'For Verification', {
-      note: 'Flagged for central document validation.',
-    })
-  );
-
-  // SOP step 4 — the Department Chair endorses qualified applications to the
-  // next stage (interview and other evaluation).
+  // SOP step 4: the Admissions Office Head records the endorsement of an
+  // application the Staff sent over. The Department Chair has no endorsement role.
   const endorseApplication = async (applicationId, note = '') => {
-    if (state.viewerRole !== 'department_chair') {
-      return { error: 'Only the Department Chair can endorse at this stage.' };
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Head can endorse at this stage.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'For Endorsement') {
@@ -1394,41 +1442,21 @@ function App() {
     }
     // Manuscript 3.3.3: never record an endorsement for an application whose
     // attached documents are not all Verified. The status write refuses that
-    // change too, so checking first keeps a department_reviews row from being
-    // written against an application that never advanced.
+    // change too, so checking first keeps the client from a stale attempt.
     if (!isApplicationVerifiedForEndorsement(application, state.documents)) {
       return { error: 'Every attached document must be Verified before endorsement.' };
     }
     const record = {
-      reviewedBy: currentProfile.fullName || 'Department Chair',
+      reviewedBy: currentProfile.fullName || 'Admissions Office Head',
       decision: 'Endorsed',
-      note: note || 'Sent to endorsement based on academic standing and verified documents.',
+      note: note || 'Endorsed based on academic standing and verified documents.',
       decidedAt: new Date().toISOString().slice(0, 10),
     };
-    const result = await changeApplicationStatus(applicationId, 'Endorsed', {
+    return changeApplicationStatus(applicationId, 'Endorsed', {
       note: record.note,
       endorsement: record,
     });
-    if (result?.error) return result;
-    if (isSupabaseWorkspaceLoaded) {
-      // The endorsement itself is the authoritative write; the department review
-      // row is an auxiliary audit record, so a failure there does not roll it back.
-      // Promise.resolve keeps this safe even if the helper hands back a bare
-      // Postgrest thenable, which has no .catch of its own.
-      Promise.resolve(upsertSupabaseDepartmentReview({
-        applicationId,
-        reviewerId: currentProfile.id,
-        studentName: application.studentName,
-        department: currentProfile.department,
-        qpi: application.studentQpi,
-        householdIncome: application.studentHouseholdIncome,
-        status: 'Endorsed',
-        recommendation: record.note,
-      })).catch(() => undefined);
-    }
-    return { ok: true };
   };
-
   // The internal endorsement thread. The database RLS policies are the authority;
   // this guard keeps a student session (or a Chair outside its department) from
   // attempting a write the server would reject anyway.
@@ -1534,7 +1562,12 @@ function App() {
         record = {
           ...record,
           meetingUrl: record.mode === 'online' ? (record.meetingUrl || eventResult.meetingUrl || '') : '',
-          calendar: { provider: 'google', eventId: eventResult.eventId, htmlLink: eventResult.htmlLink || '' },
+          calendar: {
+            provider: 'google',
+            eventId: eventResult.eventId,
+            htmlLink: eventResult.htmlLink || '',
+            removedAt: null,
+          },
         };
       } else if (wantsAutoMeeting) {
         return { error: `The Google Meet link could not be generated (${eventResult?.reason || eventResult?.error || 'calendar service unavailable'}). Paste a meeting link instead.` };
@@ -1565,7 +1598,9 @@ function App() {
     // The database trigger (20261029000001) is the primary sender; this is the
     // idempotent retry for the in-app and email channels.
     notifySupabaseInterviewUpdate(application.id).catch(() => undefined);
-    return { ok: true };
+    // The written row is returned so a caller that follows with a stage change can
+    // carry this timeline forward instead of rewriting the pre-cancel copy.
+    return { ok: true, record, timeline, application: { ...application, interview: record, timeline } };
   };
 
   const scheduleInterview = async (applicationId, draft) => {
@@ -1610,6 +1645,44 @@ function App() {
     return writeInterviewRecord(application, prepared.record, `Interview rescheduled (${trimmedReason}): ${summarizeInterview(prepared.record)}.`);
   };
 
+  // Removes the provider event and records the cancellation. Deleting first means
+  // the Edge Function still sees the id it has to remove, and a failed delete
+  // leaves `calendar.removedAt` null so the tab can offer a repair — instead of
+  // silently orphaning an event that keeps its invitation and Meet link while the
+  // next schedule creates a second one. Shared by the explicit Cancel action and
+  // the interview waiver that precedes a recommendation; `note` lets the waiver
+  // record its own timeline wording.
+  const cancelInterviewRecord = async (application, reason, note = '') => {
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the interview could not be saved.' };
+    }
+    const calendar = application.interview?.calendar || null;
+    const eventId = String(calendar?.eventId || '').trim();
+    let removedAt = null;
+    let removalError = '';
+    if (eventId) {
+      const removal = await invokeSupabaseInterviewEvent({
+        action: 'cancel',
+        applicationId: application.id,
+        eventId,
+      }).catch(() => null);
+      if (removal?.ok) removedAt = new Date().toISOString();
+      else removalError = removal?.reason || removal?.error || 'The Google Calendar event could not be removed.';
+    }
+    const record = {
+      ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason }),
+      calendar: eventId
+        ? { provider: calendar?.provider || 'google', eventId, htmlLink: calendar?.htmlLink || '', removedAt }
+        : null,
+    };
+    const result = await writeInterviewRecord(application, record, note || `Interview cancelled: ${reason}.`);
+    if (result.error) return result;
+    return {
+      ...result,
+      warning: eventId && !removedAt ? `${removalError} Use Repair calendar event to remove it.` : '',
+    };
+  };
+
   const cancelInterview = async (applicationId, reason = '') => {
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
       return { error: 'Only the Admissions Office can cancel an interview.' };
@@ -1621,42 +1694,68 @@ function App() {
     }
     const trimmedReason = String(reason || '').trim();
     if (!trimmedReason) return { error: 'Record why the interview is being cancelled.' };
-    if (!isSupabaseWorkspaceLoaded) {
-      return { error: 'Supabase is not configured, so the interview could not be saved.' };
-    }
-    // The Google event is deleted below, so the record forgets it; scheduling
-    // again creates a new event instead of updating a deleted one.
-    const record = { ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason: trimmedReason }), calendar: null };
-    const result = await writeInterviewRecord(application, record, `Interview cancelled: ${trimmedReason}.`);
-    if (result.ok && application.interview.calendar?.eventId) {
-      invokeSupabaseInterviewEvent({ action: 'cancel', applicationId, eventId: application.interview.calendar.eventId }).catch(() => undefined);
-    }
-    return result;
+    const result = await cancelInterviewRecord(application, trimmedReason);
+    if (result.error) return result;
+    return result.warning ? { ok: true, warning: result.warning } : { ok: true };
   };
 
-  // Attendance is recorded by a Department Chair on the panel, or by the
-  // Admissions Office on the panel's behalf (for example, a panel of faculty
-  // guests only). record_interview_outcome re-checks the caller server-side.
-  const recordInterviewOutcome = async (applicationId, outcome) => {
+  // Repairs Google from the saved record: creates the event the database expects
+  // when a create was lost, updates it when Google drifted, or deletes the event
+  // of a cancelled interview whose delete never landed. The Edge Function never
+  // writes the application row, so the repaired calendar link is saved here
+  // through the normal stage write.
+  const resyncInterviewCalendar = async (applicationId) => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can repair a calendar event.' };
+    }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application) return { error: 'The application could not be found.' };
-    const allowed = isAdmissionsReviewerRole(state.viewerRole)
-      || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
-    if (!allowed) return { error: 'Only the interview panel or the Admissions Office can record the outcome.' };
-    if (!isSupabaseWorkspaceLoaded) {
-      return { error: 'Supabase is not configured, so the outcome could not be saved.' };
+    if (!application || !isStructuredInterview(application.interview)) {
+      return { error: 'This application has no interview schedule to repair.' };
     }
-    const result = await recordSupabaseInterviewOutcome(applicationId, outcome);
-    if (result.error) {
-      return { error: result.error.message || 'The interview outcome could not be saved.' };
+    if (!interviewCalendar.configured) {
+      return { error: interviewCalendar.reason || 'The Google Calendar integration is not available.' };
     }
-    setState((previous) => ({
-      ...previous,
-      applications: previous.applications.map((entry) => (entry.id === applicationId
-        ? { ...entry, interview: result.data || { ...entry.interview, state: outcome } }
-        : entry)),
-    }));
-    return { ok: true };
+    const result = await invokeSupabaseInterviewEvent({ action: 'sync', applicationId }).catch(() => null);
+    if (!result?.ok) {
+      return { error: result?.reason || 'The calendar event could not be repaired.' };
+    }
+    if (result.repaired === 'deleted' || result.calendar === null) {
+      // A cancelled interview's event is gone: stamp the record so the tab stops
+      // offering a repair for it.
+      if (result.repaired === 'deleted' && application.interview.calendar) {
+        const stamped = {
+          ...application.interview,
+          calendar: {
+            ...application.interview.calendar,
+            provider: 'google',
+            removedAt: new Date().toISOString(),
+          },
+        };
+        const written = await writeInterviewRecord(application, stamped, 'Calendar event removed after the interview was cancelled.');
+        if (written.error) return written;
+      }
+      const removedCount = Number(result.removed) || 0;
+      return {
+        ok: true,
+        message: result.repaired === 'deleted'
+          ? `Removed ${removedCount || 1} calendar event${(removedCount || 1) === 1 ? '' : 's'} for the cancelled interview.`
+          : 'Nothing needed repairing.',
+      };
+    }
+    const record = {
+      ...application.interview,
+      meetingUrl: application.interview.mode === 'online'
+        ? (application.interview.meetingUrl || result.meetingUrl || '')
+        : '',
+      calendar: { ...(result.calendar || {}), removedAt: null },
+    };
+    const written = await writeInterviewRecord(application, record, `Calendar event ${result.repaired}: ${summarizeInterview(record)}.`);
+    if (written.error) return written;
+    const swept = Number(result.removed) > 0
+      ? ` Removed ${result.removed} duplicate event${Number(result.removed) === 1 ? '' : 's'}.`
+      : '';
+    const label = result.repaired === 'relinked' ? 'repaired with a new Meet link' : result.repaired;
+    return { ok: true, message: `The calendar event was ${label}.${swept}` };
   };
 
   const addInterviewNote = async (applicationId, { body, rating = null } = {}) => {
@@ -1718,29 +1817,49 @@ function App() {
     notes: state.interviewNotes || [],
     applications: state.applications,
     calendarConfigured: interviewCalendar.configured,
+    calendarChecked: interviewCalendar.checked,
+    calendarChecking: interviewCalendar.checking,
+    calendarReauthRequired: interviewCalendar.reauthRequired,
+    calendarReason: interviewCalendar.reason,
+    calendarSummary: interviewCalendar.calendar?.summary || '',
+    calendarAccessRole: interviewCalendar.calendar?.accessRole || '',
+    onRepairCalendar: resyncInterviewCalendar,
     onSchedule: scheduleInterview,
     onReschedule: rescheduleInterview,
     onCancel: cancelInterview,
-    onRecordOutcome: recordInterviewOutcome,
     onAddNote: addInterviewNote,
     onSaveLocation: isAdmissionsHeadRole(state.viewerRole) ? saveInterviewLocation : undefined,
   };
 
   // SOP step 6 — evaluation and deliberation by the School Scholarship
   // Sub-committee, producing a recommendation.
-  const recordDeliberation = (applicationId, decision, note = '') => {
+  //
+  // Attendance is not tracked, so the recommendation itself is what ends the
+  // interview stage. A schedule that is still live is closed first: cancelling
+  // keeps the application at `Interview`, so the interview trigger notifies the
+  // applicant and the panel about the cancellation, and the status write that
+  // follows then tells the applicant the recommendation was recorded. No live
+  // invitation can outlive the stage, which is what the database trigger
+  // (enforce_interview_closed_before_recommendation) still refuses.
+  const recordDeliberation = async (applicationId, decision, note = '') => {
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only the Admissions Office can record a deliberation.' });
+      return { error: 'Only the Admissions Office can record a deliberation.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Interview') {
-      return Promise.resolve({ error: 'This application is not awaiting a deliberation.' });
+      return { error: 'This application is not awaiting a deliberation.' };
     }
-    // SOP step 5 → 6: the recommendation follows an attended interview. The
-    // review modal disables the action and the database trigger
-    // (enforce_interview_outcome_before_recommendation) repeats the rule.
-    if (decision !== 'Rejected' && !isInterviewComplete(application.interview)) {
-      return Promise.resolve({ error: 'The interview panel must record the applicant as attended before the recommendation.' });
+    let base = application;
+    let closeWarning = '';
+    if (decision !== 'Rejected' && isInterviewLive(application.interview)) {
+      const closed = await cancelInterviewRecord(
+        application,
+        'The recommendation was recorded, closing the interview stage.',
+        'Interview schedule closed when the recommendation was recorded.',
+      );
+      if (closed.error) return closed;
+      base = closed.application;
+      closeWarning = closed.warning || '';
     }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
     const record = {
@@ -1749,10 +1868,13 @@ function App() {
       note,
       decidedAt: new Date().toISOString().slice(0, 10),
     };
-    return changeApplicationStatus(applicationId, nextStatus, {
+    const result = await changeApplicationStatus(applicationId, nextStatus, {
       note: note || `Sub-committee deliberation recorded as ${nextStatus}.`,
       deliberation: record,
+      baseApplication: base,
     });
+    if (result?.error) return result;
+    return closeWarning ? { ...result, warning: closeWarning } : result;
   };
 
   // SOP step 7 — the Admissions Office Head approves the sub-committee's
@@ -2005,6 +2127,70 @@ function App() {
     event.currentTarget.reset();
   };
 
+  // Office planning entries on the office calendar (verification windows, release
+  // target dates, internal meetings). They are dates only: they do not create
+  // notifications or deliveries. The Head publishes and removes them; both office
+  // lanes and Department Chairs read them, and a student session never loads the
+  // slice, so there is nothing to filter on the student side.
+  const addOfficeCalendarEntry = async ({ title, entryDate, kind, notes } = {}) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { ok: false, error: 'Only the Admissions Office Head can add office calendar entries.' };
+    }
+    const cleanTitle = String(title || '').trim();
+    if (!cleanTitle || !entryDate) {
+      return { ok: false, error: 'A title and a date are required.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { ok: false, error: 'Supabase is not configured, so the entry could not be saved.' };
+    }
+    const entry = {
+      id: `office-${crypto.randomUUID()}`,
+      title: cleanTitle,
+      entryDate: String(entryDate),
+      kind: OFFICE_ENTRY_KINDS.includes(kind) ? kind : 'office',
+      notes: String(notes || '').trim(),
+      createdAt: new Date().toISOString().slice(0, 10),
+    };
+    setState((previous) => ({
+      ...previous,
+      officeCalendarEntries: [...(previous.officeCalendarEntries || []), entry],
+    }));
+    const { error } = await createSupabaseOfficeCalendarEntry({ ...entry, createdBy: state.authUser?.id });
+    if (error) {
+      // Drop the optimistic row so the calendar never shows an entry the database
+      // refused (for example when the caller is not the Head lane).
+      setState((previous) => ({
+        ...previous,
+        officeCalendarEntries: (previous.officeCalendarEntries || []).filter((item) => item.id !== entry.id),
+      }));
+      return { ok: false, error: error.message || 'The entry could not be saved.' };
+    }
+    return { ok: true, entry };
+  };
+
+  const deleteOfficeCalendarEntry = async (entryId) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { ok: false, error: 'Only the Admissions Office Head can remove office calendar entries.' };
+    }
+    const previousEntry = (state.officeCalendarEntries || []).find((item) => item.id === entryId);
+    if (!previousEntry) {
+      return { ok: false, error: 'That entry is no longer on the calendar.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      officeCalendarEntries: (previous.officeCalendarEntries || []).filter((item) => item.id !== entryId),
+    }));
+    const { error } = await deleteSupabaseOfficeCalendarEntry(entryId);
+    if (error) {
+      setState((previous) => ({
+        ...previous,
+        officeCalendarEntries: [...(previous.officeCalendarEntries || []), previousEntry],
+      }));
+      return { ok: false, error: error.message || 'The entry could not be removed.' };
+    }
+    return { ok: true };
+  };
+
   const saveScholarship = async (scholarship) => {
     if (!isAdmissionsHeadRole(state.viewerRole)) {
       window.alert('Only the Admissions Office Head can publish catalog entries.');
@@ -2251,59 +2437,53 @@ function App() {
     || !studentMatchProfile.citizenship
   );
 
-  // The Admissions Office workspace is split into one route per function, shown
-  // as a labeled group so the page navigation stays scannable. Both lanes read
-  // the overview and the review queue; only the Head manages the catalog,
-  // announcements, and the approval/release decisions.
+  // The Admissions Office workspace is split into one route per function. Both
+  // lanes read the Dashboard and the review queue; only the Head manages the
+  // catalog, announcements, and the approval/release decisions.
   const isAdmissionsHead = isAdmissionsHeadRole(state.viewerRole);
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
-      { view: 'admin', label: 'Overview', group: 'Admissions Office', visible: true },
-      { view: 'admin-review', label: 'Review queue', group: 'Admissions Office', visible: true },
-      { view: 'admin-release', label: 'Recommendation and release', group: 'Admissions Office', visible: isAdmissionsHead },
-      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Admissions Office', visible: isAdmissionsHead },
-      { view: 'admin-announcements', label: 'Announcements', group: 'Admissions Office', visible: isAdmissionsHead },
+      { view: 'admin', label: 'Dashboard', visible: true },
+      { view: 'admin-review', label: 'Review queue', visible: true },
+      { view: 'admin-interviews', label: 'Interviews', visible: true },
+      { view: 'admin-calendar', label: 'Calendar', visible: true },
+      { view: 'admin-release', label: 'Recommendation and release', visible: isAdmissionsHead },
+      { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
+      { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
     ]
     : [];
 
+  // Dashboard belongs to the student only: each staff, head, and Chair role has
+  // its own landing workspace (the office Dashboard, or Department Review).
   const navigationItems = [
-    { view: 'dashboard', label: 'Dashboard', visible: true },
+    { view: 'dashboard', label: 'Dashboard', visible: state.viewerRole === 'student' },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
     ...admissionsWorkspaceItems,
     { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
+    { view: 'chair-interviews', label: 'Interviews', visible: state.viewerRole === 'department_chair' },
+    { view: 'chair-calendar', label: 'Calendar', visible: state.viewerRole === 'department_chair' },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => {
-    let renderedGroup = null;
-    return (
-      <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
-        {navigationItems.map((item) => {
-          const groupHeading = item.group && item.group !== renderedGroup ? item.group : null;
-          renderedGroup = item.group || null;
-          return (
-            <Fragment key={item.view}>
-              {groupHeading && (
-                <span className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-app-muted">{groupHeading}</span>
-              )}
-              <button
-                type="button"
-                className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
-                onClick={() => navigate(item.view)}
-                aria-current={state.activeView === item.view ? 'page' : undefined}
-              >
-                {item.label}
-              </button>
-            </Fragment>
-          );
-        })}
-      </nav>
-    );
-  };
+  const renderNavigation = (className = '') => (
+    <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
+      {navigationItems.map((item) => (
+        <button
+          key={item.view}
+          type="button"
+          className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
+          onClick={() => navigate(item.view)}
+          aria-current={state.activeView === item.view ? 'page' : undefined}
+        >
+          {item.label}
+        </button>
+      ))}
+    </nav>
+  );
 
   if (isBooting || !isSessionChecked) {
     return (
@@ -2476,11 +2656,10 @@ function App() {
         </aside>
 
         <section className="blue-action-view grid min-w-0 gap-5">
-          {state.activeView === 'dashboard' && (
+          {state.viewerRole === 'student' && state.activeView === 'dashboard' && (
             <DashboardViewPage
               profile={currentIdentity}
               isFirstLogin={state.showFirstLoginWelcome}
-              stats={stats}
               applications={studentApplications}
               scholarships={scholarshipCatalog}
               customDeadlines={state.customDeadlines}
@@ -2500,10 +2679,6 @@ function App() {
               onShowApplications={() => navigate('applications')}
               onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
               onOpenCalendar={() => navigate('calendar')}
-              onOpenAdmin={() => navigate('admin')}
-              onOpenAdminReview={() => navigate('admin-review')}
-              onOpenRelease={() => navigate('admin-release')}
-              onOpenReview={() => navigate('review')}
               hasIncompleteProfile={hasIncompleteStudentProfile}
               onCompleteProfile={() => navigate('profile')}
             />
@@ -2582,6 +2757,47 @@ function App() {
             />
           )}
 
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-calendar' && (
+            <AdminCalendarPage
+              applications={state.applications}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
+              interviewWorkspace={interviewWorkspace}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+              officeCalendarEntries={state.officeCalendarEntries || []}
+              onAddOfficeEntry={isAdmissionsHeadRole(state.viewerRole) ? addOfficeCalendarEntry : undefined}
+              onDeleteOfficeEntry={isAdmissionsHeadRole(state.viewerRole) ? deleteOfficeCalendarEntry : undefined}
+            />
+          )}
+
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-interviews' && (
+            <AdminInterviewsPage
+              applications={state.applications}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
+              interviewWorkspace={interviewWorkspace}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+            />
+          )}
+
           {isAdmissionsHead && state.activeView === 'admin-catalog' && (
             <AdminScholarshipCatalogPage
               scholarships={state.scholarships || []}
@@ -2618,9 +2834,34 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
-              onEndorseApplication={endorseApplication}
               onAddComment={addReviewComment}
-              onFlagForValidation={flagApplicationForValidation}
+              interviewWorkspace={interviewWorkspace}
+            />
+          )}
+
+          {state.viewerRole === 'department_chair' && state.activeView === 'chair-calendar' && (
+            <DepartmentCalendarViewPage
+              profile={currentProfile}
+              queue={departmentQueue}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              reviewComments={state.reviewComments || []}
+              onChangeApplication={changeApplicationStatus}
+              onAddComment={addReviewComment}
+              interviewWorkspace={interviewWorkspace}
+              officeCalendarEntries={state.officeCalendarEntries || []}
+            />
+          )}
+
+          {state.viewerRole === 'department_chair' && state.activeView === 'chair-interviews' && (
+            <DepartmentInterviewsViewPage
+              profile={currentProfile}
+              queue={departmentQueue}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              reviewComments={state.reviewComments || []}
+              onChangeApplication={changeApplicationStatus}
+              onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
             />
           )}

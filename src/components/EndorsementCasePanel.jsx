@@ -1,7 +1,7 @@
 import ApplicationCommentThread from './ApplicationCommentThread';
 import { Panel } from './ui';
 import { getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { isAdmissionsReviewerRole } from '../lib/constants';
+import { isAdmissionsHeadRole, isAdmissionsReviewerRole } from '../lib/constants';
 import {
   getApplicationComments,
   getEndorsementAgeDays,
@@ -34,14 +34,15 @@ export default function EndorsementCasePanel({
   const thread = getApplicationComments(comments, application.id);
 
   // Whether this role has a decision to take right now. The button itself lives
-  // in the action bar; this only points the reviewer at it.
+  // in the action bar; this only points the reviewer at it. Endorsement is the
+  // Admissions Office Head's decision; Staff only hand the case off.
   const canDecide = Boolean(
     (isAdmissionsReviewerRole(role) && application.status === 'For Verification')
-    || (role === 'department_chair' && application.status === 'For Endorsement'),
+    || (isAdmissionsHeadRole(role) && application.status === 'For Endorsement'),
   );
-  const decisionHint = role === 'department_chair'
+  const decisionHint = application.status === 'For Endorsement'
     ? 'Record the endorsement from the action bar below.'
-    : 'Send the application to endorsement from the action bar below.';
+    : 'Send the application for endorsement from the action bar below.';
   const blockedReason = documentsReady
     ? ''
     : readiness.total === 0
@@ -67,14 +68,14 @@ export default function EndorsementCasePanel({
           )}
           {record ? (
             <p className="m-0 text-sm text-app-text">
-              <strong>Endorsed</strong> by {record.reviewedBy || 'Department Chair'} · {fmtDate(record.decidedAt || decision?.at)}
+              <strong>Endorsed</strong> by {record.reviewedBy || 'the Office of Admissions & Aid'} · {fmtDate(record.decidedAt || decision?.at)}
               {record.note ? <span className="text-app-muted"> — {record.note}</span> : null}
             </p>
           ) : null}
           {age != null && (application.status === 'For Endorsement' || record) ? (
             <span className={`text-xs ${overdue ? 'text-rose-700 dark:text-rose-200' : 'text-app-muted'}`}>
               {application.status === 'For Endorsement'
-                ? `${age} day${age === 1 ? '' : 's'} awaiting the department decision${overdue ? ' · past the 5-day target' : ''}`
+                ? `${age} day${age === 1 ? '' : 's'} awaiting the endorsement decision${overdue ? ' · past the 5-day target' : ''}`
                 : `Decision recorded ${age} day${age === 1 ? '' : 's'} after the hand-off`}
             </span>
           ) : null}

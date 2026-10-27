@@ -9,7 +9,7 @@ export default function AdminAnnouncements({ announcements = [], onCreateAnnounc
     <div className="grid gap-5">
       <AdminPageHeader
         title="Office announcements"
-        description="Publish application windows, answers to inquiries, and scholarship program updates to the notification center."
+        description="Publish application windows, answers to inquiries, and program updates."
         badge={`${announcements.length} published`}
       />
 
@@ -28,7 +28,7 @@ export default function AdminAnnouncements({ announcements = [], onCreateAnnounc
               <input name="announcementTitle" placeholder="Application window update" />
             </FormField>
             <FormField label="Body">
-              <textarea name="announcementBody" rows="4" placeholder="Announce application windows, answer inquiries, and share scholarship program information." />
+              <textarea name="announcementBody" rows="4" placeholder="Announce an application window or share program information." />
             </FormField>
             <Button variant="primary" type="submit">Publish announcement</Button>
           </form>
@@ -38,7 +38,7 @@ export default function AdminAnnouncements({ announcements = [], onCreateAnnounc
           <div className="grid max-h-[420px] gap-3 overflow-y-auto pr-2">
             {announcements.length ? announcements.map((entry) => (
               <AnnouncementItem key={entry.id} entry={entry} />
-            )) : <EmptyState title="No announcements yet" description="Publish scholarship updates and office notices from this panel." />}
+            )) : <EmptyState title="No announcements yet" />}
           </div>
         </Card>
       </section>

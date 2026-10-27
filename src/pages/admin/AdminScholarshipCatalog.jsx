@@ -33,7 +33,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
     // a fourth internal title that students could never apply to.
     const title = String(data.get('scholarshipTitle') || '').trim();
     if (!isAdduInternalProgram({ title })) {
-      setCatalogError('Only the three Appendix A AdDU tracks can be published here: Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars) Program.');
+      setCatalogError('Choose one of the three tracked AdDU tracks.');
       return;
     }
     setCatalogError('');
@@ -79,14 +79,14 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
     <div className="grid gap-5">
       <AdminPageHeader
         title="AdDU internal scholarship catalog"
-        description="Maintain the three Appendix A AdDU tracks students can apply to — Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars) Program — including the documents each track requires."
+        description="Publish AdDU internal tracks and the documents each one requires."
         badge={`${internalScholarships.length} AdDU internal tracks`}
       />
 
       <section className="grid gap-4">
-        <Card title="Publish or update a tracked AdDU internal program" action={<StatusBadge tone="info">Catalog management</StatusBadge>}>
+        <Card title="Publish or update a program" action={<StatusBadge tone="info">Catalog management</StatusBadge>}>
           <form key={editingScholarship?.id || 'new-scholarship'} className="grid gap-4" onChange={markDirty} onSubmit={saveScholarshipFromForm}>
-            <FormField label="Scholarship title" hint="Only the three Appendix A tracks are tracked. Pick one of the listed titles.">
+            <FormField label="Scholarship title" hint="Pick one of the three tracked titles.">
               <input name="scholarshipTitle" required list="addu-track-titles" defaultValue={editingScholarship?.title || ''} placeholder="Grant-in-Aid (GIA)" />
               <datalist id="addu-track-titles">
                 {ADDU_INTERNAL_PROGRAM_TITLES.map((title) => <option key={title} value={title} />)}
@@ -112,10 +112,10 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
               <textarea name="scholarshipCoverage" rows="2" required defaultValue={editingScholarship?.coverage || ''} placeholder="Describe the covered fees or support." />
             </FormField>
             <div className="grid gap-4 sm:grid-cols-2">
-              <FormField label="Minimum QPI (enrolled students)" hint="Applies to 1st–5th year students. Leave blank to use the internal rule default (2.50).">
+              <FormField label="Minimum QPI (enrolled students)" hint="Defaults to 2.50.">
                 <input type="number" name="minimumQpi" min="0" max="4" step="0.01" defaultValue={editingScholarship?.minimumQpi ?? ''} />
               </FormField>
-              <FormField label="Minimum SHS general average (incoming first-years)" hint="Applies to incoming 1st years, who have no collegiate QPI yet. Leave blank to use the internal rule default (85).">
+              <FormField label="Minimum SHS general average (incoming first-years)" hint="Defaults to 85.">
                 <input type="number" name="minimumShsAverage" min="60" max="100" step="1" defaultValue={editingScholarship?.minimumShsAverage ?? ''} />
               </FormField>
             </div>
@@ -135,7 +135,6 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
             </div>
             <RequiredDocumentsEditor scholarship={editingScholarship} onDirty={markDirty} />
             {catalogError ? <p className="form-error m-0" role="alert">{catalogError}</p> : null}
-            <p className="m-0 text-xs text-app-muted">This form maintains the three tracked AdDU internal programs only. Government-linked, corporate, and donor programs are outside the manuscript scope and are not managed here; catalog eligibility is not an award or disbursement decision.</p>
             <div className="flex flex-wrap gap-2">
               <Button variant="primary" type="submit">{editingScholarship ? 'Save scholarship changes' : 'Publish scholarship'}</Button>
               {editingScholarship && (

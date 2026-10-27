@@ -1,8 +1,8 @@
 import { StatusBadge } from './ui';
 
 // One title surface per Admissions Office route. The section label stays fixed
-// so the five routes read as one workspace, while each page supplies its own
-// title, description, and status badge.
+// so the routes read as one workspace, while each page supplies its own title,
+// description, and status badge.
 export default function AdminPageHeader({ title, description, badge, badgeTone = 'info' }) {
   return (
     <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">

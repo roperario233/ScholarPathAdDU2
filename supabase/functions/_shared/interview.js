@@ -130,12 +130,21 @@ export const isSafeMeetingUrl = (value) => {
 
 // Department Chair accounts from the applicant's school (SOP 5a). The database
 // repeats the rule in validate_interview_panelist().
+/**
+ * Who can sit on the panel. SOP 5a draws the Department Chairs from the school
+ * where the applicant's program belongs, and the Admissions Office coordinates
+ * the interview (SOP step 5), so its two lanes may join any panel. Either kind of
+ * member can be the lead.
+ */
 export const getEligiblePanelists = (staffDirectory = [], application = {}) => {
   const school = String(application?.studentDepartment || '').trim();
-  if (!school) return [];
-  return (Array.isArray(staffDirectory) ? staffDirectory : [])
-    .filter((entry) => entry?.role === 'department_chair' && String(entry.department || '').trim() === school)
-    .sort((a, b) => String(a.fullName || '').localeCompare(String(b.fullName || '')));
+  const entries = Array.isArray(staffDirectory) ? staffDirectory : [];
+  const byName = (a, b) => String(a.fullName || '').localeCompare(String(b.fullName || ''));
+  const chairs = entries.filter((entry) => entry?.role === 'department_chair'
+    && school
+    && String(entry.department || '').trim() === school);
+  const office = entries.filter((entry) => entry?.role === 'admissions_office' || entry?.role === 'admissions_head');
+  return [...chairs.sort(byName), ...office.sort(byName)];
 };
 
 // A panel member in the schedule form: an account (`profileId`) or a typed
@@ -157,6 +166,9 @@ export const createInterviewDraft = (application = {}, panelists = []) => {
     time,
     durationMinutes: Number(interview?.durationMinutes) || DEFAULT_INTERVIEW_DURATION,
     locationId: interview?.locationId || '',
+    // A typed location is kept only when no saved venue was chosen, so editing a
+    // room-based interview does not duplicate the venue's own label.
+    locationLabel: interview?.locationId ? '' : (interview?.locationLabel || ''),
     meetingUrl: interview?.meetingUrl || '',
     instructions: interview?.instructions ?? DEFAULT_INTERVIEW_INSTRUCTIONS[mode],
     panel: (Array.isArray(panelists) ? panelists : []).map(normalizePanelMember),
@@ -181,8 +193,9 @@ export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMe
   if (!INTERVIEW_DURATIONS.includes(Number(draft.durationMinutes))) errors.durationMinutes = 'Choose the interview length.';
 
   if (draft.mode === 'onsite') {
-    if (!draft.locationId) errors.locationId = 'Choose the interview location.';
-    else if (Array.isArray(activeLocationIds) && !activeLocationIds.includes(draft.locationId)) errors.locationId = 'That location is archived. Choose an active location.';
+    const typedLocation = String(draft.locationLabel || '').trim();
+    if (!draft.locationId && !typedLocation) errors.locationId = 'Add the interview location.';
+    else if (draft.locationId && Array.isArray(activeLocationIds) && !activeLocationIds.includes(draft.locationId)) errors.locationId = 'That location is archived. Choose an active location.';
   }
   if (draft.mode === 'online') {
     const link = String(draft.meetingUrl || '').trim();
@@ -190,10 +203,12 @@ export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMe
     else if (!link && !autoMeeting) errors.meetingUrl = 'Paste the meeting link for the online interview.';
   }
 
+  // The panel is optional: an interview can be scheduled before the office has
+  // settled who sits on it. When members are listed, exactly one is the lead, and
+  // any of them — Department Chair, Admissions Office account, or faculty guest —
+  // may hold that role.
   const panel = (Array.isArray(draft.panel) ? draft.panel : []).map(normalizePanelMember);
-  if (!panel.length) {
-    errors.panel = 'Add at least one panel member from the applicant’s school.';
-  } else {
+  if (panel.length) {
     const leads = panel.filter((member) => member.isLead).length;
     const accountIds = panel.map((member) => member.profileId).filter(Boolean);
     if (leads !== 1) errors.panel = 'Mark exactly one panel member as the lead interviewer.';
@@ -255,6 +270,67 @@ export const describeInterviewConflict = (conflict) => (
     : `${conflict.name} is already on the panel for ${conflict.studentName} (${formatInterviewDateShort(conflict.startsAt)}).`
 );
 
+/**
+ * Roster-level conflicts for the interview workspace pages. findInterviewConflicts
+ * checks one draft against the rest; this scans every scheduled interview against
+ * every other one, so the office can see a double-booked panelist or room before
+ * opening a case. Only scheduled interviews count, and faculty guests have no
+ * account, so they are not checked.
+ */
+export const findRosterConflicts = (applications = [], panelists = []) => {
+  const scheduled = (Array.isArray(applications) ? applications : [])
+    .filter((entry) => (
+      entry?.status === 'Interview'
+      && isStructuredInterview(entry.interview)
+      && entry.interview.state === 'scheduled'
+    ))
+    .map((entry) => ({
+      entry,
+      start: toDate(entry.interview.startsAt),
+      end: getInterviewEndsAt(entry.interview),
+    }))
+    .filter((row) => row.start && row.end);
+
+  const activePanel = (applicationId) => (Array.isArray(panelists) ? panelists : [])
+    .filter((row) => row.applicationId === applicationId && !row.removedAt && row.profileId);
+
+  const conflicts = [];
+  for (let index = 0; index < scheduled.length; index += 1) {
+    const left = scheduled[index];
+    for (let next = index + 1; next < scheduled.length; next += 1) {
+      const right = scheduled[next];
+      if (!(left.start < right.end && right.start < left.end)) continue;
+      const rightPanelIds = new Set(activePanel(right.entry.id).map((row) => row.profileId));
+      activePanel(left.entry.id).forEach((row) => {
+        if (!rightPanelIds.has(row.profileId)) return;
+        conflicts.push({
+          kind: 'panelist',
+          profileId: row.profileId,
+          name: row.name || 'A panel member',
+          startsAt: left.entry.interview.startsAt,
+          applicationIds: [left.entry.id, right.entry.id],
+          studentNames: [left.entry.studentName || 'an applicant', right.entry.studentName || 'an applicant'],
+        });
+      });
+      if (
+        left.entry.interview.mode === 'onsite'
+        && right.entry.interview.mode === 'onsite'
+        && left.entry.interview.locationId
+        && left.entry.interview.locationId === right.entry.interview.locationId
+      ) {
+        conflicts.push({
+          kind: 'location',
+          name: left.entry.interview.locationLabel || 'This location',
+          startsAt: left.entry.interview.startsAt,
+          applicationIds: [left.entry.id, right.entry.id],
+          studentNames: [left.entry.studentName || 'an applicant', right.entry.studentName || 'an applicant'],
+        });
+      }
+    }
+  }
+  return conflicts;
+};
+
 export const formatLocationLabel = (location) => {
   if (!location) return '';
   const place = [location.building, location.room].map((part) => String(part || '').trim()).filter(Boolean).join(', ');
@@ -291,16 +367,15 @@ export const buildInterviewRecord = ({ draft, previous = null, location = null, 
     startsAt: manilaInputToIso(draft.date, draft.time),
     durationMinutes: Number(draft.durationMinutes) || DEFAULT_INTERVIEW_DURATION,
     locationId: mode === 'onsite' ? (draft.locationId || null) : null,
-    locationLabel: mode === 'onsite' ? formatLocationLabel(location) : '',
+    locationLabel: mode === 'onsite'
+      ? (formatLocationLabel(location) || String(draft.locationLabel || '').trim())
+      : '',
     meetingUrl: mode === 'online' ? String(draft.meetingUrl || '').trim() : '',
     school: school || prior?.school || '',
     calendar: calendar ?? prior?.calendar ?? null,
     instructions: String(draft.instructions || '').trim(),
     scheduledBy: actorId,
     scheduledAt: at,
-    outcomeRecordedAt: null,
-    outcomeRecordedBy: null,
-    outcomeRecordedRole: null,
     history,
   };
 };
@@ -326,25 +401,23 @@ export const buildCancelledInterview = ({ previous, actorId = null, reason = '',
   };
 };
 
-// The Recommend gate (SOP step 5 → 6). An interview scheduled before this
-// overhaul has no attendance record and is grandfathered, exactly like the
-// database gate in enforce_interview_outcome_before_recommendation().
-export const isInterviewComplete = (interview) => {
+// A structured interview that still holds a slot and a calendar invitation.
+// A cancelled record is history, not live work. `completed` and `no_show` are
+// legacy states recorded before attendance tracking was removed; they are read
+// back as history and are never written by the app any more.
+export const isInterviewLive = (interview) => isStructuredInterview(interview) && interview.state === 'scheduled';
+
+/**
+ * The saved record and Google disagree: a cancelled interview whose event
+ * survived, a scheduled interview with no event, or an online interview whose
+ * event carries no link. This is the single predicate behind the Interview tab's
+ * recovery action and the interview workspace pages, so they cannot disagree.
+ */
+export const needsInterviewCalendarRepair = (interview) => {
   if (!interview) return false;
-  if (!isStructuredInterview(interview)) return true;
-  return interview.state === 'completed';
-};
-
-export const isInterviewOutcomeDue = (interview, now = new Date()) => {
-  if (!isStructuredInterview(interview) || interview.state !== 'scheduled') return false;
-  const start = toDate(interview.startsAt);
-  return Boolean(start) && start.getTime() <= toDate(now).getTime();
-};
-
-export const getInterviewWhere = (interview) => {
-  if (!interview) return '';
-  if (interview.mode === 'online') return interview.meetingUrl ? `Online · ${interview.meetingUrl}` : 'Online · meeting link to follow';
-  return interview.locationLabel || 'Location to be announced';
+  const calendar = interview.calendar || null;
+  return (interview.state === 'cancelled' && Boolean(calendar?.eventId) && !calendar?.removedAt)
+    || (interview.state === 'scheduled' && (!calendar?.eventId || (interview.mode === 'online' && !interview.meetingUrl)));
 };
 
 /**
@@ -412,15 +485,35 @@ const buildEventDetails = (interview, scholarshipTitle) => [
  * An iCalendar (.ics) file for the interview, so a student or a faculty guest
  * can add it to any calendar app when the Google Calendar integration is not
  * configured.
+ *
+ * `uid` must be stable per application (pass the application id, never the
+ * revision): with a stable UID and the revision as SEQUENCE, a reschedule updates
+ * the existing calendar entry instead of adding a second one, and a cancellation
+ * removes it.
+ *
+ * `recipientEmail` renders exactly one ATTENDEE. Each recipient gets their own
+ * file, because a file shared between the applicant and the panel would show the
+ * applicant every panel member's address — the same thing the Google invitation
+ * hides with `guestsCanSeeOtherGuests: false`.
  */
-export const buildInterviewIcs = ({ interview, scholarshipTitle = '', uid = '', now = new Date() }) => {
+export const buildInterviewIcs = ({
+  interview,
+  scholarshipTitle = '',
+  uid = '',
+  recipientEmail = '',
+  organizerEmail = '',
+  now = new Date(),
+}) => {
   if (!isStructuredInterview(interview)) return '';
+  const cancelled = interview.state === 'cancelled';
+  const attendee = String(recipientEmail || '').trim();
+  const organizer = String(organizerEmail || '').trim();
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//ScholarPath AdDU//Scholarship Interview//EN',
     'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
+    `METHOD:${cancelled ? 'CANCEL' : 'REQUEST'}`,
     'BEGIN:VEVENT',
     `UID:${icsEscape(uid || `interview-${interview.startsAt}`)}@scholarpath-addu`,
     `SEQUENCE:${Number(interview.revision) || 1}`,
@@ -431,7 +524,9 @@ export const buildInterviewIcs = ({ interview, scholarshipTitle = '', uid = '', 
     `DESCRIPTION:${icsEscape(buildEventDetails(interview, scholarshipTitle))}`,
     `LOCATION:${icsEscape(interview.mode === 'online' ? (interview.meetingUrl || 'Online') : (interview.locationLabel || ''))}`,
     ...(interview.mode === 'online' && isSafeMeetingUrl(interview.meetingUrl) ? [`URL:${interview.meetingUrl}`] : []),
-    `STATUS:${interview.state === 'cancelled' ? 'CANCELLED' : 'CONFIRMED'}`,
+    ...(organizer ? [`ORGANIZER;CN=ScholarPath AdDU:mailto:${organizer}`] : []),
+    ...(attendee ? [`ATTENDEE;CN=${icsEscape(attendee)};ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;RSVP=TRUE:mailto:${attendee}`] : []),
+    `STATUS:${cancelled ? 'CANCELLED' : 'CONFIRMED'}`,
     'END:VEVENT',
     'END:VCALENDAR',
   ];

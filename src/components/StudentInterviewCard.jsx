@@ -28,7 +28,7 @@ export default function StudentInterviewCard({ application, scholarshipTitle = '
         </div>
       </div>
       {structured && interview.state === 'cancelled' ? (
-        <p className="m-0 text-sm text-app-text">This interview was cancelled. The Admissions Office will notify you if it is scheduled again.</p>
+        <p className="m-0 text-sm text-app-text">This interview was cancelled. The Admissions Office will notify you if it is rescheduled.</p>
       ) : null}
       <dl className="m-0 grid gap-3 sm:grid-cols-2">
         <div className="grid gap-0.5">
@@ -61,6 +61,9 @@ export default function StudentInterviewCard({ application, scholarshipTitle = '
           ) : null}
           {templateUrl ? (
             <a href={templateUrl} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-4 text-sm font-semibold text-app-text">Add to Google Calendar</a>
+          ) : null}
+          {interview.calendar?.htmlLink ? (
+            <a href={interview.calendar.htmlLink} target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center rounded-xl border border-app-border bg-app-surface px-4 text-sm font-semibold text-app-text">View calendar invitation</a>
           ) : null}
           <Button type="button" onClick={() => downloadInterviewIcs({ interview, scholarshipTitle, applicationId: application.id })}>Download .ics</Button>
         </div>

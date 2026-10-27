@@ -329,6 +329,7 @@ begin
       (old.status = 'Submitted' and new.status in ('Under Review', 'For Verification', 'Rejected'))
       or (old.status = 'Under Review' and new.status in ('For Verification', 'Rejected'))
       or (old.status = 'For Verification' and new.status in ('For Endorsement', 'Rejected'))
+      or (old.status = 'For Endorsement' and new.status in ('Endorsed', 'Rejected'))
       or (old.status = 'Endorsed' and new.status in ('Interview', 'Rejected'))
       or (old.status = 'Interview' and new.status in ('Recommended', 'Rejected'))
       or (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
@@ -468,36 +469,20 @@ for update using (
 create policy "admissions_head_applications_update" on applications
 for update using (
   public.is_admissions_head()
-  and status in ('Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved')
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved')
 ) with check (
   public.is_admissions_head()
-  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
 );
 create policy "chair_applications_read" on applications
 for select using (
   public.current_profile_role() = 'department_chair'
   and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
 );
-create policy "chair_applications_flag_for_validation" on applications
-for update using (
-  public.current_profile_role() = 'department_chair'
-  and status in ('Submitted', 'Under Review')
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-) with check (
-  public.current_profile_role() = 'department_chair'
-  and status = 'For Verification'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-);
-create policy "chair_applications_endorse" on applications
-for update using (
-  public.current_profile_role() = 'department_chair'
-  and status = 'For Endorsement'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-) with check (
-  public.current_profile_role() = 'department_chair'
-  and status = 'Endorsed'
-  and exists (select 1 from profiles p where p.user_id = applications.student_id and p.department = public.current_profile_department())
-);
+-- The Department Chair has read-only department visibility (chair_applications_read
+-- above) plus SOP 5a panel work. Endorsement moved to the Office of Admissions &
+-- Aid: Staff hand off (For Endorsement) and the Head records the decision
+-- (Endorsed), so the Chair has no stage-move policy.
 -- Students attach or detach only their own vault files, and only while the
 -- application is still a Draft.
 create policy "application_documents_self_read" on application_documents
@@ -524,9 +509,9 @@ create policy "notifications_self_access" on notifications
 for all using (auth.uid() = profile_id) with check (auth.uid() = profile_id);
 create policy "department_reviews_restricted" on department_reviews
 for select using (auth.uid() = reviewer_id);
-create policy "chair_department_reviews_access" on department_reviews
-for all using (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id)
-with check (public.current_profile_role() = 'department_chair' and auth.uid() = reviewer_id);
+-- Historical Chair endorsement rows stay readable through
+-- department_reviews_restricted above. Endorsement is now recorded on the
+-- application itself, so the Chair no longer writes audit rows here.
 create policy "staff_review_comments_read" on application_review_comments
 for select using (
   public.is_admissions_office()
@@ -1327,9 +1312,54 @@ create unique index if not exists application_interview_panelists_active_account
   where removed_at is null and profile_id is not null;
 create index if not exists application_interview_panelists_profile_idx
   on public.application_interview_panelists (profile_id);
+-- The durable provider-side history of an interview's calendar events. The app
+-- reads `applications.interview.calendar`, which is cleared when an interview is
+-- cancelled; these rows keep every provider event id, so a create or cancel that
+-- failed can still be found, repaired, and swept. `is_current` marks the event the
+-- record points at. RLS is enabled with no policies: only the
+-- manage-interview-event Edge Function (service role) reads or writes it.
+-- Applied to the deployed project by the migrations
+-- supabase/migrations/20261030000000_add_interview_calendar_events.sql and
+-- supabase/migrations/20261031000000_interview_calendar_event_history.sql.
+create table if not exists public.interview_calendar_events (
+  ledger_id bigserial primary key,
+  application_id uuid not null references public.applications(id) on delete cascade,
+  provider text not null default 'google',
+  calendar_id text not null,
+  event_id text,
+  html_link text,
+  meet_url text,
+  revision int,
+  is_current boolean not null default true,
+  sync_state text not null default 'synced'
+    check (sync_state in ('synced', 'failed', 'cancelled')),
+  last_error text,
+  last_attempt_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+comment on table public.interview_calendar_events is
+  'Durable provider-side record of an interview calendar event. Written by the manage-interview-event Edge Function only; survives a cleared applications.interview.calendar so a failed create or cancel can be found and repaired.';
+comment on column public.interview_calendar_events.is_current is
+  'True for the provider event applications.interview.calendar points at; false for a superseded or failed event that is still tracked so the repair action can sweep it.';
+create unique index if not exists interview_calendar_events_current_idx
+  on public.interview_calendar_events (application_id)
+  where is_current;
+create index if not exists interview_calendar_events_application_idx
+  on public.interview_calendar_events (application_id, updated_at desc);
+create index if not exists interview_calendar_events_failed_idx
+  on public.interview_calendar_events (updated_at desc)
+  where sync_state = 'failed';
+alter table public.interview_calendar_events enable row level security;
+revoke all on public.interview_calendar_events from anon, authenticated;
+
+
 
 -- SOP 5a, server-side: an account panelist must be a Department Chair whose
--- department (school) is the applicant's.
+-- department (school) is the applicant's, or an Admissions Office Staff/Head
+-- account, which coordinates the interview (SOP step 5) and may join any panel.
+-- The lead may be any panel member. Applied by
+-- supabase/migrations/20261032000000_allow_admissions_panelists.sql.
 create or replace function public.validate_interview_panelist()
 returns trigger
 language plpgsql
@@ -1351,10 +1381,13 @@ begin
   select role, department into v_member_role, v_member_school
     from public.profiles
     where user_id = new.profile_id;
+  if v_member_role in ('admissions_office', 'admissions_head') then
+    return new;
+  end if;
   if v_member_role is distinct from 'department_chair'
     or nullif(btrim(coalesce(v_school, '')), '') is null
     or v_member_school is distinct from v_school then
-    raise exception 'Interview panelists must come from the school where the applicant''s program belongs (SOP 5a).'
+    raise exception 'Interview panelists must come from the school where the applicant''s program belongs (SOP 5a), or from the Admissions Office.'
       using errcode = '23514';
   end if;
   return new;
@@ -1462,73 +1495,14 @@ for insert with check (
   )
 );
 
--- The panel (or the Admissions Office on its behalf) records attendance. Only
--- the interview state and its attribution change; the application status does
--- not, so the Chair's status policies stay exactly as they were.
-create or replace function public.record_interview_outcome(p_application_id uuid, p_outcome text)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_application public.applications%rowtype;
-  v_role text := public.current_profile_role();
-  v_interview jsonb;
-begin
-  if p_outcome not in ('completed', 'no_show') then
-    raise exception 'Record the interview as attended or not attended.' using errcode = '22023';
-  end if;
-
-  select * into v_application
-    from public.applications
-    where id = p_application_id
-    for update;
-  if not found then
-    raise exception 'Application not found.' using errcode = '42501';
-  end if;
-
-  if not (
-    v_role in ('admissions_office', 'admissions_head')
-    or (v_role = 'department_chair' and public.is_interview_panelist(p_application_id))
-  ) then
-    raise exception 'Only the interview panel or the Admissions Office can record the interview outcome.' using errcode = '42501';
-  end if;
-
-  if v_application.status <> 'Interview' then
-    raise exception 'This application is not at the interview stage.' using errcode = '23514';
-  end if;
-
-  v_interview := coalesce(v_application.interview, '{}'::jsonb);
-  if coalesce(v_interview ->> 'state', '') <> 'scheduled' then
-    raise exception 'Only a scheduled interview can have its outcome recorded.' using errcode = '23514';
-  end if;
-  if (v_interview ->> 'startsAt') is null or (v_interview ->> 'startsAt')::timestamptz > now() then
-    raise exception 'The outcome can be recorded once the interview has started.' using errcode = '23514';
-  end if;
-
-  v_interview := v_interview || jsonb_build_object(
-    'state', p_outcome,
-    'outcomeRecordedAt', now(),
-    'outcomeRecordedBy', auth.uid(),
-    'outcomeRecordedRole', v_role
-  );
-
-  update public.applications
-    set interview = v_interview, updated_at = now()
-    where id = p_application_id;
-
-  return v_interview;
-end;
-$$;
-
-revoke all on function public.record_interview_outcome(uuid, text) from public, anon;
-grant execute on function public.record_interview_outcome(uuid, text) to authenticated;
-
--- The Recommend gate: the sub-committee recommendation (SOP step 6) follows a
--- completed interview. A record scheduled before this migration carries no
--- version and is grandfathered. Rejected is always allowed.
-create or replace function public.enforce_interview_outcome_before_recommendation()
+-- The Recommend gate: the sub-committee recommendation (SOP step 6) ends the
+-- interview stage, so a live schedule must be closed first. App.jsx cancels a
+-- `scheduled` record before it writes the recommendation, which keeps the
+-- application at `Interview` for the cancellation notification and leaves no
+-- invitation or Meet link behind. A record scheduled before the interview
+-- overhaul carries no version and is grandfathered. Rejected is always allowed.
+-- Mirrors the client flow in recordDeliberation (App.jsx).
+create or replace function public.enforce_interview_closed_before_recommendation()
 returns trigger
 language plpgsql
 security definer
@@ -1538,21 +1512,21 @@ begin
   if old.status = 'Interview'
     and new.status = 'Recommended'
     and (new.interview ? 'version')
-    and coalesce(new.interview ->> 'state', '') <> 'completed' then
-    raise exception 'The interview panel must record the applicant as attended before the recommendation.'
+    and coalesce(new.interview ->> 'state', '') = 'scheduled' then
+    raise exception 'The interview schedule must be closed before the recommendation.'
       using errcode = '23514';
   end if;
   return new;
 end;
 $$;
 
-drop trigger if exists enforce_interview_outcome_before_recommendation on public.applications;
-create trigger enforce_interview_outcome_before_recommendation
+drop trigger if exists enforce_interview_closed_before_recommendation on public.applications;
+create trigger enforce_interview_closed_before_recommendation
   before update on public.applications
-  for each row execute function public.enforce_interview_outcome_before_recommendation();
+  for each row execute function public.enforce_interview_closed_before_recommendation();
 
-revoke all on function public.enforce_interview_outcome_before_recommendation() from public;
-revoke all on function public.enforce_interview_outcome_before_recommendation() from anon, authenticated;
+revoke all on function public.enforce_interview_closed_before_recommendation() from public;
+revoke all on function public.enforce_interview_closed_before_recommendation() from anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Document Vault storage.
@@ -1670,6 +1644,50 @@ alter table custom_deadlines enable row level security;
 
 create policy "custom_deadlines_self_access" on custom_deadlines
 for all using (auth.uid() = owner_id) with check (auth.uid() = owner_id);
+
+-- ---------------------------------------------------------------------------
+-- Office calendar planning entries (Admissions Office and Department Chairs).
+--
+-- The office calendar derives its interviews, catalog deadlines, and recorded
+-- stage decisions from records the app already holds. These rows are the office's
+-- own planning dates. Applied to a deployed project by
+-- supabase/migrations/20261033000000_add_office_calendar_entries.sql; `id` is
+-- text because the client generates `office-<uuid>` ids.
+-- ---------------------------------------------------------------------------
+create table if not exists office_calendar_entries (
+  id text primary key,
+  title text not null,
+  entry_date date not null,
+  kind text not null default 'office' check (kind in ('office', 'deadline', 'meeting')),
+  notes text not null default '',
+  created_by uuid references profiles(user_id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists office_calendar_entries_entry_date_idx
+on office_calendar_entries (entry_date);
+
+alter table office_calendar_entries enable row level security;
+
+drop policy if exists "staff_office_calendar_entries_read" on office_calendar_entries;
+drop policy if exists "admissions_head_office_calendar_entries_insert" on office_calendar_entries;
+drop policy if exists "admissions_head_office_calendar_entries_update" on office_calendar_entries;
+drop policy if exists "admissions_head_office_calendar_entries_delete" on office_calendar_entries;
+
+create policy "staff_office_calendar_entries_read" on office_calendar_entries
+for select using (
+  public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair')
+);
+
+create policy "admissions_head_office_calendar_entries_insert" on office_calendar_entries
+for insert with check (public.is_admissions_head() and created_by = auth.uid());
+
+create policy "admissions_head_office_calendar_entries_update" on office_calendar_entries
+for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+
+create policy "admissions_head_office_calendar_entries_delete" on office_calendar_entries
+for delete using (public.is_admissions_head());
+
 
 alter table notification_email_log enable row level security;
 

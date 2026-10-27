@@ -8,14 +8,15 @@ import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { getReviewStageTab } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
-import { createInterviewDraft, getInterviewStateLabel, isInterviewComplete, isInterviewOutcomeDue, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
+import { createInterviewDraft, getInterviewStateLabel, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
-// SOP step 5 onward: the Interview tab appears once the Department Chair has
-// endorsed the application and stays readable afterwards.
+// SOP step 5 onward: the Interview tab appears once the Office of Admissions &
+// Aid has endorsed the application and stays readable afterwards.
 const INTERVIEW_TAB_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 const WIDE_QUERY = '(min-width: 1024px)';
 
@@ -150,8 +151,8 @@ export default function ApplicationReviewModal({
   onAddComment,
 }) {
   // Both Admissions Office lanes can run the preparation stages; the Head is a
-  // superset and also decides approval and release. Department Chairs keep their
-  // endorsement-only lane.
+  // superset and also decides the endorsement (SOP step 4), approval, and
+  // release. Department Chairs read the department's cases without a stage move.
   const isAdmissionsHead = isAdmissionsHeadRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const isWide = useIsWide();
@@ -172,10 +173,10 @@ export default function ApplicationReviewModal({
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
   const documentsUnlocked = areApplicationDocumentsVisible(application.status);
-  // SOP step 4 starts when the Admissions Office hands the case to the
-  // Department Chair, so the Endorsement tab stays hidden while it is still with
-  // the office. It stays visible afterwards so the recorded hand-off, decision,
-  // and discussion remain readable.
+  // SOP step 4 starts when the Admissions Office hands the case to the Head for
+  // the endorsement decision, so the Endorsement tab stays hidden while the case
+  // is still being verified. It stays visible afterwards so the recorded
+  // hand-off, decision, and discussion remain readable.
   const endorsementUnlocked = areEndorsementRecordsVisible(application.status);
   const documentBlockReason = `${outstandingDocuments} document${outstandingDocuments === 1 ? '' : 's'} still need${outstandingDocuments === 1 ? 's' : ''} verification`;
   // The scholarship's own requirement list, scoped to the standing the student
@@ -195,22 +196,15 @@ export default function ApplicationReviewModal({
   const otherDocuments = [...supportingDocuments, ...linkedDocuments.filter((doc) => !listedIds.has(doc.id))];
 
   // SOP step 5. The Admissions Office coordinates the interview; SOP 5a draws
-  // the panel from the applicant's school, so a Department Chair on the panel
-  // records the outcome. The schedule draft lives here because the action bar's
-  // "Schedule interview" button confirms it.
+  // the panel from the applicant's school. The schedule draft lives here because
+  // the action bar's "Schedule interview" button confirms it.
   const applicationPanelists = (interviewWorkspace?.panelists || []).filter((row) => (
     row.applicationId === application.id && !row.removedAt
-  ));
-  const isInterviewPanelist = role === 'department_chair' && applicationPanelists.some((row) => (
-    row.profileId && row.profileId === interviewWorkspace?.viewerId
   ));
   const interviewUnlocked = Boolean(interviewWorkspace) && (
     INTERVIEW_TAB_STATUSES.includes(application.status)
     || (application.status === 'Rejected' && Boolean(application.interview))
   );
-  const interviewOutcomeDue = application.status === 'Interview'
-    && (isAdmissionsReviewer || isInterviewPanelist)
-    && isInterviewOutcomeDue(application.interview);
   const [interviewDraft, setInterviewDraft] = useState(() => createInterviewDraft(application, applicationPanelists));
   const [interviewShowErrors, setInterviewShowErrors] = useState(false);
   const interviewErrors = validateInterviewSchedule(interviewDraft, {
@@ -222,7 +216,13 @@ export default function ApplicationReviewModal({
     if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
     if (initialTab === 'endorsement' && !endorsementUnlocked) return 'overview';
     if (initialTab) return initialTab;
-    if (isAdmissionsReviewer && interviewUnlocked && application.status === 'Endorsed') return 'interview';
+    // Open on the stage the application is in, so the reviewer lands on the work
+    // that stage needs: the files at For Verification, the endorsement record at
+    // For Endorsement, the schedule from Endorsed on.
+    const stageTab = getReviewStageTab(application.status);
+    if (stageTab === 'documents' && documentsUnlocked) return 'documents';
+    if (stageTab === 'endorsement' && endorsementUnlocked) return 'endorsement';
+    if (stageTab === 'interview' && interviewUnlocked) return 'interview';
     return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
@@ -309,7 +309,7 @@ export default function ApplicationReviewModal({
         return;
       }
       setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-        ? 'Application sent to endorsement. The Department Chair now has it in the endorsement queue, and the hand-off record below keeps the note you added.'
+        ? 'Sent for endorsement. The Admissions Office Head records the decision next.'
         : 'The endorsement decision was recorded.');
       setEndorsementDecision(null);
       // Stay on the Endorsement tab either way: the recorded hand-off or decision
@@ -327,27 +327,33 @@ export default function ApplicationReviewModal({
   // the profile values the review directory loads now.
   const snapshot = application.profileSnapshot || null;
   const academic = snapshot?.academic || null;
+  // The badges are read from the files the application attaches now, so a file
+  // the Admissions Office verified at the verification stage stops reading
+  // Unverified from the snapshot frozen before that decision. The frozen badge
+  // stays the fallback for a linked file this reviewer session could not load.
+  const liveVerifications = snapshot ? getApplicationLiveAttributeVerifications(application, documents) : null;
+  const verificationBadge = (key, frozenBadge) => liveVerifications?.[key] || frozenBadge;
   const isQpi = !academic || academic.credential === 'qpi';
   const currentQpi = application.studentQpi != null && application.studentQpi !== '' ? Number(application.studentQpi).toFixed(2) : '';
   const snapshotAcademic = academic?.value == null || academic.value === '' ? '' : (isQpi ? Number(academic.value).toFixed(2) : String(academic.value));
   const currentIncome = application.studentHouseholdIncome != null && application.studentHouseholdIncome !== '' ? Number(application.studentHouseholdIncome) : null;
   const snapshotIncome = snapshot?.householdIncome?.value ?? null;
   const academicFact = snapshot
-    ? { label: academic?.label || 'Academic record', value: snapshotAcademic, verification: academic?.verification, currentValue: isQpi && currentQpi && snapshotAcademic && currentQpi !== snapshotAcademic ? currentQpi : '' }
+    ? { label: academic?.label || 'Academic record', value: snapshotAcademic, verification: verificationBadge(academic?.credential || 'qpi', academic?.verification), currentValue: isQpi && currentQpi && snapshotAcademic && currentQpi !== snapshotAcademic ? currentQpi : '' }
     : { label: 'QPI', value: currentQpi };
   const incomeFact = snapshot
-    ? { label: 'Household income', value: snapshotIncome == null ? '' : fmtCurrency(snapshotIncome), verification: snapshot.householdIncome?.verification, currentValue: currentIncome != null && snapshotIncome != null && currentIncome !== Number(snapshotIncome) ? fmtCurrency(currentIncome) : '' }
+    ? { label: 'Household income', value: snapshotIncome == null ? '' : fmtCurrency(snapshotIncome), verification: verificationBadge('householdIncome', snapshot.householdIncome?.verification), currentValue: currentIncome != null && snapshotIncome != null && currentIncome !== Number(snapshotIncome) ? fmtCurrency(currentIncome) : '' }
     : { label: 'Household income', value: currentIncome == null ? '' : fmtCurrency(currentIncome) };
 
   const stageRecords = [
     application.endorsement && {
       key: 'endorsement',
-      title: 'Endorsement · SOP step 4',
+      title: 'Endorsement',
       lines: [application.endorsement.note, `By ${application.endorsement.reviewedBy} · ${fmtDate(application.endorsement.decidedAt)}`],
     },
     application.interview && {
       key: 'interview',
-      title: 'Interview · SOP step 5',
+      title: 'Interview',
       lines: isStructuredInterview(application.interview)
         ? [
           summarizeInterview(application.interview),
@@ -360,12 +366,12 @@ export default function ApplicationReviewModal({
     },
     application.deliberation && {
       key: 'deliberation',
-      title: 'Deliberation · SOP step 6',
+      title: 'Deliberation',
       lines: [[application.deliberation.decision, application.deliberation.note].filter(Boolean).join(' · '), `By ${application.deliberation.decidedBy} · ${fmtDate(application.deliberation.decidedAt)}`],
     },
     application.release && {
       key: 'release',
-      title: 'Release of results · SOP step 8',
+      title: 'Release of results',
       lines: [`Released to ${application.release.releasedTo} · Reference ${application.release.reference}`, fmtDate(application.release.releasedAt)],
     },
   ].filter(Boolean);
@@ -393,15 +399,13 @@ export default function ApplicationReviewModal({
       badge: application.status === 'For Endorsement' ? 'Decision due' : null,
       alert: application.status === 'For Endorsement',
     }] : []),
-    // SOP step 5: the schedule, the panel from the applicant's school, the
-    // attendance record, and the private evaluation notes.
+    // SOP step 5: the schedule, the panel from the applicant's school, and the
+    // private evaluation notes.
     ...(interviewUnlocked ? [{
       key: 'interview',
       label: 'Interview',
-      badge: isAdmissionsReviewer && application.status === 'Endorsed'
-        ? 'Schedule due'
-        : interviewOutcomeDue ? 'Outcome due' : null,
-      alert: (isAdmissionsReviewer && application.status === 'Endorsed') || interviewOutcomeDue,
+      badge: isAdmissionsReviewer && application.status === 'Endorsed' ? 'Schedule due' : null,
+      alert: isAdmissionsReviewer && application.status === 'Endorsed',
     }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
@@ -422,13 +426,12 @@ export default function ApplicationReviewModal({
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
   const lockedDocumentsMessage = !isAdmissionsReviewer
-    ? 'Supporting documents become available once the Admissions Office continues this application to verification. You can still flag it for central validation from the action bar.'
+    ? 'Documents become available at verification.'
     : linkedDocuments.length
-      ? `Supporting documents are reviewed at Standard Procedure step 3. Continue this application to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
-      : 'This application has no attached files. Continue it to verification to begin the document stage.';
+      ? `Continue to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
+      : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
-    if (status === 'Recommended' && !isInterviewComplete(application.interview)) return 'The interview panel must record the applicant as attended first';
     return '';
   };
   const runAction = async (status) => {
@@ -437,10 +440,9 @@ export default function ApplicationReviewModal({
       setRejectReasonOpen(true);
       return;
     }
-    // The hand-off to the Department Chair records an optional note, so the
-    // action bar opens the decision dialog. The review surface stays open
-    // afterwards instead of closing on the reviewer before they can read the
-    // recorded hand-off.
+    // The hand-off for endorsement records an optional note, so the action bar
+    // opens the decision dialog. The review surface stays open afterwards instead
+    // of closing on the reviewer before they can read the recorded hand-off.
     if (status === 'For Endorsement' && isAdmissionsReviewer) {
       setEndorsementError('');
       setEndorsementDecision({ mode: 'handoff' });
@@ -454,15 +456,15 @@ export default function ApplicationReviewModal({
       setEndorsementDecision({ mode: 'endorse' });
       return;
     }
+    // The recommendation ends the interview stage. App.jsx closes a live
+    // schedule before the stage moves; no attendance decision is recorded.
     setActionError('');
     // The transition writes the stage and its timeline note. "For Verification"
     // routes the attached files into the Admissions Office document queue, so
     // the note says that explicitly for the reviewer and the student's history.
     const options = status === 'For Verification'
       ? {
-        note: role === 'department_chair'
-          ? 'Flagged for central document validation.'
-          : 'Continued to document verification. Attached files are queued for Admissions Office review.',
+        note: 'Continued to document verification. Attached files are queued for Admissions Office review.',
       }
       : undefined;
     // Scheduling confirms the Interview tab's draft. An incomplete draft opens
@@ -517,8 +519,10 @@ export default function ApplicationReviewModal({
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
-    : application.status === 'For Endorsement' && isAdmissionsReviewer
-      ? 'This application is with the Department Chair for endorsement. The hand-off record stays available in the Endorsement tab and the status history.'
+    : application.status === 'For Endorsement'
+      ? (role === 'department_chair'
+        ? 'Awaiting the Office of Admissions & Aid endorsement decision.'
+        : 'Awaiting the Admissions Office Head endorsement decision.')
       : isAdmissionsHead
         ? 'No stage action is available at this stage.'
         : role === 'department_chair'
@@ -566,7 +570,7 @@ export default function ApplicationReviewModal({
               <FactTile label="Year standing" value={snapshot?.yearStandingLabel || ''} />
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
-            {snapshot ? <p className="m-0 text-xs text-app-muted">Values are self-reported at submission; a badge reflects Document Vault proof reviewed by the Admissions Office. “Profile now” marks a value the student changed after submitting.</p> : null}
+            {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
               <Panel className="grid content-start gap-2">
@@ -657,7 +661,7 @@ export default function ApplicationReviewModal({
                     ) : null}
                   </Panel>
                 ) : (
-                  <Panel><p className="m-0 text-sm text-app-muted">No document attached yet. A required submission stays Not attached until the student attaches a Document Vault file.</p></Panel>
+                  <Panel><p className="m-0 text-sm text-app-muted">No file attached yet. It stays Not attached until the student adds a vault file.</p></Panel>
                 )}
               </div>
             </div>
@@ -667,6 +671,7 @@ export default function ApplicationReviewModal({
         {visibleActiveTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
+            <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
             <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} />
           </Panel>
         )}
@@ -728,7 +733,7 @@ export default function ApplicationReviewModal({
         {showDeliberationField ? (
           <label className="grid gap-1 text-sm text-app-text">
             <span className="font-semibold">Sub-committee note</span>
-            <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the School Scholarship Sub-committee deliberation." />
+            <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the sub-committee deliberation." />
           </label>
         ) : null}
 
@@ -753,9 +758,7 @@ export default function ApplicationReviewModal({
                 if (!reason) return null;
                 return (
                   <span key={`block-${status}`} id={`review-block-${status}`} className="sr-only">
-                    {status === 'Recommended'
-                      ? 'The interview panel must record the applicant as attended before the sub-committee recommendation (SOP step 6).'
-                      : `${reason} before this application can be endorsed or advance to a later stage.`}
+                    {`${reason} first.`}
                   </span>
                 );
               })}
@@ -770,7 +773,9 @@ export default function ApplicationReviewModal({
                     title={reason || undefined}
                     aria-describedby={reason ? `review-block-${status}` : undefined}
                     onClick={() => runAction(status)}
-                  >{actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role)}</Button>
+                  >
+                    {actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role)}
+                  </Button>
                 );
               })}
             </div>

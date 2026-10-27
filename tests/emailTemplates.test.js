@@ -208,14 +208,16 @@ describe('describeApplicationStatusUpdate', () => {
   });
 
   it('describes the endorsement phase for the stored Endorsed status', () => {
-    const message = describeApplicationStatusUpdate('Endorsed', 'the Department Chair');
+    const message = describeApplicationStatusUpdate('Endorsed', 'the Office of Admissions & Aid');
     expect(message).toContain('endorsement phase');
+    expect(message).toContain('Office of Admissions & Aid');
     expect(message).toContain('interview');
   });
 
-  it('describes the hand-off to the Department Chair for For Endorsement', () => {
+  it('describes the hand-off for endorsement without naming the Department Chair', () => {
     const message = describeApplicationStatusUpdate('For Endorsement', 'the Admissions Office');
-    expect(message).toContain('Department Chair for endorsement');
+    expect(message).toContain('sent your application for endorsement');
+    expect(message).not.toContain('Department Chair');
     expect(message).toContain('No action');
   });
 });

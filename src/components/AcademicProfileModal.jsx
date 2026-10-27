@@ -191,14 +191,14 @@ export default function AcademicProfileModal({
         </div>
         <h2 id="academic-profile-title" className="m-0 text-[clamp(1.55rem,4vw,2rem)] font-bold tracking-tight text-app-text">Tell us about your studies</h2>
         <p className="mt-2 text-sm leading-relaxed text-app-muted">
-          Welcome{fullName ? `, ${fullName.split(' ')[0]}` : ''}! Add your academic and eligibility details so the Smart Eligibility Checker can match you with the right scholarships.
+          Welcome{fullName ? `, ${fullName.split(' ')[0]}` : ''}! Add your academic details so the Smart Eligibility Checker can match you.
         </p>
         {/* Avoid native form submission: Chromium treats canceled submit events as autofill-save signals. */}
         <div className="mt-5 grid gap-4" onKeyDown={handleKeyDown}>
           <div className="grid gap-4 sm:grid-cols-2">
             <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError('yearStanding', 'studentNumber', 'qpi', 'programChoice2', 'programChoice3'); }} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
             {standing.requiresStudentNumber && (
-              <FormField label="AdDU student number" hint="The 4–12 digits on your AdDU registration record." error={errors.studentNumber}>
+              <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}>
                 <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError('studentNumber'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required aria-invalid={Boolean(errors.studentNumber)} />
               </FormField>
             )}
@@ -208,7 +208,7 @@ export default function AcademicProfileModal({
             <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
               <div>
                 <p className="m-0 text-sm font-semibold text-app-text">Program choices</p>
-                <small className="field-hint mt-1 block">Your 1st choice is the program above. Add a 2nd and 3rd choice when you are applying to more than one program. Each program can be chosen once.</small>
+                <small className="field-hint mt-1 block">Add a 2nd and 3rd choice if you are applying to another program. Each program can be chosen once.</small>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <SelectPicker label="2nd choice program" value={programChoice2} onChange={(value) => { setProgramChoice2(value); clearError('programChoice2', 'programChoice3'); }} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="academic-profile-program-choice-2" />
@@ -237,7 +237,7 @@ export default function AcademicProfileModal({
             </div>
           )}
           {standing.requiresQpi && (
-            <FormField label="Annual QPI" hint="Self-reported on the AdDU 0.00–4.00 scale. The prototype does not verify QPI with the Registrar." error={errors.qpi} labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={verifications} />}>
+            <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={verifications} />}>
               <input className={controlClass} value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); clearError('qpi'); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" required aria-invalid={Boolean(errors.qpi)} />
             </FormField>
           )}
@@ -245,7 +245,7 @@ export default function AcademicProfileModal({
             <input className="h-4 w-4 shrink-0 accent-[var(--primary)]" type="checkbox" checked={hasActiveGovernmentGrant} onChange={(event) => setHasActiveGovernmentGrant(event.target.checked)} />
             <span className="min-w-0 flex-1 leading-relaxed">I currently have an active government grant</span>
           </label>
-          <small className="-mt-2 block text-xs leading-relaxed text-app-muted">This helps exclude scholarships that cannot be combined with another government grant. You can add the rest of your eligibility details later in My Profile.</small>
+          <small className="-mt-2 block text-xs leading-relaxed text-app-muted">Excludes scholarships that cannot be combined with another grant. You can add the rest later.</small>
           {program && selectedProgram && (
             <div className="rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3">
               <span className="mb-1 block text-xs uppercase tracking-[0.08em] text-app-muted">School / Department</span>
@@ -253,7 +253,7 @@ export default function AcademicProfileModal({
             </div>
           )}
           <div className="rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm leading-relaxed text-app-muted">
-            These answers are self-reported. They are verified once you submit an application after uploading the necessary proof in the Document Vault.
+            Self-reported; verified once you submit an application with proof from the Document Vault.
           </div>
           {(validationError || errorMessage) && <div className="w-full rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-3 text-sm text-rose-200" role="alert">{validationError || errorMessage}</div>}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

@@ -59,8 +59,8 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
       <section className="page-title-bar rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
         <div className="page-title-copy">
           <span className="page-section-label">Settings</span>
-          <h2>Notification center settings</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Choose how ScholarPath reaches you and when deadline reminders should arrive.</p>
+          <h2>Notification settings</h2>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Choose how ScholarPath reaches you.</p>
         </div>
 
         <div className="mt-8 border-t border-app-border pt-6">
@@ -70,13 +70,13 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
               checked={preferences.smsEnabled}
               onChange={(value) => updatePreference('smsEnabled', value)}
               title="SMS Notifications"
-              description="Deadline reminders and status updates texted to your mobile number"
+              description="Deadline reminders and status updates by text"
             />
             <SettingToggle
               checked={preferences.emailEnabled}
               onChange={(value) => updatePreference('emailEnabled', value)}
               title="Email Notifications"
-              description="Emailed deadline reminders and application status updates"
+              description="Deadline reminders and status updates by email"
             />
             <SettingToggle
               checked={preferences.inAppEnabled}
@@ -92,7 +92,7 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
                 <div className="min-w-0">
                   <strong className="block text-sm font-semibold text-app-text">Email delivery test</strong>
                   <span className="mt-1 block text-sm text-app-muted">
-                    Send one email to your own address to confirm delivery. Scheduled reminders and status updates use the same channel.
+                    Sends one test email to your own address.
                   </span>
                 </div>
                 <Button type="button" variant="primary" onClick={handleSendTestEmail} disabled={testEmail.status === 'sending'}>
@@ -121,12 +121,12 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
                 <div className="min-w-0">
                   <strong className="block text-sm font-semibold text-app-text">SMS delivery test</strong>
                   <span className="mt-1 block text-sm text-app-muted">
-                    Send one text to your own mobile number to confirm delivery. Scheduled reminders and status updates use the same channel.
+                    Sends one test text to your own number.
                   </span>
                   <span className="mt-1 block text-sm text-app-muted">
                     {maskedMobileNumber
                       ? `Delivery number: ${maskedMobileNumber}`
-                      : 'No Philippine mobile number on file yet — add one under My Profile → Personal information.'}
+                      : 'No mobile number on file — add one in My Profile → Personal information.'}
                   </span>
                 </div>
                 <Button type="button" variant="primary" onClick={handleSendTestSms} disabled={testSms.status === 'sending'}>
@@ -147,25 +147,25 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
 
         <div className="mt-8 border-t border-app-border pt-6">
           <h3 className="m-0 text-lg font-semibold text-app-text">Deadline Reminders</h3>
-          <p className="mb-0 mt-2 text-sm text-app-muted">Choose when you want to be reminded about upcoming deadlines.</p>
+          <p className="mb-0 mt-2 text-sm text-app-muted">Choose when to be reminded.</p>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             <SettingToggle
               checked={preferences.deadlineReminders.oneWeekBefore}
               onChange={(value) => updateDeadlineReminder('oneWeekBefore', value)}
               title="1 Week Before"
-              description="Get reminded 7 days before a deadline"
+              description="7 days before a deadline"
             />
             <SettingToggle
               checked={preferences.deadlineReminders.threeDaysBefore}
               onChange={(value) => updateDeadlineReminder('threeDaysBefore', value)}
               title="3 Days Before"
-              description="Get a reminder 3 days before a deadline"
+              description="3 days before a deadline"
             />
             <SettingToggle
               checked={preferences.deadlineReminders.dayBefore}
               onChange={(value) => updateDeadlineReminder('dayBefore', value)}
               title="Day Before"
-              description="Get a final reminder the day before"
+              description="The day before the deadline"
             />
           </div>
         </div>
@@ -173,10 +173,7 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
         <div className="mt-8 border-t border-app-border pt-6">
           <h3 className="m-0 text-lg font-semibold text-app-text">Session security</h3>
           <p className="mb-0 mt-2 max-w-3xl text-sm text-app-muted">
-            You are signed out after {formatSessionDuration(sessionTimeoutConfig?.idleTimeoutMs ?? 15 * 60 * 1000)} without activity or after {formatSessionDuration(sessionTimeoutConfig?.absoluteTimeoutMs ?? 12 * 60 * 60 * 1000)} total. Returning to an open tab revalidates your session with Supabase. The maximum duration is not extended by activity, and closing the browser does not reset it.
-          </p>
-          <p className="mb-0 mt-2 max-w-3xl text-xs text-app-muted">
-            If your session is about to expire, ScholarPath gives you a short warning. A fresh sign-in is required after either limit is reached.
+            You are signed out after {formatSessionDuration(sessionTimeoutConfig?.idleTimeoutMs ?? 15 * 60 * 1000)} idle or {formatSessionDuration(sessionTimeoutConfig?.absoluteTimeoutMs ?? 12 * 60 * 60 * 1000)} total. Activity does not extend the total limit.
           </p>
         </div>
       </section>
