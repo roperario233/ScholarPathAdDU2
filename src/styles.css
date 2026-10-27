@@ -1163,8 +1163,32 @@ main .deadline-item > .deadline-actions {
   }
 }
 @media (max-width: 640px) {
-  .application-review-modal { height: calc(100dvh - 1.5rem); padding: 1rem; }
-  .application-review-actions button { min-height: 2.75rem; }
+  .application-review-modal {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: calc(100dvh - 1.5rem);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 1rem;
+  }
+  .application-review-modal-body {
+    overflow: visible;
+    padding-right: 0;
+    padding-bottom: 0.75rem;
+  }
+  .application-review-modal [role='tablist'] {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--card);
+    scroll-padding-inline: 0.5rem;
+  }
+  .application-review-modal .application-review-actions {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+  .application-review-actions button { width: 100%; min-height: 2.75rem; }
 }
 .wrap { flex-wrap: wrap; }
 

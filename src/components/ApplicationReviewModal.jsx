@@ -41,6 +41,16 @@ function useIsWide() {
 
 function ReviewTabs({ tabs, active, onChange }) {
   const refs = useRef({});
+  const tabListRef = useRef(null);
+  useEffect(() => {
+    const activeTab = refs.current[active];
+    const tabList = tabListRef.current;
+    if (!activeTab || !tabList) return;
+    const tabBounds = activeTab.getBoundingClientRect();
+    const listBounds = tabList.getBoundingClientRect();
+    if (tabBounds.left < listBounds.left) tabList.scrollLeft -= listBounds.left - tabBounds.left;
+    else if (tabBounds.right > listBounds.right) tabList.scrollLeft += tabBounds.right - listBounds.right;
+  }, [active]);
   const focusTab = (index) => {
     const tab = tabs[(index + tabs.length) % tabs.length];
     onChange(tab.key);
@@ -50,7 +60,7 @@ function ReviewTabs({ tabs, active, onChange }) {
     // overflow-y-hidden keeps the horizontal scroller from promoting overflow-y
     // to auto: with the tabs' -mb-px alignment shift that produced a stray
     // vertical scrollbar on the tab strip.
-    <div role="tablist" aria-label="Application review sections" className="flex shrink-0 gap-1 overflow-x-auto overflow-y-hidden border-b border-app-border">
+    <div ref={tabListRef} role="tablist" aria-label="Application review sections" className="flex shrink-0 snap-x snap-proximity gap-1 overflow-x-auto overflow-y-hidden scroll-px-2 border-b border-app-border">
       {tabs.map((tab, index) => {
         const selected = tab.key === active;
         return (
@@ -70,7 +80,7 @@ function ReviewTabs({ tabs, active, onChange }) {
               if (event.key === 'Home') { event.preventDefault(); focusTab(0); }
               if (event.key === 'End') { event.preventDefault(); focusTab(tabs.length - 1); }
             }}
-            className={`-mb-px inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-9 ${selected ? 'border-ateneo text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:text-app-text'}`}
+            className={`-mb-px inline-flex min-h-10 shrink-0 snap-start items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-9 ${selected ? 'border-ateneo text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:text-app-text'}`}
           >
             {tab.label}
             {tab.badge != null ? (
@@ -519,8 +529,8 @@ export default function ApplicationReviewModal({
     <>
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-review-modal">
       <header className="grid shrink-0 gap-2 pb-2">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
+        <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+          <div className="min-w-0 w-full">
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
             <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentDepartment || 'Department on file'}</p>
           </div>
@@ -590,8 +600,8 @@ export default function ApplicationReviewModal({
                     <ul className="m-0 grid gap-3 p-0">
                       {requirements.map((requirement) => (
                         <li key={requirement.id} className="grid gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
-                          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-                            <span className="min-w-0 flex-1 text-sm font-semibold text-app-text">{requirement.label}</span>
+                          <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                            <span className="min-w-0 text-sm font-semibold text-app-text">{requirement.label}</span>
                             <RequirementStateBadge state={requirement.state} />
                           </div>
                           {requirement.attached.length ? (
@@ -729,11 +739,11 @@ export default function ApplicationReviewModal({
         ) : null}
 
         {nextStatuses.length ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              {canReject ? <Button type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap gap-2">
+              {canReject ? <Button className="max-w-full" type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               {/* The footer carries no visible stage notice: the header badge, the
                   Documents tab badge, and each disabled button's title report the
                   gate on screen. This hidden text keeps the reason available to

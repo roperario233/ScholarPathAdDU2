@@ -57,15 +57,15 @@ export default function DepartmentReviewView({
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
         <Card title="Endorsement queue" action={<StatusBadge tone={awaitingEndorsement.length ? 'warning' : 'success'}>{awaitingEndorsement.length} awaiting decision</StatusBadge>} className="min-w-0">
-          <div className="grid max-h-[620px] gap-3 overflow-y-auto pr-1">
+          <div className="grid max-h-[620px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
             {queue.length ? queue.map((entry) => {
               // An application can only be endorsed once every attached vault file
               // is Verified (manuscript 3.3.3); the database enforces this too.
               const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
               return (
                 <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
-                  <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0">
+                  <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
+                    <div className="min-w-0 w-full">
                       <h3 className="truncate">{entry.studentName}</h3>
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram}</p>
                       <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
