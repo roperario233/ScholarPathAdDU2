@@ -32,6 +32,40 @@ export const INTERVIEW_STATE_LABELS = {
   cancelled: 'Cancelled',
 };
 
+// SOP step 6 input: the panel states a recommendation rather than scoring the
+// applicant out of five (Consultation 2, request #7). The stored value is the
+// key; `rating` survives only so a note recorded before this list existed still
+// displays. The whole note stays staff-only (application_interview_notes has no
+// student policy).
+export const INTERVIEW_RECOMMENDATION_LEVELS = [
+  { value: 'highly_recommended', label: 'Highly recommended' },
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'recommended_with_reservation', label: 'Recommended with reservation' },
+  { value: 'not_recommended', label: 'Not recommended' },
+  { value: 'deferred', label: 'Deferred' },
+];
+
+export const getInterviewRecommendationLevelLabel = (level) => (
+  INTERVIEW_RECOMMENDATION_LEVELS.find((entry) => entry.value === level)?.label || ''
+);
+
+// The newest evaluation note that states a level, for the line beside the
+// deliberation action. Notes may arrive in any order, so the list is ordered by
+// creation time first; a note without a level (an observation only) is skipped.
+export const getLatestPanelRecommendation = (notes = []) => {
+  const latest = (Array.isArray(notes) ? notes : [])
+    .filter((note) => getInterviewRecommendationLevelLabel(note?.recommendationLevel))
+    .sort((left, right) => new Date(right?.createdAt || 0) - new Date(left?.createdAt || 0))[0];
+  if (!latest) return null;
+  return {
+    level: latest.recommendationLevel,
+    label: getInterviewRecommendationLevelLabel(latest.recommendationLevel),
+    authorName: latest.authorName || '',
+    authorRole: latest.authorRole || '',
+    createdAt: latest.createdAt || null,
+  };
+};
+
 export const DEFAULT_INTERVIEW_INSTRUCTIONS = {
   onsite: 'Bring a valid school or government ID and arrive at least 10 minutes before your schedule.',
   online: 'Join from a quiet place with a stable connection, keep your camera on, and have a valid school or government ID ready.',

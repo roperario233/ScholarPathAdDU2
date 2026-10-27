@@ -133,6 +133,16 @@ const stageActionLabels = {
 
 export const getStageActionLabel = (status) => stageActionLabels[status] || status;
 
+// The one sentence a student is told when an application is rejected (FORM
+// 230-SCH affidavit clause 6: the results and the minutes of the deliberations
+// are confidential), and the prefix that files the recorded reason in the
+// staff-only `application_review_comments` thread instead. The reason never
+// reaches a student-readable column, so the timeline note and the status log's
+// derived reason both carry this notice. Document resubmission reasons stay
+// student-visible: they tell the student what to correct.
+export const APPLICATION_REJECTION_NOTICE = 'Application not accepted.';
+export const APPLICATION_REJECTION_REASON_PREFIX = 'Rejection reason — ';
+
 // Student-facing next-step copy for the application workspace. The card and
 // the detail modal show this instead of the static creation note, so a student
 // always knows what the current stage means and whether they need to act.
@@ -147,7 +157,7 @@ const applicationStatusGuidance = {
   Recommended: 'The sub-committee has recommended your application for approval.',
   Approved: 'Approved and awaiting release of results.',
   Released: 'Results released. Open the application to review the outcome.',
-  Rejected: 'The application did not proceed. The reason is in the status history.',
+  Rejected: 'The application was not accepted. No further action is needed for this application period.',
 };
 
 export const getApplicationStatusGuidance = (status) => applicationStatusGuidance[status] || '';
@@ -246,14 +256,24 @@ export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents',
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 
+// How a Document Vault decision reads on screen. The stored value stays
+// `Rejected` — the check constraint, the replace-in-place RPC, the verification
+// gate, and every trigger read it — and only the label translates, exactly as
+// `Endorsed` is displayed as "Endorsement". "Reverted for resubmission" is the
+// office's own wording for the decision (Consultation 2, request #3), and the
+// recorded reason stays visible because it tells the student what to correct.
+export const documentStatusLabels = { Rejected: 'Reverted for resubmission' };
+export const getDocumentStatusLabel = (status) => documentStatusLabels[status] || status;
+
 // Statuses in which a student may replace a Rejected file on a submitted
 // application. After For Verification every attached file is Verified, so a
 // rejected file cannot exist there. Mirrors replace_rejected_application_document
 // (20261021000000).
 export const DOCUMENT_REPLACEMENT_STATUSES = ['Submitted', 'Under Review', 'For Verification'];
 
-// Preset reasons the Admissions Office picks from when rejecting a Document
-// Vault file. "Other" carries no preset text, so its note is required.
+// Preset reasons the Admissions Office picks from when reverting a Document
+// Vault file for resubmission. "Other" carries no preset text, so its note is
+// required. The stored decision stays `Rejected`.
 export const documentRejectionReasons = [
   { value: 'illegible', label: 'File is blurry, cropped, or unreadable' },
   { value: 'incomplete', label: 'Document is incomplete or missing pages' },

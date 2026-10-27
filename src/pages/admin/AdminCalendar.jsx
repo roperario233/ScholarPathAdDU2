@@ -129,6 +129,7 @@ export default function AdminCalendar({
   reviewComments = [],
   onAddComment,
   onChangeApplication,
+  onRejectApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
@@ -411,6 +412,7 @@ export default function AdminCalendar({
           initialTab={selectedTab}
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
+          onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

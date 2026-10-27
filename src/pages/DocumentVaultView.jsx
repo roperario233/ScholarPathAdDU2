@@ -8,7 +8,7 @@ import PhotoCaptureModal from '../components/PhotoCaptureModal';
 import PhotoGuide from '../components/PhotoGuide';
 import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
-import { generalDocumentTypeOptions, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
+import { generalDocumentTypeOptions, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, PHOTO_MIME_TYPES } from '../lib/photoGuide';
 import {
@@ -186,7 +186,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
         <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Total documents</span><strong className="!text-2xl">{documents.length}</strong><p className="text-xs">Stored in your Document Vault</p></article>
         <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Verified</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Verified').length}</strong><p className="text-xs">Ready to reuse</p></article>
         <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Pending review</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Pending').length}</strong><p className="text-xs">Awaiting Admissions Office review</p></article>
-        <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Rejected</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Rejected').length}</strong><p className="text-xs">Needs replacement</p></article>
+        <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Needs resubmission</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Rejected').length}</strong><p className="text-xs">Reverted for resubmission</p></article>
       </section>
 
       <Card title="Upload a document">
@@ -240,7 +240,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
       <Card title="Your documents" className="document-list-card">
         <div className="document-filter-toolbar grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4">
           <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find a file</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents" aria-label="Search documents" /></label>
-          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Verification status</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter documents"><option value="all">All statuses</option><option>Verified</option><option>Pending</option><option>Rejected</option><option value="outdated">Outdated proof</option></select></label>
+          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Verification status</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter documents"><option value="all">All statuses</option><option>Verified</option><option>Pending</option><option value="Rejected">Reverted for resubmission</option><option value="outdated">Outdated proof</option></select></label>
         </div>
         <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3">
           <p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'document' : 'documents'} found</p>
@@ -260,7 +260,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
                   <h3 className="m-0 text-lg font-bold text-app-text">{doc.title}</h3>
                   <p className="mt-1 text-sm text-app-muted">{doc.fileName} <span className="mx-1 text-app-border">•</span> {getDocumentTypeLabel(doc.documentType)}</p>
                 </div>
-                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
+                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-app-border/60 pt-3 text-sm text-app-muted">
                 <span><strong>Uploaded</strong> {fmtDate(doc.uploadedAt)}</span>
@@ -274,7 +274,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
               {onResolveDocument && replacementApplications.length ? (
                 <div className="grid gap-2 rounded-xl border border-rose-400/40 p-3">
                   <p className="m-0 text-sm text-app-text">
-                    Replace this file so the review can continue.
+                    This file was reverted for resubmission. Replace it so the review can continue.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {replacementApplications.map((entry) => (

@@ -220,7 +220,7 @@ describe('application readiness', () => {
     const documents = allDocs.map((entry, index) => (index === 0 ? { ...entry, verificationStatus: 'Rejected' } : entry));
     const result = readinessOf({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
     expect(result.requirements[0].state).toBe('rejected');
-    expect(result.blockers.some((blocker) => blocker.startsWith('Replace the rejected file'))).toBe(true);
+    expect(result.blockers.some((blocker) => blocker.startsWith('Upload a replacement for the reverted file'))).toBe(true);
   });
 
   it('marks verified files and allows pending ones', () => {
@@ -727,7 +727,7 @@ describe('describeDocumentDecision', () => {
   it('labels the Head lane and a rejection', () => {
     const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_head', reviewedByName: 'Ada Cruz' };
     expect(describeDocumentDecision(rejected, { showName: true }))
-      .toBe(`Rejected by Ada Cruz · Admissions Office Head · ${on}`);
+      .toBe(`Reverted for resubmission by Ada Cruz · Admissions Office Head · ${on}`);
   });
 
   it('treats a reset file as awaiting review', () => {
@@ -739,7 +739,7 @@ describe('describeDocumentDecision', () => {
     expect(describeDocumentDecision({ verificationStatus: 'Verified' }))
       .toBe('Verified · recorded before reviewer details were kept.');
     expect(describeDocumentDecision({ verificationStatus: 'Rejected', rejectionReason: 'Blurry' }))
-      .toBe('Rejected · recorded before reviewer details were kept.');
+      .toBe('Reverted for resubmission · recorded before reviewer details were kept.');
   });
 
   it('falls back to the Admissions Office lane when no role was recorded', () => {

@@ -51,6 +51,7 @@ export default function AdminEndorsement({
   reviewerName = '',
   currentUserId = '',
   onChangeApplication,
+  onRejectApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
@@ -257,6 +258,7 @@ export default function AdminEndorsement({
           initialTab="endorsement"
           onClose={closeReview}
           onStatusChange={handleStatusChange}
+          onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

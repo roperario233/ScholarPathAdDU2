@@ -128,7 +128,7 @@ export default function ApplicationsView({
                 : <><span><strong>Documents</strong> {readiness.attachedCount} of {readiness.requiredCount} attached</span>{isDraft ? <span><strong>Statement</strong> {String(entry.statement || '').trim() ? 'Written' : 'Not yet'}</span> : <span><strong>Progress</strong> {toPercent(getApplicationProgress(entry.status))}</span>}</>}
               <span><strong>Deadline</strong> {scholarship ? fmtDate(scholarship.deadline) : 'N/A'}</span>
             </div>
-            <p className="m-0 text-sm text-app-muted">{needsReplacement ? 'Action needed: replace the rejected document so your application can continue.' : isDraft ? (readiness.requirements.some((item) => item.state === 'missing' || item.state === 'rejected') ? 'Next: attach the remaining required documents.' : 'Next: review your statement, certify, and submit.') : (isTracked ? entry.notes : getApplicationStatusGuidance(entry.status) || entry.notes)}</p>
+            <p className="m-0 text-sm text-app-muted">{needsReplacement ? 'Action needed: replace the file that was reverted for resubmission so your application can continue.' : isDraft ? (readiness.requirements.some((item) => item.state === 'missing' || item.state === 'rejected') ? 'Next: attach the remaining required documents.' : 'Next: review your statement, certify, and submit.') : (isTracked ? entry.notes : getApplicationStatusGuidance(entry.status) || entry.notes)}</p>
             {entry.status === 'Interview' && entry.interview ? (
               <p className="m-0 text-sm font-semibold text-app-text">Interview: {summarizeInterview(entry.interview)}</p>
             ) : null}
@@ -159,7 +159,7 @@ export default function ApplicationsView({
                   <div className="grid gap-1">
                     <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-rose-600 dark:text-rose-300">Action needed</h3>
                     <p className="m-0 text-sm text-app-text">
-                      The Admissions Office rejected {replaceableRejected.length === 1 ? 'a document' : `${replaceableRejected.length} documents`} on this application.
+                      The Admissions Office reverted {replaceableRejected.length === 1 ? 'a document' : `${replaceableRejected.length} documents`} for resubmission on this application.
                       {' '}Replace {replaceableRejected.length === 1 ? 'it' : 'them'} so the review can continue.
                     </p>
                   </div>

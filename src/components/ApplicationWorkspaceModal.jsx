@@ -8,7 +8,7 @@ import ApplicationFinancialStep from './ApplicationFinancialStep';
 import ApplicationPrintButton from './ApplicationPrintSheet';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
-import { getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
+import { getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
 import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_INSTRUCTION, ESSAY_TARGET_WORDS, ESSAY_TOPIC, countWords } from '../lib/applicationForm';
 import { getFinancialAnswersMissing, getFinancialDetailSections, normalizeFinancialAnswers } from '../lib/financialDetails';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
@@ -80,7 +80,7 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
             <li key={doc.id} className="grid min-w-0 gap-2 rounded-xl border border-app-border/70 px-3 py-3">
               <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="mt-0.5 block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName}</span></span>
               <span className="flex min-w-0 flex-wrap items-center gap-2">
-                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
+                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(requirement, doc.id)}>Remove</Button>
               </span>
@@ -102,7 +102,7 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
             <option value="">{reusable.length ? 'Select a file…' : 'No matching files in your vault'}</option>
             {reusable.map((doc) => (
               <option key={doc.id} value={doc.id} disabled={doc.verificationStatus === 'Rejected'}>
-                {doc.title} · {doc.verificationStatus} · {fmtDate(doc.uploadedAt)}
+                {doc.title} · {getDocumentStatusLabel(doc.verificationStatus)} · {fmtDate(doc.uploadedAt)}
               </option>
             ))}
           </select>
@@ -161,7 +161,7 @@ function SupportingDocumentsBlock({ readiness, documents, attachedIds, busy, err
   ));
   const proofs = candidates.filter((doc) => doc.linkedAttributes?.length);
   const others = candidates.filter((doc) => !doc.linkedAttributes?.length);
-  const optionFor = (doc) => <option key={doc.id} value={doc.id}>{doc.title} · {doc.verificationStatus} · {fmtDate(doc.uploadedAt)}</option>;
+  const optionFor = (doc) => <option key={doc.id} value={doc.id}>{doc.title} · {getDocumentStatusLabel(doc.verificationStatus)} · {fmtDate(doc.uploadedAt)}</option>;
 
   return (
     <section className="grid gap-3 rounded-2xl border border-dashed border-app-border bg-app-surface/60 p-4" aria-label="Additional supporting documents">
@@ -175,7 +175,7 @@ function SupportingDocumentsBlock({ readiness, documents, attachedIds, busy, err
             <li key={doc.id} className="grid min-w-0 gap-2 rounded-xl border border-app-border/70 px-3 py-3">
               <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="mt-0.5 block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName}</span></span>
               <span className="flex min-w-0 flex-wrap items-center gap-2">
-                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
+                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(doc.id)}>Remove</Button>
               </span>

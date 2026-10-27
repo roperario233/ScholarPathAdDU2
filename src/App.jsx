@@ -6,7 +6,7 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
+import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
@@ -15,7 +15,7 @@ import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAt
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
 import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
@@ -1497,6 +1497,34 @@ function App() {
     return { ok: true };
   };
 
+  // An application rejection is recorded in two places on purpose. FORM 230-SCH
+  // affidavit clause 6 keeps the deliberations and their minutes confidential, so
+  // the reason a reviewer types is filed in the staff-only internal notes
+  // (application_review_comments, which has no student policy), and the student
+  // receives the fixed APPLICATION_REJECTION_NOTICE through the timeline — and
+  // therefore through application_status_log.reason, which the trigger derives
+  // from it. The note is written first: a rejection must never land without a
+  // recorded reason, and a failed note leaves the stage untouched.
+  const rejectApplication = async (applicationId, reason = '') => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can reject an application.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (!getNextApplicationStatuses(application.status, state.viewerRole).includes('Rejected')) {
+      return { error: 'Your role cannot reject this application at this stage.' };
+    }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) return { error: 'Record the reason for the rejection.' };
+    const maxReasonLength = 2000 - APPLICATION_REJECTION_REASON_PREFIX.length;
+    if (trimmed.length > maxReasonLength) {
+      return { error: `Keep the reason to ${maxReasonLength.toLocaleString()} characters or fewer.` };
+    }
+    const note = await addReviewComment(applicationId, `${APPLICATION_REJECTION_REASON_PREFIX}${trimmed}`);
+    if (note?.error) return { error: note.error };
+    return changeApplicationStatus(applicationId, 'Rejected', { note: APPLICATION_REJECTION_NOTICE });
+  };
+
   // Case officers. Opening an Admissions Office application joins the officer to
   // the case (application_case_officers): the roster is how the shared intake pool
   // knows what has been picked up, and a second officer joining the same case is
@@ -1921,13 +1949,20 @@ function App() {
     return { ok: true, message: `The calendar event was ${label}.${swept}` };
   };
 
-  const addInterviewNote = async (applicationId, { body, rating = null } = {}) => {
+  const addInterviewNote = async (applicationId, { body, recommendationLevel = null, rating = null } = {}) => {
     const allowed = isAdmissionsReviewerRole(state.viewerRole)
       || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
     if (!allowed) return { error: 'Only the interview panel or the Admissions Office can add an evaluation note.' };
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write the evaluation note first.' };
     if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
+    // The level is the panel's recommendation (SOP step 6 input). A note may hold
+    // observations only, so it is optional; an unknown value is refused rather
+    // than written, and the database repeats the same list.
+    const level = recommendationLevel ? String(recommendationLevel) : '';
+    if (level && !INTERVIEW_RECOMMENDATION_LEVELS.some((entry) => entry.value === level)) {
+      return { error: 'Choose one of the listed recommendation levels.' };
+    }
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the note could not be saved.' };
     }
@@ -1936,6 +1971,7 @@ function App() {
       authorId: currentProfile.id,
       authorRole: state.viewerRole,
       authorName: currentProfile.fullName || 'Reviewer',
+      recommendationLevel: level || null,
       rating: rating ? Number(rating) : null,
       body: trimmed,
     });
@@ -2078,26 +2114,27 @@ function App() {
     });
   };
 
-  // The Admissions Office verifies or rejects a vault document here. Because an
-  // attribute's state is derived from its linked proof documents
-  // (src/lib/verification.js), verifying the file also verifies the attributes it
-  // proves. A rejection must carry a recorded reason (ReasonModal in
-  // ApplicationReviewModal); the database enforces the same rule. Verification is
-  // confirmed first (VerifyDocumentModal) because the review is attributed to the
-  // signed-in account: the trigger stamps reviewed_by, reviewed_by_role, and
-  // verification_decided_at, and a reset to Pending clears them. The student is
-  // notified server-side by notify-document-verification, which the database
-  // trigger calls; the browser call below is a retry for the idempotent channels.
+  // The Admissions Office verifies a vault document, or reverts it for
+  // resubmission, here. Because an attribute's state is derived from its linked
+  // proof documents (src/lib/verification.js), verifying the file also verifies
+  // the attributes it proves. A resubmission note is required (ReasonModal in
+  // ApplicationReviewModal); the database enforces the same rule and the stored
+  // value stays `Rejected`. Verification is confirmed first (VerifyDocumentModal)
+  // because the review is attributed to the signed-in account: the trigger stamps
+  // reviewed_by, reviewed_by_role, and verification_decided_at, and a reset to
+  // Pending clears them. The student is notified server-side by
+  // notify-document-verification, which the database trigger calls; the browser
+  // call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
     // Reviewing a vault file belongs to the Admissions Office. Staff verify
     // documents; the Head has the same authority as a superset.
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      const message = 'Only the Admissions Office can verify or reject a document.';
+      const message = 'Only the Admissions Office can verify a document or revert it for resubmission.';
       window.alert(message);
       return { error: message };
     }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
-    if (verificationStatus === 'Rejected' && !reason) return { error: 'A reason is required to reject a document.' };
+    if (verificationStatus === 'Rejected' && !reason) return { error: 'A note is required to revert a document for resubmission.' };
     const decidedAt = new Date().toISOString();
     if (isSupabaseWorkspaceLoaded) {
       const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
@@ -2127,10 +2164,10 @@ function App() {
     return { ok: true };
   };
 
-  // A Rejected file on a submitted, pre-endorsement application can be swapped
-  // for another vault file or a new upload (which lands in the vault first, as
-  // in the workspace). The status does not change; the new file arrives Pending
-  // for the Admissions Office. The server repeats every check
+  // A file reverted for resubmission on a submitted, pre-endorsement application
+  // can be swapped for another vault file or a new upload (which lands in the
+  // vault first, as in the workspace). The status does not change; the new file
+  // arrives Pending for the Admissions Office. The server repeats every check
   // (replace_rejected_application_document).
   const replaceRejectedDocument = async (applicationId, oldDocumentId, { documentId = '', file = null, documentType = '' } = {}) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
@@ -2139,7 +2176,7 @@ function App() {
       return { error: 'Documents can be replaced only before the application is endorsed.' };
     }
     if (!oldDocument || oldDocument.verificationStatus !== 'Rejected' || !(application.attachedDocuments || []).includes(oldDocumentId)) {
-      return { error: 'Only a rejected document attached to this application can be replaced.' };
+      return { error: 'Only a file reverted for resubmission and attached to this application can be replaced.' };
     }
     let replacementId = documentId;
     if (file) {
@@ -2151,7 +2188,7 @@ function App() {
     const result = await replaceSupabaseApplicationDocument(applicationId, oldDocumentId, replacementId);
     if (result.error) {
       return { error: file
-        ? `The file was saved to your Document Vault but could not replace the rejected one: ${result.error.message || 'please try again.'}`
+        ? `The file was saved to your Document Vault but could not replace the reverted one: ${result.error.message || 'please try again.'}`
         : result.error.message || 'The document could not be replaced.' };
     }
     setApplicationAttachments(applicationId, (ids) => [...ids.filter((id) => id !== oldDocumentId && id !== replacementId), replacementId], { touch: false });
@@ -2940,6 +2977,7 @@ function App() {
               reviewerName={state.authUser?.fullName || ''}
               onPickUpApplication={joinCaseReview}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
@@ -2968,6 +3006,7 @@ function App() {
               role={state.viewerRole}
               reviewerName={state.authUser?.fullName || ''}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
@@ -2990,6 +3029,7 @@ function App() {
               currentUserId={currentProfile.id}
               onOpenWorkspace={(view) => navigate(view)}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
@@ -3019,6 +3059,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onAddComment={addReviewComment}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
@@ -3046,6 +3087,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onAddComment={addReviewComment}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
@@ -3068,6 +3110,7 @@ function App() {
               students={state.students}
               scholarships={state.scholarships || []}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
               interviewWorkspace={interviewWorkspace}

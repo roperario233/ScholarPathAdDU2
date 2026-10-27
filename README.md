@@ -158,7 +158,7 @@ Program) asks for two verifiable photo requirements:
   of the student's home; one requirement can hold several attached files.
 
 Students can take either with the device camera or choose an existing image, from
-the application workspace, the Document Vault, or a rejected-file replacement.
+the application workspace, the Document Vault, or a resubmission replacement.
 The camera opens from a tap, supports switching between the front and rear
 camera, and falls back to an existing photo or the native device camera when
 permission is blocked or unavailable. Captures are normalized to a JPEG: the ID
@@ -169,15 +169,18 @@ card, and it applies **only to application photos** — the profile photo has no
 such rules.
 
 Both are ordinary Document Vault files, so the Admissions Office verifies them at
-Standard Procedure step 3 like any other required document, rejects them with a
-recorded reason (including photo-specific reasons), and the student can replace a
-rejected file with another capture or upload. The two requirements come from the
-default lists in `src/lib/applicationRequirements.js`; existing catalog rows get
-them from `supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
+Standard Procedure step 3 like any other required document, reverts them for
+resubmission with a recorded note (including photo-specific notes), and the
+student can replace a reverted file with another capture or upload. The stored
+decision stays `Rejected`; the student-facing label is **Reverted for
+resubmission**, and the recorded note stays visible because it tells the student
+what to correct. The two requirements come from the default lists in
+`src/lib/applicationRequirements.js`; existing catalog rows get them from
+`supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
 
 ## Database maintenance
 
-Three helpers live in `supabase/`. None of them is a migration, none changes the
+Four helpers live in `supabase/`. None of them is a migration, none changes the
 schema, and nothing runs them automatically.
 
 - `supabase/application_status_log_checks.sql` — read-only checks over the
@@ -186,6 +189,16 @@ schema, and nothing runs them automatically.
   and the deactivation statement for catalog rows outside the three Appendix A
   tracks.
 - `supabase/maintenance_reset_transactional_data.sql` — the clean-demo reset.
+- `supabase/maintenance_redact_rejection_reasons.sql` — the one-time privacy
+  redaction behind Consultation 2 #8: it replaces the reason already stored in
+  `application_status_log.reason` and in the `Rejected` entry of
+  `applications.timeline` with **Application not accepted.**, because those two
+  columns are readable by the student. The recorded reason stays in the
+  staff-only `application_review_comments` thread. It touches no
+  `documents.rejection_reason` value — a document resubmission note stays visible.
+  It is idempotent and runs in one transaction with
+  `session_replication_role = replica` so the append-only log and the application
+  triggers do not block it.
 
 ### Resetting the demo data
 
@@ -235,7 +248,7 @@ catalog, and announcement pages.
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying attached documents or reverting one for resubmission, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
 | `admin-endorsement` | Endorsement | Head | SOP step 4: the cases the Staff handed over that await the endorsement decision, with the hand-off record, document readiness, waiting age against the 5-day target, the case officers who prepared the case, and the recorded-decisions history; each row opens the shared review surface on its Endorsement tab |
 | `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
 | `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Head's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Head's venue manager and planning-entry form live here |

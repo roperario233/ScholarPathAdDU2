@@ -11,7 +11,7 @@ import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
+import { APPLICATION_REJECTION_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtDate } from '../lib/formatters';
 
@@ -72,7 +72,7 @@ export function RequirementStateBadge({ state }) {
   return <StatusBadge tone={entry.tone} className="shrink-0">{entry.label}</StatusBadge>;
 }
 
-// `renderAttachmentNote(doc)` lets the student's view add the rejection reason
+// `renderAttachmentNote(doc)` lets the student's view add the resubmission note
 // and the replace action under an attached file.
 export function RequirementChecklist({ requirements, onPreview, renderAttachmentNote }) {
   if (!requirements.length) return <p className="m-0 text-sm text-app-muted">This program does not list required documents.</p>;
@@ -88,8 +88,8 @@ export function RequirementChecklist({ requirements, onPreview, renderAttachment
             <span className="flex min-w-0 flex-col items-start gap-y-1 text-xs text-app-muted sm:flex-row sm:flex-wrap sm:gap-x-3">
               {requirement.attached.map((doc) => (
                 onPreview
-                  ? <button key={doc.id} type="button" className="underline decoration-dotted underline-offset-2 hover:text-app-text" onClick={() => onPreview(doc)}>{doc.title} · {doc.verificationStatus}</button>
-                  : <span key={doc.id}>{doc.title} · {doc.verificationStatus}</span>
+                  ? <button key={doc.id} type="button" className="underline decoration-dotted underline-offset-2 hover:text-app-text" onClick={() => onPreview(doc)}>{doc.title} · {getDocumentStatusLabel(doc.verificationStatus)}</button>
+                  : <span key={doc.id}>{doc.title} · {getDocumentStatusLabel(doc.verificationStatus)}</span>
               ))}
             </span>
           ) : <span className="text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)}</span>}
@@ -108,6 +108,15 @@ export function RequirementChecklist({ requirements, onPreview, renderAttachment
 // falls back to the browser-written timeline. `describeStatusActor` is
 // re-exported from src/lib/applicationRequirements.js.
 export function StatusHistoryList({ statusLog = [], timeline = [], showActorName = false }) {
+  // A student surface never repeats an application rejection reason: it lives in
+  // the staff-only internal notes (App.jsx rejectApplication), and rows recorded
+  // before that rule still hold one, so the fixed notice is rendered in its
+  // place. Document resubmission reasons are not affected — they tell the student
+  // what to correct.
+  const studentSurface = !showActorName;
+  const rejectionNote = (status, note) => (
+    studentSurface && status === 'Rejected' ? APPLICATION_REJECTION_NOTICE : note
+  );
   if (statusLog.length) {
     return (
       <>
@@ -115,7 +124,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
           {statusLog.map((event) => (
             <li key={event.id} className="text-sm text-app-muted">
               <strong className="text-app-text">{event.fromStatus ? getApplicationStatusLabel(event.fromStatus) : 'New'} → {getApplicationStatusLabel(event.toStatus)}</strong>
-              {event.reason ? <span> · {event.reason}</span> : null}
+              {event.reason ? <span> · {rejectionNote(event.toStatus, event.reason)}</span> : null}
               <span className="block text-xs">{describeStatusActor(event, showActorName)} · {fmtDate(event.at)}</span>
             </li>
           ))}
@@ -129,7 +138,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
       <ol className="m-0 grid gap-2 pl-5">
         {timeline.map((event) => (
           <li key={event.id} className="text-sm text-app-muted">
-            <strong className="text-app-text">{getApplicationStatusLabel(event.stage)}</strong> · {event.note}
+            <strong className="text-app-text">{getApplicationStatusLabel(event.stage)}</strong> · {rejectionNote(event.stage, event.note)}
             <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
           </li>
         ))}
@@ -141,14 +150,15 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
 
 const verificationTone = (status) => (status === 'Verified' ? 'success' : status === 'Rejected' ? 'danger' : 'warning');
 
-// The reason the Admissions Office recorded when it rejected a vault file,
-// shown to the student and to staff. Files rejected before reasons were
-// recorded show nothing.
+// The reason the Admissions Office recorded when it reverted a vault file for
+// resubmission, shown to the student and to staff. The decision is stored as
+// `Rejected`; only the label says what the student has to do. Files reverted
+// before reasons were recorded show nothing.
 export function DocumentRejectionReason({ doc, className = '' }) {
   if (doc?.verificationStatus !== 'Rejected' || !doc.rejectionReason) return null;
   return (
     <p className={`m-0 rounded-xl border border-rose-400/30 bg-rose-500/5 px-3 py-2 text-sm text-app-text ${className}`}>
-      <span className="font-semibold text-rose-600 dark:text-rose-300">Rejection reason: </span>
+      <span className="font-semibold text-rose-600 dark:text-rose-300">What to correct: </span>
       <span className="whitespace-pre-line">{doc.rejectionReason}</span>
     </p>
   );
@@ -174,11 +184,12 @@ export function DocumentDecisionRecord({ doc, showReviewer = true, className = '
   );
 }
 
-// Lets a student swap a rejected file on a submitted, pre-endorsement
-// application: pick another vault file or upload a new one (it lands in the
-// Document Vault first). `options` comes from getReplacementOptions() in
-// src/lib/applicationRequirements.js; `onReplace(docId, { documentId } | { file,
-// documentType })` resolves to `{ ok }` or `{ error }`.
+// Lets a student swap a file that was reverted for resubmission on a submitted,
+// pre-endorsement application: pick another vault file or upload a new one (it
+// lands in the Document Vault first). `options` comes from
+// getReplacementOptions() in src/lib/applicationRequirements.js;
+// `onReplace(docId, { documentId } | { file, documentType })` resolves to
+// `{ ok }` or `{ error }`.
 export function RejectedDocumentReplacer({ doc, options, onReplace }) {
   const { documentTypes, candidates } = options;
   const [uploadType, setUploadType] = useState(documentTypes[0]);
@@ -221,7 +232,7 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
         <p className="m-0 text-sm font-semibold text-app-text">Replace “{doc.title}”</p>
         {doc.rejectionReason ? (
           <p className="m-0 text-sm text-app-text">
-            <span className="font-semibold text-rose-600 dark:text-rose-300">Rejection reason: </span>
+            <span className="font-semibold text-rose-600 dark:text-rose-300">What to correct: </span>
             <span className="whitespace-pre-line">{doc.rejectionReason}</span>
           </p>
         ) : null}
@@ -238,7 +249,7 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
           >
             <option value="">{candidates.length ? 'Select a file…' : 'No other matching files in your vault'}</option>
             {candidates.map((candidate) => (
-              <option key={candidate.id} value={candidate.id}>{candidate.title} · {candidate.verificationStatus} · {fmtDate(candidate.uploadedAt)}</option>
+              <option key={candidate.id} value={candidate.id}>{candidate.title} · {getDocumentStatusLabel(candidate.verificationStatus)} · {fmtDate(candidate.uploadedAt)}</option>
             ))}
           </select>
         </label>
@@ -293,7 +304,7 @@ export function SupportingDocumentList({ documents = [], onPreview, renderAttach
         <li key={doc.id} className="grid min-w-0 gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
           <span className="min-w-0 text-sm text-app-text">{doc.title} <span className="text-xs text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
           <span className="flex min-w-0 flex-wrap items-center gap-2">
-            <StatusBadge tone={verificationTone(doc.verificationStatus)}>{doc.verificationStatus}</StatusBadge>
+            <StatusBadge tone={verificationTone(doc.verificationStatus)}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
             {onPreview ? <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button> : null}
           </span>
           {renderAttachmentNote ? <div className="w-full">{renderAttachmentNote(doc)}</div> : null}
@@ -324,7 +335,7 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
           <span className="block text-sm text-app-text">{doc.title}</span>
           <span className="block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName ? `${doc.fileName} · ` : ''}{getDocumentTypeLabel(doc.documentType)}</span>
         </div>
-        <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
+        <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
       </div>
       <DocumentRejectionReason doc={doc} />
       <DocumentDecisionRecord doc={doc} />
@@ -363,7 +374,7 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
               <Button variant="primary" type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Verified')}>Verify document</Button>
             ) : null}
             {doc.verificationStatus !== 'Rejected' ? (
-              <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Rejected')}>Reject</Button>
+              <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Rejected')}>Revert for resubmission</Button>
             ) : null}
             {doc.verificationStatus !== 'Pending' && canReset ? (
               <Button type="button" className="!min-h-8 !px-2 !py-1 !text-xs" onClick={() => onChangeDocument(doc.id, 'Pending')}>Reset to pending</Button>
@@ -492,7 +503,7 @@ export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto
           </span>
           {applicantPhoto ? (
             <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-app-muted">
-              <StatusBadge tone={verificationTone(applicantPhoto.verificationStatus)}>{applicantPhoto.verificationStatus}</StatusBadge>
+              <StatusBadge tone={verificationTone(applicantPhoto.verificationStatus)}>{getDocumentStatusLabel(applicantPhoto.verificationStatus)}</StatusBadge>
               <span>Recent 2x2 ID photo · from the Document Vault</span>
             </span>
           ) : <span className="text-xs text-app-muted">Recent 2x2 ID photo · not attached</span>}

@@ -13,7 +13,7 @@ const SECTION_ORDER = ['application', 'personal', 'education', 'eligibility', 'b
 
 const REQUIREMENT_STATE_TEXT = {
   missing: 'Not attached',
-  rejected: 'Rejected',
+  rejected: 'Reverted for resubmission',
   outdated: 'Outdated',
   attached: 'Attached (pending review)',
   verified: 'Verified',

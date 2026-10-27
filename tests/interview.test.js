@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_INTERVIEW_INSTRUCTIONS,
+  INTERVIEW_RECOMMENDATION_LEVELS,
   buildCancelledInterview,
   buildGoogleCalendarTemplateUrl,
   buildInterviewIcs,
@@ -12,7 +13,9 @@ import {
   formatInterviewWhen,
   getEligiblePanelists,
   getInterviewDateKey,
+  getInterviewRecommendationLevelLabel,
   getInterviewReminderKey,
+  getLatestPanelRecommendation,
   isInterviewLive,
   isoToManilaInputs,
   manilaInputToIso,
@@ -463,5 +466,41 @@ describe('Google Calendar client', () => {
 
   it('reads the Meet link from the conference entry points', () => {
     expect(extractMeetLink({ conferenceData: { entryPoints: [{ entryPointType: 'phone', uri: 'tel:1' }, { entryPointType: 'video', uri: 'https://meet.google.com/a' }] } })).toBe('https://meet.google.com/a');
+  });
+});
+
+// Consultation 2, request #7: the panel recommends instead of rating 1-5, and
+// the deliberation reads the panel's latest level.
+describe('interview recommendation levels', () => {
+  it('lists the five levels the database accepts', () => {
+    expect(INTERVIEW_RECOMMENDATION_LEVELS.map((entry) => entry.value)).toEqual([
+      'highly_recommended',
+      'recommended',
+      'recommended_with_reservation',
+      'not_recommended',
+      'deferred',
+    ]);
+    expect(getInterviewRecommendationLevelLabel('recommended_with_reservation')).toBe('Recommended with reservation');
+    expect(getInterviewRecommendationLevelLabel('not-a-level')).toBe('');
+    expect(getInterviewRecommendationLevelLabel('')).toBe('');
+  });
+
+  it('reads the newest note that states a level', () => {
+    const latest = getLatestPanelRecommendation([
+      { id: 'n-1', recommendationLevel: 'recommended', authorName: 'Ana Reyes', createdAt: '2026-01-05T02:00:00.000Z' },
+      { id: 'n-2', authorName: 'Carlo Uy', createdAt: '2026-01-06T02:00:00.000Z' },
+      { id: 'n-3', recommendationLevel: 'not_recommended', authorName: 'Carla Lim', createdAt: '2026-01-07T02:00:00.000Z' },
+    ]);
+    expect(latest).toMatchObject({
+      level: 'not_recommended',
+      label: 'Not recommended',
+      authorName: 'Carla Lim',
+      createdAt: '2026-01-07T02:00:00.000Z',
+    });
+  });
+
+  it('says nothing when the panel only recorded observations', () => {
+    expect(getLatestPanelRecommendation([{ id: 'n-1', rating: 4, body: 'Clear goals.' }])).toBeNull();
+    expect(getLatestPanelRecommendation()).toBeNull();
   });
 });

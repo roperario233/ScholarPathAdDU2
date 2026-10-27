@@ -1892,6 +1892,19 @@ create table if not exists public.application_interview_notes (
   author_id uuid not null references public.profiles(user_id) on delete cascade,
   author_role text not null check (author_role in ('admissions_office', 'admissions_head', 'department_chair')),
   rating smallint check (rating is null or rating between 1 and 5),
+  -- The panel's recommendation (SOP step 6 input). `rating` is kept so a note
+  -- recorded before this column still displays; see
+  -- 20261041000000_add_interview_recommendation_levels.sql.
+  recommendation_level text check (
+    recommendation_level is null
+    or recommendation_level in (
+      'highly_recommended',
+      'recommended',
+      'recommended_with_reservation',
+      'not_recommended',
+      'deferred'
+    )
+  ),
   body text not null check (char_length(btrim(body)) between 1 and 2000),
   created_at timestamptz not null default now()
 );

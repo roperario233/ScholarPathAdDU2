@@ -223,6 +223,63 @@ describe('ApplicationReviewModal Interview tab', () => {
   });
 });
 
+// Consultation 2, request #7: evaluation notes carry a recommendation level
+// instead of a 1-5 rating, and the deliberation action states the latest level.
+describe('ApplicationReviewModal interview recommendation levels', () => {
+  const atInterview = () => render({
+    application: application({ status: 'Interview', interview: pastInterview }),
+    role: 'admissions_office',
+    initialTab: 'interview',
+    interviewWorkspace: workspace(),
+  });
+
+  it('records a recommendation level instead of a rating', () => {
+    const html = atInterview();
+    expect(html).toContain('Recommendation');
+    expect(html).toContain('Highly recommended');
+    expect(html).toContain('Recommended with reservation');
+    expect(html).toContain('Deferred');
+    // The 1-5 scale is gone from the form.
+    expect(html).not.toContain('Not rated');
+    expect(html).not.toContain('of 5<');
+  });
+
+  it('states the panel’s latest recommendation beside the deliberation action', () => {
+    const html = render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'admissions_office',
+      interviewWorkspace: workspace({
+        notes: [{
+          id: 'n-1',
+          applicationId: 'app-1',
+          authorName: 'Ana Reyes',
+          authorRole: 'department_chair',
+          recommendationLevel: 'recommended_with_reservation',
+          body: 'Strong need, thin margin.',
+          createdAt: '2026-01-05T02:00:00.000Z',
+        }],
+      }),
+    });
+    expect(html).toContain('Panel recommendation: Recommended with reservation · Ana Reyes');
+  });
+
+  it('says when the panel has not recommended anything yet', () => {
+    expect(atInterview()).toContain('No panel recommendation recorded yet.');
+  });
+
+  it('keeps an earlier note’s rating visible as a legacy record', () => {
+    const html = render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'admissions_office',
+      initialTab: 'interview',
+      interviewWorkspace: workspace({
+        notes: [{ id: 'n-1', applicationId: 'app-1', authorName: 'Ana Reyes', authorRole: 'department_chair', rating: 4, body: 'Clear goals.', createdAt: '2026-01-05T02:00:00.000Z' }],
+      }),
+    });
+    expect(html).toContain('Rating 4/5 (earlier record)');
+  });
+});
+
 describe('StudentInterviewCard', () => {
   it('shows the schedule and the school, never the panel members', () => {
     const html = renderToStaticMarkup(

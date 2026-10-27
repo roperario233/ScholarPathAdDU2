@@ -51,6 +51,7 @@ export default function AdminInterviews({
   reviewComments = [],
   onAddComment,
   onChangeApplication,
+  onRejectApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
@@ -161,6 +162,7 @@ export default function AdminInterviews({
           initialTab="interview"
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
+          onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

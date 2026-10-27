@@ -15,7 +15,9 @@ import {
   formatInterviewWhen,
   getEligiblePanelists,
   getInterviewModeLabel,
+  getInterviewRecommendationLevelLabel,
   getInterviewStateLabel,
+  INTERVIEW_RECOMMENDATION_LEVELS,
   isStructuredInterview,
   isoToManilaInputs,
   needsInterviewCalendarRepair,
@@ -450,7 +452,7 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, role
 
 function InterviewNotes({ notes, canAdd, onAddNote }) {
   const [body, setBody] = useState('');
-  const [rating, setRating] = useState('');
+  const [recommendationLevel, setRecommendationLevel] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (event) => {
@@ -458,37 +460,44 @@ function InterviewNotes({ notes, canAdd, onAddNote }) {
     if (!body.trim()) { setError('Write the evaluation note first.'); return; }
     setBusy(true);
     setError('');
-    const result = await onAddNote({ body: body.trim(), rating: rating ? Number(rating) : null });
+    // The level is the panel's recommendation; the note may record observations
+    // without one, so it stays optional.
+    const result = await onAddNote({ body: body.trim(), recommendationLevel: recommendationLevel || null });
     setBusy(false);
     if (result?.error) { setError(result.error); return; }
     setBody('');
-    setRating('');
+    setRecommendationLevel('');
   };
   return (
     <div className="grid gap-3">
       {notes.length ? (
         <ul className="m-0 grid gap-2 p-0">
-          {notes.map((note) => (
-            <li key={note.id} className="grid gap-1 rounded-[14px] border border-app-border bg-app-surface p-3">
-              <span className="text-xs text-app-muted">
-                <strong className="text-app-text">{note.authorName || 'Reviewer'}</strong>
-                {' · '}{roleLabels[note.authorRole] || 'Staff'}
-                {note.rating ? <>{' · '}<span aria-label={`Rating ${note.rating} of 5`}>Rating {note.rating}/5</span></> : null}
-                {' · '}{fmtWhen(note.createdAt)}
-              </span>
-              <p className="m-0 whitespace-pre-line text-sm text-app-text">{note.body}</p>
-            </li>
-          ))}
+          {notes.map((note) => {
+            const levelLabel = getInterviewRecommendationLevelLabel(note.recommendationLevel);
+            return (
+              <li key={note.id} className="grid gap-1 rounded-[14px] border border-app-border bg-app-surface p-3">
+                <span className="text-xs text-app-muted">
+                  <strong className="text-app-text">{note.authorName || 'Reviewer'}</strong>
+                  {' · '}{roleLabels[note.authorRole] || 'Staff'}
+                  {levelLabel ? <>{' · '}<StatusBadge tone="info">{levelLabel}</StatusBadge></> : null}
+                  {/* A note recorded before recommendation levels existed keeps its score. */}
+                  {!levelLabel && note.rating ? <>{' · '}<span aria-label={`Rating ${note.rating} of 5`}>Rating {note.rating}/5 (earlier record)</span></> : null}
+                  {' · '}{fmtWhen(note.createdAt)}
+                </span>
+                <p className="m-0 whitespace-pre-line text-sm text-app-text">{note.body}</p>
+              </li>
+            );
+          })}
         </ul>
       ) : <EmptyState title="No evaluation notes yet" description="The panel records its evaluation here after the interview." />}
       {canAdd ? (
         <form className="grid gap-2" onSubmit={submit}>
-          <div className="grid gap-2 sm:grid-cols-[10rem_minmax(0,1fr)]">
+          <div className="grid gap-2 sm:grid-cols-[13rem_minmax(0,1fr)]">
             <label className="grid content-start gap-1 text-sm text-app-text">
-              <span className="font-semibold">Rating</span>
-              <select value={rating} onChange={(event) => setRating(event.target.value)}>
-                <option value="">Not rated</option>
-                {[5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{value} of 5</option>)}
+              <span className="font-semibold">Recommendation</span>
+              <select value={recommendationLevel} onChange={(event) => setRecommendationLevel(event.target.value)}>
+                <option value="">No recommendation</option>
+                {INTERVIEW_RECOMMENDATION_LEVELS.map((level) => <option key={level.value} value={level.value}>{level.label}</option>)}
               </select>
             </label>
             <label className="grid content-start gap-1 text-sm text-app-text">

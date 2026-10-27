@@ -167,6 +167,9 @@ const toInterviewNote = (row, nameById = {}) => ({
   authorId: row.author_id,
   authorRole: row.author_role,
   authorName: nameById[row.author_id] || null,
+  // The panel's recommendation (SOP step 6 input). `rating` stays for notes
+  // recorded before recommendation levels existed.
+  recommendationLevel: row.recommendation_level ?? null,
   rating: row.rating ?? null,
   body: row.body,
   createdAt: row.created_at,
@@ -530,12 +533,13 @@ export const replaceSupabaseInterviewPanel = async (applicationId, panel = [], n
   return { data: (inserted.data || []).map((row) => toInterviewPanelist(row, nameById)), error: inserted.error };
 };
 
-export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, rating, body }) => {
+export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, recommendationLevel = null, rating = null, body }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const result = await supabase.from('application_interview_notes').insert({
     application_id: applicationId,
     author_id: authorId,
     author_role: authorRole,
+    recommendation_level: recommendationLevel ?? null,
     rating: rating ?? null,
     body,
   }).select('*').single();

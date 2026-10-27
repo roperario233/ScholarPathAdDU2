@@ -277,17 +277,18 @@ export const REQUIREMENT_STATE_LABELS = {
   missing: { label: 'Not attached', tone: 'neutral' },
   attached: { label: 'Attached · Pending review', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
-  rejected: { label: 'Rejected · Replace file', tone: 'danger' },
+  rejected: { label: 'Reverted · Upload a replacement', tone: 'danger' },
   outdated: { label: 'Outdated · Upload a current proof', tone: 'danger' },
 };
 
 // The same states read against the whole Document Vault rather than one
-// application's attachments, for the My Profile document checklist.
+// application's attachments, for the My Profile document checklist. The stored
+// document decision is `Rejected`; the label says what the student has to do.
 export const VAULT_REQUIREMENT_STATE_LABELS = {
   missing: { label: 'Missing', tone: 'neutral' },
   attached: { label: 'Pending', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
-  rejected: { label: 'Rejected', tone: 'danger' },
+  rejected: { label: 'Reverted · Upload a replacement', tone: 'danger' },
   outdated: { label: 'Outdated', tone: 'danger' },
 };
 
@@ -510,7 +511,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   const rejected = requirements.filter((item) => item.state === 'rejected');
   const outdated = requirements.filter((item) => item.state === 'outdated');
   if (missing.length) blockers.push(`Attach ${missing.length === 1 ? 'the required document' : `${missing.length} required documents`}: ${missing.map((item) => item.label).join('; ')}.`);
-  if (rejected.length) blockers.push(`Replace the rejected file for: ${rejected.map((item) => item.label).join('; ')}.`);
+  if (rejected.length) blockers.push(`Upload a replacement for the reverted file: ${rejected.map((item) => item.label).join('; ')}.`);
   outdated.forEach((item) => blockers.push(describeOutdatedRequirement(item, proofContext)));
   // FORM 230-SCH time-sensitive answers (office-only). A submitted application
   // already froze them, so only a Draft is held to the step.
@@ -648,7 +649,7 @@ export const describeDocumentDecision = (doc, { showName = false } = {}) => {
   if (!doc) return 'No review decision recorded.';
   const status = doc.verificationStatus;
   if (!status || status === 'Pending') return 'Awaiting review — no decision recorded yet.';
-  const verb = status === 'Rejected' ? 'Rejected' : 'Verified';
+  const verb = status === 'Rejected' ? 'Reverted for resubmission' : 'Verified';
   if (!doc.decidedAt && !doc.reviewedBy && !doc.reviewedByRole) {
     return `${verb} · recorded before reviewer details were kept.`;
   }

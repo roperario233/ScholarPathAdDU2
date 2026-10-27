@@ -159,9 +159,12 @@ export const renderReminderSms = ({ title, itemTitle, deadline, daysBefore }) =>
 
 /** Renders an application status-change text message for the application workspace. */
 export const renderApplicationStatusSms = ({ scholarshipTitle, status, interview = null }) => ({
-  message: status === 'Interview' && isStructuredInterview(interview)
-    ? `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview is on ${formatInterviewDateShort(interview.startsAt)} (${interview.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`
-    : `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
+  message: status === 'Rejected'
+    // A general notice: the recorded reason stays with the Admissions Office.
+    ? `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} was not accepted. Sign in to view details.`
+    : status === 'Interview' && isStructuredInterview(interview)
+      ? `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview is on ${formatInterviewDateShort(interview.startsAt)} (${interview.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`
+      : `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
 });
 
 /** Renders the day-before interview reminder text. */
@@ -176,18 +179,18 @@ export const renderInterviewUpdateSms = ({ kind = 'rescheduled', interview, scho
     : `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview was moved to ${formatInterviewDateShort(interview?.startsAt)} (${interview?.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`,
 });
 
-// Keeps the rejection reason short enough that the text stays within a couple
-// of billable segments; the email and in-app rows carry the full reason.
-export const SMS_REASON_MAX_LENGTH = 120;
+// Keeps the resubmission note short enough that the text stays within two
+// billable segments; the email and in-app rows carry the full note.
+export const SMS_REASON_MAX_LENGTH = 104;
 
-/** Renders the text sent when the Admissions Office rejects a Document Vault file. */
+/** Renders the text sent when the Admissions Office reverts a Document Vault file for resubmission. */
 export const renderDocumentRejectionSms = ({ documentTitle, reason }) => {
   const trimmed = String(reason || '').trim().replace(/\s+/g, ' ');
   const shortReason = trimmed.length > SMS_REASON_MAX_LENGTH
     ? `${trimmed.slice(0, SMS_REASON_MAX_LENGTH - 1).trimEnd()}…`
     : trimmed;
   return {
-    message: `ScholarPath AdDU: ${documentTitle || 'a document'} was rejected${shortReason ? ` (${shortReason})` : ''}. Sign in to replace the file.`,
+    message: `ScholarPath AdDU: ${documentTitle || 'a document'} was reverted for resubmission${shortReason ? ` (${shortReason})` : ''}. Sign in to upload a corrected file.`,
   };
 };
 

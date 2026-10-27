@@ -243,6 +243,12 @@ export const describeApplicationStatusUpdate = (status, actorLabel = 'the review
   if (status === 'Interview' && isStructuredInterview(interview)) {
     return `Your interview is scheduled: ${summarizeInterview(interview)}.${interview.instructions ? ` ${interview.instructions}` : ''}`;
   }
+  // A rejection is a general notice. The recorded reason stays with the
+  // Admissions Office (FORM 230-SCH affidavit clause 6), and the student's
+  // status history shows the same sentence.
+  if (status === 'Rejected') {
+    return 'Your application was not accepted. No further action is needed for this application period.';
+  }
   return `Your application status was updated to ${getApplicationStatusLabel(status)} through ${actorLabel}. Sign in to review the next steps.`;
 };
 
@@ -298,22 +304,22 @@ export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, 
 };
 
 /**
- * Renders the email sent when the Admissions Office rejects a Document Vault
- * file. It carries the recorded reason and tells the student where to replace
- * the file (the application's details, while the application is before
- * endorsement).
+ * Renders the email sent when the Admissions Office reverts a Document Vault
+ * file for resubmission. It carries what the student must correct and tells them
+ * where to replace the file (the application's details, while the application is
+ * before endorsement).
  */
 export const renderDocumentRejectionEmail = ({ documentTitle, reason, scholarshipTitles = [], siteUrl }) => {
   const title = documentTitle || 'Your document';
-  const heading = `${title} needs a replacement`;
+  const heading = `${title} needs to be resubmitted`;
   const applications = (Array.isArray(scholarshipTitles) ? scholarshipTitles : []).filter(Boolean);
   const intro = applications.length
-    ? 'The Admissions Office could not verify this document. Open the application in ScholarPath AdDU and replace the file so your application can continue.'
-    : 'The Admissions Office could not verify this document. Upload a corrected file to your Document Vault.';
+    ? 'The Admissions Office reverted this document for resubmission. Open the application in ScholarPath AdDU and replace the file so your application can continue.'
+    : 'The Admissions Office reverted this document for resubmission. Upload a corrected file to your Document Vault.';
   const link = `${siteUrl}?view=applications`;
   const rows = [
     { label: 'Document', value: title },
-    { label: 'Reason', value: reason || 'No reason was recorded.' },
+    { label: 'What to correct', value: reason || 'No note was recorded.' },
     ...(applications.length ? [{ label: applications.length === 1 ? 'Application' : 'Applications', value: applications.join(', ') }] : []),
   ];
 
