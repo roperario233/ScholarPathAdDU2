@@ -719,7 +719,100 @@ begin
 end;
 $$;
 
--- The profile the gates read: the core columns plus the eligibility answers.
+-- FORM 230-SCH office-only financial details (see 20261036000000_add_application_financial_details.sql).
+create table if not exists public.student_financial_profiles (
+  student_id uuid primary key references auth.users (id) on delete cascade,
+  details jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.student_financial_profiles enable row level security;
+
+drop policy if exists "student_financial_profiles_owner" on public.student_financial_profiles;
+create policy "student_financial_profiles_owner" on public.student_financial_profiles
+for all
+using (student_id = auth.uid())
+with check (student_id = auth.uid());
+
+drop policy if exists "student_financial_profiles_office_read" on public.student_financial_profiles;
+create policy "student_financial_profiles_office_read" on public.student_financial_profiles
+for select using (public.is_admissions_office());
+
+create table if not exists public.application_financial_details (
+  application_id uuid primary key references public.applications (id) on delete cascade,
+  student_id uuid not null references auth.users (id) on delete cascade,
+  answers jsonb not null default '{}'::jsonb,
+  financial_snapshot jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.application_financial_details enable row level security;
+
+drop policy if exists "application_financial_details_owner_read" on public.application_financial_details;
+create policy "application_financial_details_owner_read" on public.application_financial_details
+for select using (student_id = auth.uid());
+
+drop policy if exists "application_financial_details_owner_insert" on public.application_financial_details;
+create policy "application_financial_details_owner_insert" on public.application_financial_details
+for insert with check (
+  student_id = auth.uid()
+  and exists (
+    select 1 from public.applications a
+    where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft'
+  )
+);
+
+drop policy if exists "application_financial_details_owner_update" on public.application_financial_details;
+create policy "application_financial_details_owner_update" on public.application_financial_details
+for update
+using (
+  student_id = auth.uid()
+  and exists (
+    select 1 from public.applications a
+    where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft'
+  )
+)
+with check (student_id = auth.uid());
+
+drop policy if exists "application_financial_details_office_read" on public.application_financial_details;
+create policy "application_financial_details_office_read" on public.application_financial_details
+for select using (public.is_admissions_office());
+
+-- The frozen financial snapshot is database-owned: a student's insert starts
+-- empty and a student's update cannot change it. The submit trigger below runs
+-- one trigger level deeper, so it passes.
+create or replace function public.protect_application_financial_snapshot()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if pg_trigger_depth() > 1 or public.current_profile_role() is distinct from 'student' then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.financial_snapshot := null;
+  else
+    new.financial_snapshot := old.financial_snapshot;
+    new.application_id := old.application_id;
+    new.student_id := old.student_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_application_financial_snapshot on public.application_financial_details;
+create trigger protect_application_financial_snapshot
+before insert or update on public.application_financial_details
+for each row execute function public.protect_application_financial_snapshot();
+
+
+-- ---------------------------------------------------------------------------
+-- The profile the gates read now also carries the new core answers: the
+-- descriptive profile_details keys the gate needs plus the student's financial
+-- profile. Core columns still win over the JSON.
+-- ---------------------------------------------------------------------------
 create or replace function public.student_profile_answers(p_user_id uuid)
 returns jsonb
 language sql
@@ -729,19 +822,46 @@ set search_path = public
 as $$
   select coalesce(p.eligibility_attributes, '{}'::jsonb)
     || jsonb_build_object(
+      'birthdate', p.profile_details -> 'birthdate',
+      'sexAtBirth', p.profile_details -> 'sexAtBirth',
+      'civilStatus', p.profile_details -> 'civilStatus',
+      'completeAddress', p.profile_details -> 'completeAddress',
+      'schoolLastAttended', p.profile_details -> 'schoolLastAttended',
+      'communityService', p.profile_details -> 'communityService',
+      'familyDetails', p.profile_details -> 'familyDetails',
+      'financialProfile', f.details
+    )
+    || jsonb_build_object(
       'fullName', p.full_name,
       'studentNumber', p.student_number,
       'degreeProgram', p.degree_program,
       'qpi', p.qpi,
-      'householdIncome', p.household_income
+      'householdIncome', p.household_income,
+      'phone', p.phone
     )
   from public.profiles p
+  left join public.student_financial_profiles f on f.student_id = p.user_id
   where p.user_id = p_user_id;
 $$;
 
--- The first "Needed to apply" answer still missing for the standing, or null
--- when the profile is complete. Mirrors getProfileCompleteness() (group
--- `application`) in src/lib/profile.js.
+-- A parent counts as answered when deceased, or when the employment status and
+-- the annual income are recorded (0 is a valid income).
+create or replace function public.parent_finances_answered(p_profile jsonb, p_parent text)
+returns boolean
+language sql
+immutable
+as $$
+  select
+    coalesce(p_profile #>> array['familyDetails', p_parent || 'Deceased'], 'false') = 'true'
+    or (
+      coalesce(p_profile #>> array['financialProfile', p_parent, 'employmentStatus'], '')
+        in ('employed', 'self-employed', 'unemployed')
+      and coalesce(p_profile #>> array['financialProfile', p_parent, 'annualIncome'], '') ~ '^[0-9]+(\.[0-9]+)?$'
+    );
+$$;
+
+-- Same checks as 20261028000000 plus the FORM 230-SCH core items. Mirrors
+-- getProfileCompleteness() (group `application`) in src/lib/profile.js.
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text
 language plpgsql
@@ -767,6 +887,34 @@ begin
   end if;
   if v_income is null or v_income < 0 then return 'Annual household income'; end if;
   if coalesce(p_profile ->> 'citizenship', '') not in ('Filipino', 'Non-Filipino') then return 'Citizenship'; end if;
+  if coalesce(btrim(p_profile ->> 'civilStatus'), '') = '' then return 'Civil status'; end if;
+  if v_standing = 'incoming-1st' and coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then
+    return 'Senior high school strand';
+  end if;
+  if coalesce(btrim(p_profile ->> 'completeAddress'), '') = '' then return 'Complete address'; end if;
+  if coalesce(p_profile ->> 'ipCommunity', '') not in ('Yes', 'No') then return 'IP community'; end if;
+  if coalesce(p_profile ->> 'pwd', '') not in ('Yes', 'No') then return 'Person with Disability (PWD)'; end if;
+  if coalesce(p_profile ->> 'employed', '') not in ('Not employed', 'Part-time', 'Full-time', 'Self-employed') then
+    return 'Employment status';
+  end if;
+  if coalesce(p_profile ->> 'birthdate', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then return 'Birthdate'; end if;
+  if coalesce(p_profile ->> 'sexAtBirth', '') not in ('Female', 'Male') then return 'Sex assigned at birth'; end if;
+  if v_standing = 'incoming-1st'
+    and char_length(btrim(coalesce(p_profile #>> '{schoolLastAttended,name}', ''))) = 0 then
+    return 'Senior high school last attended';
+  end if;
+  if coalesce(p_profile ->> 'communityService', '') not in ('Yes', 'No') then
+    return 'Willingness to render community service';
+  end if;
+  if coalesce(p_profile #>> '{financialProfile,economicStatus}', '') not in ('lower', 'middle', 'upper') then
+    return 'Perceived economic status';
+  end if;
+  if not public.parent_finances_answered(p_profile, 'father') then return 'Father''s employment and income'; end if;
+  if not public.parent_finances_answered(p_profile, 'mother') then return 'Mother''s employment and income'; end if;
+  -- A Philippine mobile number: 09XXXXXXXXX, +639XXXXXXXXX or 9XXXXXXXXX (formatting ignored).
+  if regexp_replace(coalesce(p_profile ->> 'phone', ''), '\D', '', 'g') !~ '^(63|0)?9[0-9]{9}$' then
+    return 'Philippine mobile number';
+  end if;
   return null;
 end;
 $$;
@@ -930,6 +1078,98 @@ drop trigger if exists enforce_student_application_update on public.applications
 create trigger enforce_student_application_update
   before insert or update on public.applications
   for each row execute function public.enforce_student_application_update();
+
+-- ---------------------------------------------------------------------------
+-- Submitting an in-scope application needs the financial situation answers,
+-- and the database freezes the student's financial profile with them. Kept as
+-- separate triggers so enforce_student_application_update is unchanged.
+-- ---------------------------------------------------------------------------
+create or replace function public.financial_answers_complete(p_answers jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select
+    coalesce(p_answers ->> 'otherIncomeAnswer', '') in ('yes', 'no')
+    and coalesce(p_answers ->> 'difficultyAnswer', '') in ('yes', 'no')
+    and (
+      p_answers ->> 'difficultyAnswer' = 'no'
+      or (
+        char_length(btrim(coalesce(p_answers ->> 'difficultyReasons', ''))) > 0
+        and char_length(btrim(coalesce(p_answers ->> 'difficultyCoping', ''))) > 0
+      )
+    )
+    and coalesce(p_answers ->> 'allowanceEnough', '') in ('yes', 'no')
+    and char_length(btrim(coalesce(p_answers ->> 'foodIntake', ''))) > 0
+    and char_length(btrim(coalesce(p_answers ->> 'transportMode', ''))) > 0
+    and coalesce(p_answers ->> 'allowanceDaily', '') ~ '^[0-9]+(\.[0-9]+)?$'
+    and coalesce(p_answers ->> 'expenseFood', '') ~ '^[0-9]+(\.[0-9]+)?$'
+    and coalesce(p_answers ->> 'expenseTransport', '') ~ '^[0-9]+(\.[0-9]+)?$'
+    and coalesce(p_answers ->> 'expenseOther', '') ~ '^[0-9]+(\.[0-9]+)?$';
+$$;
+
+create or replace function public.require_application_financial_answers()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_scholarship public.scholarships%rowtype;
+  v_answers jsonb;
+begin
+  if public.current_profile_role() is distinct from 'student' then
+    return new;
+  end if;
+  if not (old.status = 'Draft' and new.status = 'Submitted') then
+    return new;
+  end if;
+
+  select * into v_scholarship from public.scholarships where id = new.scholarship_id;
+  if not found
+    or coalesce(v_scholarship.is_external, false)
+    or not public.is_addu_in_scope_track(v_scholarship.title) then
+    return new;
+  end if;
+
+  select answers into v_answers from public.application_financial_details where application_id = new.id;
+  if v_answers is null or not public.financial_answers_complete(v_answers) then
+    raise exception 'Complete the financial situation step before submitting.' using errcode = '23514';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists require_application_financial_answers on public.applications;
+create trigger require_application_financial_answers
+before update on public.applications
+for each row execute function public.require_application_financial_answers();
+
+create or replace function public.freeze_application_financial_snapshot()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if old.status = 'Draft' and new.status = 'Submitted' then
+    update public.application_financial_details d
+    set financial_snapshot = coalesce(
+          (select f.details from public.student_financial_profiles f where f.student_id = new.student_id),
+          '{}'::jsonb
+        ),
+        updated_at = now()
+    where d.application_id = new.id;
+  end if;
+  return null;
+end;
+$$;
+
+drop trigger if exists freeze_application_financial_snapshot on public.applications;
+create trigger freeze_application_financial_snapshot
+after update on public.applications
+for each row execute function public.freeze_application_financial_snapshot();
+
 
 -- Manuscript Section 3.3.3: an application linked to a Pending or Rejected
 -- document cannot proceed to interview or subcommittee evaluation. The
@@ -2019,3 +2259,9 @@ for select using (auth.uid() = user_id);
 -- create trigger notify_interview_update_change
 --   after update on public.applications
 --   for each row execute function public.notify_interview_update_change();
+
+-- Only the database triggers call these (see 20261036000001_restrict_financial_function_access.sql).
+revoke execute on function public.student_profile_answers(uuid) from public, anon, authenticated;
+revoke execute on function public.protect_application_financial_snapshot() from public, anon, authenticated;
+revoke execute on function public.require_application_financial_answers() from public, anon, authenticated;
+revoke execute on function public.freeze_application_financial_snapshot() from public, anon, authenticated;

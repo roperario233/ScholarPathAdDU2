@@ -1,41 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
+import ApplicationPrintButton from '../components/ApplicationPrintSheet';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
-import { getApplicantPhotoDocument, getApplicationReadiness, getProfileSnapshotSections, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
+import { buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
-import { describeInterviewForStudent, summarizeInterview } from '../lib/interview';
+import { getFinancialDetailSections } from '../lib/financialDetails';
+import { summarizeInterview } from '../lib/interview';
 
 const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', 'For Endorsement': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
-
-// The frozen profile snapshot as report lines, grouped like the on-screen list.
-// The 2x2 ID photo leads the snapshot on screen; a text report can only name the
-// file the application attaches, so it records that line instead of the image.
-const snapshotLines = (snapshot, isOpenDraft, applicantPhoto = null) => {
-  const photoLine = `- 2x2 applicant photo: ${applicantPhoto ? `${applicantPhoto.title} (${applicantPhoto.verificationStatus})` : 'Not attached'}`;
-  if (!snapshot) return [photoLine, isOpenDraft ? '(Recorded when you submit the application.)' : '(No profile snapshot was recorded.)'];
-  const { legacy, sections } = getProfileSnapshotSections(snapshot);
-  return [
-    photoLine,
-    ...sections.flatMap((section) => [
-      `${section.title}:`,
-      ...section.rows.map((row) => `- ${row.label}: ${row.value || 'Not encoded'}${row.verification ? ` [${row.verification}]` : ''}`),
-    ]),
-    ...(legacy ? ['(Submitted before the extended profile details were recorded.)'] : []),
-    ...(snapshot.capturedAt ? [`Self-reported values as of ${fmtDate(snapshot.capturedAt)}.`] : []),
-  ];
-};
-
-// A file line in the text report. A rejected file records why, so the exported
-// report carries the same reason the student sees on screen.
-const describeReportDocument = (doc) => `${doc.title} (${doc.verificationStatus}${doc.verificationStatus === 'Rejected' && doc.rejectionReason ? ` — ${doc.rejectionReason}` : ''})`;
 
 export default function ApplicationsView({
   applications,
@@ -52,6 +32,8 @@ export default function ApplicationsView({
   onSubmit,
   onSaveProfile,
   onOpenProfile,
+  financialAnswersByApplication = {},
+  financialSnapshotsByApplication = {},
 }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -59,7 +41,7 @@ export default function ApplicationsView({
   const [preview, setPreview] = useState(null);
 
   const scholarshipById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry])), [scholarships]);
-  const readinessFor = (entry) => getApplicationReadiness({ application: entry, scholarship: scholarshipById[entry.scholarshipId], documents, profile });
+  const readinessFor = (entry) => getApplicationReadiness({ application: entry, scholarship: scholarshipById[entry.scholarshipId], documents, profile, financialAnswers: financialAnswersByApplication[entry.id] });
 
   const filtered = useMemo(() => applications.filter((entry) => {
     const matchesQuery = !query.trim() || entry.scholarshipTitle.toLowerCase().includes(query.trim().toLowerCase());
@@ -71,50 +53,27 @@ export default function ApplicationsView({
     entry.id === openApplicationId && entry.status === 'Draft' && isAdduInternalProgram(scholarshipById[entry.scholarshipId])
   ));
 
-  const exportReport = (entry) => {
-    const scholarship = scholarshipById[entry.scholarshipId];
-    const readiness = readinessFor(entry);
-    const content = [
-      'SCHOLARPATH ADDU — APPLICATION REPORT',
-      '',
-      `Application: ${entry.scholarshipTitle}`,
-      `ID: ${entry.id}`,
-      `Status: ${getApplicationStatusLabel(entry.status)}`,
-      `Progress: ${toPercent(getApplicationProgress(entry.status))}`,
-      `Deadline: ${scholarship ? fmtDate(scholarship.deadline) : 'N/A'}`,
-      `Submitted: ${entry.submittedAt ? fmtDate(entry.submittedAt) : 'Not yet'}`,
-      `Certified: ${entry.certifiedAt ? fmtDate(entry.certifiedAt) : 'Not yet'}`,
-      '',
-      'REQUIRED DOCUMENTS',
-      ...(readiness.requirements.length
-        ? readiness.requirements.map((item) => `- ${item.label}: ${item.attached.length ? item.attached.map(describeReportDocument).join(', ') : 'Not attached'}`)
-        : ['- None listed']),
-      '',
-      'SUPPORTING DOCUMENTS',
-      ...(readiness.supportingDocuments.length
-        ? readiness.supportingDocuments.map((doc) => `- ${doc.title} (${getDocumentTypeLabel(doc.documentType)}, ${doc.verificationStatus}${doc.verificationStatus === 'Rejected' && doc.rejectionReason ? ` — ${doc.rejectionReason}` : ''})`)
-        : ['- None attached']),
-      '',
-      'PROFILE SNAPSHOT',
-      ...snapshotLines(entry.profileSnapshot, entry.status === 'Draft' && readiness.route === 'internal', getApplicantPhotoDocument(entry, documents)),
-      '',
-      'STATEMENT',
-      entry.statement || '(none)',
-      '',
-      ...(entry.interview ? [
-        'INTERVIEW',
-        `- ${describeInterviewForStudent(entry.interview)?.stateLabel || 'Scheduled'}: ${summarizeInterview(entry.interview)}`,
-        '',
-      ] : []),
-      entry.notes || '',
-    ].join('\n');
-    const link = document.createElement('a');
-    link.href = `data:text/plain;charset=utf-8,${encodeURIComponent(content)}`;
-    link.download = `Application_${entry.scholarshipTitle.replace(/[^a-z0-9]+/gi, '_')}.txt`;
-    link.click();
-  };
-
   const selectedReadiness = selected ? readinessFor(selected) : null;
+
+  // What the student may read of an application's office-only financial details:
+  // the answers they wrote and the financial profile frozen when they submitted
+  // (their current profile while the application is still a Draft).
+  const financialSectionsFor = (entry) => getFinancialDetailSections({
+    financialProfile: financialSnapshotsByApplication[entry.id] || (entry.status === 'Draft' ? profile?.financialProfile : null),
+    answers: financialAnswersByApplication[entry.id],
+    family: entry.profileSnapshot?.family || profile?.familyDetails || {},
+  });
+
+  // The printable application: the frozen snapshot once submitted, otherwise the
+  // current profile exactly as a submission would freeze it.
+  const printSheetFor = (entry, readiness) => ({
+    application: entry,
+    snapshot: entry.profileSnapshot || buildProfileSnapshot(profile, getApplicationAttributeVerifications(entry, documents, profile)),
+    financialSections: financialSectionsFor(entry),
+    statement: entry.statement,
+    requirements: readiness.requirements,
+    applicantPhoto: getApplicantPhotoDocument(entry, documents),
+  });
 
   // The Document Vault sends the student here with the application to fix
   // (`onResolveDocument` -> navigate('applications', { applicationId })). A
@@ -177,7 +136,7 @@ export default function ApplicationsView({
               {isDraft
                 ? <Button variant="primary" type="button" onClick={() => onOpenApplication(entry.id)}>Continue application</Button>
                 : <Button variant={needsReplacement ? 'primary' : 'secondary'} type="button" onClick={() => setSelectedId(entry.id)}>View details</Button>}
-              <button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20" type="button" onClick={() => exportReport(entry)}>Export report</button>
+              {isTracked ? null : <ApplicationPrintButton label="Print" sheet={printSheetFor(entry, readiness)} />}
             </div>
           </article>;
         }) : <EmptyState title={applications.length ? 'No matching applications' : 'No applications yet'} description={applications.length ? 'Try a different search or status filter.' : 'Start an application from the Scholarship Explorer.'} />}
@@ -218,7 +177,8 @@ export default function ApplicationsView({
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
-              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} applicantPhoto={getApplicantPhotoDocument(selected, documents)} onPreviewPhoto={setPreview} /></Panel>
+              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} applicantPhoto={getApplicantPhotoDocument(selected, documents)} onPreviewPhoto={setPreview} extraSections={financialSectionsFor(selected)} /></Panel>
+              <div><ApplicationPrintButton sheet={printSheetFor(selected, selectedReadiness)} /></div>
               <Panel className="grid gap-2">
                 <h3 className={sectionHeading}>Status history</h3>
                 {/* The student sees the actor's role (their profile read is scoped
@@ -238,6 +198,7 @@ export default function ApplicationsView({
         scholarship={scholarshipById[workspaceApplication.scholarshipId]}
         documents={documents}
         profile={profile}
+        financialAnswers={financialAnswersByApplication[workspaceApplication.id]}
         onAttach={onAttach}
         onDetach={onDetach}
         onUploadAndAttach={onUploadAndAttach}

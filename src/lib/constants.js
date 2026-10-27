@@ -302,6 +302,10 @@ export const generalDocumentTypeOptions = [
   { value: 'Recommendation Letter', label: 'Recommendation' },
   { value: 'Income Proof', label: 'Income Doc' },
   { value: 'Photos of Residence', label: 'Photos of Residence' },
+  // The two pages of the application that must stay on paper: printed from
+  // Print application form, signed, then uploaded.
+  { value: 'Barangay Residence Certification', label: 'Barangay Certification of Residence' },
+  { value: 'Signed Affidavit of Agreement', label: 'Signed Affidavit of Agreement' },
   { value: 'Good Moral Character', label: 'Good Moral Certificate' },
   { value: 'Certificate of Award', label: 'Certificate of Award' },
   { value: 'Transcript', label: 'Transcript' },

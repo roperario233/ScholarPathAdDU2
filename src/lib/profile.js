@@ -47,6 +47,19 @@ export const PROFILE_DETAIL_KEYS = [
   'residingAddress',
   'sameAsCompleteAddress',
   'familyDetails',
+  // FORM 230-SCH details (Application for Financial Aid). Stable facts that are
+  // reused across applications; the sensitive financial ones live in the
+  // office-only student_financial_profiles table instead (see financialDetails.js).
+  'birthdate',
+  'sexAtBirth',
+  'pronouns',
+  'housingType',
+  'housingOther',
+  'schoolLastAttended',
+  'awards',
+  'ipGroupName',
+  'previousGrants',
+  'communityService',
   // A longer free-text scholarship essay the student writes once and can reuse
   // across applications. Unlike the short bio it keeps its paragraph breaks.
   'essay',
@@ -470,6 +483,51 @@ export const familyPositionOptions = [
   { value: 'Youngest', label: 'Youngest' },
 ];
 
+export const siblingStatusOptions = [
+  { value: '', label: 'Select status' },
+  { value: 'Studying', label: 'Still studying' },
+  { value: 'Aged 3 or below', label: 'Aged 3 or below' },
+  { value: 'Employed', label: 'Employed' },
+  { value: 'Married', label: 'Married' },
+];
+
+// FORM 230-SCH personal and background options.
+export const sexAtBirthOptions = [
+  { value: '', label: 'Select' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Male', label: 'Male' },
+];
+
+export const housingTypeOptions = [
+  { value: '', label: 'Not applicable (I live at home)' },
+  { value: 'Boarding house or dormitory', label: 'Boarding house or dormitory' },
+  { value: 'With relatives', label: 'With relatives' },
+  { value: 'Other', label: 'Other' },
+];
+
+export const communityServiceOptions = [
+  { value: '', label: 'Select' },
+  { value: 'Yes', label: 'Yes' },
+  { value: 'No', label: 'No' },
+];
+
+export const grantTypeOptions = [
+  { value: 'Government', label: 'Government (CHED, DOST, STEP, GSIS, others)' },
+  { value: 'Private', label: 'Private' },
+];
+
+export const grantStatusOptions = [
+  { value: 'applied', label: 'Applied for' },
+  { value: 'accepted', label: 'Accepted' },
+];
+
+export const PRONOUNS_MAX_LENGTH = 40;
+export const SCHOOL_FIELD_MAX_LENGTH = 100;
+export const AWARDS_MAX_LENGTH = 500;
+export const MAX_SIBLING_ROWS = 15;
+export const MAX_HOUSEHOLD_ADULT_ROWS = 10;
+export const MAX_GRANT_ROWS = 10;
+
 export const FAMILY_NAME_MAX_LENGTH = 100;
 export const FAMILY_OCCUPATION_MAX_LENGTH = 100;
 export const ADDRESS_MAX_LENGTH = 240;
@@ -502,6 +560,14 @@ const isBlank = (value) => value === undefined || value === null || String(value
 export const pickFields = (source = {}, keys = []) => Object.fromEntries(
   keys.filter((key) => hasOwn(source, key) && source[key] !== undefined).map((key) => [key, source[key]]),
 );
+
+// `profiles.profile_details` is replaced on write, so a section save sends the
+// stored detail fields merged with the section's own patch. Writing the patch
+// alone would erase every other section's details on the server.
+export const mergeProfileDetails = (storedProfile, detailPatch) => ({
+  ...pickFields(storedProfile || {}, PROFILE_DETAIL_KEYS),
+  ...detailPatch,
+});
 
 // Returns only the known eligibility attributes, with sponsor ties narrowed to
 // booleans so stored JSON cannot inject unexpected keys into the matcher.
@@ -632,6 +698,67 @@ const validateText = (raw, { max, message }) => {
   return value.length > max ? { value, error: message } : ok(value);
 };
 
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const todayKey = () => new Date().toISOString().slice(0, 10);
+
+// ISO calendar date (YYYY-MM-DD) that is a real day and not in the future.
+// Blank is allowed; completeness decides whether the answer is required.
+export const validateOptionalDate = (raw, { label, minYear = 1930 } = {}) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return ok('');
+  const parsed = new Date(`${value}T00:00:00Z`);
+  const isRealDate = DATE_PATTERN.test(value)
+    && !Number.isNaN(parsed.getTime())
+    && parsed.toISOString().slice(0, 10) === value;
+  if (!isRealDate) return { value, error: `Enter ${label || 'the date'} as a valid date.` };
+  if (Number(value.slice(0, 4)) < minYear || value > todayKey()) {
+    return { value, error: `Enter ${label || 'the date'} as a past date.` };
+  }
+  return ok(value);
+};
+
+const toWholeNumber = (raw, { min, max }) => {
+  if (isBlank(raw)) return { value: '', error: false };
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= min && value <= max
+    ? { value, error: false }
+    : { value: raw, error: true };
+};
+
+// Repeatable-row validator for the siblings, household adults and grants lists.
+// `columns` maps a row key to its normalizer: `{ text: max }`, `{ age: true }`
+// or `{ options: [...] }`. A row with every column blank is dropped. Returns the
+// cleaned rows and the first error (rows are small, so one message is enough).
+const validateRows = (raw, { max, label, columns, required = [] }) => {
+  const rows = Array.isArray(raw) ? raw : [];
+  const cleaned = [];
+  let error = '';
+  rows.forEach((entry, index) => {
+    const row = {};
+    Object.entries(columns).forEach(([key, rule]) => {
+      if (rule.age) {
+        const age = toWholeNumber(entry?.[key], { min: 0, max: 120 });
+        row[key] = age.value;
+        if (age.error && !error) error = `${label} ${index + 1}: enter the age as a whole number from 0 to 120.`;
+      } else if (rule.options) {
+        const value = String(entry?.[key] ?? '');
+        row[key] = rule.options.some((option) => option.value === value) ? value : '';
+      } else {
+        const text = validateText(entry?.[key], { max: rule.text, message: '' });
+        row[key] = text.value.slice(0, rule.text);
+        if (text.error && !error) error = `${label} ${index + 1}: keep each entry within ${rule.text} characters.`;
+      }
+    });
+    if (Object.values(row).every((value) => value === '' || value === undefined)) return;
+    const missing = required.find((key) => row[key] === '' || row[key] === undefined);
+    if (missing && !error) error = `${label} ${index + 1}: fill in the ${missing === 'name' ? 'name' : missing}.`;
+    cleaned.push(row);
+  });
+  if (cleaned.length > max && !error) error = `List at most ${max} entries.`;
+  return { value: cleaned.slice(0, max), error };
+};
+
 export const validatePersonalSection = (form = {}) => {
   const bio = String(form.bio ?? '').trim();
   // The essay is longer than the bio and keeps its paragraph breaks, so it is
@@ -645,6 +772,9 @@ export const validatePersonalSection = (form = {}) => {
       : ok(bio),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
+    birthdate: validateOptionalDate(form.birthdate, { label: 'your birthdate' }),
+    sexAtBirth: oneOf(form.sexAtBirth || '', sexAtBirthOptions, 'Choose an option.'),
+    pronouns: validateText(form.pronouns, { max: PRONOUNS_MAX_LENGTH, message: `Keep the pronouns within ${PRONOUNS_MAX_LENGTH} characters.` }),
     essay: essay.length > ESSAY_MAX_LENGTH
       ? { value: essay, error: `Keep your default statement within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
@@ -661,9 +791,16 @@ export const validateAddressSection = (form = {}) => {
     residingAddress: sameAsCompleteAddress
       ? ok('')
       : validateText(form.residingAddress, { max: ADDRESS_MAX_LENGTH, message: `Keep your residing address within ${ADDRESS_MAX_LENGTH} characters.` }),
+    housingType: oneOf(form.housingType || '', housingTypeOptions, 'Choose where you stay while studying.'),
+    housingOther: validateText(form.housingOther, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep this within ${SCHOOL_FIELD_MAX_LENGTH} characters.` }),
   });
+  if (result.values.housingType === 'Other' && !result.values.housingOther && !result.errors.housingOther) {
+    result.errors.housingOther = 'Describe where you stay.';
+  }
   return {
     values: {
+      housingType: result.values.housingType,
+      housingOther: result.values.housingType === 'Other' ? result.values.housingOther : '',
       completeAddress: result.values.completeAddress,
       country: result.values.country,
       sameAsCompleteAddress,
@@ -684,6 +821,31 @@ export const validateFamilySection = (form = {}) => {
     motherOccupation: validateText(family.motherOccupation, { max: FAMILY_OCCUPATION_MAX_LENGTH, message: `Keep the occupation within ${FAMILY_OCCUPATION_MAX_LENGTH} characters.` }),
     familyPosition: oneOf(family.familyPosition || '', familyPositionOptions, 'Choose your family position.'),
     numberOfSiblings: validateOptionalInteger(family.numberOfSiblings, { min: 0, max: 30, message: 'Enter the number of siblings as a whole number.' }),
+    fatherAge: validateOptionalInteger(family.fatherAge, { min: 15, max: 120, message: 'Enter the age as a whole number from 15 to 120.' }),
+    motherAge: validateOptionalInteger(family.motherAge, { min: 15, max: 120, message: 'Enter the age as a whole number from 15 to 120.' }),
+    fatherDateOfDeath: validateOptionalDate(family.fatherDeceased ? family.fatherDateOfDeath : '', { label: 'the date of death' }),
+    motherDateOfDeath: validateOptionalDate(family.motherDeceased ? family.motherDateOfDeath : '', { label: 'the date of death' }),
+    siblings: validateRows(family.siblings, {
+      max: MAX_SIBLING_ROWS,
+      label: 'Sibling',
+      columns: {
+        name: { text: FAMILY_NAME_MAX_LENGTH },
+        age: { age: true },
+        relationship: { text: FAMILY_OCCUPATION_MAX_LENGTH },
+        status: { options: siblingStatusOptions },
+      },
+      required: ['name'],
+    }),
+    householdAdults: validateRows(family.householdAdults, {
+      max: MAX_HOUSEHOLD_ADULT_ROWS,
+      label: 'Household member',
+      columns: {
+        name: { text: FAMILY_NAME_MAX_LENGTH },
+        age: { age: true },
+        relationship: { text: FAMILY_OCCUPATION_MAX_LENGTH },
+      },
+      required: ['name'],
+    }),
   });
   return {
     values: {
@@ -691,11 +853,17 @@ export const validateFamilySection = (form = {}) => {
         fatherName: result.values.fatherName,
         fatherOccupation: result.values.fatherOccupation,
         fatherDeceased: Boolean(family.fatherDeceased),
+        fatherAge: result.values.fatherAge,
+        fatherDateOfDeath: result.values.fatherDateOfDeath,
         motherName: result.values.motherName,
         motherOccupation: result.values.motherOccupation,
         motherDeceased: Boolean(family.motherDeceased),
+        motherAge: result.values.motherAge,
+        motherDateOfDeath: result.values.motherDateOfDeath,
         familyPosition: result.values.familyPosition,
         numberOfSiblings: result.values.numberOfSiblings,
+        siblings: result.values.siblings,
+        householdAdults: result.values.householdAdults,
       },
     },
     errors: result.errors,
@@ -730,6 +898,13 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     // student who switches to an enrolled year never carries stale duplicates.
     programChoice2: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice2, academicPrograms) : ok(''),
     programChoice3: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice3, academicPrograms) : ok(''),
+    // FORM 230-SCH education details, stored with the descriptive profile fields.
+    schoolLastAttended: ok({
+      name: validateText(form.schoolLastAttended?.name, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
+      city: validateText(form.schoolLastAttended?.city, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
+      province: validateText(form.schoolLastAttended?.province, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
+    }),
+    awards: validateText(form.awards, { max: AWARDS_MAX_LENGTH, message: `Keep the awards within ${AWARDS_MAX_LENGTH} characters.` }),
     // Derived so the eligibility engine keeps reading the same attributes.
     applicantType: ok(standing.applicantType),
     yearLevel: standing.yearLevel == null
@@ -778,6 +953,21 @@ export const validateBackgroundSection = (form = {}) => {
     isHonorsGraduate: ok(Boolean(honorsRank)),
     graduatingClassSize: validateOptionalInteger(form.graduatingClassSize, { min: 1, max: 10000, message: 'Enter the graduating class size as a whole number.' }),
     sponsorTies: ok(Object.fromEntries(SPONSOR_TIE_KEYS.map((key) => [key, Boolean(form.sponsorTies?.[key])]))),
+    ipGroupName: form.ipCommunity === 'Yes'
+      ? validateText(form.ipGroupName, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep the group name within ${SCHOOL_FIELD_MAX_LENGTH} characters.` })
+      : ok(''),
+    communityService: oneOf(form.communityService || '', communityServiceOptions, 'Choose an option.'),
+    previousGrants: validateRows(form.previousGrants, {
+      max: MAX_GRANT_ROWS,
+      label: 'Grant',
+      columns: {
+        type: { options: grantTypeOptions },
+        name: { text: SCHOOL_FIELD_MAX_LENGTH },
+        status: { options: grantStatusOptions },
+        institution: { text: SCHOOL_FIELD_MAX_LENGTH },
+      },
+      required: ['name', 'type', 'status'],
+    }),
   });
 
   if (honorsRank && result.values.graduatingClassSize === '' && !result.errors.graduatingClassSize) {
@@ -854,6 +1044,20 @@ const countDone = (items) => items.filter((item) => item.done).length;
 // missing items (each with its My Profile section) so the Scholarship Explorer
 // can link the student straight to them. Mirrored for the in-scope tracks by
 // enforce_student_application_update on insert.
+const hasNumber = (value) => !isBlank(value) && Number.isFinite(Number(value)) && Number(value) >= 0;
+
+export const PARENT_EMPLOYMENT_VALUES = ['employed', 'self-employed', 'unemployed'];
+export const ECONOMIC_STATUS_VALUES = ['lower', 'middle', 'upper'];
+
+// A parent counts as answered when marked deceased in Family details, or when
+// the Household finances section records an employment status and an annual
+// income (0 is valid). Mirrors parent_finances_answered() in the database.
+export const isParentFinancesAnswered = (profile = {}, parent = 'father') => {
+  if (profile.familyDetails?.[`${parent}Deceased`] === true) return true;
+  const details = profile.financialProfile?.[parent] || {};
+  return PARENT_EMPLOYMENT_VALUES.includes(details.employmentStatus) && hasNumber(details.annualIncome);
+};
+
 export const getApplicationProfileGate = (profile = {}) => {
   const missing = getProfileCompleteness(profile, 'student').items
     .filter((item) => item.group === 'application' && !item.done);
@@ -883,15 +1087,26 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);
     add('application', 'householdIncome', 'Annual household income', 'financial', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
+    add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
+    if (standing.requiresHsStanding) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
+    add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    add('application', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
+    add('application', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
+    add('application', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
+    // FORM 230-SCH core answers. The financial ones come from the office-only
+    // student_financial_profiles row, merged into `profile.financialProfile`.
+    add('application', 'birthdate', 'Birthdate', 'personal', DATE_PATTERN.test(String(profile.birthdate || '')));
+    add('application', 'sexAtBirth', 'Sex assigned at birth', 'personal', sexAtBirthOptions.some((option) => option.value && option.value === profile.sexAtBirth));
+    if (standing.requiresHsStanding) add('application', 'schoolLastAttended', 'Senior high school last attended', 'academic', !isBlank(profile.schoolLastAttended?.name));
+    add('application', 'communityService', 'Willingness to render community service', 'background', communityServiceOptions.some((option) => option.value && option.value === profile.communityService));
+    add('application', 'economicStatus', 'Perceived economic status', 'finances', ECONOMIC_STATUS_VALUES.includes(profile.financialProfile?.economicStatus));
+    add('application', 'fatherFinances', 'Father\'s employment and income', 'finances', isParentFinancesAnswered(profile, 'father'));
+    add('application', 'motherFinances', 'Mother\'s employment and income', 'finances', isParentFinancesAnswered(profile, 'mother'));
   }
-  add('details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
+  // The application form asks every applicant for a contact number, so it is
+  // needed to apply; staff keep it as a plain detail.
+  add(isStudent ? 'application' : 'details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
   if (isStudent) {
-    add('details', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
-    if (standing.requiresHsStanding) add('details', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
-    add('details', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
-    add('details', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
-    add('details', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
-    add('details', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
   }
 
   const groups = PROFILE_COMPLETENESS_GROUPS

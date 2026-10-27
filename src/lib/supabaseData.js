@@ -785,6 +785,78 @@ export const deleteSupabaseOfficeCalendarEntry = (id) => (
   ensureReady() ? supabase.from('office_calendar_entries').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
 
+// FORM 230-SCH financial details live in two office-only tables (see
+// 20261036000000_add_application_financial_details.sql). A project that has not
+// applied the migration answers with `missing: true` so the app says so instead
+// of failing the whole workspace.
+const isMissingTableError = (error) => ['42P01', 'PGRST205'].includes(error?.code);
+
+const financialResult = ({ data, error }, pick) => {
+  if (error) return { success: false, missing: isMissingTableError(error), error };
+  return { success: true, missing: false, ...pick(data) };
+};
+
+export const loadSupabaseFinancialProfile = async (studentId) => {
+  if (!ensureReady() || !studentId) return { success: true, missing: false, details: null };
+  const response = await supabase
+    .from('student_financial_profiles')
+    .select('details')
+    .eq('student_id', studentId)
+    .maybeSingle();
+  return financialResult(response, (data) => ({ details: data?.details || null }));
+};
+
+export const saveSupabaseFinancialProfile = async (studentId, details) => {
+  if (!ensureReady() || !studentId) return { success: true, missing: false };
+  const response = await supabase
+    .from('student_financial_profiles')
+    .upsert({ student_id: studentId, details, updated_at: new Date().toISOString() }, { onConflict: 'student_id' })
+    .select('details')
+    .single();
+  return financialResult(response, (data) => ({ details: data?.details || details }));
+};
+
+// The signed-in student's per-application answers and the financial profile
+// frozen at submission, each keyed by application id.
+export const loadSupabaseFinancialAnswers = async () => {
+  if (!ensureReady()) return { success: true, missing: false, answersByApplication: {}, snapshotsByApplication: {} };
+  const response = await supabase
+    .from('application_financial_details')
+    .select('application_id, answers, financial_snapshot');
+  return financialResult(response, (data) => ({
+    answersByApplication: Object.fromEntries((data || []).map((row) => [row.application_id, row.answers || {}])),
+    snapshotsByApplication: Object.fromEntries((data || []).filter((row) => row.financial_snapshot).map((row) => [row.application_id, row.financial_snapshot])),
+  }));
+};
+
+export const saveSupabaseFinancialAnswers = async ({ applicationId, studentId, answers }) => {
+  if (!ensureReady() || !applicationId || !studentId) return { success: true, missing: false };
+  const response = await supabase
+    .from('application_financial_details')
+    .upsert(
+      { application_id: applicationId, student_id: studentId, answers, updated_at: new Date().toISOString() },
+      { onConflict: 'application_id' },
+    )
+    .select('answers')
+    .single();
+  return financialResult(response, (data) => ({ answers: data?.answers || answers }));
+};
+
+// Admissions Office only: one application's answers and the financial profile
+// the database froze when it was submitted. RLS returns nothing to a Chair.
+export const loadSupabaseApplicationFinancialDetails = async (applicationId) => {
+  if (!ensureReady() || !applicationId) return { success: true, missing: false, answers: null, financialSnapshot: null };
+  const response = await supabase
+    .from('application_financial_details')
+    .select('answers, financial_snapshot')
+    .eq('application_id', applicationId)
+    .maybeSingle();
+  return financialResult(response, (data) => ({
+    answers: data?.answers || null,
+    financialSnapshot: data?.financial_snapshot || null,
+  }));
+};
+
 // Both email Edge Functions answer with a normalized shape so the UI can report
 // real delivery feedback instead of assuming success.
 const invokeEmailFunction = async (functionName, body = {}) => {

@@ -4,6 +4,8 @@ import DocumentPreviewModal, { DocumentPreview, useDocumentPreviewUrl } from './
 import ReasonModal from './ReasonModal';
 import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
+import ApplicationPrintButton from './ApplicationPrintSheet';
+import { FinancialDetailsNotice, useApplicationFinancialSections } from './ApplicationFinancialDetails';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
@@ -188,6 +190,9 @@ export default function ApplicationReviewModal({
   // The 2x2 ID photo heads the snapshot view, so a reviewer can put a face to
   // the application without opening the Documents tab.
   const applicantPhoto = getApplicantPhotoDocument(application, documents);
+  // Household finances and the financial situation are office-only (RLS): the
+  // Admissions Office reads them here, a Department Chair never does.
+  const financialDetails = useApplicationFinancialSections(application, isAdmissionsReviewer);
   const statusLog = Array.isArray(application.statusLog) ? application.statusLog : [];
   // Manuscript 3.3.3: an application whose attached files are still Pending or
   // Rejected cannot be endorsed or advance to any later SOP stage. The database
@@ -745,7 +750,22 @@ export default function ApplicationReviewModal({
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
             <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
-            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} />
+            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} extraSections={financialDetails.sections} />
+            <FinancialDetailsNotice status={financialDetails.status} />
+            <div className="pt-2">
+              <ApplicationPrintButton
+                label="Print case"
+                sheet={{
+                  application,
+                  snapshot: application.profileSnapshot,
+                  financialSections: financialDetails.sections,
+                  statement: application.statement,
+                  requirements,
+                  applicantPhoto,
+                  audience: isAdmissionsReviewer ? 'office' : 'chair',
+                }}
+              />
+            </div>
           </Panel>
         )}
 

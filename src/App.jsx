@@ -9,13 +9,14 @@ import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
 import { DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { normalizeFinancialAnswers } from './lib/financialDetails';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -203,6 +204,12 @@ const devicePreferencesOf = (state) => ({
   hasLoggedInBefore: state.hasLoggedInBefore,
 });
 
+// FORM 230-SCH financial details are sensitive and office-only, so they live in
+// component state (never in the persisted localStorage record) and are cleared
+// on sign-out. `profile` is the student's reusable financial profile and
+// `answersByApplication` the per-application "Financial situation" answers.
+const emptyFinancialState = { profile: null, answersByApplication: {}, snapshotsByApplication: {}, loaded: false, missing: false };
+
 // Stamps the persisted state with the signed-in Supabase user. If the record
 // still belongs to a different user (a shared browser where sign-out was
 // skipped), the previous user's session-scoped slices are discarded first.
@@ -275,6 +282,7 @@ function App() {
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupabaseWorkspaceLoaded, setIsSupabaseWorkspaceLoaded] = useState(false);
+  const [financial, setFinancial] = useState(emptyFinancialState);
   // When a My Profile link ("Attach proof" or the document checklist) opens the
   // vault it carries the profile attribute and/or document type so the upload
   // form opens on them.
@@ -328,6 +336,7 @@ function App() {
     setIsSupabaseWorkspaceLoaded(false);
     setDeadlineSync(null);
     setAvatarPreview({ path: '', url: '' });
+    setFinancial(emptyFinancialState);
     setSessionTimeoutState(null);
     setSessionNotice(notice);
     setIsSessionChecked(true);
@@ -344,6 +353,28 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(state));
   }, [state]);
+
+  // Load the student's office-only financial details once the workspace is up.
+  const financialOwnerId = state.viewerRole === 'student' ? state.authUser?.id : null;
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || !financialOwnerId) return undefined;
+    let active = true;
+    (async () => {
+      const [profileResult, answersResult] = await Promise.all([
+        loadSupabaseFinancialProfile(financialOwnerId),
+        loadSupabaseFinancialAnswers(),
+      ]);
+      if (!active) return;
+      setFinancial({
+        profile: profileResult.success ? profileResult.details : null,
+        answersByApplication: answersResult.success ? answersResult.answersByApplication : {},
+        snapshotsByApplication: answersResult.success ? answersResult.snapshotsByApplication : {},
+        loaded: true,
+        missing: Boolean(profileResult.missing || answersResult.missing),
+      });
+    })();
+    return () => { active = false; };
+  }, [isSupabaseWorkspaceLoaded, financialOwnerId]);
 
   useEffect(() => {
     // Apply theme classes to the document root so body background updates and
@@ -798,9 +829,13 @@ function App() {
   };
 
   const themeClass = state.theme === 'light' ? 'theme-light' : '';
-  const studentMatchProfile = { ...state.profileDraft, ...(state.authUser || {}) };
+  const studentMatchProfile = {
+    ...state.profileDraft,
+    ...(state.authUser || {}),
+    ...(financial.profile ? { financialProfile: financial.profile } : {}),
+  };
   const currentIdentity = state.viewerRole === 'student'
-    ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}) }
+    ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}), ...(financial.profile ? { financialProfile: financial.profile } : {}) }
     : currentProfile;
   // De-duplicated identity lines (see identitySubtitle): the role only, and the
   // role plus department, with anything already covered by the name removed.
@@ -1275,8 +1310,28 @@ function App() {
     return { ok: true };
   };
 
-  const saveApplicationDraft = async (applicationId, { statement }) => {
+  // The per-application "Financial situation" answers are office-only and live in
+  // application_financial_details, not on the application row.
+  const persistFinancialAnswers = async (applicationId, rawAnswers) => {
+    const answers = normalizeFinancialAnswers(rawAnswers || {});
+    const result = await saveSupabaseFinancialAnswers({ applicationId, studentId: state.authUser?.id || currentProfile.id, answers });
+    if (!result.success) {
+      return {
+        error: result.missing
+          ? 'The financial situation answers need the latest database migration (20261036000000).'
+          : (result.error?.message || 'The financial situation answers could not be saved.'),
+      };
+    }
+    setFinancial((previous) => ({ ...previous, answersByApplication: { ...previous.answersByApplication, [applicationId]: result.answers } }));
+    return { ok: true, answers: result.answers };
+  };
+
+  const saveApplicationDraft = async (applicationId, { statement, financialAnswers }) => {
     if (!findOwnDraft(applicationId)) return { error: 'Only a draft application can be edited.' };
+    if (financialAnswers) {
+      const saved = await persistFinancialAnswers(applicationId, financialAnswers);
+      if (saved.error) return saved;
+    }
     const result = await updateSupabaseApplicationDraft(applicationId, { statement });
     if (result.error) return { error: result.error.message || 'The draft could not be saved.' };
     setState((previous) => ({
@@ -1290,14 +1345,18 @@ function App() {
   // persisted together with the frozen profile snapshot and certification. The
   // server repeats the gate (enforce_student_application_update), so the local
   // row changes only after the write succeeds.
-  const submitApplication = async (applicationId, { statement, certified } = {}) => {
+  const submitApplication = async (applicationId, { statement, certified, financialAnswers } = {}) => {
     const draft = findOwnDraft(applicationId);
     if (!draft) return { error: 'Only a draft application can be submitted.' };
     const application = { ...draft, statement: statement ?? draft.statement };
     const scholarship = scholarshipCatalog.find((entry) => entry.id === application.scholarshipId);
-    const readiness = getApplicationReadiness({ application, scholarship, documents: studentDocuments, profile: studentMatchProfile, certified });
+    const answers = normalizeFinancialAnswers(financialAnswers ?? financial.answersByApplication[applicationId] ?? {});
+    const readiness = getApplicationReadiness({ application, scholarship, documents: studentDocuments, profile: studentMatchProfile, financialAnswers: answers, certified });
     if (readiness.route !== 'internal') return { error: 'This program is tracked only. Apply through the provider.' };
     if (!readiness.ready) return { error: readiness.blockers[0], blockers: readiness.blockers };
+    // The database requires the answers on file before it accepts the submission.
+    const savedAnswers = await persistFinancialAnswers(applicationId, answers);
+    if (savedAnswers.error) return savedAnswers;
 
     const submittedAt = new Date().toISOString();
     const supportingCount = readiness.supportingDocuments.length;
@@ -2407,6 +2466,24 @@ function App() {
   // Saves one My Profile section. Students may edit academic and eligibility
   // fields; staff may edit only their name, mobile number, and bio, so a
   // Department Chair can never re-scope their own department from this page.
+  // Household finances are office-only (student_financial_profiles), so they are
+  // saved apart from saveProfile and never reach profile_details or localStorage.
+  const saveFinancialProfile = async (patch) => {
+    if (state.viewerRole !== 'student') return { success: false, message: 'Only students keep household finances.' };
+    const userId = state.authUser?.id || currentProfile.id;
+    const result = await saveSupabaseFinancialProfile(userId, patch.financialProfile);
+    if (!result.success) {
+      return {
+        success: false,
+        message: result.missing
+          ? 'Household finances need the latest database migration (20261036000000).'
+          : (result.error?.message || 'Unable to save your household finances.'),
+      };
+    }
+    setFinancial((previous) => ({ ...previous, profile: result.details, loaded: true }));
+    return { success: true, message: 'Household finances saved.' };
+  };
+
   const saveProfile = async (patch) => {
     const isStudent = state.viewerRole === 'student';
     const accountFields = pickFields(patch, isStudent ? ACCOUNT_FIELD_KEYS : STAFF_EDITABLE_FIELD_KEYS);
@@ -2428,7 +2505,7 @@ function App() {
       ...(hasEligibilityAttributes
         ? { eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes } }
         : {}),
-      ...(hasProfileDetails ? { profileDetails } : {}),
+      ...(hasProfileDetails ? { profileDetails: mergeProfileDetails(studentMatchProfile, profileDetails) } : {}),
     });
     if (!result.success) return result;
 
@@ -2815,6 +2892,8 @@ function App() {
               onReplaceDocument={replaceRejectedDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
+              financialAnswersByApplication={financial.answersByApplication}
+              financialSnapshotsByApplication={financial.snapshotsByApplication}
               onSaveProfile={saveProfile}
               onOpenProfile={() => navigate('profile')}
             />
@@ -3047,6 +3126,8 @@ function App() {
               academicProgramCategories={activeAcademicProgramCategories}
               initialSection={profilePresetSection}
               onSaveProfile={saveProfile}
+              onSaveFinancialProfile={saveFinancialProfile}
+              financialMissing={financial.missing}
               avatar={{ url: avatarPreview.url, path: state.authUser?.avatarPath || '', isSaving: isSavingAvatar }}
               onChangeAvatar={saveProfileAvatar}
               onRemoveAvatar={removeProfileAvatar}

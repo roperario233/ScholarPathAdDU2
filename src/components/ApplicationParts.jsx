@@ -475,10 +475,12 @@ export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
 // `applicantPhoto` is the 2x2 ID photo the application currently attaches
 // (getApplicantPhotoDocument), shown first so the applicant is recognized at a
 // glance; `onPreviewPhoto` opens the full document where the surface has one.
-export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, onPreviewPhoto }) {
+export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, onPreviewPhoto, extraSections = [] }) {
   if (!snapshot) return <p className="m-0 text-sm text-app-muted">No profile snapshot was recorded.</p>;
   const { legacy, sections } = getProfileSnapshotSections(snapshot);
-  const [primary, ...groups] = sections;
+  const [primary, ...snapshotGroups] = sections;
+  // Office-only financial groups are passed in by a surface that may show them.
+  const groups = [...snapshotGroups, ...extraSections];
   return (
     <div className="grid">
       <div className="flex min-w-0 flex-wrap items-start gap-3 border-b border-app-border/60 pb-3">
