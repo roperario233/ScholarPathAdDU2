@@ -137,6 +137,11 @@ export default function AdminCalendar({
   officeCalendarEntries = [],
   onAddOfficeEntry,
   onDeleteOfficeEntry,
+  // Case officers: opening a case from the office calendar joins the officer to it.
+  caseOfficers = [],
+  currentUserId = '',
+  onJoinCase,
+  onLeaveCase,
 }) {
   const now = new Date();
   const todayKey = getManilaTodayKey(now);
@@ -413,6 +418,10 @@ export default function AdminCalendar({
           onChangeDocument={onChangeDocument}
           reviewComments={reviewComments}
           onAddComment={onAddComment}
+          caseOfficers={caseOfficers}
+          currentUserId={currentUserId}
+          onJoinCase={onJoinCase}
+          onLeaveCase={onLeaveCase}
         />
       )}
 

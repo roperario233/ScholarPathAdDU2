@@ -7,9 +7,9 @@ import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, S
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
-import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
-import { getReviewStageTab } from '../lib/admissionsOffice';
+import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getInterviewStateLabel, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
@@ -139,6 +139,13 @@ export default function ApplicationReviewModal({
   onChangeDocument,
   reviewComments = [],
   onAddComment,
+  // The Admissions Office case-officer roster. Opening a case joins the officer to
+  // it, so a second officer opening the same application is expected rather than a
+  // conflict, and any officer can leave with a recorded reason.
+  caseOfficers = [],
+  currentUserId = '',
+  onJoinCase,
+  onLeaveCase,
 }) {
   // Both Admissions Office lanes can run the preparation stages; the Head is a
   // superset and also decides the endorsement (SOP step 4), approval, and
@@ -146,6 +153,25 @@ export default function ApplicationReviewModal({
   const isAdmissionsHead = isAdmissionsHeadRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const isWide = useIsWide();
+  // Case officers. Opening an application is what adds the officer to it, so the
+  // effect below runs once per open unless the signed-in account is already on the
+  // roster. A failed join stays silent: reading the case must never be blocked by
+  // it, and the next open retries.
+  const caseOfficersOnApplication = getCaseOfficers(caseOfficers, application.id);
+  const isOnCase = Boolean(currentUserId)
+    && caseOfficersOnApplication.some((entry) => entry.officerId === currentUserId);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
+  const joinAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!isAdmissionsReviewer || !onJoinCase) return;
+    if (!CASE_OFFICER_JOINABLE_STATUSES.includes(application.status)) return;
+    if (isCaseOfficer(caseOfficers, application.id, currentUserId)) return;
+    if (joinAttemptedRef.current) return;
+    joinAttemptedRef.current = true;
+    Promise.resolve(onJoinCase(application.id)).catch(() => undefined);
+  }, [application.id, application.status, caseOfficers, currentUserId, isAdmissionsReviewer, onJoinCase]);
+
   const previewPaneRef = useRef(null);
   const nextStatuses = getNextApplicationStatuses(application.status, role);
   const linkedDocuments = getLinkedDocuments(application, documents);
@@ -541,6 +567,16 @@ export default function ApplicationReviewModal({
               <StatusBadge tone="neutral">{totalDocuments} document{totalDocuments === 1 ? '' : 's'} attached · reviewed at verification</StatusBadge>
             )
           ) : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
+          {isAdmissionsReviewer ? (
+            <StatusBadge tone={caseOfficersOnApplication.length ? 'info' : 'neutral'}>
+              {caseOfficersOnApplication.length === 0
+                ? 'No case officers yet'
+                : isOnCase
+                  ? `You${caseOfficersOnApplication.length > 1 ? ` + ${caseOfficersOnApplication.length - 1}` : ''} on this case`
+                  : `${caseOfficersOnApplication.length} case officer${caseOfficersOnApplication.length === 1 ? '' : 's'}`}
+            </StatusBadge>
+          ) : null}
+
         </div>
       </header>
 
@@ -561,6 +597,46 @@ export default function ApplicationReviewModal({
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
             {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
+            {isAdmissionsReviewer ? (
+              <Panel className="grid content-start gap-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <h4 className={sectionHeading}>Case officers</h4>
+                  {isOnCase && onLeaveCase ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setLeaveError('');
+                        setLeaveOpen(true);
+                      }}
+                    >
+                      Leave case
+                    </Button>
+                  ) : null}
+                </div>
+                {caseOfficersOnApplication.length ? (
+                  <ul className="m-0 grid gap-2 p-0">
+                    {caseOfficersOnApplication.map((officer) => (
+                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
+                        <span className="min-w-0 text-sm font-semibold text-app-text">
+                          {officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName}
+                        </span>
+                        <span className="text-xs text-app-muted">
+                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
+                          {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
+                <p className="m-0 text-xs text-app-muted">
+                  Every officer who opens a case joins it, and the applicant is never told who holds it.
+                </p>
+                {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
+              </Panel>
+            ) : null}
+
+
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
               <Panel className="grid content-start gap-2">
@@ -827,6 +903,24 @@ export default function ApplicationReviewModal({
           setVerifyTarget(null);
           setVerifyError('');
         }}
+      />
+    ) : null}
+
+    {leaveOpen ? (
+      <ReasonModal
+        title="Leave this case"
+        label="Reason"
+        hint="Recorded on the case-officer roster. Leaving does not change the application status; the case stays in the office's open work."
+        confirmLabel="Leave case"
+        onConfirm={async (reason) => {
+          const result = await onLeaveCase?.(application.id, reason);
+          if (result?.error) {
+            setLeaveError(result.error);
+            return;
+          }
+          setLeaveOpen(false);
+        }}
+        onClose={() => setLeaveOpen(false)}
       />
     ) : null}
     </>

@@ -122,6 +122,20 @@ const toReviewComment = (row) => ({
   createdAt: row.created_at,
 });
 
+// The Admissions Office case-officer roster (application_case_officers). Staff
+// only: the student never learns which officer opened their application, so these
+// rows are never merged into an application object.
+const toCaseOfficer = (row) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  officerId: row.officer_id || null,
+  officerName: row.officer_name || 'Admissions Office reviewer',
+  officerRole: row.officer_role || '',
+  joinedAt: row.joined_at,
+  leftAt: row.left_at || null,
+  leftReason: row.left_reason || '',
+});
+
 // SOP step 5 (20261029000000_overhaul_interview_stage.sql). Locations are read by
 // the Admissions Office; panel membership and evaluation notes are staff-only,
 // and the RLS policies scope a Department Chair to their own department.
@@ -275,6 +289,27 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // The Admissions Office case-officer roster (application_case_officers, from
+  // 20261027043147). Admissions Office sessions only: the student and the
+  // Department Chair never receive these rows. The roster is what splits the
+  // shared intake pool from each officer's own review queue. A pending migration
+  // yields no rows and reports caseOfficersReady: false, so the workspace can say
+  // so instead of quietly treating every case as unopened.
+  let caseOfficers = [];
+  let caseOfficersReady = true;
+  if (role !== 'student' && role !== 'department_chair') {
+    const caseOfficersResult = await supabase
+      .from('application_case_officers')
+      .select('*')
+      .is('left_at', null)
+      .order('joined_at', { ascending: true });
+    if (caseOfficersResult.error) {
+      caseOfficersReady = false;
+    } else {
+      caseOfficers = (caseOfficersResult.data || []).map(toCaseOfficer);
+    }
+  }
+
   // SOP step 5 interview data. Staff only; a pending migration yields empty
   // lists rather than failing the whole workspace.
   const nameById = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, entry.full_name || '']));
@@ -315,6 +350,10 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
     reviewComments,
     staffDirectory,
+    // Staff-only case-officer roster: which Admissions Office accounts have
+    // opened which application. Empty for a student or Department Chair session.
+    caseOfficers,
+    caseOfficersReady,
     interviewLocations,
     interviewPanelists,
     interviewNotes,
@@ -394,6 +433,41 @@ export const updateSupabaseApplicationStage = (applicationId, status, stagePatch
   ensureReady()
     ? supabase.from('applications').update({ status, updated_at: new Date().toISOString(), ...stagePatch }).eq('id', applicationId).then(({ error }) => ({ error }))
     : Promise.resolve({ error: null })
+);
+
+// The Admissions Office case-officer roster. Re-read after a join so the client
+// sees every officer on the case, not only this tab's own write.
+export const loadSupabaseApplicationCaseOfficers = async () => {
+  if (!ensureReady()) {
+    return { caseOfficers: [], error: { message: 'Supabase is not configured.' } };
+  }
+  const result = await supabase
+    .from('application_case_officers')
+    .select('*')
+    .is('left_at', null)
+    .order('joined_at', { ascending: true });
+  return {
+    caseOfficers: result.error ? [] : (result.data || []).map(toCaseOfficer),
+    error: result.error,
+  };
+};
+
+// join_application_review (20261027043147): joins the signed-in Admissions Office
+// account to the case and starts the review when the application is still
+// Submitted. Idempotent, so re-opening a case writes nothing. Returns the updated
+// application row.
+export const joinSupabaseApplicationReview = (applicationId) => (
+  ensureReady()
+    ? supabase.rpc('join_application_review', { p_application_id: applicationId })
+    : Promise.resolve({ data: null, error: { message: 'Supabase is not configured.' } })
+);
+
+// leave_application_review: removes the signed-in officer from the roster with a
+// recorded reason. The application keeps its status.
+export const leaveSupabaseApplicationReview = (applicationId, reason) => (
+  ensureReady()
+    ? supabase.rpc('leave_application_review', { p_application_id: applicationId, p_reason: reason }).then(({ error }) => ({ error }))
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
 );
 
 // The internal endorsement thread. The Admissions Office and the Department

@@ -95,6 +95,21 @@ export const getNextApplicationStatuses = (status, role) => {
 // automatic write did not land.
 export const AUTOMATIC_STAGE_STATUSES = ['Under Review'];
 
+// The stages that can still take a case officer. Opening an application in the
+// Admissions Office workspace joins the officer to the case, and joining is the
+// one status move that can start the review (Submitted -> Under Review).
+// Recommended and Approved are the Head's decision lane, and a closed
+// application takes nobody, so neither can be joined. Mirrors the status list in
+// public.join_application_review().
+export const CASE_OFFICER_JOINABLE_STATUSES = [
+  'Submitted',
+  'Under Review',
+  'For Verification',
+  'For Endorsement',
+  'Endorsed',
+  'Interview',
+];
+
 // The labels every surface shows for a stored application status. Kept in the
 // shared Edge Function module so the emails and SMS use the same words as the
 // app (for example `Endorsed` is shown as "Endorsement").
@@ -156,6 +171,7 @@ export const pageViewKeys = [
   'vault',
   'calendar',
   'admin',
+  'admin-intake',
   'admin-review',
   'admin-calendar',
   'admin-interviews',
@@ -178,16 +194,26 @@ export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
-//   - Admissions Office Staff: every application awaiting a staff action (the
-//     same filter as the staff review queue route).
+//   - Admissions Office Staff: the cases they joined plus everything still
+//     unclaimed in the intake pool. Without `caseOfficers` / `userId` (an older
+//     caller) it falls back to the whole office queue.
 //   - Admissions Office Head: the endorsement, approval, and release decisions
 //     the Head owns.
 //   - Department Chair: the department's live applications, which the Chair reads.
-export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
+export const countApplicationsToReview = (applications = [], { role, studentId, department, caseOfficers, userId } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
 
   if (isAdmissionsStaffRole(role)) {
-    return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
+    const roster = Array.isArray(caseOfficers) ? caseOfficers.filter((entry) => !entry.leftAt) : null;
+    if (!roster || !userId) {
+      return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
+    }
+    const claimed = new Set(roster.map((entry) => entry.applicationId));
+    const mine = new Set(roster.filter((entry) => entry.officerId === userId).map((entry) => entry.applicationId));
+    return list.filter((entry) => (
+      !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)
+      && (mine.has(entry.id) || !claimed.has(entry.id))
+    )).length;
   }
 
   if (isAdmissionsHeadRole(role)) {

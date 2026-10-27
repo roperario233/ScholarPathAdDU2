@@ -6,15 +6,16 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
+import { DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
+import { isCaseOfficer } from './lib/admissionsOffice';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -26,6 +27,7 @@ import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
 import AdminOverviewPage from './pages/admin/AdminOverview';
+import AdminIntakePoolPage from './pages/admin/AdminIntakePool';
 import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
@@ -863,19 +865,22 @@ function App() {
     totalPrograms: scholarshipCatalog.length,
     eligibleMatches: eligibleScholarships.length,
     // Role-aware so the dashboard agrees with the review queues: a student sees
-    // their own live applications, the Admissions Office sees everything
-    // awaiting an SOP action, and a Department Chair sees their department's
-    // pending queue.
+    // their own live applications, an Admissions Office Staff account sees the
+    // cases it joined plus the unclaimed intake pool, and a Department Chair sees
+    // their department's pending queue.
     openApplications: countApplicationsToReview(state.applications, {
       role: state.viewerRole,
       studentId: currentProfile.id,
       department: currentProfile.department,
+      caseOfficers: state.caseOfficers,
+      userId: currentProfile.id,
     }),
     unreadNotifications: unreadNotifications.length,
   }), [
     eligibleScholarships.length,
     scholarshipCatalog.length,
     state.applications,
+    state.caseOfficers,
     state.viewerRole,
     currentProfile.id,
     currentProfile.department,
@@ -1429,6 +1434,102 @@ function App() {
     notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
     return { ok: true };
   };
+
+  // Case officers. Opening an Admissions Office application joins the officer to
+  // the case (application_case_officers): the roster is how the shared intake pool
+  // knows what has been picked up, and a second officer joining the same case is
+  // expected, not a conflict. Joining is the one place the review starts
+  // (Submitted -> Under Review), so the student notification fires from here.
+  const joinCaseReview = async (applicationId) => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can open an application for review.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (!CASE_OFFICER_JOINABLE_STATUSES.includes(application.status)) return { ok: true, joined: false };
+    if (isCaseOfficer(state.caseOfficers, applicationId, currentProfile.id)) return { ok: true, joined: false };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the case officer could not be recorded.' };
+    }
+    const result = await joinSupabaseApplicationReview(applicationId);
+    if (result?.error) {
+      return {
+        error: result.error.message
+          || 'The case officer could not be recorded. Apply the pending migration and try again.',
+      };
+    }
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    const status = row?.status || application.status;
+    const now = new Date().toISOString();
+    const joinedOfficer = {
+      id: `co-${crypto.randomUUID()}`,
+      applicationId,
+      officerId: currentProfile.id,
+      officerName: currentProfile.fullName || 'Admissions Office reviewer',
+      officerRole: state.viewerRole,
+      joinedAt: now,
+      leftAt: null,
+      leftReason: '',
+    };
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => (entry.id === applicationId ? {
+        ...entry,
+        status,
+        updatedAt: status === entry.status ? entry.updatedAt : now.slice(0, 10),
+        timeline: Array.isArray(row?.timeline) ? row.timeline : entry.timeline,
+      } : entry)),
+      caseOfficers: isCaseOfficer(previous.caseOfficers, applicationId, currentProfile.id)
+        ? previous.caseOfficers
+        : [...previous.caseOfficers, joinedOfficer],
+    }));
+    // The database trigger is the primary sender; this browser call is the retry
+    // for a tab that closed between the status write and the trigger.
+    if (status !== application.status) notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+    // Reconcile with the server so an officer who joined the same case shows up in
+    // the roster here too.
+    loadSupabaseApplicationCaseOfficers().then((refreshed) => {
+      if (!refreshed) return;
+      setState((previous) => ({
+        ...previous,
+        caseOfficers: refreshed.error ? previous.caseOfficers : (refreshed.caseOfficers || []),
+        caseOfficersReady: !refreshed.error,
+      }));
+    }).catch(() => undefined);
+    return { ok: true, joined: true, status };
+  };
+
+  // Leaving a case is self-service: the officer records why, and the application
+  // keeps its status (a reverse move to Submitted is not in the SOP map). If the
+  // last officer leaves, the case returns to the intake pool's unclaimed view.
+  const leaveCaseReview = async (applicationId, reason) => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can leave a case.' };
+    }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) return { error: 'A reason is required before leaving a case.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so leaving the case could not be saved.' };
+    }
+    const result = await leaveSupabaseApplicationReview(applicationId, trimmed);
+    if (result?.error) {
+      return {
+        error: result.error.message
+          || 'The case could not be left. Apply the pending migration and try again.',
+      };
+    }
+    const leftAt = new Date().toISOString();
+    setState((previous) => ({
+      ...previous,
+      caseOfficers: previous.caseOfficers.map((entry) => (
+        entry.applicationId === applicationId && entry.officerId === currentProfile.id && !entry.leftAt
+          ? { ...entry, leftAt, leftReason: trimmed }
+          : entry
+      )),
+    }));
+    return { ok: true };
+  };
+
 
   // SOP step 4: the Admissions Office Head records the endorsement of an
   // application the Staff sent over. The Department Chair has no endorsement role.
@@ -2444,6 +2545,7 @@ function App() {
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Dashboard', visible: true },
+      { view: 'admin-intake', label: 'Intake pool', visible: true },
       { view: 'admin-review', label: 'Review queue', visible: true },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
@@ -2732,15 +2834,49 @@ function App() {
           {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin' && (
             <AdminOverviewPage
               applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              currentUserId={currentProfile.id}
               documents={state.documents}
               role={state.viewerRole}
               onOpenWorkspace={(view) => navigate(view)}
             />
           )}
 
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-intake' && (
+            <AdminIntakePoolPage
+              applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              caseOfficersReady={state.caseOfficersReady !== false}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              currentUserId={currentProfile.id}
+              reviewerName={state.authUser?.fullName || ''}
+              onPickUpApplication={joinCaseReview}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              interviewWorkspace={interviewWorkspace}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+            />
+          )}
+
+
           {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-review' && (
             <AdminReviewQueuePage
               applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              caseOfficersReady={state.caseOfficersReady !== false}
+              currentUserId={currentProfile.id}
+              onOpenWorkspace={(view) => navigate(view)}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
@@ -2761,6 +2897,11 @@ function App() {
             <AdminCalendarPage
               applications={state.applications}
               students={state.students}
+              caseOfficers={state.caseOfficers || []}
+              currentUserId={currentProfile.id}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+
               documents={state.documents}
               scholarships={state.scholarships || []}
               role={state.viewerRole}
@@ -2783,6 +2924,11 @@ function App() {
             <AdminInterviewsPage
               applications={state.applications}
               students={state.students}
+              caseOfficers={state.caseOfficers || []}
+              currentUserId={currentProfile.id}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+
               documents={state.documents}
               scholarships={state.scholarships || []}
               role={state.viewerRole}

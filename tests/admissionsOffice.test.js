@@ -1,13 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAcceptedApplicantsReport,
+  filterIntakePool,
   getApprovalQueue,
+  getCaseOfficers,
+  getCaseOpenedAt,
   getDocumentsAwaitingReview,
+  getIntakePool,
   getInternalCatalogEntries,
+  getMyReviewQueue,
+  getOfficerWorkload,
   getRecentApplicationActivity,
   getReleaseQueue,
   getReviewQueue,
   getReviewStageTab,
+  getSubmissionWaitDays,
+  getTakenCases,
+  getUnclaimedInProgress,
+  isCaseOfficer,
+  DEFAULT_INTAKE_POOL_FILTERS,
 } from '../src/lib/admissionsOffice';
 
 const application = (overrides = {}) => ({
@@ -255,4 +266,200 @@ describe('getReviewStageTab', () => {
       .forEach((status) => expect(getReviewStageTab(status)).toBe('overview'));
   });
 });
+
+// --- Case officers: the intake pool and the personal review queue -------------
+const TODAY = new Date('2026-10-10T00:00:00.000Z');
+
+const caseOfficer = (overrides = {}) => ({
+  id: 'co-1',
+  applicationId: 'app-1',
+  officerId: 'officer-a',
+  officerName: 'Ben Reyes',
+  officerRole: 'admissions_office',
+  joinedAt: '2026-10-02T00:00:00.000Z',
+  leftAt: null,
+  ...overrides,
+});
+
+const submitted = (id, overrides = {}) => application({
+  id,
+  status: 'Submitted',
+  submittedAt: '2026-10-01T00:00:00.000Z',
+  ...overrides,
+});
+
+describe('getIntakePool / getMyReviewQueue', () => {
+  it('keeps only open applications nobody has opened, oldest first', () => {
+    const applications = [
+      submitted('b', { submittedAt: '2026-10-05T00:00:00.000Z' }),
+      submitted('a'),
+      submitted('taken', { submittedAt: '2026-10-03T00:00:00.000Z' }),
+      application({ id: 'draft', status: 'Draft' }),
+      application({ id: 'released', status: 'Released' }),
+    ];
+    const roster = [caseOfficer({ applicationId: 'taken' })];
+
+    expect(getIntakePool(applications, roster).map((entry) => entry.id)).toEqual(['a', 'b']);
+    expect(getTakenCases(applications, roster).map((entry) => entry.id)).toEqual(['taken']);
+  });
+
+  it('keeps an in-progress case with no officer in the pool so it cannot be stranded', () => {
+    const applications = [
+      application({ id: 'legacy', status: 'For Verification', submittedAt: '2026-09-01T00:00:00.000Z' }),
+      submitted('fresh', { submittedAt: '2026-10-08T00:00:00.000Z' }),
+    ];
+
+    expect(getIntakePool(applications, []).map((entry) => entry.id)).toEqual(['legacy', 'fresh']);
+    expect(getUnclaimedInProgress(applications, []).map((entry) => entry.id)).toEqual(['legacy']);
+  });
+
+  it('lists a case in every officer queue that opened it', () => {
+    const applications = [submitted('a')];
+    const roster = [
+      caseOfficer({ id: 'co-a', applicationId: 'a', officerId: 'officer-a' }),
+      caseOfficer({ id: 'co-b', applicationId: 'a', officerId: 'officer-b', officerName: 'Mia Santos' }),
+    ];
+
+    expect(getMyReviewQueue(applications, roster, 'officer-a').map((entry) => entry.id)).toEqual(['a']);
+    expect(getMyReviewQueue(applications, roster, 'officer-b').map((entry) => entry.id)).toEqual(['a']);
+    expect(getMyReviewQueue(applications, roster, 'officer-c')).toEqual([]);
+    expect(isCaseOfficer(roster, 'a', 'officer-a')).toBe(true);
+    expect(isCaseOfficer(roster, 'a', 'officer-c')).toBe(false);
+  });
+
+  it('drops a left officer from the queue and returns the case to the pool', () => {
+    const applications = [submitted('a')];
+    const roster = [caseOfficer({ applicationId: 'a', leftAt: '2026-10-05T00:00:00.000Z', leftReason: 'Left the case.' })];
+
+    expect(getMyReviewQueue(applications, roster, 'officer-a')).toEqual([]);
+    expect(getIntakePool(applications, roster).map((entry) => entry.id)).toEqual(['a']);
+  });
+
+  it('never lists a case outside the review scope in either queue', () => {
+    const applications = [
+      application({ id: 'recommended', status: 'Recommended' }),
+      application({ id: 'approved', status: 'Approved' }),
+      application({ id: 'rejected', status: 'Rejected' }),
+    ];
+    const roster = applications.map((entry, index) => caseOfficer({ id: `co-${index}`, applicationId: entry.id }));
+
+    expect(getMyReviewQueue(applications, roster, 'officer-a')).toEqual([]);
+    expect(getTakenCases(applications, roster)).toEqual([]);
+  });
+
+  it('orders the roster oldest join first and reports when a case was opened', () => {
+    const roster = [
+      caseOfficer({ id: 'co-late', officerId: 'officer-b', officerName: 'Mia Santos', joinedAt: '2026-10-04T00:00:00.000Z' }),
+      caseOfficer({ id: 'co-early', joinedAt: '2026-10-02T00:00:00.000Z' }),
+    ];
+
+    expect(getCaseOfficers(roster, 'app-1').map((entry) => entry.id)).toEqual(['co-early', 'co-late']);
+    expect(getCaseOpenedAt(roster, 'app-1')).toBe('2026-10-02T00:00:00.000Z');
+    expect(getCaseOpenedAt([], 'app-1')).toBeNull();
+  });
+
+  it('counts each officer open cases for the workload card', () => {
+    const applications = [submitted('a'), submitted('b'), application({ id: 'c', status: 'Released' })];
+    const roster = [
+      caseOfficer({ id: 'co-1', applicationId: 'a', officerId: 'officer-a' }),
+      caseOfficer({ id: 'co-2', applicationId: 'b', officerId: 'officer-b', officerName: 'Mia Santos' }),
+      caseOfficer({ id: 'co-3', applicationId: 'c', officerId: 'officer-a' }),
+    ];
+
+    expect(getOfficerWorkload(applications, roster)).toEqual([
+      { officerId: 'officer-a', officerName: 'Ben Reyes', officerRole: 'admissions_office', cases: 1 },
+      { officerId: 'officer-b', officerName: 'Mia Santos', officerRole: 'admissions_office', cases: 1 },
+    ]);
+  });
+
+  it('tolerates missing collections', () => {
+    expect(getIntakePool(undefined, undefined)).toEqual([]);
+    expect(getTakenCases(null, null)).toEqual([]);
+    expect(getMyReviewQueue(null, null)).toEqual([]);
+    expect(getCaseOfficers(undefined, 'app-1')).toEqual([]);
+  });
+});
+
+describe('getSubmissionWaitDays', () => {
+  it('measures whole days since submission and never goes negative', () => {
+    expect(getSubmissionWaitDays({ submittedAt: '2026-10-08T00:00:00.000Z' }, TODAY)).toBe(2);
+    expect(getSubmissionWaitDays({ submittedAt: '2026-10-10T00:00:00.000Z' }, TODAY)).toBe(0);
+    expect(getSubmissionWaitDays({ submittedAt: '2026-10-20T00:00:00.000Z' }, TODAY)).toBe(0);
+  });
+
+  it('returns null when no date is recorded', () => {
+    expect(getSubmissionWaitDays({})).toBeNull();
+  });
+});
+
+
+describe('filterIntakePool', () => {
+  const applications = [
+    application({
+      id: 'old',
+      status: 'Submitted',
+      submittedAt: '2026-10-01T00:00:00.000Z',
+      scholarshipId: 'gia',
+      scholarshipTitle: 'Grant-in-Aid (GIA)',
+      studentDepartment: 'College of Computer Studies (CCS)',
+    }),
+    application({
+      id: 'new',
+      status: 'Submitted',
+      submittedAt: '2026-10-09T00:00:00.000Z',
+      scholarshipId: 'jubilee',
+      scholarshipTitle: 'Jubilee Scholarship Fund',
+      studentDepartment: 'School of Business and Governance (SBG)',
+    }),
+    application({
+      id: 'taken',
+      status: 'For Verification',
+      submittedAt: '2026-09-20T00:00:00.000Z',
+      scholarshipId: 'gia',
+      scholarshipTitle: 'Grant-in-Aid (GIA)',
+      studentDepartment: 'College of Computer Studies (CCS)',
+    }),
+    application({ id: 'closed', status: 'Approved' }),
+  ];
+  const roster = [caseOfficer({ applicationId: 'taken' })];
+
+  it('defaults to the unclaimed pool, oldest submission first', () => {
+    expect(filterIntakePool(applications, roster, DEFAULT_INTAKE_POOL_FILTERS, TODAY).map((entry) => entry.id))
+      .toEqual(['old', 'new']);
+  });
+
+  it('shows taken cases through the coverage filter', () => {
+    expect(filterIntakePool(applications, roster, { coverage: 'with-officers' }, TODAY).map((entry) => entry.id))
+      .toEqual(['taken']);
+    expect(filterIntakePool(applications, roster, { coverage: 'all' }, TODAY).map((entry) => entry.id))
+      .toEqual(['taken', 'old', 'new']);
+  });
+
+  it('narrows by stage, scholarship, department, and search text', () => {
+    expect(filterIntakePool(applications, roster, { stage: 'Submitted', coverage: 'all' }, TODAY).map((entry) => entry.id))
+      .toEqual(['old', 'new']);
+    expect(filterIntakePool(applications, roster, { scholarshipId: 'gia', coverage: 'all' }, TODAY).map((entry) => entry.id))
+      .toEqual(['taken', 'old']);
+    expect(filterIntakePool(applications, roster, { department: 'School of Business and Governance (SBG)' }, TODAY).map((entry) => entry.id))
+      .toEqual(['new']);
+    expect(filterIntakePool(applications, roster, { query: 'grant-in-aid', coverage: 'all' }, TODAY).map((entry) => entry.id))
+      .toEqual(['taken', 'old']);
+  });
+
+  it('keeps only cases waiting longer than the threshold', () => {
+    expect(filterIntakePool(applications, roster, { waitingOverDays: 7 }, TODAY).map((entry) => entry.id))
+      .toEqual(['old']);
+  });
+
+  it('sorts newest first when asked', () => {
+    expect(filterIntakePool(applications, roster, { sort: 'newest' }, TODAY).map((entry) => entry.id))
+      .toEqual(['new', 'old']);
+  });
+
+  it('tolerates a filter nothing matches and a missing collection', () => {
+    expect(filterIntakePool(applications, roster, { query: 'nothing matches' }, TODAY)).toEqual([]);
+    expect(filterIntakePool(undefined, undefined, undefined, TODAY)).toEqual([]);
+  });
+});
+
 

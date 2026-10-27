@@ -95,6 +95,34 @@ describe('countApplicationsToReview', () => {
     expect(countApplicationsToReview(applications, { role: 'admissions_office' })).toBe(4);
   });
 
+  it('counts the officer cases plus the unclaimed intake pool when the roster is supplied', () => {
+    const caseOfficers = [
+      { id: 'co-1', applicationId: 'a-review', officerId: 'officer-a', leftAt: null },
+      { id: 'co-2', applicationId: 'a-verify', officerId: 'officer-b', leftAt: null },
+      // A left row never counts; the case it covered is unclaimed again.
+      { id: 'co-3', applicationId: 'a-submitted', officerId: 'officer-a', leftAt: '2026-10-05T00:00:00.000Z' },
+    ];
+
+    // officer-a: its own case (a-review) plus the unclaimed Submitted case and the
+    // uncounted For Endorsement case nobody holds.
+    expect(countApplicationsToReview(applications, {
+      role: 'admissions_office',
+      caseOfficers,
+      userId: 'officer-a',
+    })).toBe(3);
+
+    // officer-b: its own case plus the two unclaimed ones.
+    expect(countApplicationsToReview(applications, {
+      role: 'admissions_office',
+      caseOfficers,
+      userId: 'officer-b',
+    })).toBe(3);
+
+    // Without a userId the roster cannot scope anything, so the office-wide count
+    // is unchanged.
+    expect(countApplicationsToReview(applications, { role: 'admissions_office', caseOfficers })).toBe(4);
+  });
+
   it('counts the endorsement, approval, and release decisions for the Admissions Office Head', () => {
     // The Head owns SOP step 4 as well as approval and release, so a case waiting
     // on the endorsement decision is part of the Head's review count.

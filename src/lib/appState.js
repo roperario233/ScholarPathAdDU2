@@ -127,6 +127,12 @@ const createDefaultState = () => ({
   // The internal endorsement thread. Staff-only rows; a student session always
   // keeps this empty.
   reviewComments: [],
+  // The Admissions Office case-officer roster: which office accounts have opened
+  // which application. Staff-only, so a student or Department Chair session always
+  // keeps this empty. `caseOfficersReady` turns false when the roster migration is
+  // not applied yet, so the workspace can say so.
+  caseOfficers: [],
+  caseOfficersReady: true,
   // SOP step 5 interview data (staff only): the visible staff accounts for the
   // panel picker, the Head-managed venues, the active panel members, and the
   // private evaluation notes. A student session always keeps these empty.
@@ -201,6 +207,8 @@ export const createInitialState = () => {
     notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
     reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
+    caseOfficers: Array.isArray(stored.caseOfficers) ? stored.caseOfficers : defaults.caseOfficers,
+    caseOfficersReady: stored.caseOfficersReady === false ? false : defaults.caseOfficersReady,
     staffDirectory: Array.isArray(stored.staffDirectory) ? stored.staffDirectory : defaults.staffDirectory,
     interviewLocations: Array.isArray(stored.interviewLocations) ? stored.interviewLocations : defaults.interviewLocations,
     interviewPanelists: Array.isArray(stored.interviewPanelists) ? stored.interviewPanelists : defaults.interviewPanelists,

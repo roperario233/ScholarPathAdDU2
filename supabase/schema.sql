@@ -236,6 +236,30 @@ create table if not exists application_review_comments (
 create index if not exists application_review_comments_application_idx
   on application_review_comments (application_id, created_at);
 
+-- The roster of Admissions Office accounts that have opened a case
+-- (see 20261027043147_add_application_case_officers.sql). Staff-only: the
+-- student never learns which officer holds their application, so this never
+-- becomes a column on applications.
+create table if not exists application_case_officers (
+  id uuid primary key default gen_random_uuid(),
+  application_id uuid not null references applications(id) on delete cascade,
+  officer_id uuid references profiles(user_id) on delete set null,
+  officer_name text not null,
+  officer_role text not null check (officer_role in ('admissions_office', 'admissions_head')),
+  joined_at timestamptz not null default now(),
+  added_by uuid references profiles(user_id) on delete set null,
+  left_at timestamptz,
+  left_reason text
+);
+create unique index if not exists application_case_officers_active_unique
+  on application_case_officers (application_id, officer_id)
+  where left_at is null;
+create index if not exists application_case_officers_officer_idx
+  on application_case_officers (officer_id)
+  where left_at is null;
+create index if not exists application_case_officers_application_idx
+  on application_case_officers (application_id);
+
 alter table profiles enable row level security;
 alter table scholarships enable row level security;
 alter table documents enable row level security;
@@ -245,6 +269,7 @@ alter table announcements enable row level security;
 alter table notifications enable row level security;
 alter table department_reviews enable row level security;
 alter table application_review_comments enable row level security;
+alter table application_case_officers enable row level security;
 alter table academic_programs enable row level security;
 
 -- Role helpers are security-definer functions so RLS checks do not recurse
@@ -542,6 +567,12 @@ for insert with check (
     )
   )
 );
+drop policy if exists "staff_application_case_officers_read" on application_case_officers;
+create policy "staff_application_case_officers_read" on application_case_officers
+for select using (public.is_admissions_office());
+-- Membership is written only by join_application_review / leave_application_review,
+-- so no insert, update, or delete policy exists here (see
+-- 20261027043147_add_application_case_officers.sql).
 create policy "academic_programs_read_all" on academic_programs
 for select using (true);
 create policy "admissions_office_academic_programs_manage" on academic_programs
@@ -1219,6 +1250,125 @@ $$;
 
 revoke all on function public.replace_rejected_application_document(uuid, uuid, uuid) from public, anon;
 grant execute on function public.replace_rejected_application_document(uuid, uuid, uuid) to authenticated;
+
+-- Case officers (see 20261027043147_add_application_case_officers.sql). Joining is
+-- idempotent and is the only place the roster grows; the one status move it can
+-- make is the start of the review. The timeline note stays anonymous because
+-- applications.timeline is readable by the student.
+create or replace function public.join_application_review(p_application_id uuid)
+returns public.applications
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_application public.applications;
+  v_role text := public.current_profile_role();
+  v_name text;
+  v_actor text;
+  v_note text;
+begin
+  if not public.is_admissions_office() then
+    raise exception 'Only the Admissions Office can join an application review.';
+  end if;
+
+  select * into v_application
+  from public.applications
+  where id = p_application_id
+  for update;
+
+  if not found then
+    raise exception 'The application could not be found.';
+  end if;
+
+  if v_application.status not in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview') then
+    raise exception 'An application at % does not take case officers.', v_application.status;
+  end if;
+
+  if not exists (
+    select 1
+    from public.application_case_officers
+    where application_id = p_application_id
+      and officer_id = auth.uid()
+      and left_at is null
+  ) then
+    select coalesce(nullif(btrim(full_name), ''), 'Admissions Office reviewer')
+      into v_name
+      from public.profiles
+      where user_id = auth.uid();
+
+    insert into public.application_case_officers (application_id, officer_id, officer_name, officer_role, added_by)
+    values (
+      p_application_id,
+      auth.uid(),
+      coalesce(v_name, 'Admissions Office reviewer'),
+      coalesce(v_role, 'admissions_office'),
+      auth.uid()
+    );
+  end if;
+
+  if v_application.status = 'Submitted' then
+    v_actor := case v_role when 'admissions_head' then 'Admissions Office Head' else 'Admissions Office Staff' end;
+    v_note := case v_role
+      when 'admissions_head' then 'The Admissions Office Head opened this application for review. Attached documents are reviewed at the verification stage.'
+      else 'The Admissions Office Staff opened this application for review. Attached documents are reviewed at the verification stage.'
+    end;
+
+    update public.applications
+    set status = 'Under Review',
+        updated_at = now(),
+        timeline = coalesce(timeline, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+          'id', 'ev-' || gen_random_uuid()::text,
+          'stage', 'Under Review',
+          'note', v_note,
+          'actor', v_actor,
+          'at', to_char(now() at time zone 'Asia/Manila', 'YYYY-MM-DD')
+        ))
+    where id = p_application_id
+    returning * into v_application;
+  end if;
+
+  return v_application;
+end;
+$$;
+
+revoke all on function public.join_application_review(uuid) from public, anon;
+grant execute on function public.join_application_review(uuid) to authenticated;
+
+-- Leaving a case keeps the status: Under Review -> Submitted is a reverse
+-- transition the SOP map does not allow.
+create or replace function public.leave_application_review(p_application_id uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_reason text := btrim(coalesce(p_reason, ''));
+begin
+  if not public.is_admissions_office() then
+    raise exception 'Only the Admissions Office can leave an application review.';
+  end if;
+
+  if v_reason = '' then
+    raise exception 'A reason is required before leaving an application review.';
+  end if;
+
+  update public.application_case_officers
+  set left_at = now(),
+      left_reason = v_reason
+  where application_id = p_application_id
+    and officer_id = auth.uid()
+    and left_at is null;
+
+  if not found then
+    raise exception 'You are not a case officer on this application.';
+  end if;
+end;
+$$;
+
+revoke all on function public.leave_application_review(uuid, text) from public, anon;
+grant execute on function public.leave_application_review(uuid, text) to authenticated;
 
 -- A Verified file that a live application already relies on cannot be
 -- un-verified, because the document-verification gate would then strand that

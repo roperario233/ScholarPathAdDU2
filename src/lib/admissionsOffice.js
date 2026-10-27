@@ -32,6 +32,219 @@ export const getReviewStageTab = (status) => REVIEW_STAGE_TABS[status] || 'overv
 export const getReviewQueue = (applications = []) => asList(applications)
   .filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status));
 
+// --- Case officers: the intake pool and the personal review queue -------------
+// The Admissions Office works one shared intake pool. Opening a case joins the
+// officer to it (public.application_case_officers), so a case can have several
+// officers and none of them is an "owner". These selectors turn that roster into
+// the two lists the workspace shows: what nobody has opened yet (the intake pool)
+// and the cases the signed-in officer is working (the review queue).
+const submissionTime = (application = {}) => {
+  const value = application.submittedAt || application.updatedAt;
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
+};
+
+// First come, first served: the oldest submission first, with a stable tie-break
+// so the pool never reshuffles between renders.
+const byOldestSubmission = (left, right) => (
+  (submissionTime(left) - submissionTime(right))
+  || String(left?.id || '').localeCompare(String(right?.id || ''))
+);
+
+const isOpenCase = (entry) => Boolean(entry) && !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status);
+
+const activeOfficers = (caseOfficers = []) => asList(caseOfficers).filter((entry) => entry && !entry.leftAt);
+
+const officerIdsByApplication = (caseOfficers = []) => {
+  const map = new Map();
+  activeOfficers(caseOfficers).forEach((entry) => {
+    if (!entry.applicationId) return;
+    if (!map.has(entry.applicationId)) map.set(entry.applicationId, new Set());
+    map.get(entry.applicationId).add(entry.officerId || entry.officerName || entry.id);
+  });
+  return map;
+};
+
+// The active roster for one application, oldest join first.
+export const getCaseOfficers = (caseOfficers = [], applicationId) => activeOfficers(caseOfficers)
+  .filter((entry) => entry.applicationId === applicationId)
+  .sort((left, right) => (
+    (new Date(left.joinedAt || 0) - new Date(right.joinedAt || 0))
+    || String(left.officerName || '').localeCompare(String(right.officerName || ''))
+  ));
+
+export const isCaseOfficer = (caseOfficers, applicationId, officerId) => Boolean(applicationId && officerId)
+  && getCaseOfficers(caseOfficers, applicationId).some((entry) => entry.officerId === officerId);
+
+// When the case was first opened by an officer, so the pool can report coverage.
+export const getCaseOpenedAt = (caseOfficers = [], applicationId) => (
+  getCaseOfficers(caseOfficers, applicationId)[0]?.joinedAt || null
+);
+
+// Every open application nobody has opened yet, oldest first. `Submitted` cases
+// are the intake itself; a case that is further along but carries no active
+// officer (recorded before the roster existed, or after the last officer left)
+// stays here so it cannot be stranded.
+export const getIntakePool = (applications = [], caseOfficers = []) => {
+  const claimed = officerIdsByApplication(caseOfficers);
+  return asList(applications)
+    .filter((entry) => isOpenCase(entry) && !claimed.has(entry.id))
+    .sort(byOldestSubmission);
+};
+
+// Open applications at least one officer has opened.
+export const getTakenCases = (applications = [], caseOfficers = []) => {
+  const claimed = officerIdsByApplication(caseOfficers);
+  return asList(applications)
+    .filter((entry) => isOpenCase(entry) && claimed.has(entry.id))
+    .sort(byOldestSubmission);
+};
+
+// The pool's unclaimed cases that are already past submission. They are the ones
+// most likely to need attention, so the intake page reports their count.
+export const getUnclaimedInProgress = (applications = [], caseOfficers = []) => (
+  getIntakePool(applications, caseOfficers).filter((entry) => entry.status !== 'Submitted')
+);
+
+// The signed-in officer's review queue. A case leaves it only when it reaches a
+// stage outside the review scope (approval and release belong to the Head) or the
+// officer leaves the case.
+export const getMyReviewQueue = (applications = [], caseOfficers = [], officerId = '') => {
+  if (!officerId) return [];
+  const mine = new Set(activeOfficers(caseOfficers)
+    .filter((entry) => entry.officerId === officerId)
+    .map((entry) => entry.applicationId));
+  return asList(applications)
+    .filter((entry) => mine.has(entry.id) && isOpenCase(entry))
+    .sort(byOldestSubmission);
+};
+
+// Officer workload for the Head's oversight card: how many open cases each active
+// officer is working. Read-only; membership is still self-selected.
+export const getOfficerWorkload = (applications = [], caseOfficers = []) => {
+  const openIds = new Set(asList(applications).filter(isOpenCase).map((entry) => entry.id));
+  const byOfficer = new Map();
+  activeOfficers(caseOfficers).forEach((entry) => {
+    if (!openIds.has(entry.applicationId)) return;
+    const key = entry.officerId || entry.officerName || entry.id;
+    const current = byOfficer.get(key) || {
+      officerId: entry.officerId || '',
+      officerName: entry.officerName || 'Admissions Office reviewer',
+      officerRole: entry.officerRole || '',
+      cases: 0,
+    };
+    current.cases += 1;
+    byOfficer.set(key, current);
+  });
+  return [...byOfficer.values()]
+    .sort((left, right) => (right.cases - left.cases) || left.officerName.localeCompare(right.officerName));
+};
+
+// Whole days since submission, for the first-come-first-served waiting age. Null
+// when the application carries no usable date.
+export const getSubmissionWaitDays = (application, today = new Date()) => {
+  const start = submissionTime(application);
+  if (!start) return null;
+  const end = today instanceof Date ? today.getTime() : new Date(today).getTime();
+  if (!Number.isFinite(end)) return null;
+  return Math.max(0, Math.floor((end - start) / 86_400_000));
+};
+
+// The intake page's coverage facet. Unclaimed is the default: the work nobody has
+// opened yet. With officers is how a taken application stays discoverable, and
+// All open cases is the office's full workload.
+export const INTAKE_POOL_COVERAGE = [
+  { value: 'unclaimed', label: 'Unclaimed' },
+  { value: 'with-officers', label: 'With officers' },
+  { value: 'all', label: 'All open cases' },
+];
+
+export const INTAKE_POOL_SORTS = [
+  { value: 'oldest', label: 'Oldest submission first' },
+  { value: 'newest', label: 'Newest submission first' },
+  { value: 'longest', label: 'Longest waiting' },
+  { value: 'scholarship', label: 'Scholarship A–Z' },
+];
+
+export const INTAKE_POOL_STAGE_OPTIONS = [
+  'Submitted',
+  'Under Review',
+  'For Verification',
+  'For Endorsement',
+  'Endorsed',
+  'Interview',
+];
+
+export const DEFAULT_INTAKE_POOL_FILTERS = {
+  coverage: 'unclaimed',
+  stage: 'all',
+  query: '',
+  scholarshipId: 'all',
+  department: 'all',
+  waitingOverDays: 0,
+  sort: 'oldest',
+};
+
+// The scholarships and departments that actually appear in the open cases, so the
+// facets never offer an empty result.
+export const getIntakePoolFacets = (applications = []) => {
+  const scholarships = new Map();
+  const departments = new Set();
+  asList(applications).filter(isOpenCase).forEach((entry) => {
+    if (entry.scholarshipId) scholarships.set(entry.scholarshipId, entry.scholarshipTitle || 'Scholarship');
+    if (entry.studentDepartment) departments.add(entry.studentDepartment);
+  });
+  return {
+    scholarships: [...scholarships.entries()]
+      .map(([value, label]) => ({ value, label }))
+      .sort((left, right) => left.label.localeCompare(right.label)),
+    departments: [...departments].sort((left, right) => left.localeCompare(right)),
+  };
+};
+
+// One filter pass over the open applications: coverage, stage, text, scholarship,
+// department, waiting age, then the chosen sort. FCFS stays the default ordering.
+export const filterIntakePool = (applications = [], caseOfficers = [], filters = {}, today = new Date()) => {
+  const merged = { ...DEFAULT_INTAKE_POOL_FILTERS, ...(filters || {}) };
+  const claimed = officerIdsByApplication(caseOfficers);
+  const query = String(merged.query || '').trim().toLowerCase();
+  const waitingOverDays = Number(merged.waitingOverDays) || 0;
+
+  const list = asList(applications).filter((entry) => {
+    if (!isOpenCase(entry)) return false;
+    const hasOfficers = claimed.has(entry.id);
+    if (merged.coverage === 'unclaimed' && hasOfficers) return false;
+    if (merged.coverage === 'with-officers' && !hasOfficers) return false;
+    if (merged.stage && merged.stage !== 'all' && entry.status !== merged.stage) return false;
+    if (merged.scholarshipId && merged.scholarshipId !== 'all' && entry.scholarshipId !== merged.scholarshipId) return false;
+    if (merged.department && merged.department !== 'all' && (entry.studentDepartment || '') !== merged.department) return false;
+    if (waitingOverDays > 0) {
+      const days = getSubmissionWaitDays(entry, today);
+      if (days == null || days < waitingOverDays) return false;
+    }
+    if (query) {
+      const haystack = [entry.studentName, entry.scholarshipTitle, entry.studentProgram, entry.studentDepartment]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    return true;
+  });
+
+  const sorters = {
+    oldest: byOldestSubmission,
+    newest: (left, right) => byOldestSubmission(right, left),
+    longest: byOldestSubmission,
+    scholarship: (left, right) => (
+      String(left.scholarshipTitle || '').localeCompare(String(right.scholarshipTitle || ''))
+      || byOldestSubmission(left, right)
+    ),
+  };
+
+  return list.sort(sorters[merged.sort] || byOldestSubmission);
+};
+
 // SOP step 7: recommendations the Admissions Office Head approves.
 export const getApprovalQueue = (applications = []) => asList(applications)
   .filter((entry) => entry.status === 'Recommended');

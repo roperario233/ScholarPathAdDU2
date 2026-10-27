@@ -45,6 +45,8 @@ describe('createFreshState (sign-out reset)', () => {
     documents: [{ id: 'doc-1', ownerId: 'user-a' }],
     students: { 'user-a': { fullName: 'Student A' } },
     announcements: [{ id: 'ann-1' }],
+    caseOfficers: [{ id: 'co-1', applicationId: 'app-1', officerId: 'user-a' }],
+    caseOfficersReady: false,
   };
 
   it('clears every session-scoped slice the previous user owned', () => {
@@ -69,6 +71,10 @@ describe('createFreshState (sign-out reset)', () => {
     expect(next.documents).toEqual([]);
     expect(next.students).toEqual({});
     expect(next.announcements).toEqual([]);
+    // The Admissions Office case-officer roster is session data too: the next
+    // account on a shared browser must not inherit it.
+    expect(next.caseOfficers).toEqual([]);
+    expect(next.caseOfficersReady).toBe(true);
   });
 
   it('keeps only the non-identifying device-level preferences', () => {
