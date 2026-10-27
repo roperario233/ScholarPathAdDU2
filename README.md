@@ -507,9 +507,24 @@ browser. The refresh token stays in Supabase secrets.
 
 ### 2. Mint the refresh token
 
+Put the client id and secret in `.env` in the project root (either line works;
+the helper only reads those two keys):
+
+```dotenv
+GOOGLE_OAUTH_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=...
+```
+
+Then, from the project root:
+
 ```powershell
-$env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
 npm run google:auth
+```
+
+Exporting them in the shell also works and wins over `.env` for that run:
+
+```powershell
+$env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."; npm run google:auth
 ```
 
 Approve the consent screen **with the account that owns the interview calendar**.
