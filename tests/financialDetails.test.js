@@ -15,8 +15,8 @@ const complete = {
   difficultyAnswer: 'no',
   allowanceDaily: '150',
   allowanceEnough: 'yes',
-  foodIntake: 'Rice and viand',
-  transportMode: 'Jeepney',
+  foodIntakeAdequacy: 'adequate',
+  transportMode: 'public-transport',
   expenseFood: '100',
   expenseTransport: '40',
   expenseOther: '0',
@@ -73,8 +73,24 @@ describe('financial situation answers', () => {
   });
 
   it('clears the details of an answer that no longer applies', () => {
-    const normalized = normalizeFinancialAnswers({ ...complete, difficultyAnswer: 'no', difficultyReasons: 'stale', otherIncomeAnswer: 'no', otherIncomeSources: 'stale', otherIncomeMonthly: '500' });
-    expect(normalized).toMatchObject({ difficultyReasons: '', difficultyCoping: '', otherIncomeSources: '', otherIncomeMonthly: '' });
+    const normalized = normalizeFinancialAnswers({ ...complete, difficultyAnswer: 'no', difficultyReasons: ['other'], difficultyOther: 'stale', otherIncomeAnswer: 'no', otherIncomeSources: 'stale', otherIncomeMonthly: '500' });
+    expect(normalized).toMatchObject({ difficultyReasons: [], difficultyOther: '', difficultyCoping: [], copingOther: '', otherIncomeSources: '', otherIncomeMonthly: '' });
+  });
+
+  it('keeps a legacy free-text answer under Other instead of dropping it', () => {
+    const normalized = normalizeFinancialAnswers({ ...complete, difficultyAnswer: 'yes', difficultyReasons: 'Typhoon damage', difficultyCoping: 'Loans', transportMode: 'Jeepney' });
+    expect(normalized.difficultyReasons).toEqual(['other']);
+    expect(normalized.difficultyOther).toBe('Typhoon damage');
+    expect(normalized.difficultyCoping).toEqual(['other']);
+    expect(normalized.copingOther).toBe('Loans');
+    expect(normalized.transportMode).toBe('other');
+    expect(normalized.transportOther).toBe('Jeepney');
+  });
+
+  it('ignores an option key that is not in the FORM 230-SCH list', () => {
+    const normalized = normalizeFinancialAnswers({ ...complete, difficultyAnswer: 'yes', difficultyReasons: ['unstable-income', 'made-up'], difficultyCoping: ['pawn-sell'] });
+    expect(normalized.difficultyReasons).toEqual(['unstable-income']);
+    expect(normalized.difficultyCoping).toEqual(['pawn-sell']);
   });
 
   it('coerces amounts to numbers and drops unusable ones', () => {
@@ -95,7 +111,7 @@ describe('financial detail sections', () => {
   };
 
   it('describes the household finances and the situation as labelled rows', () => {
-    const sections = getFinancialDetailSections({ financialProfile, answers: normalizeFinancialAnswers({ ...complete, difficultyAnswer: 'yes', difficultyReasons: 'Typhoon', difficultyCoping: 'Loans' }) });
+    const sections = getFinancialDetailSections({ financialProfile, answers: normalizeFinancialAnswers({ ...complete, difficultyAnswer: 'yes', difficultyReasons: ['unstable-income'], difficultyCoping: ['loan'] }) });
     expect(sections.map((section) => section.key)).toEqual(['finances', 'situation']);
     const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row.value]));
     expect(rows['Perceived economic status']).toBe('Lower class');
@@ -103,8 +119,10 @@ describe('financial detail sections', () => {
     expect(rows.Mother).toContain('Unemployed');
     expect(rows.Mother).toContain('last employed March 2024');
     expect(rows.Assets).toBe('House, Car, Sari-sari store');
-    expect(rows['Financial difficulty in the last 3 months']).toBe('Yes · Typhoon · Coping: Loans');
+    expect(rows['Financial difficulty in the last 3 months']).toBe('Yes · Insufficient and unstable income of parents · Coping: Apply for a loan from banks or cooperatives');
     expect(rows['Daily allowance']).toBe('₱150 · enough');
+    expect(rows['Daily food intake']).toBe('Adequate');
+    expect(rows['Mode of transport']).toBe('Public transport (jeep, bus, etc.)');
   });
 
   it('shows a deceased parent without income', () => {

@@ -33,8 +33,8 @@ const completeFinancialAnswers = {
   difficultyAnswer: 'no',
   allowanceDaily: 150,
   allowanceEnough: 'yes',
-  foodIntake: 'Rice and viand, three meals',
-  transportMode: 'Jeepney',
+  foodIntakeAdequacy: 'adequate',
+  transportMode: 'public-transport',
   expenseFood: 100,
   expenseTransport: 40,
   expenseOther: 20,
@@ -58,6 +58,8 @@ const continuingProfile = {
   ipCommunity: 'No',
   pwd: 'No',
   employed: 'Not employed',
+  // FORM 230-SCH Applicant Status.
+  isTransferee: 'No',
   phone: '0917 123 4567',
   birthdate: '2005-04-12',
   sexAtBirth: 'Female',
@@ -303,7 +305,7 @@ describe('profile snapshot', () => {
 
   it('freezes the eligibility answers, background, personal, address, and family groups', () => {
     const snapshot = buildProfileSnapshot(fullProfile, { honorsRank: 'Verified', pwd: 'Pending' });
-    expect(snapshot.version).toBe(3);
+    expect(snapshot.version).toBe(4);
     expect(snapshot.eligibility).toEqual({
       academicStanding: { value: 'good', verification: 'Unverified' },
       honorsRank: { value: 'Valedictorian', verification: 'Verified' },
@@ -311,9 +313,10 @@ describe('profile snapshot', () => {
       isOnPrepaidPlan: false,
       hasSiblingOnAid: true,
       hasOtherActiveScholarship: false,
+      isTransferee: 'No',
     });
     expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
-    expect(snapshot.personal).toEqual({ civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: '' });
+    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: '' });
     expect(snapshot.address).toEqual({ completeAddress: 'Roxas Ave, Davao City', residingAddress: 'Roxas Ave, Davao City', country: 'Philippines', housingType: '', housingOther: '' });
     expect(snapshot.education).toEqual({ schoolLastAttended: { name: 'Davao Senior High School', city: '', province: '' }, awards: '' });
     expect(snapshot.aid).toEqual({ communityService: 'Yes', previousGrants: [] });
@@ -382,6 +385,24 @@ describe('profile snapshot sections', () => {
     expect(rows['Sibling 1']).toBe('Mika · 12 yrs · Sister · Still studying');
     expect(rows['Other household member 1']).toBe('Lola Ana · 70 yrs · Grandmother');
     expect(rows['Grant 1']).toBe('Alumni grant · Private · Accepted · AdDU');
+  });
+
+  it('renders the FORM 230-SCH printed name, applicant status and senior high school aid', () => {
+    const { sections } = getProfileSnapshotSections(buildProfileSnapshot({
+      ...continuingProfile,
+      isTransferee: 'Yes',
+      lastName: 'Reyes', firstName: 'Ana', middleName: 'Cruz',
+      graduatingClassSize: '120',
+      previousGrants: [{ type: 'Government', name: 'CHED', level: 'Senior high school', status: 'accepted', institution: 'CHED', amount: 12000 }],
+    }));
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row.value]));
+    expect(rows['Name of applicant (Last, First, Middle)']).toBe('Reyes, Ana Cruz');
+    expect(rows.Name).toBeUndefined();
+    expect(rows['Applicant status']).toBe('Transferee');
+    expect(rows['College last attended']).toBe('Davao Senior High School');
+    expect(rows['Number of graduates of your senior high school']).toBe('120');
+    expect(rows['Financial aid in senior high school']).toContain('Senior high school');
+    expect(rows['Financial aid in senior high school']).toContain('₱12,000 a year');
   });
 
   it('keeps a version 2 snapshot rendering without the version 3 groups', () => {

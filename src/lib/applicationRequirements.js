@@ -6,22 +6,27 @@ import {
   VERIFIABLE_ATTRIBUTE_KEYS,
   academicStandingOptions,
   civilStatusOptions,
+  composeFullName,
   deriveYearStanding,
   employmentOptions,
   familyPositionOptions,
+  grantLevelOptions,
   grantStatusOptions,
   grantTypeOptions,
   housingTypeOptions,
   sexAtBirthOptions,
   siblingStatusOptions,
+  getApplicantStatusLabel,
   getApplicationProfileGate,
   getClaimedAttributes,
   getProvenAttributes,
+  getShsFinancialAid,
   getStandingRequirements,
   getVerifiableAttributeOption,
   honorsRankOptions,
   ipCommunityOptions,
   isProofRequired,
+  isTransfereeProfile,
   pwdOptions,
   religionOptions,
   yearStandingOptions,
@@ -656,11 +661,13 @@ export const describeDocumentDecision = (doc, { showName = false } = {}) => {
 // family groups to the original nine fields. Version 3 adds the FORM 230-SCH
 // details that are safe for the Department Chair too (birthdate, sex, pronouns,
 // housing, education, awards, parents' ages, siblings, household members, IP
-// group, previous grants, community service). The financial details are never
-// part of this JSON: they live in the office-only application_financial_details
-// table. A snapshot without a version was submitted before those groups were
-// recorded.
-export const PROFILE_SNAPSHOT_VERSION = 3;
+// group, previous grants, community service). Version 4 adds the printed name
+// parts (Last, First, Middle), the Applicant Status answer (transferee), the
+// senior high school graduate count, and the senior high school financial aid
+// rows. The financial details are never part of this JSON: they live in the
+// office-only application_financial_details table. A snapshot without a version
+// was submitted before those groups were recorded.
+export const PROFILE_SNAPSHOT_VERSION = 4;
 
 const asText = (value) => (value == null ? '' : String(value).trim());
 const asNumberOrNull = (value) => (value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value));
@@ -702,10 +709,15 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
       hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
       hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
-      ...(isIncomingFirstYear ? {
-        hsStrand: asText(profile.hsStrand),
-        programChoices: [asText(profile.programChoice2), asText(profile.programChoice3)],
-      } : {}),
+      // FORM 230-SCH Applicant Status. An incoming first-year is already known
+      // from the year standing; this answer separates a transferee.
+      isTransferee: asText(profile.isTransferee),
+      // The strand and the ranked choices are shown for an incoming first-year
+      // and for any other student who recorded them.
+      ...(isIncomingFirstYear || profile.hsStrand ? { hsStrand: asText(profile.hsStrand) } : {}),
+      ...(isIncomingFirstYear || profile.programChoice2 || profile.programChoice3
+        ? { programChoices: [asText(profile.programChoice2), asText(profile.programChoice3)] }
+        : {}),
     },
     background: {
       ipCommunity: proven('ipCommunity'),
@@ -714,6 +726,12 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       ipGroupName: profile.ipCommunity === 'Yes' ? asText(profile.ipGroupName) : '',
     },
     personal: {
+      // FORM 230-SCH prints the name as Last, First, Middle. The parts are kept
+      // beside the composed `fullName` so a snapshot renders the printed form and
+      // an older profile that never split its name still shows the full name.
+      firstName: asText(profile.firstName),
+      middleName: asText(profile.middleName),
+      lastName: asText(profile.lastName),
       civilStatus: asText(profile.civilStatus),
       religion: asText(profile.religion),
       birthdate: asText(profile.birthdate),
@@ -783,8 +801,12 @@ const formatPerson = (entry = {}, statusOptions) => [
 const formatGrant = (entry = {}) => [
   entry.name,
   optionLabel(grantTypeOptions, entry.type),
+  optionLabel(grantLevelOptions, entry.level),
   optionLabel(grantStatusOptions, entry.status),
   entry.institution,
+  Number.isFinite(Number(entry.amount)) && entry.amount !== '' && entry.amount != null
+    ? `${fmtCurrency(Number(entry.amount))} a year`
+    : '',
 ].filter(Boolean).join(' · ');
 
 // The snapshot as labelled, display-ready rows, grouped the way My Profile
@@ -797,11 +819,14 @@ export const getProfileSnapshotSections = (snapshot) => {
   const row = (label, value, verification) => ({ label, value: value == null ? '' : String(value), ...(verification ? { verification } : {}) });
   const academic = snapshot.academic || {};
   const academicValue = academic.value == null ? '' : (academic.credential === 'qpi' ? Number(academic.value).toFixed(2) : String(academic.value));
+  // Version 4 stores the printed name as Last, First, Middle; an older snapshot
+  // (or a profile that never split its name) keeps the single full name.
+  const printedName = snapshot.version >= 4 ? composeFullName(snapshot.personal) : '';
   const sections = [{
     key: 'application',
     title: 'Needed to apply',
     rows: [
-      row('Name', snapshot.fullName),
+      printedName ? row('Name of applicant (Last, First, Middle)', printedName) : row('Name', snapshot.fullName),
       ...(snapshot.studentNumber ? [row('Student number', snapshot.studentNumber)] : []),
       row('Program', snapshot.degreeProgram),
       row('Year standing', snapshot.yearStandingLabel),
@@ -823,6 +848,9 @@ export const getProfileSnapshotSections = (snapshot) => {
       key: 'eligibility',
       title: 'Eligibility answers',
       rows: [
+        ...(snapshot.version >= 4
+          ? [row('Applicant status', getApplicantStatusLabel({ yearStanding: snapshot.yearStanding, isTransferee: eligibility.isTransferee }))]
+          : []),
         proven('academicStanding', eligibility.academicStanding, academicStandingOptions),
         ...(Object.prototype.hasOwnProperty.call(eligibility, 'hsStrand') ? [row('Senior high school strand', eligibility.hsStrand)] : []),
         ...(Array.isArray(eligibility.programChoices) ? [
@@ -830,7 +858,7 @@ export const getProfileSnapshotSections = (snapshot) => {
           row('3rd choice program', eligibility.programChoices[1]),
         ] : []),
         proven('honorsRank', eligibility.honorsRank, honorsRankOptions),
-        row('Graduating class size', eligibility.graduatingClassSize),
+        row(snapshot.version >= 4 ? 'Number of graduates of your senior high school' : 'Graduating class size', eligibility.graduatingClassSize),
         row('Prepaid tuition plan', yesNo(eligibility.isOnPrepaidPlan)),
         row('Sibling on AdDU financial aid', yesNo(eligibility.hasSiblingOnAid)),
         row('Another active scholarship', yesNo(eligibility.hasOtherActiveScholarship)),
@@ -869,7 +897,7 @@ export const getProfileSnapshotSections = (snapshot) => {
       key: 'education',
       title: 'Education',
       rows: [
-        row('School last attended', [snapshot.education?.schoolLastAttended?.name, snapshot.education?.schoolLastAttended?.city, snapshot.education?.schoolLastAttended?.province].filter(Boolean).join(', ')),
+        row(isTransfereeProfile({ isTransferee: eligibility.isTransferee }) ? 'College last attended' : 'School last attended', [snapshot.education?.schoolLastAttended?.name, snapshot.education?.schoolLastAttended?.city, snapshot.education?.schoolLastAttended?.province].filter(Boolean).join(', ')),
         row('Awards received', snapshot.education?.awards),
       ],
     }] : []),
@@ -893,6 +921,9 @@ export const getProfileSnapshotSections = (snapshot) => {
       key: 'aid',
       title: 'Financial aid and service',
       rows: [
+        ...(snapshot.version >= 4
+          ? [row('Financial aid in senior high school', getShsFinancialAid(snapshot.aid?.previousGrants).map(formatGrant).join(' · ') || 'None listed')]
+          : []),
         ...(Array.isArray(snapshot.aid?.previousGrants) && snapshot.aid.previousGrants.length
           ? snapshot.aid.previousGrants.map((entry, index) => row(`Grant ${index + 1}`, formatGrant(entry)))
           : [row('Other grants', 'None listed')]),

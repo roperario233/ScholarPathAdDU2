@@ -6,6 +6,13 @@
 export const ESSAY_TOPIC = 'Discuss a personal achievement that is unrelated to academics but is highly significant to you.';
 export const ESSAY_TARGET_WORDS = 500;
 
+// The instruction box printed above the essay topic on FORM 230-SCH.
+export const ESSAY_INSTRUCTION = 'The essay you submit before you are interviewed should be an example of your thinking process and writing style. This writing sample allows you to express your ideas, talents, interests, and values while demonstrating your writing ability to the Scholarship Committee. We ask you to discuss the topic below in a 500-word essay that reflects your ability to think, organize, and communicate. The committee is interested in the originality of your response as well as the clarity of your expression.';
+
+// The reminder printed under the course choices: a released grant does not allow
+// a change of program without approval.
+export const COURSE_SHIFT_REMINDER = 'You will not be allowed to shift to another course or program once the grant result has been released. Doing so without approval will suspend your grant.';
+
 export const DATA_PRIVACY_NOTICE = 'The Office of Admission and Aid collects the information and documents in this application only to evaluate scholarship applications and to keep scholarship records, in line with the Data Privacy Act of 2012. They are shared only with the offices and committee members involved in the evaluation and are kept only as long as the University\'s records policy requires.';
 
 export const AFFIDAVIT_CLAUSES = [

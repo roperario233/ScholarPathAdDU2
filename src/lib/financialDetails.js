@@ -36,6 +36,7 @@ export const ASSET_OPTIONS = [
   { key: 'motorcycle', label: 'Motorcycle' },
   { key: 'realEstate', label: 'Other real estate' },
   { key: 'heavyEquipment', label: 'Heavy equipment' },
+  { key: 'none', label: 'None of the above' },
 ];
 
 export const APPLIANCE_OPTIONS = [
@@ -43,6 +44,39 @@ export const APPLIANCE_OPTIONS = [
   { key: 'aircon', label: 'Air conditioner' },
   { key: 'laptop', label: 'Laptop or computer' },
   { key: 'postpaidInternet', label: 'Postpaid internet' },
+  { key: 'none', label: 'None of the above' },
+];
+
+// FORM 230-SCH asks the student to check as many as apply, so the reasons and the
+// coping strategies are stored as option keys plus one free-text "Other". Both
+// lists mirror the printed form.
+export const DIFFICULTY_REASON_OPTIONS = [
+  { key: 'job-loss', label: 'Loss of job during the pandemic' },
+  { key: 'unstable-income', label: 'Insufficient and unstable income of parents' },
+  { key: 'school-expenses', label: 'School expenses (aside from tuition and fees)' },
+  { key: 'extended-family', label: 'Supporting extended family members' },
+  { key: 'other-expenses', label: 'Other expenses, e.g. rent, medicines' },
+  { key: 'other', label: 'Other reasons' },
+];
+
+export const COPING_OPTIONS = [
+  { key: 'borrow', label: 'Borrow or ask money from friends or relatives' },
+  { key: 'loan', label: 'Apply for a loan from banks or cooperatives' },
+  { key: 'pawn-sell', label: 'Pawn or sell valuables' },
+  { key: 'promissory', label: 'Give promissory notes' },
+  { key: 'other', label: 'Other ways' },
+];
+
+export const TRANSPORT_MODE_OPTIONS = [
+  { value: 'public-transport', label: 'Public transport (jeep, bus, etc.)' },
+  { value: 'private-car', label: 'Private car' },
+  { value: 'other', label: 'Others' },
+];
+
+// FORM 230-SCH "Daily Food Intake: Adequate / Inadequate".
+export const foodIntakeOptions = [
+  { value: 'adequate', label: 'Adequate' },
+  { value: 'inadequate', label: 'Inadequate' },
 ];
 
 const TEXT_MAX = 100;
@@ -65,11 +99,36 @@ const toAmount = (raw) => {
 
 const isAmount = (value) => hasValue(value) && Number.isFinite(Number(value)) && Number(value) >= 0;
 
-const pickFlags = (source, options) => Object.fromEntries(
-  [...options.map((option) => [option.key, Boolean(source?.[option.key])]), ['others', cleanText(source?.others, TEXT_MAX)]],
-);
+const pickFlags = (source, options) => {
+  const selected = Object.fromEntries(
+    [...options.map((option) => [option.key, Boolean(source?.[option.key])]), ['others', cleanText(source?.others, TEXT_MAX)]],
+  );
+  // "None of the above" is exclusive: choosing it clears every item and the
+  // free-text entry, and choosing any item clears it, so a family can never own
+  // nothing and a car at the same time.
+  if (selected.none) {
+    options.forEach((option) => {
+      if (option.key !== 'none') selected[option.key] = false;
+    });
+    selected.others = '';
+  } else if (selected.others || options.some((option) => option.key !== 'none' && selected[option.key])) {
+    selected.none = false;
+  }
+  return selected;
+};
 
 const oneOfValues = (value, options) => (options.some((option) => option.value && option.value === value) ? value : '');
+
+// A multi-select answer stored as option keys. A legacy free-text answer (saved
+// before FORM 230-SCH options existed) is kept under "Other" so the student's
+// words are never dropped.
+const pickOptionKeys = (raw, options, otherKey = 'other') => {
+  const legacyText = typeof raw === 'string' ? raw.trim() : '';
+  const source = Array.isArray(raw) ? raw : (legacyText && !options.some((option) => option.key === legacyText) ? [] : [legacyText]);
+  const keys = [...new Set(source.map((value) => String(value).trim()))].filter((value) => options.some((option) => option.key === value));
+  if (legacyText && !keys.length && legacyText) return { keys: [otherKey], other: cleanText(legacyText, LONG_TEXT_MAX) };
+  return { keys, other: '' };
+};
 
 export const createEmptyFinancialProfile = () => ({
   economicStatus: '',
@@ -121,17 +180,26 @@ export const FINANCIAL_ANSWER_FIELDS = {
   otherIncomeMonthly: 'Average monthly amount of other income',
   difficultyAnswer: 'Financial difficulty in the last 3 months',
   difficultyReasons: 'Reasons for the financial difficulty',
+  difficultyOther: 'Other reason for the financial difficulty',
   difficultyCoping: 'How the family copes',
+  copingOther: 'Other way the family copes',
   allowanceDaily: 'Daily allowance',
   allowanceEnough: 'Whether the allowance is enough',
-  foodIntake: 'Daily food intake',
+  foodIntakeAdequacy: 'Daily food intake',
+  foodIntake: 'What you usually eat in a day',
   transportMode: 'Mode of transport',
+  transportOther: 'Other mode of transport',
   expenseFood: 'Daily food expense',
   expenseTransport: 'Daily transport expense',
   expenseOther: 'Other daily expenses',
 };
 
-export const createEmptyFinancialAnswers = () => Object.fromEntries(Object.keys(FINANCIAL_ANSWER_FIELDS).map((key) => [key, '']));
+// Multi-select answers hold a list of option keys, so an empty value is `[]`.
+export const MULTI_SELECT_ANSWER_KEYS = ['difficultyReasons', 'difficultyCoping'];
+
+export const createEmptyFinancialAnswers = () => Object.fromEntries(
+  Object.keys(FINANCIAL_ANSWER_FIELDS).map((key) => [key, MULTI_SELECT_ANSWER_KEYS.includes(key) ? [] : '']),
+);
 
 const yesNo = (raw) => (raw === 'yes' || raw === 'no' ? raw : '');
 
@@ -142,17 +210,29 @@ export const normalizeFinancialAnswers = (raw = {}) => {
     const parsed = toAmount(raw[key]);
     return parsed.invalid ? '' : parsed.value;
   };
+  const reasons = pickOptionKeys(raw.difficultyReasons, DIFFICULTY_REASON_OPTIONS);
+  const coping = pickOptionKeys(raw.difficultyCoping, COPING_OPTIONS);
+  // A mode of transport saved as free text before the FORM 230-SCH options
+  // existed is kept under "Others" instead of being dropped.
+  const transport = cleanText(raw.transportMode, TEXT_MAX);
+  const knownTransport = TRANSPORT_MODE_OPTIONS.some((option) => option.value === transport);
   const answers = {
     otherIncomeAnswer: yesNo(raw.otherIncomeAnswer),
     otherIncomeSources: cleanText(raw.otherIncomeSources, LONG_TEXT_MAX),
     otherIncomeMonthly: amount('otherIncomeMonthly'),
     difficultyAnswer: yesNo(raw.difficultyAnswer),
-    difficultyReasons: cleanText(raw.difficultyReasons, LONG_TEXT_MAX),
-    difficultyCoping: cleanText(raw.difficultyCoping, LONG_TEXT_MAX),
+    difficultyReasons: reasons.keys,
+    difficultyOther: cleanText(raw.difficultyOther || reasons.other, LONG_TEXT_MAX),
+    difficultyCoping: coping.keys,
+    copingOther: cleanText(raw.copingOther || coping.other, LONG_TEXT_MAX),
     allowanceDaily: amount('allowanceDaily'),
     allowanceEnough: yesNo(raw.allowanceEnough),
+    foodIntakeAdequacy: oneOfValues(raw.foodIntakeAdequacy, foodIntakeOptions),
     foodIntake: cleanText(raw.foodIntake, LONG_TEXT_MAX),
-    transportMode: cleanText(raw.transportMode, TEXT_MAX),
+    transportMode: knownTransport ? transport : (transport ? 'other' : ''),
+    transportOther: knownTransport
+      ? cleanText(raw.transportOther, TEXT_MAX)
+      : cleanText(raw.transportOther || transport, TEXT_MAX),
     expenseFood: amount('expenseFood'),
     expenseTransport: amount('expenseTransport'),
     expenseOther: amount('expenseOther'),
@@ -163,14 +243,20 @@ export const normalizeFinancialAnswers = (raw = {}) => {
     answers.otherIncomeMonthly = '';
   }
   if (answers.difficultyAnswer !== 'yes') {
-    answers.difficultyReasons = '';
-    answers.difficultyCoping = '';
+    answers.difficultyReasons = [];
+    answers.difficultyOther = '';
+    answers.difficultyCoping = [];
+    answers.copingOther = '';
   }
+  if (!answers.difficultyReasons.includes('other')) answers.difficultyOther = '';
+  if (!answers.difficultyCoping.includes('other')) answers.copingOther = '';
+  if (answers.transportMode !== 'other') answers.transportOther = '';
   return answers;
 };
 
 // What is still missing for a submission. Mirrors financial_answers_complete()
-// in the database (the client also asks for the income source details).
+// in the database (the client also asks for the income source details and the
+// free-text follow-ups behind an "Other" option).
 export const getFinancialAnswersMissing = (rawAnswers) => {
   const answers = normalizeFinancialAnswers(rawAnswers || {});
   const missing = [];
@@ -182,13 +268,18 @@ export const getFinancialAnswersMissing = (rawAnswers) => {
   }
   if (!answers.difficultyAnswer) need('difficultyAnswer');
   if (answers.difficultyAnswer === 'yes') {
-    if (!answers.difficultyReasons) need('difficultyReasons');
-    if (!answers.difficultyCoping) need('difficultyCoping');
+    if (!answers.difficultyReasons.length) need('difficultyReasons');
+    if (answers.difficultyReasons.includes('other') && !answers.difficultyOther) need('difficultyOther');
+    if (!answers.difficultyCoping.length) need('difficultyCoping');
+    if (answers.difficultyCoping.includes('other') && !answers.copingOther) need('copingOther');
   }
   if (!isAmount(answers.allowanceDaily)) need('allowanceDaily');
   if (!answers.allowanceEnough) need('allowanceEnough');
-  if (!answers.foodIntake) need('foodIntake');
+  // A draft saved before the Adequate / Inadequate answer existed still counts
+  // while its free-text description is present.
+  if (!answers.foodIntakeAdequacy && !answers.foodIntake) need('foodIntakeAdequacy');
   if (!answers.transportMode) need('transportMode');
+  if (answers.transportMode === 'other' && !answers.transportOther) need('transportOther');
   if (!isAmount(answers.expenseFood)) need('expenseFood');
   if (!isAmount(answers.expenseTransport)) need('expenseTransport');
   if (!isAmount(answers.expenseOther)) need('expenseOther');
@@ -203,6 +294,7 @@ export const isFinancialAnswersComplete = (answers) => getFinancialAnswersMissin
 // and the print sheet.
 // ---------------------------------------------------------------------------
 const optionLabel = (options, value) => options.find((option) => option.value === value)?.label || '';
+const keyLabels = (options, keys = []) => keys.map((key) => options.find((option) => option.key === key)?.label || key).filter(Boolean);
 const money = (value) => (isAmount(value) ? fmtCurrency(Number(value)) : '');
 const flagList = (flags, options) => [
   ...options.filter((option) => flags?.[option.key]).map((option) => option.label),
@@ -222,6 +314,11 @@ const describeParent = (parent = {}, deceased) => {
 
 export const getFinancialDetailSections = ({ financialProfile, answers, family = {} } = {}) => {
   const sections = [];
+  // FORM 230-SCH totals, derived from the family rows instead of asked twice.
+  const siblings = Array.isArray(family.siblings) ? family.siblings : [];
+  const studyingCount = siblings.filter((entry) => ['Studying', 'Aged 3 or below'].includes(entry?.status)).length;
+  const workingCount = siblings.filter((entry) => ['Employed', 'Married'].includes(entry?.status)).length;
+  const householdCount = Array.isArray(family.householdAdults) ? family.householdAdults.length : 0;
   if (financialProfile) {
     sections.push({
       key: 'finances',
@@ -232,12 +329,24 @@ export const getFinancialDetailSections = ({ financialProfile, answers, family =
         { label: 'Mother', value: describeParent(financialProfile.mother, family.motherDeceased) },
         { label: 'Assets', value: flagList(financialProfile.assets, ASSET_OPTIONS) || 'None listed' },
         { label: 'Appliances and services', value: flagList(financialProfile.appliances, APPLIANCE_OPTIONS) || 'None listed' },
+        ...(siblings.length || householdCount ? [{
+          label: 'Household totals',
+          value: [
+            `Siblings studying or below 3 years old: ${studyingCount}`,
+            `Siblings working or married: ${workingCount}`,
+            `Other adults in the household: ${householdCount}`,
+          ].join(' · '),
+        }] : []),
       ],
     });
   }
   if (answers && Object.keys(answers).length) {
     const normalized = normalizeFinancialAnswers(answers);
     const answerText = (value) => (value === 'yes' ? 'Yes' : value === 'no' ? 'No' : '');
+    const reasonText = keyLabels(DIFFICULTY_REASON_OPTIONS, normalized.difficultyReasons)
+      .map((label) => (label === 'Other reasons' && normalized.difficultyOther ? `Other reasons: ${normalized.difficultyOther}` : label));
+    const copingText = keyLabels(COPING_OPTIONS, normalized.difficultyCoping)
+      .map((label) => (label === 'Other ways' && normalized.copingOther ? `Other ways: ${normalized.copingOther}` : label));
     sections.push({
       key: 'situation',
       title: 'Financial situation',
@@ -246,11 +355,11 @@ export const getFinancialDetailSections = ({ financialProfile, answers, family =
           ? [normalized.otherIncomeSources, money(normalized.otherIncomeMonthly) && `${money(normalized.otherIncomeMonthly)} a month`].filter(Boolean).join(' · ')
           : answerText(normalized.otherIncomeAnswer) },
         { label: 'Financial difficulty in the last 3 months', value: normalized.difficultyAnswer === 'yes'
-          ? ['Yes', normalized.difficultyReasons, normalized.difficultyCoping && `Coping: ${normalized.difficultyCoping}`].filter(Boolean).join(' · ')
+          ? ['Yes', reasonText.join(', '), copingText.length ? `Coping: ${copingText.join(', ')}` : ''].filter(Boolean).join(' · ')
           : answerText(normalized.difficultyAnswer) },
         { label: 'Daily allowance', value: [money(normalized.allowanceDaily), normalized.allowanceEnough ? (normalized.allowanceEnough === 'yes' ? 'enough' : 'not enough') : ''].filter(Boolean).join(' · ') },
-        { label: 'Daily food intake', value: normalized.foodIntake },
-        { label: 'Mode of transport', value: normalized.transportMode },
+        { label: 'Daily food intake', value: [optionLabel(foodIntakeOptions, normalized.foodIntakeAdequacy), normalized.foodIntake].filter(Boolean).join(' · ') },
+        { label: 'Mode of transport', value: [optionLabel(TRANSPORT_MODE_OPTIONS, normalized.transportMode), normalized.transportOther].filter(Boolean).join(' · ') },
         { label: 'Daily expenses', value: [
           money(normalized.expenseFood) && `food ${money(normalized.expenseFood)}`,
           money(normalized.expenseTransport) && `transport ${money(normalized.expenseTransport)}`,

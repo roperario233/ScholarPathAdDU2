@@ -4,6 +4,7 @@ import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import { AVATAR_ACCEPT } from '../lib/avatarStorage';
+import { COURSE_SHIFT_REMINDER } from '../lib/applicationForm';
 import { SelectPicker } from '../pages/LoginScreen';
 import { describeAttributeVerification, deriveAttributeVerifications, getAttributeVerificationTone, isAttributeProofSettled } from '../lib/verification';
 import { VAULT_REQUIREMENT_STATE_LABELS, getRequirementUploadPreset } from '../lib/applicationRequirements';
@@ -23,20 +24,26 @@ import {
   MAX_GRANT_ROWS,
   MAX_HOUSEHOLD_ADULT_ROWS,
   MAX_SIBLING_ROWS,
+  NAME_PART_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
   SCHOOL_FIELD_MAX_LENGTH,
+  applicantStatusOptions,
   communityServiceOptions,
+  composeFullName,
+  grantLevelOptions,
   grantStatusOptions,
   grantTypeOptions,
   housingTypeOptions,
   sexAtBirthOptions,
   siblingStatusOptions,
+  splitLegacyFullName,
   academicStandingOptions,
   citizenshipOptions,
   civilStatusOptions,
   deriveYearStanding,
   employmentOptions,
   familyPositionOptions,
+  getApplicantStatus,
   getProgramChoiceOptions,
   getStandingRequirements,
   getVerifiableAttributeOption,
@@ -514,8 +521,15 @@ const flagsOf = (source, options) => ({
 
 export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChange, avatar = {}, onChangeAvatar, onRemoveAvatar }) {
   const isStudent = role === 'student';
+  // "Last, First Middle" is unambiguous, so only that form prefills the parts.
+  const legacyParts = asText(profile.fullName).includes(',')
+    ? splitLegacyFullName(profile.fullName)
+    : { firstName: '', middleName: '', lastName: '' };
   const form = useSectionForm({
     initialValues: {
+      firstName: asText(profile.firstName) || legacyParts.firstName,
+      middleName: asText(profile.middleName) || legacyParts.middleName,
+      lastName: asText(profile.lastName) || legacyParts.lastName,
       fullName: asText(profile.fullName),
       phone: asText(profile.phone),
       bio: asText(profile.bio),
@@ -542,9 +556,34 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         onRemoveAvatar={onRemoveAvatar}
       />
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Full name" error={errors.fullName}>
-          <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
-        </FormField>
+        {isStudent ? (
+          <>
+            <FormField label="Last name" hint="Printed as the surname on your application." error={errors.lastName}>
+              <input className={controlClass} value={values.lastName} onChange={(event) => update({ lastName: event.target.value.slice(0, NAME_PART_MAX_LENGTH) })} autoComplete="family-name" maxLength={NAME_PART_MAX_LENGTH} aria-invalid={Boolean(errors.lastName)} />
+            </FormField>
+            <FormField label="First name" error={errors.firstName}>
+              <input className={controlClass} value={values.firstName} onChange={(event) => update({ firstName: event.target.value.slice(0, NAME_PART_MAX_LENGTH) })} autoComplete="given-name" maxLength={NAME_PART_MAX_LENGTH} aria-invalid={Boolean(errors.firstName)} />
+            </FormField>
+            <FormField label="Middle name" hint="Optional." error={errors.middleName}>
+              <input className={controlClass} value={values.middleName} onChange={(event) => update({ middleName: event.target.value.slice(0, NAME_PART_MAX_LENGTH) })} autoComplete="additional-name" maxLength={NAME_PART_MAX_LENGTH} aria-invalid={Boolean(errors.middleName)} />
+            </FormField>
+            {values.lastName || values.firstName ? (
+              <ReadOnlyField
+                label="Full name"
+                value={composeFullName(values)}
+                note="Composed from your name parts and printed on the application as Last, First, Middle."
+              />
+            ) : (
+              <FormField label="Full name" hint="Needed to apply until you add your last and first name." error={errors.fullName}>
+                <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
+              </FormField>
+            )}
+          </>
+        ) : (
+          <FormField label="Full name" error={errors.fullName}>
+            <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
+          </FormField>
+        )}
         <FormField label="Mobile number" hint={isStudent ? 'Needed to apply. Also used for SMS reminders.' : 'Optional. Used for SMS reminders.'} error={errors.phone}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
@@ -683,6 +722,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
       degreeProgram: asText(profile.degreeProgram),
       yearStanding: deriveYearStanding(profile),
       academicStanding: asText(profile.academicStanding),
+      isTransferee: asText(profile.isTransferee),
       qpi: asText(profile.qpi),
       hsStrand: asText(profile.hsStrand),
       hsAverage: asText(profile.hsAverage),
@@ -702,6 +742,18 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   });
   const { values, errors, update } = form;
   const standing = getStandingRequirements(values.yearStanding);
+  const isTransferee = values.isTransferee === 'Yes';
+  // FORM 230-SCH Applicant Status. The status select writes the year standing and
+  // the transferee answer together, so the two controls can never disagree.
+  const applicantStatus = getApplicantStatus(values);
+  const setApplicantStatus = (status) => {
+    const enrolledYear = /^\d/.test(values.yearStanding) ? values.yearStanding : '1st';
+    if (status === 'incoming') {
+      update({ yearStanding: 'incoming-1st', isTransferee: 'No' }, ['programChoice2', 'programChoice3']);
+      return;
+    }
+    update({ yearStanding: enrolledYear, isTransferee: status === 'transferee' ? 'Yes' : 'No' }, ['programChoice2', 'programChoice3']);
+  };
   // The QPI and the senior high school general average are each read for one
   // standing, so their badges follow the standing this form is showing instead
   // of the saved one: changing the year standing would otherwise label the field
@@ -731,23 +783,26 @@ export function AcademicSection({ profile, academicPrograms, academicProgramCate
   return (
     <SectionForm title="Academic profile" description="Drives degree-specific matching in the Smart Eligibility Checker." form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value }, ['programChoice2', 'programChoice3'])} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
+        <SelectField label="Applicant status" hint="FORM 230-SCH asks every applicant for this." value={applicantStatus} onChange={setApplicantStatus} options={applicantStatusOptions} placeholder="Choose applicant status" error={errors.isTransferee} />
+        <SelectField label="Year standing" value={values.yearStanding} onChange={(value) => update({ yearStanding: value, ...(value === 'incoming-1st' ? { isTransferee: 'No' } : {}) }, ['programChoice2', 'programChoice3'])} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
         {standing.requiresStudentNumber && <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
       <div className="grid gap-2">
         <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" />
       </div>
       <ReadOnlyField label="School / Department" value={selectedProgram?.department} note="Updates with your degree program." />
-      {standing.requiresProgramChoices && <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>}
+      <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="note">{COURSE_SHIFT_REMINDER}</p>
+      {standing.requiresProgramChoices ? null : <p className="m-0 text-sm text-app-muted">Optional. FORM 230-SCH asks for a second choice in case a scholarship slot opens in another program.</p>}
+      <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
-      {standing.requiresHsStanding && <div className="grid gap-4 md:grid-cols-2"><SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} /><FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField></div>}
+      <div className="grid gap-4 md:grid-cols-2"><SelectField label="Senior high school strand" hint={standing.requiresHsStanding ? undefined : 'Optional.'} value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />{standing.requiresHsStanding && <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>}</div>
       <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
         <div>
-          <p className="m-0 text-sm font-semibold text-app-text">{standing.requiresHsStanding ? 'Senior high school last attended' : 'School last attended before AdDU'}</p>
-          <small className="field-hint mt-1 block">{standing.requiresHsStanding ? 'The school name is needed to apply.' : 'Optional.'}</small>
+          <p className="m-0 text-sm font-semibold text-app-text">{isTransferee ? 'College last attended' : standing.requiresHsStanding ? 'Senior high school last attended' : 'School last attended before AdDU'}</p>
+          <small className="field-hint mt-1 block">{isTransferee || standing.requiresHsStanding ? 'The school name is needed to apply.' : 'Optional.'}</small>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
           <FormField label="School name"><input className={controlClass} value={values.schoolLastAttended.name} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, name: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
@@ -814,7 +869,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       ipGroupName: asText(profile.ipGroupName),
       communityService: asText(profile.communityService),
       previousGrants: Array.isArray(profile.previousGrants)
-        ? profile.previousGrants.map((row) => ({ type: asText(row?.type), name: asText(row?.name), status: asText(row?.status), institution: asText(row?.institution) }))
+        ? profile.previousGrants.map((row) => ({ type: asText(row?.type), name: asText(row?.name), level: asText(row?.level), status: asText(row?.status), institution: asText(row?.institution), amount: asText(row?.amount) }))
         : [],
     },
     validate: validateBackgroundSection,
@@ -834,9 +889,9 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
         <SelectField label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update(value ? { honorsRank: value } : { honorsRank: value, graduatingClassSize: '' })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        {values.honorsRank && <FormField label="Graduating class size" hint="Required to support your honors standing." error={errors.graduatingClassSize}>
+        <FormField label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Required to support your honors standing.' : 'FORM 230-SCH asks every applicant for this.'} error={errors.graduatingClassSize}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
-        </FormField>}
+        </FormField>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} />
@@ -851,8 +906,10 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
         columns={[
           { key: 'type', label: 'Type', type: 'select', options: [{ value: '', label: 'Type' }, ...grantTypeOptions] },
           { key: 'name', label: 'Grant (CHED, DOST, STEP, GSIS, ...)' },
+          { key: 'level', label: 'Level', type: 'select', options: [{ value: '', label: 'Level' }, ...grantLevelOptions] },
           { key: 'status', label: 'Status', type: 'select', options: [{ value: '', label: 'Status' }, ...grantStatusOptions] },
           { key: 'institution', label: 'Institution' },
+          { key: 'amount', label: 'Amount a year (PHP)' },
         ]}
       />
       <fieldset className="m-0 grid gap-3 border-0 p-0">
@@ -925,7 +982,21 @@ export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissi
     onDirtyChange,
   });
   const { values, errors, update } = form;
-  const setFlag = (group, key, checked) => update({ [group]: { ...values[group], [key]: checked } });
+  const setFlag = (group, key, checked) => {
+    const options = group === 'assets' ? ASSET_OPTIONS : APPLIANCE_OPTIONS;
+    const next = { ...values[group], [key]: checked };
+    // "None of the above" is exclusive: it clears every item and the free-text
+    // entry, and picking any item clears it.
+    if (key === 'none' && checked) {
+      options.forEach((option) => {
+        if (option.key !== 'none') next[option.key] = false;
+      });
+      next.others = '';
+    } else if (key !== 'none' && checked) {
+      next.none = false;
+    }
+    update({ [group]: next });
+  };
 
   return (
     <SectionForm title="Household finances" description="Part of the financial aid application. Shared with the Admissions Office only; your Department Chair cannot see these answers." form={form}>

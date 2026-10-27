@@ -1,5 +1,11 @@
 import { FormField, Panel } from './ui';
-import { yesNoAnswerOptions } from '../lib/financialDetails';
+import {
+  COPING_OPTIONS,
+  DIFFICULTY_REASON_OPTIONS,
+  TRANSPORT_MODE_OPTIONS,
+  foodIntakeOptions,
+  yesNoAnswerOptions,
+} from '../lib/financialDetails';
 
 const controlClass = 'h-12 py-0';
 
@@ -16,6 +22,32 @@ const AmountInput = ({ value, onChange, label }) => (
   />
 );
 
+// A "check as many" answer, stored as a list of option keys. FORM 230-SCH asks the
+// financial-difficulty reasons and the coping strategies this way, with one
+// free-text follow-up when "Other" is chosen.
+function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, onOtherChange }) {
+  const isSelected = (key) => selected.includes(key);
+  return (
+    <fieldset className="m-0 grid gap-2 border-0 p-0 md:col-span-2">
+      <legend className="mb-1 text-sm font-semibold text-app-text">{legend}</legend>
+      {hint ? <small className="field-hint block">{hint}</small> : null}
+      <div className="grid gap-2 md:grid-cols-2">
+        {options.map((option) => (
+          <label key={option.key} className="flex items-start gap-2 text-sm text-app-text">
+            <input type="checkbox" className="mt-1" checked={isSelected(option.key)} onChange={() => onToggle(option.key)} />
+            <span>{option.label}</span>
+          </label>
+        ))}
+      </div>
+      {isSelected('other') && otherValue !== undefined ? (
+        <FormField label="Please specify">
+          <input className={controlClass} value={otherValue} onChange={(event) => onOtherChange(event.target.value)} maxLength={300} />
+        </FormField>
+      ) : null}
+    </fieldset>
+  );
+}
+
 // The per-application "Financial situation" step of the application workspace
 // (FORM 230-SCH: other income, difficulty in the last 3 months, allowance and
 // daily expenses). These answers are time-sensitive, so they belong to this
@@ -24,6 +56,11 @@ const AmountInput = ({ value, onChange, label }) => (
 export default function ApplicationFinancialStep({ answers, onChange, missing = [] }) {
   const set = (key) => (value) => onChange({ ...answers, [key]: value });
   const text = (key) => (event) => set(key)(event.target.value);
+  const selection = (key) => (Array.isArray(answers[key]) ? answers[key] : []);
+  const toggle = (key) => (option) => {
+    const current = selection(key);
+    set(key)(current.includes(option) ? current.filter((entry) => entry !== option) : [...current, option]);
+  };
 
   return (
     <section className="grid gap-3" aria-label="Financial situation">
@@ -57,12 +94,24 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
         </FormField>
         {answers.difficultyAnswer === 'yes' ? (
           <>
-            <FormField label="What were the reasons?" className="md:col-span-2">
-              <textarea rows={3} value={answers.difficultyReasons} onChange={text('difficultyReasons')} maxLength={300} />
-            </FormField>
-            <FormField label="How does your family cope?" className="md:col-span-2">
-              <textarea rows={3} value={answers.difficultyCoping} onChange={text('difficultyCoping')} maxLength={300} />
-            </FormField>
+            <CheckboxGroup
+              legend="Reasons for the financial difficulty"
+              hint="Check as many as apply."
+              options={DIFFICULTY_REASON_OPTIONS}
+              selected={selection('difficultyReasons')}
+              onToggle={toggle('difficultyReasons')}
+              otherValue={answers.difficultyOther}
+              onOtherChange={(value) => set('difficultyOther')(value)}
+            />
+            <CheckboxGroup
+              legend="How does your family cope?"
+              hint="Check as many as apply."
+              options={COPING_OPTIONS}
+              selected={selection('difficultyCoping')}
+              onToggle={toggle('difficultyCoping')}
+              otherValue={answers.copingOther}
+              onOtherChange={(value) => set('copingOther')(value)}
+            />
           </>
         ) : null}
       </Panel>
@@ -76,11 +125,25 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
             {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </FormField>
-        <FormField label="What do you usually eat in a day?" className="md:col-span-2">
-          <input className={controlClass} value={answers.foodIntake} onChange={text('foodIntake')} maxLength={300} />
+        <FormField label="Daily food intake">
+          <select className={controlClass} value={answers.foodIntakeAdequacy} onChange={text('foodIntakeAdequacy')}>
+            <option value="">Select</option>
+            {foodIntakeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
         </FormField>
         <FormField label="Mode of transport to school">
-          <input className={controlClass} value={answers.transportMode} onChange={text('transportMode')} maxLength={100} />
+          <select className={controlClass} value={answers.transportMode} onChange={text('transportMode')}>
+            <option value="">Select</option>
+            {TRANSPORT_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </FormField>
+        {answers.transportMode === 'other' ? (
+          <FormField label="Please specify your mode of transport" className="md:col-span-2">
+            <input className={controlClass} value={answers.transportOther} onChange={text('transportOther')} maxLength={100} />
+          </FormField>
+        ) : null}
+        <FormField label="What do you usually eat in a day?" hint="Optional." className="md:col-span-2">
+          <input className={controlClass} value={answers.foodIntake} onChange={text('foodIntake')} maxLength={300} />
         </FormField>
       </Panel>
 

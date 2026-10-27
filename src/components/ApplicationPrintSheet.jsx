@@ -4,7 +4,7 @@ import { Printer } from 'lucide-react';
 import { Button } from './ui';
 import { ApplicantPhotoThumb } from './ApplicationParts';
 import { getProfileSnapshotSections } from '../lib/applicationRequirements';
-import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_TOPIC } from '../lib/applicationForm';
+import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_INSTRUCTION, ESSAY_TOPIC } from '../lib/applicationForm';
 import { fmtDate } from '../lib/formatters';
 import { summarizeInterview } from '../lib/interview';
 
@@ -99,6 +99,7 @@ export function ApplicationPrintSheet({
       <section className="mt-4">
         <h2 className="m-0 mb-1 text-[11.5pt] font-bold uppercase tracking-wide">Scholarship essay</h2>
         <p className="m-0 mb-1 text-[10pt] italic">{ESSAY_TOPIC}</p>
+        <p className="m-0 mb-1 text-[9.5pt]">{ESSAY_INSTRUCTION}</p>
         <div className="min-h-24 whitespace-pre-line border border-neutral-400 px-2 py-1 text-[10.5pt]">{statement || 'No statement recorded.'}</div>
       </section>
 

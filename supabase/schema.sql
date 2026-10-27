@@ -860,8 +860,10 @@ as $$
     );
 $$;
 
--- Same checks as 20261028000000 plus the FORM 230-SCH core items. Mirrors
--- getProfileCompleteness() (group `application`) in src/lib/profile.js.
+-- Same checks as 20261028000000 plus the FORM 230-SCH core items and Applicant
+-- Status. Mirrors getProfileCompleteness() (group `application`) in
+-- src/lib/profile.js; the Applicant Status branch comes from
+-- 20261037000000_add_applicant_status_to_profile_gate.sql.
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text
 language plpgsql
@@ -872,10 +874,12 @@ declare
   v_hs numeric := public.proof_numeric_value(p_profile ->> 'hsAverage');
   v_qpi numeric := public.proof_numeric_value(p_profile ->> 'qpi');
   v_income numeric := public.proof_numeric_value(p_profile ->> 'householdIncome');
+  v_transferee text := coalesce(p_profile ->> 'isTransferee', '');
 begin
   if p_profile is null then return 'your profile'; end if;
   if char_length(btrim(coalesce(p_profile ->> 'fullName', ''))) < 2 then return 'Full name'; end if;
   if v_standing = '' then return 'Year standing'; end if;
+  if v_transferee not in ('Yes', 'No') then return 'Applicant status'; end if;
   if v_standing <> 'incoming-1st' and coalesce(btrim(p_profile ->> 'studentNumber'), '') !~ '^[0-9]{4,12}$' then
     return 'AdDU student number';
   end if;
@@ -899,9 +903,10 @@ begin
   end if;
   if coalesce(p_profile ->> 'birthdate', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then return 'Birthdate'; end if;
   if coalesce(p_profile ->> 'sexAtBirth', '') not in ('Female', 'Male') then return 'Sex assigned at birth'; end if;
-  if v_standing = 'incoming-1st'
+  -- A transferee records the college last attended instead of a senior high school.
+  if (v_standing = 'incoming-1st' or v_transferee = 'Yes')
     and char_length(btrim(coalesce(p_profile #>> '{schoolLastAttended,name}', ''))) = 0 then
-    return 'Senior high school last attended';
+    return case when v_transferee = 'Yes' then 'College last attended' else 'Senior high school last attended' end;
   end if;
   if coalesce(p_profile ->> 'communityService', '') not in ('Yes', 'No') then
     return 'Willingness to render community service';
@@ -1084,6 +1089,19 @@ create trigger enforce_student_application_update
 -- and the database freezes the student's financial profile with them. Kept as
 -- separate triggers so enforce_student_application_update is unchanged.
 -- ---------------------------------------------------------------------------
+create or replace function public.financial_multi_select_answered(p_value jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select case
+    when p_value is null then false
+    when jsonb_typeof(p_value) = 'array' then jsonb_array_length(p_value) > 0
+    when jsonb_typeof(p_value) = 'string' then char_length(btrim(p_value #>> '{}')) > 0
+    else false
+  end;
+$$;
+
 create or replace function public.financial_answers_complete(p_answers jsonb)
 returns boolean
 language sql
@@ -1095,12 +1113,27 @@ as $$
     and (
       p_answers ->> 'difficultyAnswer' = 'no'
       or (
-        char_length(btrim(coalesce(p_answers ->> 'difficultyReasons', ''))) > 0
-        and char_length(btrim(coalesce(p_answers ->> 'difficultyCoping', ''))) > 0
+        public.financial_multi_select_answered(p_answers -> 'difficultyReasons')
+        and public.financial_multi_select_answered(p_answers -> 'difficultyCoping')
+        -- An "Other" answer needs its free text, like the workspace requires.
+        and (
+          jsonb_typeof(p_answers -> 'difficultyReasons') is distinct from 'array'
+          or not (p_answers -> 'difficultyReasons') @> '["other"]'::jsonb
+          or char_length(btrim(coalesce(p_answers ->> 'difficultyOther', ''))) > 0
+        )
+        and (
+          jsonb_typeof(p_answers -> 'difficultyCoping') is distinct from 'array'
+          or not (p_answers -> 'difficultyCoping') @> '["other"]'::jsonb
+          or char_length(btrim(coalesce(p_answers ->> 'copingOther', ''))) > 0
+        )
       )
     )
     and coalesce(p_answers ->> 'allowanceEnough', '') in ('yes', 'no')
-    and char_length(btrim(coalesce(p_answers ->> 'foodIntake', ''))) > 0
+    -- Adequate / Inadequate, or the free-text description a draft saved earlier holds.
+    and (
+      coalesce(p_answers ->> 'foodIntakeAdequacy', '') in ('adequate', 'inadequate')
+      or char_length(btrim(coalesce(p_answers ->> 'foodIntake', ''))) > 0
+    )
     and char_length(btrim(coalesce(p_answers ->> 'transportMode', ''))) > 0
     and coalesce(p_answers ->> 'allowanceDaily', '') ~ '^[0-9]+(\.[0-9]+)?$'
     and coalesce(p_answers ->> 'expenseFood', '') ~ '^[0-9]+(\.[0-9]+)?$'
@@ -2265,3 +2298,4 @@ revoke execute on function public.student_profile_answers(uuid) from public, ano
 revoke execute on function public.protect_application_financial_snapshot() from public, anon, authenticated;
 revoke execute on function public.require_application_financial_answers() from public, anon, authenticated;
 revoke execute on function public.freeze_application_financial_snapshot() from public, anon, authenticated;
+revoke execute on function public.financial_multi_select_answered(jsonb) from public, anon, authenticated;

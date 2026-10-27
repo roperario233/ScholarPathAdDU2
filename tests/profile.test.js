@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  composeFullName,
   deriveYearStanding,
+  getApplicantStatus,
+  getApplicantStatusLabel,
   getApplicationProfileGate,
   getClaimedAttributes,
   getCurrentAcademicYear,
   getProgramChoiceOptions,
   getProofSkipReason,
+  getShsFinancialAid,
   isParentFinancesAnswered,
   isProofRequired,
+  isTransfereeProfile,
   getProfileCompleteness,
   normalizeAttestedValue,
   getStandingRequirements,
@@ -15,6 +20,7 @@ import {
   pickEligibilityAttributes,
   pickFields,
   resolveYearStanding,
+  splitLegacyFullName,
   validateAcademicSection,
   validateAddressSection,
   validateBackgroundSection,
@@ -47,14 +53,16 @@ const chairProfile = {
   phone: '+63 918 000 0000',
 };
 
-// The FORM 230-SCH "Needed to apply" answers: birthdate, sex, school, community
-// service, and the office-only household finances merged in as financialProfile.
+// The FORM 230-SCH "Needed to apply" answers: applicant status, birthdate, sex,
+// school, community service, and the office-only household finances merged in as
+// financialProfile.
 const formCore = {
   civilStatus: 'Single',
   completeAddress: '123 Rizal St, Davao City',
   ipCommunity: 'No',
   pwd: 'No',
   employed: 'Not employed',
+  isTransferee: 'No',
   phone: '0917 123 4567',
   hsStrand: 'STEM',
   birthdate: '2005-04-12',
@@ -82,11 +90,76 @@ describe('field validators', () => {
   });
 });
 
+describe('FORM 230-SCH applicant status and name parts', () => {
+  it('composes the printed name as Last, First Middle', () => {
+    expect(composeFullName({ lastName: ' Dela  Cruz ', firstName: 'Juan', middleName: 'Santos' })).toBe('Dela Cruz, Juan Santos');
+    expect(composeFullName({ lastName: 'Dela Cruz', firstName: 'Juan', middleName: '' })).toBe('Dela Cruz, Juan');
+    expect(composeFullName({ firstName: 'Juan' })).toBe('Juan');
+    expect(composeFullName({})).toBe('');
+  });
+
+  it('splits only an unambiguous stored name', () => {
+    expect(splitLegacyFullName('Dela Cruz, Juan Santos')).toEqual({ firstName: 'Juan', middleName: 'Santos', lastName: 'Dela Cruz' });
+    expect(splitLegacyFullName('Juan Dela Cruz')).toEqual({ firstName: 'Juan', middleName: 'Dela', lastName: 'Cruz' });
+    expect(splitLegacyFullName('Prince')).toEqual({ firstName: '', middleName: '', lastName: '' });
+  });
+
+  it('lets the name parts become the display name without breaking the single name', () => {
+    const withParts = validatePersonalSection({ fullName: 'Old Name', lastName: 'Reyes', firstName: 'Ana', middleName: 'Cruz' });
+    expect(withParts.errors).toEqual({});
+    expect(withParts.values.fullName).toBe('Reyes, Ana Cruz');
+    // A profile that only holds the single name is untouched.
+    expect(validatePersonalSection({ fullName: 'Ana Reyes' }).values.fullName).toBe('Ana Reyes');
+  });
+
+  it('derives the applicant status from the standing and the transferee answer', () => {
+    expect(getApplicantStatus({ yearStanding: 'incoming-1st' })).toBe('incoming');
+    expect(getApplicantStatus({ yearStanding: '2nd', isTransferee: 'No' })).toBe('current');
+    expect(getApplicantStatus({ yearStanding: '2nd', isTransferee: 'Yes' })).toBe('transferee');
+    expect(getApplicantStatus({})).toBe('');
+    expect(getApplicantStatusLabel({ yearStanding: '2nd', isTransferee: 'Yes' })).toBe('Transferee');
+    expect(isTransfereeProfile({ isTransferee: 'Yes' })).toBe(true);
+  });
+
+  it('keeps the applicant status out of the first-login essentials but in the gate', () => {
+    const onboarding = validateOnboardingEssentials({
+      studentNumber: '2023001', degreeProgram: 'BS Information Technology', yearStanding: '2nd',
+      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+    }, programs);
+    expect(onboarding.errors).toEqual({});
+    const missing = getApplicationProfileGate({
+      fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
+      academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino', ...formCore, isTransferee: '',
+    }).missing.map((item) => item.key);
+    expect(missing).toEqual(['applicantStatus']);
+  });
+
+  it('asks a transferee for the college last attended', () => {
+    const completeTransferee = {
+      fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
+      academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino',
+      ...formCore, isTransferee: 'Yes', schoolLastAttended: { name: '' },
+    };
+    const gate = getApplicationProfileGate(completeTransferee);
+    expect(gate.missing.map((item) => [item.key, item.label])).toEqual([['schoolLastAttended', 'College last attended']]);
+  });
+
+  it('finds the senior high school grants', () => {
+    const grants = [
+      { name: 'CHED', level: 'Senior high school' },
+      { name: 'DOST', level: 'College' },
+      { name: 'SHS voucher', level: 'Both' },
+    ];
+    expect(getShsFinancialAid(grants).map((entry) => entry.name)).toEqual(['CHED', 'SHS voucher']);
+    expect(getShsFinancialAid(undefined)).toEqual([]);
+  });
+});
+
 describe('section validators', () => {
   it('normalizes personal information and limits the bio length', () => {
     const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
+    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
 
     expect(validatePersonalSection({ fullName: 'A', bio: 'x'.repeat(281) }).errors).toMatchObject({
       fullName: expect.any(String),
@@ -202,7 +275,7 @@ describe('section validators', () => {
     });
     expect(background.errors).toEqual({});
     expect(background.values).toMatchObject({ ipGroupName: 'Bagobo', communityService: 'Yes' });
-    expect(background.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', status: 'applied', institution: '' }]);
+    expect(background.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', level: '', status: 'applied', institution: '', amount: '' }]);
     expect(validateBackgroundSection({ citizenship: 'Filipino', ipCommunity: 'No', ipGroupName: 'Bagobo' }).values.ipGroupName).toBe('');
     expect(validateBackgroundSection({ citizenship: 'Filipino', previousGrants: [{ name: 'DOST' }] }).errors.previousGrants).toMatch(/Grant 1/);
   });
@@ -246,11 +319,13 @@ describe('section validators', () => {
     const ranked = validateAcademicSection({ ...base, programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' }, choices);
     expect(ranked.errors).toEqual({});
     expect(ranked.values).toMatchObject({ programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' });
-    // A continuing student is not asked for program choices, so an inherited
-    // ranked list is cleared instead of saved through My Profile.
-    const continuing = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology', programChoice3: 'BS Accountancy' }, choices);
+    // FORM 230-SCH asks every applicant for a second choice, so a continuing
+    // student keeps a ranked list too — and the same no-duplicate rule applies.
+    const continuing = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' }, choices);
     expect(continuing.errors.programChoice2).toBeUndefined();
-    expect(continuing.values).toMatchObject({ programChoice2: '', programChoice3: '' });
+    expect(continuing.values).toMatchObject({ programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' });
+    const duplicated = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology' }, choices);
+    expect(duplicated.errors.programChoice2).toBeTruthy();
   });
 
   it('offers only the programs not already chosen in another slot', () => {
@@ -375,14 +450,14 @@ describe('getProfileCompleteness', () => {
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
     // The default scholarship statement is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
-    expect(completeness.percent).toBe(Math.round((19 / 20) * 100));
+    expect(completeness.percent).toBe(Math.round((20 / 21) * 100));
   });
 
   it('separates what an application needs from the descriptive details', () => {
     const completeness = getProfileCompleteness(completeStudent, 'student');
-    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
+    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
     expect(keysOf(completeness, 'details')).toEqual([]);
-    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 20, 20]]);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 21, 21]]);
     expect(completeness.percent).toBe(100);
   });
 

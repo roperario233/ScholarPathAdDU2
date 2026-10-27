@@ -9,7 +9,7 @@ import ApplicationPrintButton from './ApplicationPrintSheet';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
 import { getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
-import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_TARGET_WORDS, ESSAY_TOPIC, countWords } from '../lib/applicationForm';
+import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_INSTRUCTION, ESSAY_TARGET_WORDS, ESSAY_TOPIC, countWords } from '../lib/applicationForm';
 import { getFinancialAnswersMissing, getFinancialDetailSections, normalizeFinancialAnswers } from '../lib/financialDetails';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, photoRequirementNeedsCamera } from '../lib/photoGuide';
@@ -428,6 +428,7 @@ export default function ApplicationWorkspaceModal({
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-app-text">Scholarship essay</span>
                 <span className="text-sm text-app-muted">{ESSAY_TOPIC}</span>
+                <small className="field-hint">{ESSAY_INSTRUCTION}</small>
                 <textarea
                   rows={9}
                   maxLength={ESSAY_MAX_LENGTH}

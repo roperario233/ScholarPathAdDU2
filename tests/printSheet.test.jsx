@@ -92,8 +92,10 @@ describe('financial detail surfaces', () => {
     const closed = renderToStaticMarkup(<ApplicationFinancialStep answers={base} onChange={() => {}} missing={['Daily allowance']} />);
     expect(closed).toContain('Daily allowance');
     expect(closed).toContain('not your Department Chair');
-    expect(closed).not.toContain('What were the reasons?');
+    expect(closed).not.toContain('Reasons for the financial difficulty');
     const open = renderToStaticMarkup(<ApplicationFinancialStep answers={{ ...base, difficultyAnswer: 'yes' }} onChange={() => {}} />);
-    expect(open).toContain('What were the reasons?');
+    expect(open).toContain('Reasons for the financial difficulty');
+    expect(open).toContain('Insufficient and unstable income of parents');
+    expect(open).toContain('How does your family cope?');
   });
 });
