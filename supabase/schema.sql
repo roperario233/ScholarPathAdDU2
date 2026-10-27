@@ -2303,3 +2303,8 @@ revoke execute on function public.protect_application_financial_snapshot() from 
 revoke execute on function public.require_application_financial_answers() from public, anon, authenticated;
 revoke execute on function public.freeze_application_financial_snapshot() from public, anon, authenticated;
 revoke execute on function public.financial_multi_select_answered(jsonb) from public, anon, authenticated;
+
+-- The profile gate is evaluated in the trigger path only
+-- (see 20261040000000_restrict_profile_gate_function_access.sql).
+revoke execute on function public.missing_application_profile_item(jsonb) from public, anon, authenticated;
+revoke execute on function public.enforce_student_application_update() from public, anon, authenticated;
