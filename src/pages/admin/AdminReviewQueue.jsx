@@ -141,7 +141,7 @@ export default function AdminReviewQueue({
             </div>
           )}
         >
-          <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
+          <div className="grid max-h-[720px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
             {myQueue.length ? myQueue.map((entry) => {
               const { outstanding } = getDocumentVerificationReadiness(entry, documents);
               // Document Vault review begins at the verification stage, so a case
@@ -156,8 +156,8 @@ export default function AdminReviewQueue({
               ));
               return (
                 <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
-                  <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
+                    <div className="min-w-0 w-full flex-1">
                       <h3>{entry.studentName}</h3>
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
                       <p className="mt-1 text-xs text-app-muted">

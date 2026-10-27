@@ -80,12 +80,12 @@ export function RequirementChecklist({ requirements, onPreview, renderAttachment
     <ul className="m-0 grid gap-2 p-0">
       {requirements.map((requirement) => (
         <li key={requirement.id} className="grid gap-1 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
-          <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-            <span className="min-w-0 flex-1 text-sm text-app-text">{requirement.label}</span>
+          <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+            <span className="min-w-0 text-sm text-app-text">{requirement.label}</span>
             <RequirementStateBadge state={requirement.state} />
           </div>
           {requirement.attached.length ? (
-            <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-app-muted">
+            <span className="flex min-w-0 flex-col items-start gap-y-1 text-xs text-app-muted sm:flex-row sm:flex-wrap sm:gap-x-3">
               {requirement.attached.map((doc) => (
                 onPreview
                   ? <button key={doc.id} type="button" className="underline decoration-dotted underline-offset-2 hover:text-app-text" onClick={() => onPreview(doc)}>{doc.title} · {doc.verificationStatus}</button>
@@ -290,9 +290,9 @@ export function SupportingDocumentList({ documents = [], onPreview, renderAttach
   return (
     <ul className="m-0 grid gap-2 p-0">
       {documents.map((doc) => (
-        <li key={doc.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
-          <span className="min-w-0 flex-1 text-sm text-app-text">{doc.title} <span className="text-xs text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
-          <span className="flex flex-wrap items-center gap-2">
+        <li key={doc.id} className="grid min-w-0 gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
+          <span className="min-w-0 text-sm text-app-text">{doc.title} <span className="text-xs text-app-muted">· {getDocumentTypeLabel(doc.documentType)}</span></span>
+          <span className="flex min-w-0 flex-wrap items-center gap-2">
             <StatusBadge tone={verificationTone(doc.verificationStatus)}>{doc.verificationStatus}</StatusBadge>
             {onPreview ? <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button> : null}
           </span>
@@ -319,10 +319,10 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
   const canReset = DOCUMENT_REPLACEMENT_STATUSES.includes(application?.status);
   return (
     <Element className="grid gap-2 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:justify-between sm:gap-2">
+        <div className="min-w-0 w-full flex-1">
           <span className="block text-sm text-app-text">{doc.title}</span>
-          <span className="block text-xs text-app-muted">{doc.fileName ? `${doc.fileName} · ` : ''}{getDocumentTypeLabel(doc.documentType)}</span>
+          <span className="block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName ? `${doc.fileName} · ` : ''}{getDocumentTypeLabel(doc.documentType)}</span>
         </div>
         <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
       </div>

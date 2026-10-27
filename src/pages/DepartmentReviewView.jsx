@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
-import { Button, Card, EmptyState, Panel, StatusBadge } from '../components/ui';
+import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
@@ -41,7 +41,7 @@ export default function DepartmentReviewView({
         <div className="page-title-copy">
           <span className="page-section-label">Department Chair workspace</span>
           <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read your department's applications, endorsements, and interviews. Endorsement is a central decision.</p>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read your department&apos;s applications, endorsements, and interviews. Endorsement is a central decision.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>
@@ -55,15 +55,15 @@ export default function DepartmentReviewView({
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
         <Card title="Department applications" action={<StatusBadge tone={awaitingEndorsement.length ? 'warning' : 'success'}>{awaitingEndorsement.length} awaiting endorsement</StatusBadge>} className="min-w-0">
-          <div className="grid max-h-[620px] gap-3 overflow-y-auto pr-1">
+          <div className="grid max-h-[620px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
             {queue.length ? queue.map((entry) => {
               // An application can only be endorsed once every attached vault file
               // is Verified (manuscript 3.3.3); the database enforces this too.
               const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
               return (
                 <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
-                  <div className="flex min-w-0 items-start justify-between gap-4">
-                    <div className="min-w-0">
+                  <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
+                    <div className="min-w-0 w-full">
                       <h3 className="truncate">{entry.studentName}</h3>
                       <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram}</p>
                       <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>

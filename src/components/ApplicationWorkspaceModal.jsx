@@ -55,8 +55,8 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
 
   return (
     <li className="grid gap-3 rounded-2xl border border-app-border bg-app-surface p-4">
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
+        <div className="min-w-0 w-full flex-1">
           <h4 className="m-0 text-sm font-bold text-app-text">{requirement.label}</h4>
           <p className="m-0 mt-1 text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)} · any one is enough</p>
           {requirement.proves?.length ? (
@@ -72,9 +72,9 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
       {requirement.attached.length ? (
         <ul className="m-0 grid gap-2 p-0">
           {requirement.attached.map((doc) => (
-            <li key={doc.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border/70 px-3 py-2">
-              <span className="min-w-0 flex-1 text-sm text-app-text">{doc.title} <span className="text-xs text-app-muted">· {doc.fileName}</span></span>
-              <span className="flex flex-wrap items-center gap-2">
+            <li key={doc.id} className="grid min-w-0 gap-2 rounded-xl border border-app-border/70 px-3 py-3">
+              <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="mt-0.5 block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName}</span></span>
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
                 <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(requirement, doc.id)}>Remove</Button>
@@ -167,9 +167,9 @@ function SupportingDocumentsBlock({ readiness, documents, attachedIds, busy, err
       {readiness.supportingDocuments.length ? (
         <ul className="m-0 grid gap-2 p-0">
           {readiness.supportingDocuments.map((doc) => (
-            <li key={doc.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border/70 px-3 py-2">
-              <span className="min-w-0 flex-1 text-sm text-app-text">{doc.title} <span className="text-xs text-app-muted">· {doc.fileName}</span></span>
-              <span className="flex flex-wrap items-center gap-2">
+            <li key={doc.id} className="grid min-w-0 gap-2 rounded-xl border border-app-border/70 px-3 py-3">
+              <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="mt-0.5 block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName}</span></span>
+              <span className="flex min-w-0 flex-wrap items-center gap-2">
                 <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(doc.id)}>Remove</Button>

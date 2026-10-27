@@ -138,8 +138,8 @@ export default function AdminIntakePool({
     ));
     return (
       <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
-        <div className="flex min-w-0 items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
+          <div className="w-full min-w-0 flex-1">
             <h3>{entry.studentName}</h3>
             <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
             <p className="mt-1 text-xs text-app-muted">

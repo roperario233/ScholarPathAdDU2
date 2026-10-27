@@ -61,11 +61,11 @@ export default function AdminResultsRelease({
 
       <section className="grid gap-4">
         <Card title="Recommendations awaiting approval" action={<StatusBadge tone={approvalApplications.length ? 'warning' : 'success'}>{approvalApplications.length} ready</StatusBadge>}>
-          <div className="grid max-h-[520px] gap-3 overflow-y-auto pr-1">
+          <div className="grid max-h-[520px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
             {approvalApplications.length ? approvalApplications.map((entry) => (
               <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p></div>
+                <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+                  <div className="min-w-0 w-full"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p></div>
                   <StatusBadge tone="warning">Recommended</StatusBadge>
                 </div>
                 <span className="text-xs text-app-muted">Deliberation recorded {entry.deliberation?.decidedAt ? fmtDate(entry.deliberation.decidedAt) : 'on file'}</span>
@@ -81,11 +81,11 @@ export default function AdminResultsRelease({
 
       <section className="grid gap-4">
         <Card title="Approved results" action={<StatusBadge tone={approvedApplications.length ? 'warning' : 'success'}>{approvedApplications.length} ready to release</StatusBadge>}>
-          <div className="grid max-h-[640px] gap-3 overflow-y-auto pr-1">
+          <div className="grid max-h-[640px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
             {queue.length ? queue.map((entry) => (
               <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
-                <div className="flex min-w-0 items-start justify-between gap-3">
-                  <div className="min-w-0"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle}</p></div>
+                <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+                  <div className="min-w-0 w-full"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle}</p></div>
                   <StatusBadge tone={entry.status === 'Released' ? 'success' : 'warning'}>{entry.status}</StatusBadge>
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
