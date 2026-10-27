@@ -89,6 +89,18 @@ const toCustomDeadline = (row) => ({
   deadline: row.deadline,
   createdAt: row.created_at,
 });
+// Office planning entries on the Admissions Office calendar. The Head publishes
+// them; both office lanes and Department Chairs read them, and a student session
+// never loads them.
+const toOfficeCalendarEntry = (row) => ({
+  id: row.id,
+  title: row.title,
+  entryDate: row.entry_date,
+  kind: row.kind || 'office',
+  notes: row.notes || '',
+  createdBy: row.created_by ?? null,
+  createdAt: row.created_at,
+});
 const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at });
 const toDepartmentReview = (row) => ({
   ...row,
@@ -153,7 +165,7 @@ const ensureReady = () => hasSupabaseConfig && supabase;
 export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   if (!ensureReady()) return { success: false, fallback: true };
 
-  const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, deadlinesResult, profilesResult] = await Promise.all([
+  const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, deadlinesResult, profilesResult, officeEntriesResult] = await Promise.all([
     supabase.from('scholarships').select('*').order('deadline', { ascending: true }),
     supabase.from('applications').select('*').order('updated_at', { ascending: false }),
     supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
@@ -166,6 +178,11 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     // Staff queues need applicant context. students_read is limited to their own
     // profile by RLS, so this select is safe for every role.
     supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income'),
+    // Office calendar planning entries are a staff-only slice. A student session
+    // never asks for them, so they cannot leak into the student calendar.
+    role === 'student'
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('office_calendar_entries').select('*').order('entry_date', { ascending: true }),
   ]);
   const failed = [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, profilesResult].find((result) => result.error);
   if (failed) return { success: false, fallback: false, message: failed.error.message };
@@ -302,6 +319,11 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     interviewPanelists,
     interviewNotes,
     customDeadlines: serverDeadlines,
+    // Pending-migration tolerance, like custom_deadlines: an unavailable table
+    // yields an empty office calendar instead of failing the whole workspace.
+    officeCalendarEntries: !officeEntriesResult.error && Array.isArray(officeEntriesResult.data)
+      ? officeEntriesResult.data.map(toOfficeCalendarEntry)
+      : [],
   };
 };
 
@@ -434,15 +456,6 @@ export const replaceSupabaseInterviewPanel = async (applicationId, panel = [], n
   return { data: (inserted.data || []).map((row) => toInterviewPanelist(row, nameById)), error: inserted.error };
 };
 
-// The panel (or the Admissions Office on its behalf) records attendance through
-// record_interview_outcome, which checks the caller and returns the updated
-// public interview record.
-export const recordSupabaseInterviewOutcome = async (applicationId, outcome) => {
-  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
-  const { data, error } = await supabase.rpc('record_interview_outcome', { p_application_id: applicationId, p_outcome: outcome });
-  return { data: data || null, error };
-};
-
 export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, rating, body }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const result = await supabase.from('application_interview_notes').insert({
@@ -455,9 +468,12 @@ export const createSupabaseInterviewNote = async ({ applicationId, authorId, aut
   return { ...result, data: result.data ? toInterviewNote(result.data, { [authorId]: authorName }) : null };
 };
 
-// Department review records mirror chair decisions for schema-level auditing.
-// Kept async so it always returns a real Promise: a Postgrest builder is only a
-// thenable (no .catch/.finally), and a fire-and-forget caller needs .catch.
+// Department review records mirror historical Department Chair decisions for
+// schema-level auditing. Endorsement is now the Admissions Office Head's
+// decision and is recorded on the application itself, so nothing writes here for
+// a new case. Kept async so it always returns a real Promise: a Postgrest builder
+// is only a thenable (no .catch/.finally), and a fire-and-forget caller needs
+// .catch.
 export const upsertSupabaseDepartmentReview = async ({ applicationId, reviewerId, studentName, department, qpi, householdIncome, status, recommendation }) => {
   if (!ensureReady()) return { data: null, error: null };
   return supabase.from('department_reviews').upsert({
@@ -474,7 +490,7 @@ export const upsertSupabaseDepartmentReview = async ({ applicationId, reviewerId
 
 const recommendationNote = (status) => (
   status === 'Endorsed'
-    ? 'Sent to endorsement by the Department Chair.'
+    ? 'Endorsed by the Office of Admissions & Aid.'
     : 'Returned for central document validation.'
 );
 
@@ -672,6 +688,27 @@ export const createSupabaseCustomDeadline = ({ id, ownerId, title, deadline }) =
 
 export const deleteSupabaseCustomDeadline = (id) => (
   ensureReady() ? supabase.from('custom_deadlines').delete().eq('id', id) : Promise.resolve({ error: null })
+);
+
+// Office planning dates on the Admissions Office calendar. The client generates
+// `office-<uuid>` ids so an entry keeps one identity on the calendar and in the
+// database. The database policies keep publishing and removing them to the
+// Admissions Office Head; both office lanes and Department Chairs read them.
+export const createSupabaseOfficeCalendarEntry = ({ id, title, entryDate, kind, notes, createdBy }) => (
+  ensureReady()
+    ? supabase
+        .from('office_calendar_entries')
+        .upsert(
+          { id, title, entry_date: entryDate, kind, notes, created_by: createdBy },
+          { onConflict: 'id' },
+        )
+        .select('*')
+        .single()
+    : Promise.resolve({ data: null, error: null })
+);
+
+export const deleteSupabaseOfficeCalendarEntry = (id) => (
+  ensureReady() ? supabase.from('office_calendar_entries').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
 
 // Both email Edge Functions answer with a normalized shape so the UI can report

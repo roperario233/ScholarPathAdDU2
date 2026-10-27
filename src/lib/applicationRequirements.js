@@ -371,6 +371,24 @@ export const getApplicationAttributeVerifications = (application, documents = []
   deriveAttributeVerifications(getLinkedDocuments(application, documents), VERIFIABLE_ATTRIBUTE_KEYS, { profile })
 );
 
+// The same badges, read at the moment the reviewer looks at the case. A verified
+// file must not keep reading Unverified on the Overview just because the badge was
+// frozen before the Admissions Office recorded the decision, so this derivation
+// reads the attached files' current verification status. The frozen snapshot stays
+// the record of what the student saw at submission (Profile snapshot tab and the
+// exports); it cannot report a decision made afterwards. Files are still limited to
+// the ones the application attaches, and getProofContext keeps the frozen values and
+// the submission date as the comparison point, so a later profile edit or a new
+// academic year never turns an attached proof Outdated on a case the student can no
+// longer change. A submitted case without a snapshot, or a draft, uses `profile`.
+export const getApplicationLiveAttributeVerifications = (application, documents = [], { profile = {}, today = new Date() } = {}) => {
+  const context = getProofContext(application, profile, today);
+  return deriveAttributeVerifications(getLinkedDocuments(application, documents), VERIFIABLE_ATTRIBUTE_KEYS, {
+    profile: context.profile,
+    now: context.now,
+  });
+};
+
 // A declared or attested answer, phrased for the student and the reviewers.
 const PROOF_VALUE_OPTIONS = {
   academicStanding: () => academicStandingOptions,
@@ -501,10 +519,10 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 export const ENDORSEMENT_BLOCKED_STATUSES = ENDORSEMENT_STAGE_STATUSES;
 
-// SOP step 4 (endorsement) starts when the Admissions Office hands the case to
-// the Department Chair. Until `For Endorsement` the stage has not begun, so the
-// review surface keeps its Endorsement tab hidden instead of restating the action
-// bar; the tab stays readable through the later stages.
+// SOP step 4 (endorsement) starts when the Admissions Office Staff hand the case
+// to the Head for the endorsement decision. Until `For Endorsement` the stage has
+// not begun, so the review surface keeps its Endorsement tab hidden instead of
+// restating the action bar; the tab stays readable through the later stages.
 export const areEndorsementRecordsVisible = (status) => ENDORSEMENT_STAGE_STATUSES.includes(status);
 
 // Document Vault review starts at the SOP document-verification stage. Before

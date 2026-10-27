@@ -48,7 +48,7 @@ export default function AdminResultsRelease({
     <div className="grid gap-5">
       <AdminPageHeader
         title="Recommendation and results release"
-        description="The School Scholarship Sub-committee recommends, the Admissions Office Head approves, and the approved result is released to the applicant."
+        description="Approve sub-committee recommendations and release approved results."
         badge={`${approvalApplications.length + approvedApplications.length} awaiting decision`}
         badgeTone={approvalApplications.length + approvedApplications.length ? 'warning' : 'success'}
       />
@@ -74,7 +74,7 @@ export default function AdminResultsRelease({
                   <Button type="button" onClick={() => setApprovalId(entry.id)}>Review and approve</Button>
                 </div>
               </article>
-            )) : <EmptyState title="No recommendations awaiting approval" description="Sub-committee recommendations will queue here for the Admissions Office Head." />}
+            )) : <EmptyState title="No recommendations awaiting approval" />}
           </div>
         </Card>
       </section>
@@ -93,7 +93,7 @@ export default function AdminResultsRelease({
                   <Button type="button" disabled={entry.status !== 'Approved'} onClick={() => onReleaseResults(entry.id)}>Release results</Button>
                 </div>
               </article>
-            )) : <EmptyState title="Nothing to release yet" description="Approved applications will queue here for release through the Admissions Office Head." />}
+            )) : <EmptyState title="Nothing to release yet" />}
           </div>
           <Button className="mt-3" type="button" disabled={!queue.length} onClick={exportAcceptedList}>Export accepted list</Button>
         </Card>

@@ -187,24 +187,41 @@ pages.
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off to endorsement, coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
+| `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Head's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Head's venue manager and planning-entry form live here |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
 | `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
 | `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
 
 Stage authority is role-scoped: Staff may move an application through
-`Submitted`, `Under Review`, `For Verification`, `For Endorsement` (hand-off),
-`Endorsed` → `Interview` → `Recommended`, but cannot approve or release. The Head
-can perform all of those Staff moves and also `Recommended → Approved →
-Released`. The same rule is repeated in the database
+`Submitted`, `Under Review`, `For Verification`, and `For Endorsement` (the
+hand-off), and on through `Endorsed` → `Interview` → `Recommended`, but cannot
+endorse, approve, or release. The Head can perform all of those Staff moves and
+also records the endorsement (`For Endorsement` → `Endorsed`) and
+`Recommended → Approved → Released`. The same rule is repeated in the database
 (`enforce_admissions_office_lane_transitions`) and in the role-scoped transition
-map, so a client-side bug cannot let Staff approve or release.
+map, so a client-side bug cannot let Staff endorse, approve, or release.
 
-The Department Chair workspace opens the same application review modal. Its
-**Endorsement** tab appears once an application reaches document verification and
-shows the endorsement record (hand-off and decision), one internal comment
-thread, and the Endorse action. Students never see the thread, and every comment
-stays in the append-only review record.
+The Department Chair workspace opens the same application review modal read-only.
+Its **Endorsement** tab appears once an application reaches endorsement and shows
+the hand-off record and the Office of Admissions & Aid decision, plus one internal
+comment thread; the Chair has no Endorse action, because endorsement is a
+central Admissions Office decision. Students never see the thread, and every
+comment stays in the append-only review record.
+
+The Chair also has a dedicated **Calendar** (`chair-calendar`) and **Interviews**
+(`chair-interviews`) page. The calendar marks the interviews the Chair sits on
+apart from the rest of the department, alongside the AdDU scholarship deadlines,
+the decisions the Admissions Office recorded on the department's cases, and the
+office's planning dates; its agenda groups those layers, with the Chair's own
+panel work first. The interviews page lists the Chair's panel work with a link
+into the review modal's Interview tab, where the Chair records evaluation notes.
+Scheduling, rescheduling, and cancellation stay with the Admissions Office, and
+only its Head publishes or removes a planning entry, so the Chair pages never
+offer those controls, and the Department Chair still sees only their own
+department. Attendance is not tracked: an interview is scheduled or cancelled,
+and recording the recommendation closes a live schedule.
 
 ## Provisioning staff accounts
 
@@ -396,3 +413,108 @@ reminders never reach the reminder function.
 The Calendar now reports the outcome each time a reminder is added or removed,
 and any reminder that exists only in a browser is pushed to Supabase on the next
 successful sign-in.
+
+## Google Calendar and Meet (interviews)
+
+SOP step 5 interviews can create a real Google Calendar event with a Google Meet
+link, and invite the applicant, the account panelists, and any faculty guest with
+an email. The integration is optional: without it the Admissions Office pastes a
+meeting link and the applicant downloads an `.ics` file.
+
+The event is written by the `manage-interview-event` Edge Function, never by the
+browser. The refresh token stays in Supabase secrets.
+
+### What it does
+
+- An online interview with a blank meeting link gets a generated Meet link.
+- The guest list is hidden from guests, so the applicant never sees the panel's
+  names or addresses through the invitation.
+- Rescheduling patches the same event, so the applicant gets one updated entry
+  instead of two.
+- Switching between online and on-site replaces the event, because a live Meet
+  link cannot be reliably stripped from an existing one.
+- Cancelling, and rejecting an application at the `Interview` stage, delete it.
+- Each event records the application it belongs to, so **Repair calendar event**
+  in the Interview tab can recreate or remove it after a failure.
+
+### 1. Google Cloud setup (once)
+
+1. Create a project (it may live outside the university organization).
+2. **APIs & Services → Library → Google Calendar API → Enable.** No billing
+   account is needed, and the Meet API is not required.
+3. **OAuth consent screen**: app name, support email, developer contact;
+   user type **External**, status **Testing**; add the office Google account as a
+   test user.
+4. **Data access → scopes**, exactly:
+   - `https://www.googleapis.com/auth/calendar.events`
+   - `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+     (the helper script only; the Edge Function never uses it)
+   - `openid`, `email` (so the helper can print which account consented)
+5. **Clients → Create client → Web application**, with the redirect URI
+   `http://localhost:5555/oauth2callback`. Copy the client id and secret.
+6. In Google Calendar, signed in as the **office account**, create a calendar
+   (for example *ScholarPath AdDU — Scholarship Interviews*, time zone Manila)
+   and copy its id from *Settings and sharing → Integrate calendar*.
+
+### 2. Mint the refresh token
+
+```powershell
+$env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
+npm run google:auth
+```
+
+Approve the consent screen **with the account that owns the interview calendar**.
+The script prints that account, every calendar it can write to, the refresh
+token, and a ready `supabase secrets set` command.
+
+Consent is bound to one Google account: if the token belongs to a different
+account than the calendar, the Calendar API answers `404 Not Found` even though
+the token itself is valid.
+
+### 3. Set the secrets and deploy
+
+```powershell
+supabase secrets set "GOOGLE_OAUTH_CLIENT_ID=..." "GOOGLE_OAUTH_CLIENT_SECRET=..." "GOOGLE_CALENDAR_REFRESH_TOKEN=..." "GOOGLE_CALENDAR_ID=..."
+supabase functions deploy manage-interview-event --no-verify-jwt
+```
+
+`GOOGLE_CALENDAR_ID` must be the plain id with a literal `@`
+(`xxxx@group.calendar.google.com`). Never a `VITE_` variable, and never a URL.
+
+The Interview tab shows the saved schedule: the state badges, a read-only meeting
+link with copy and open controls (or the on-site location), who was invited, and
+the panel. **Repair calendar event** appears only when Google and the saved record
+disagree — a scheduled interview with no event or no link, or a cancelled one
+whose event survived. Repair creates an event that never landed, patches one that
+drifted, deletes a duplicate, removes the leftover event, and attaches a Meet
+conference to an online event that has none.
+
+### 4. The 7-day refresh token
+
+While the OAuth app is External + Testing, Google expires the refresh token after
+7 days. Existing events and Meet links keep working; new automatic Meet links
+stop until the token is replaced.
+
+Re-run `npm run google:auth` **every Monday and two days before a demo**, then
+update `GOOGLE_CALENDAR_REFRESH_TOKEN`. Publishing the app (requires Google
+verification) or consenting with an internal Workspace app removes the limit.
+
+The app treats this as a normal state: the panel says the authorization expired,
+and scheduling still works with a pasted meeting link.
+
+### 5. Troubleshooting
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| `configured: false` | a secret is missing | set all four, then re-check |
+| `reauth_required` | the 7-day window lapsed, or consent was revoked | `npm run google:auth`, update the token |
+| `calendar_not_found` | the token's account cannot see that calendar id | own or share the calendar with it, or correct the id |
+| `calendar_forbidden` | the account has read-only access | re-share with *Make changes to events* |
+| `insufficient_scope` | the token was minted without `calendar.events` | re-consent |
+| a Meet link never appears | Google reported the conference as pending | use **Repair calendar event**, or paste a link |
+| two events at the same time | a cancel could not reach Google, so the next schedule created a second one | delete the orphan in Google Calendar once, then **Repair calendar event** (it attaches a real Meet link and sweeps any tracked duplicate) |
+| the calendar event shows a link but the app says *No meeting link* | the event was rebuilt from a reused link and owns no conference | **Repair calendar event** attaches one |
+
+If the calendar stays unreachable, set `GOOGLE_CALENDAR_ID=primary` and retry: a
+success proves the credentials are fine and the calendar id is the problem.
+

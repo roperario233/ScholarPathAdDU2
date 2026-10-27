@@ -8,14 +8,15 @@ import {
   createInterviewDraft,
   describeInterviewForStudent,
   findInterviewConflicts,
+  findRosterConflicts,
   formatInterviewWhen,
   getEligiblePanelists,
   getInterviewDateKey,
   getInterviewReminderKey,
-  isInterviewComplete,
-  isInterviewOutcomeDue,
+  isInterviewLive,
   isoToManilaInputs,
   manilaInputToIso,
+  needsInterviewCalendarRepair,
   summarizeInterview,
   validateInterviewSchedule,
 } from '../src/lib/interview';
@@ -78,18 +79,19 @@ describe('Manila time helpers', () => {
 });
 
 describe('getEligiblePanelists (SOP 5a)', () => {
-  it('lists only Department Chairs from the applicant’s school', () => {
+  it('lists the Department Chairs of the applicant’s school first', () => {
     const panel = getEligiblePanelists(staffDirectory, { studentDepartment: SEA });
-    expect(panel.map((entry) => entry.userId)).toEqual(['chair-sea', 'chair-sea-2']);
+    expect(panel.map((entry) => entry.userId)).toEqual(['chair-sea', 'chair-sea-2', 'staff-1']);
   });
 
-  it('lists no one when the applicant’s school is unknown', () => {
-    expect(getEligiblePanelists(staffDirectory, { studentDepartment: '' })).toEqual([]);
+  it('still offers the Admissions Office when the applicant’s school is unknown', () => {
+    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: '' });
+    expect(panel.map((entry) => entry.userId)).toEqual(['staff-1']);
   });
 
-  it('never offers Admissions Office accounts as panelists', () => {
-    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: 'Office of Admissions' });
-    expect(panel).toEqual([]);
+  it('offers Admissions Office accounts on any panel', () => {
+    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: CAS });
+    expect(panel.map((entry) => entry.userId)).toEqual(['chair-cas', 'staff-1']);
   });
 });
 
@@ -98,16 +100,21 @@ describe('validateInterviewSchedule', () => {
     expect(validateInterviewSchedule(validDraft(), { now: NOW, activeLocationIds: ['loc-1'] })).toEqual({});
   });
 
-  it('requires a future start, a location, and a panel', () => {
+  it('requires a future start and a location, and allows an empty panel', () => {
     const errors = validateInterviewSchedule(validDraft({ date: '2026-10-30', locationId: '', panel: [] }), { now: NOW });
     expect(errors.time).toMatch(/future/);
     expect(errors.locationId).toMatch(/location/);
-    expect(errors.panel).toMatch(/applicant’s school/);
+    expect(errors.panel).toBeUndefined();
   });
 
   it('refuses an archived location', () => {
     const errors = validateInterviewSchedule(validDraft(), { now: NOW, activeLocationIds: ['loc-2'] });
     expect(errors.locationId).toMatch(/archived/);
+  });
+
+  it('accepts a typed location when no saved venue is used', () => {
+    const typed = validDraft({ locationId: '', locationLabel: 'Finster Hall, F213' });
+    expect(validateInterviewSchedule(typed, { now: NOW, activeLocationIds: ['loc-1'] })).toEqual({});
   });
 
   it('requires exactly one lead interviewer', () => {
@@ -181,26 +188,43 @@ describe('interview records', () => {
     expect(draft).toMatchObject({ mode: 'onsite', date: '2026-11-03', time: '09:00', durationMinutes: 30, locationId: 'loc-1' });
     expect(draft.panel).toEqual([{ profileId: 'chair-sea', guestName: '', guestEmail: '', isLead: true }]);
   });
+
+  it('keeps a typed location on the record and in the edit draft', () => {
+    const record = buildInterviewRecord({
+      draft: validDraft({ locationId: '', locationLabel: 'Finster Hall, F213' }),
+      school: SEA,
+      now: NOW,
+    });
+    expect(record.locationId).toBeNull();
+    expect(record.locationLabel).toBe('Finster Hall, F213');
+    expect(createInterviewDraft({ interview: record }, []).locationLabel).toBe('Finster Hall, F213');
+    // A saved venue's label is derived from the venue, so the draft leaves the
+    // typed field empty instead of echoing it.
+    const venueRecord = buildInterviewRecord({ draft: validDraft(), location, school: SEA, now: NOW });
+    expect(createInterviewDraft({ interview: venueRecord }, []).locationLabel).toBe('');
+  });
 });
 
-describe('the Recommend gate', () => {
-  it('requires the panel to record the applicant as attended', () => {
+describe('the interview record', () => {
+  // The interview stage records a schedule only. Attendance is not tracked, so a
+  // `scheduled` record is the only live work and the recommendation is what
+  // closes the stage.
+  it('treats only a scheduled interview as live work', () => {
     const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
-    expect(isInterviewComplete(record)).toBe(false);
-    expect(isInterviewComplete({ ...record, state: 'no_show' })).toBe(false);
-    expect(isInterviewComplete({ ...record, state: 'completed' })).toBe(true);
+    expect(isInterviewLive(record)).toBe(true);
+    expect(isInterviewLive({ ...record, state: 'completed' })).toBe(false);
+    expect(isInterviewLive({ ...record, state: 'no_show' })).toBe(false);
+    expect(isInterviewLive({ ...record, state: 'cancelled' })).toBe(false);
+    expect(isInterviewLive({ scheduledAt: '2026-10-01', panel: 'SEA Scholarship Panel' })).toBe(false);
+    expect(isInterviewLive(null)).toBe(false);
   });
 
-  it('grandfathers an interview recorded before structured scheduling', () => {
-    expect(isInterviewComplete({ scheduledAt: '2026-10-01', panel: 'SEA Scholarship Panel' })).toBe(true);
-    expect(isInterviewComplete(null)).toBe(false);
-  });
-
-  it('asks for the outcome only once the interview has started', () => {
+  it('does not record an attendance outcome on a new schedule', () => {
     const record = buildInterviewRecord({ draft: validDraft(), location, now: NOW });
-    expect(isInterviewOutcomeDue(record, new Date('2026-11-03T00:59:00.000Z'))).toBe(false);
-    expect(isInterviewOutcomeDue(record, new Date('2026-11-03T01:00:00.000Z'))).toBe(true);
-    expect(isInterviewOutcomeDue({ ...record, state: 'completed' }, new Date('2026-11-04T00:00:00.000Z'))).toBe(false);
+    expect(record).not.toHaveProperty('outcomeRecordedAt');
+    expect(record).not.toHaveProperty('outcomeRecordedBy');
+    expect(record).not.toHaveProperty('outcomeRecordedRole');
+    expect(record.state).toBe('scheduled');
   });
 });
 
@@ -229,6 +253,69 @@ describe('findInterviewConflicts', () => {
   it('does not treat an online interview as a room booking', () => {
     const conflicts = findInterviewConflicts(validDraft({ mode: 'online', locationId: '', panel: [{ profileId: 'chair-cas', isLead: true }] }), { applications: [booked()], panelists });
     expect(conflicts).toEqual([]);
+  });
+});
+
+describe('findRosterConflicts', () => {
+  const scheduled = (overrides = {}) => ({
+    id: 'app-1',
+    status: 'Interview',
+    studentName: 'Ada Cruz',
+    interview: buildInterviewRecord({ draft: validDraft(), location, school: SEA, now: NOW }),
+    ...overrides,
+  });
+  const overlapping = (overrides = {}) => scheduled({
+    id: 'app-2',
+    studentName: 'Eli Tan',
+    interview: buildInterviewRecord({ draft: validDraft({ time: '09:15' }), location, school: SEA, now: NOW }),
+    ...overrides,
+  });
+  const panelists = [
+    { applicationId: 'app-1', profileId: 'chair-sea', name: 'Ana Reyes', removedAt: null },
+    { applicationId: 'app-2', profileId: 'chair-sea', name: 'Ana Reyes', removedAt: null },
+  ];
+
+  it('flags the same Chair and the same room across two scheduled interviews', () => {
+    const conflicts = findRosterConflicts([scheduled(), overlapping()], panelists);
+    expect(conflicts.map((entry) => entry.kind).sort()).toEqual(['location', 'panelist']);
+    expect(conflicts[0].applicationIds.sort()).toEqual(['app-1', 'app-2']);
+  });
+
+  it('ignores back-to-back slots, online rooms, and removed panel members', () => {
+    const backToBack = scheduled({
+      id: 'app-3',
+      interview: buildInterviewRecord({ draft: validDraft({ time: '09:30' }), location, school: SEA, now: NOW }),
+    });
+    expect(findRosterConflicts([scheduled(), backToBack], panelists)).toEqual([]);
+
+    const online = overlapping({
+      interview: buildInterviewRecord({
+        draft: validDraft({ mode: 'online', locationId: '', meetingUrl: 'https://meet.google.com/abc-defg-hij', time: '09:15' }),
+        school: SEA,
+        now: NOW,
+      }),
+    });
+    expect(findRosterConflicts([scheduled(), online], panelists).map((entry) => entry.kind)).toEqual(['panelist']);
+
+    const removed = panelists.map((row) => (row.applicationId === 'app-2' ? { ...row, removedAt: '2026-11-01T00:00:00.000Z' } : row));
+    expect(findRosterConflicts([scheduled(), overlapping()], removed).map((entry) => entry.kind)).toEqual(['location']);
+  });
+
+  it('counts only scheduled interviews', () => {
+    const cancelled = overlapping({ interview: { ...overlapping().interview, state: 'cancelled' } });
+    expect(findRosterConflicts([scheduled(), cancelled], panelists)).toEqual([]);
+  });
+});
+
+describe('needsInterviewCalendarRepair', () => {
+  it('asks for a repair only when Google and the record disagree', () => {
+    const record = buildInterviewRecord({ draft: validDraft(), location, school: SEA, now: NOW, calendar: { eventId: 'evt-1', htmlLink: 'https://calendar.example/evt-1' } });
+    expect(needsInterviewCalendarRepair(record)).toBe(false);
+    expect(needsInterviewCalendarRepair({ ...record, calendar: null })).toBe(true);
+    expect(needsInterviewCalendarRepair({ ...record, state: 'cancelled', calendar: { eventId: 'evt-1', removedAt: null } })).toBe(true);
+    expect(needsInterviewCalendarRepair({ ...record, state: 'cancelled', calendar: { eventId: 'evt-1', removedAt: '2026-11-02T00:00:00.000Z' } })).toBe(false);
+    expect(needsInterviewCalendarRepair({ ...record, mode: 'online', meetingUrl: '', calendar: { eventId: 'evt-1' } })).toBe(true);
+    expect(needsInterviewCalendarRepair(null)).toBe(false);
   });
 });
 
@@ -291,7 +378,7 @@ describe('interview notification copy', () => {
     expect(student.text).toContain('Reason: Room unavailable');
     const panel = renderInterviewUpdateEmail({ audience: 'panelist', kind: 'scheduled', interview: record, scholarshipTitle: 'GIA', applicantName: 'Ada Cruz', siteUrl: 'https://example.test/' });
     expect(panel.subject).toBe('Interview panel assignment: Ada Cruz');
-    expect(panel.text).toContain('record attendance and your evaluation');
+    expect(panel.text).toContain('add your evaluation');
     // The panelist email states the task in plain language, without the SOP code.
     expect(panel.text).not.toContain('SOP 5a');
     expect(renderInterviewUpdateSms({ kind: 'cancelled', interview: record, scholarshipTitle: 'GIA' }).message).toContain('was cancelled');
@@ -338,6 +425,40 @@ describe('Google Calendar client', () => {
   it('treats an already-deleted event as cancelled', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false, status: 410, json: async () => ({}) });
     expect(await cancelGoogleInterviewEvent({ config, accessToken: 'token', eventId: 'evt-1', fetchImpl })).toEqual({ ok: true });
+  });
+
+  it('keeps one calendar entry across reschedules and renders a single recipient', () => {
+    const icsInterview = {
+      version: 2,
+      state: 'scheduled',
+      revision: 1,
+      mode: 'online',
+      startsAt: '2026-11-03T01:00:00.000Z',
+      durationMinutes: 30,
+      meetingUrl: 'https://meet.google.com/abc-defg-hij',
+      school: SEA,
+      locationLabel: '',
+      instructions: '',
+    };
+    const icsNow = new Date('2026-10-23T00:00:00.000Z');
+    const first = buildInterviewIcs({ interview: icsInterview, scholarshipTitle: 'GIA', uid: 'app-1', recipientEmail: 'student@example.test', now: icsNow });
+    const second = buildInterviewIcs({
+      interview: { ...icsInterview, revision: 2, startsAt: '2026-11-04T01:00:00.000Z' },
+      scholarshipTitle: 'GIA',
+      uid: 'app-1',
+      recipientEmail: 'student@example.test',
+      now: icsNow,
+    });
+    // Same UID, higher SEQUENCE: the calendar client updates the entry in place.
+    expect(first).toContain('UID:app-1@scholarpath-addu');
+    expect(second).toContain('UID:app-1@scholarpath-addu');
+    expect(second).toContain('SEQUENCE:2');
+    expect(second).toContain('METHOD:REQUEST');
+    // One attendee per file, so a shared file never exposes the panel.
+    expect(second.match(/ATTENDEE/g)).toHaveLength(1);
+    expect(second).toContain('ATTENDEE;CN=student@example.test');
+    expect(second).not.toContain('chair@');
+    expect(buildInterviewIcs({ interview: { ...icsInterview, state: 'cancelled', revision: 3 }, uid: 'app-1', now: icsNow })).toContain('METHOD:CANCEL');
   });
 
   it('reads the Meet link from the conference entry points', () => {

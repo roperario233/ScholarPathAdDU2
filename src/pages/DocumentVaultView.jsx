@@ -10,7 +10,7 @@ import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/A
 import { fmtDate } from '../lib/formatters';
 import { generalDocumentTypeOptions, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
-import { PHOTO_ACCEPT, PHOTO_MIME_TYPES, getPhotoGuide } from '../lib/photoGuide';
+import { PHOTO_ACCEPT, PHOTO_MIME_TYPES } from '../lib/photoGuide';
 import {
   buildDocumentPickerOptions,
   decodeDocumentSelection,
@@ -52,7 +52,7 @@ const outdatedProofMessage = ({ key, reason }) => {
   const label = getVerifiableAttributeOption(key)?.label || key;
   return reason === 'year'
     ? `This ${label} proof is from an earlier academic year. Upload a current one.`
-    : `Your ${label} in My Profile changed after this upload. Upload a new proof.`;
+    : `Your ${label} changed after this upload. Upload a new proof.`;
 };
 
 export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '' }) {
@@ -72,7 +72,6 @@ export default function DocumentVaultView({ documents, applications = [], profil
   const fileInputRef = useRef(null);
   const { attributeKey, documentType } = decodeDocumentSelection(selection);
   const isPhoto = isPhotoDocumentType(documentType);
-  const photoGuide = getPhotoGuide(documentType);
   const derivedTitle = getDocumentTitle({ attributeKey, documentType });
   // Every answer this upload will prove, the picked one and any other its type
   // proves (a grade report proves the QPI and academic standing together).
@@ -201,8 +200,8 @@ export default function DocumentVaultView({ documents, applications = [], profil
           />
           <small className="field-hint -mt-1">
             {provesOnUpload.length
-              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in My Profile now. Any one of an answer's listed types is enough.`
-              : 'A general document proves no profile answer. Each answer lists the document types it accepts; any one of them is enough.'}
+              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in My Profile now.`
+              : 'A general document proves no profile answer.'}
           </small>
           {isPhoto ? (
             <div className="grid gap-3">
@@ -217,7 +216,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
                 {file ? <span className="min-w-0 text-xs text-app-muted">Selected: <strong className="[overflow-wrap:anywhere]">{file.name}</strong></span> : null}
               </div>
               <small className="field-hint">
-                JPG or PNG, up to 10 MB.{photoGuide ? ` ${photoGuide.summary}` : ''}
+                JPG or PNG, up to 10 MB.
                 {documentType === 'Photos of Residence' ? ' Upload one file at a time to attach several photos.' : ''}
               </small>
               <PhotoGuide documentType={documentType} defaultOpen />
@@ -229,7 +228,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
               <small className="field-hint">PDF, JPG, or PNG | up to 10 MB</small>
             </label>
           )}
-          <p className="field-hint m-0">The Admissions Office and your Department Chair can view the files in your vault to verify them and review your applications. Each application also lists the files you attach to it.</p>
+          <p className="field-hint m-0">The Admissions Office and your Department Chair can view these files to verify them.</p>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p>
             <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>
@@ -275,7 +274,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
               {onResolveDocument && replacementApplications.length ? (
                 <div className="grid gap-2 rounded-xl border border-rose-400/40 p-3">
                   <p className="m-0 text-sm text-app-text">
-                    Replace this file in the application it is attached to so the review can continue.
+                    Replace this file so the review can continue.
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {replacementApplications.map((entry) => (
@@ -304,7 +303,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
               </div>
             </article>
             );
-          }) : <EmptyState title={documents.length ? 'No matching documents' : 'Document vault is empty'} description={documents.length ? 'Try a different search or status filter.' : 'Upload transcripts, IDs, and income proofs once to reuse them.'} />}
+          }) : <EmptyState title={documents.length ? 'No matching documents' : 'Document vault is empty'} description={documents.length ? 'Try a different search or status filter.' : 'Upload once and reuse across applications.'} />}
         </div>
       </Card>
 

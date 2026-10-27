@@ -32,16 +32,16 @@ const statusLogFor = (applicationStatus = 'For Endorsement') => [
     toStatus: 'For Endorsement',
     actorRole: 'admissions_office',
     actorName: 'Ben Reyes',
-    reason: 'Sent to endorsement. The Department Chair now reviews it.',
+    reason: 'Sent for endorsement. The Admissions Office Head now decides it.',
     at: '2026-10-01T00:00:00.000Z',
   },
   ...(applicationStatus === 'Endorsed'
     ? [{
       id: 'log-endorsed',
       toStatus: 'Endorsed',
-      actorRole: 'department_chair',
+      actorRole: 'admissions_head',
       actorName: 'Mia Santos',
-      reason: 'Endorsed after department review.',
+      reason: 'Endorsed after central review.',
       at: '2026-10-04T00:00:00.000Z',
     }]
     : []),
@@ -53,7 +53,7 @@ describe('endorsement record and timing', () => {
 
     expect(handoff).toMatchObject({
       actor: 'Ben Reyes',
-      note: 'Sent to endorsement. The Department Chair now reviews it.',
+      note: 'Sent for endorsement. The Admissions Office Head now decides it.',
     });
   });
 
@@ -84,7 +84,7 @@ describe('endorsement record and timing', () => {
     expect(decision).toMatchObject({ stage: 'Endorsed', actor: 'Mia Santos' });
   });
 
-  it('counts the days an application has waited at the Chair', () => {
+  it('counts the days an application has waited at endorsement', () => {
     const awaiting = application({ statusLog: statusLogFor() });
 
     expect(getEndorsementAgeDays(awaiting, new Date('2026-10-06T00:00:00.000Z'))).toBe(5);

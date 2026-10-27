@@ -252,7 +252,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           clearPendingSessionStart();
          setFeedbackMessage(
            result?.message?.includes('not configured')
-             ? 'Google Sign-In requires Supabase configuration. Please add your Supabase credentials to enable OAuth. Contact your administrator to set up Google OAuth provider in the Supabase dashboard.'
+             ? 'Google Sign-In needs Supabase configuration. Use email and password for now.'
              : 'Google Sign-In is currently unavailable. Please try email sign-in instead.'
          );
          setFeedbackTone('info');
@@ -264,7 +264,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
          const errorMsg = result?.message || 'Unable to sign in with Google.';
          if (errorMsg.includes('provider') || errorMsg.includes('enabled')) {
            setFeedbackMessage(
-             'Google Sign-In is not yet configured. Your administrator needs to enable the Google provider in the Supabase Authentication settings. You can still sign in with your email and password.'
+             'Google Sign-In is not configured yet. Enable the Google provider in Supabase, or sign in with email.'
            );
          } else {
            setFeedbackMessage(errorMsg);

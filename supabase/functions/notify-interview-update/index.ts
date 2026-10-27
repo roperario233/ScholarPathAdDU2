@@ -15,7 +15,8 @@
 //     `Interview`, so notify-application-status already told the student.
 //   * Faculty guests have no account; they receive the Google Calendar
 //     invitation when manage-interview-event is configured.
-//   * Recording attendance (completed / no_show) notifies no one.
+//   * Attendance is not tracked, so a legacy `completed` / `no_show` state
+//     change (recorded before it was removed) notifies no one.
 //
 // Deployed with verify_jwt disabled, like the other notification functions:
 // the database caller presents the shared REMINDER_CRON_SECRET, and any other
@@ -108,8 +109,11 @@ Deno.serve(async (req) => {
     return json({ ok: true, skipped: true, reason: 'No structured interview to announce' });
   }
   const state = interview.state;
+  // The interview stage records a schedule only. `completed` and `no_show` are
+  // legacy states from before attendance tracking was removed, and a
+  // legacy record's change is not announced.
   if (!['scheduled', 'cancelled'].includes(state)) {
-    return json({ ok: true, skipped: true, reason: `No notification for the ${state} outcome` });
+    return json({ ok: true, skipped: true, reason: `No notification for the ${state} interview state` });
   }
   const revision = Number(interview.revision) || 1;
   const kind = state === 'cancelled' ? 'cancelled' : revision > 1 ? 'rescheduled' : 'scheduled';
@@ -250,7 +254,7 @@ Deno.serve(async (req) => {
         title: message.subject,
         body: kind === 'cancelled'
           ? `The ${scholarshipTitle} interview for ${applicantName} was cancelled.`
-          : `You are on the ${scholarshipTitle} interview panel for ${applicantName}: ${summary}. Record attendance and your evaluation in the application's Interview tab afterwards.`,
+          : `You are on the ${scholarshipTitle} interview panel for ${applicantName}: ${summary}. Review the schedule and add your evaluation in the application's Interview tab after the interview.`,
       },
     }));
   }

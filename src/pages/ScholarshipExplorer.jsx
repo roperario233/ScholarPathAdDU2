@@ -234,13 +234,13 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                           <ul className="m-0 grid gap-0.5 pl-5 text-xs text-app-muted">
                             {requirements.map((item) => <li key={item.id}>{item.label}{item.claim ? ' (from your profile answer)' : ''}</li>)}
                           </ul>
-                          <span className="text-xs text-app-muted">Upload them to your Document Vault now, or add them when you apply.</span>
+                          <span className="text-xs text-app-muted">Upload to your Document Vault now, or add them when you apply.</span>
                         </div>
                       )}
                     </>
                   ) : (
                     <p className="m-0 text-sm text-app-muted">
-                      Eligibility for this external program is determined by the provider. Please review its published requirements before applying.
+                      Eligibility is set by the provider. Review its requirements before applying.
                     </p>
                   )}
 
@@ -271,7 +271,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
               {applyErrors[scholarship.id] ? <p className="form-error m-0 mt-2" role="alert">{applyErrors[scholarship.id]}</p> : null}
             </article>
           );
-        }) : <EmptyState title="No scholarships match your filters" description="Relax the filters or use a broader search term to surface more programs." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Reset filters</button>} />}
+        }) : <EmptyState title="No scholarships match your filters" description="Try a broader search or fewer filters." action={<button className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { onSearchChange(''); onFilterChange({ category: 'all', coverage: 'all', deadline: 'all', activeOnly: false }); }}>Reset filters</button>} />}
       </section>
     </div>
   );

@@ -135,6 +135,9 @@ const createDefaultState = () => ({
   interviewPanelists: [],
   interviewNotes: [],
   customDeadlines: [],
+  // Office planning entries on the Admissions Office calendar. Staff-only, so a
+  // student session always keeps this empty.
+  officeCalendarEntries: [],
   profileSkipped: false,
   theme: 'light',
   academicPrograms,
@@ -203,6 +206,7 @@ export const createInitialState = () => {
     interviewPanelists: Array.isArray(stored.interviewPanelists) ? stored.interviewPanelists : defaults.interviewPanelists,
     interviewNotes: Array.isArray(stored.interviewNotes) ? stored.interviewNotes : defaults.interviewNotes,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
+    officeCalendarEntries: Array.isArray(stored.officeCalendarEntries) ? stored.officeCalendarEntries : defaults.officeCalendarEntries,
     academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,
     ownerId: typeof stored.ownerId === 'string' && stored.ownerId ? stored.ownerId : defaults.ownerId,

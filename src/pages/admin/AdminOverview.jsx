@@ -9,33 +9,45 @@ import { fmtDate } from '../../lib/formatters';
 // The Admissions Office landing route. It carries only the metrics that steer the
 // day's work, the links into each functional workspace, and the cross-cutting
 // activity feed, so the queues and forms live on their own routes. Both lanes
-// share the overview; only the Head sees the approval, release, and policy
+// share the dashboard; only the Head sees the approval, release, and policy
 // workspaces and metrics.
 const workspaces = [
   {
     view: 'admin-review',
     label: 'Application review queue',
-    description: 'Start application reviews, verify attached documents at the verification stage, and schedule interviews.',
+    description: 'Reviews, document checks, and interview scheduling.',
     action: 'Open review queue',
+  },
+  {
+    view: 'admin-interviews',
+    label: 'Interview schedule',
+    description: 'Coordinate interviews, panels, and invitations.',
+    action: 'Open interview schedule',
+  },
+  {
+    view: 'admin-calendar',
+    label: 'Office calendar',
+    description: 'Interviews, scholarship deadlines, recorded decisions, and office planning entries.',
+    action: 'Open calendar',
   },
   {
     view: 'admin-catalog',
     label: 'AdDU internal scholarship catalog',
-    description: 'Publish and update AdDU internal entries and the documents each one requires.',
+    description: 'Publish internal tracks and their required documents.',
     action: 'Open catalog',
     headOnly: true,
   },
   {
     view: 'admin-release',
     label: 'Recommendation and results release',
-    description: 'Approve sub-committee recommendations, release approved results, and export the accepted list.',
+    description: 'Approve recommendations, release results, and export the accepted list.',
     action: 'Open recommendation and release',
     headOnly: true,
   },
   {
     view: 'admin-announcements',
     label: 'Office announcements',
-    description: 'Publish application windows, answers to inquiries, and office notices.',
+    description: 'Publish office notices and application windows.',
     action: 'Open announcements',
     headOnly: true,
   },
@@ -49,6 +61,11 @@ export default function AdminOverview({ applications = [], documents = [], role 
   );
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
   const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
+  // SOP step 4 cases the Head must endorse. Staff hand them off; the Head decides.
+  const endorsementApplications = useMemo(
+    () => applications.filter((entry) => entry.status === 'For Endorsement'),
+    [applications],
+  );
   const blockingDocuments = useMemo(
     () => getDocumentsAwaitingReview(applications, documents),
     [applications, documents],
@@ -62,16 +79,17 @@ export default function AdminOverview({ applications = [], documents = [], role 
   return (
     <div className="grid gap-5">
       <AdminPageHeader
-        title={isHead ? 'Admissions Office Head overview' : 'Admissions Office overview'}
+        title={isHead ? 'Admissions Office Head dashboard' : 'Admissions Office dashboard'}
         description={isHead
-          ? 'Run the full Standard Procedure when needed: prepare cases, approve recommendations, release approved results, and maintain the office catalog and announcements.'
-          : 'Coordinate application operations, verify application documents, and prepare cases for the Admissions Office Head to decide.'}
+          ? 'Every stage, plus approval, release, catalog, and announcements.'
+          : 'Prepare cases and verify documents for the Head to decide.'}
         badge={isHead ? 'Approval authority' : 'Internal operations'}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {isHead ? (
           <>
+            <StatCard label="Awaiting your endorsement" value={endorsementApplications.length} note="Verified cases ready for your decision" />
             <StatCard label="Awaiting your approval" value={approvalApplications.length} note="Sub-committee recommendations" />
             <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for release" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released to applicants" />
@@ -81,7 +99,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
           <>
             <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
             <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
-            <StatCard label="Awaiting approval" value={approvalApplications.length} note="With the Admissions Office Head" />
+            <StatCard label="Awaiting endorsement" value={endorsementApplications.length} note="With the Admissions Office Head" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Head" />
           </>
         )}
@@ -119,7 +137,7 @@ export default function AdminOverview({ applications = [], documents = [], role 
                 </div>
                 <p className="m-0 text-sm text-app-muted">{event.note || `Application moved to ${event.stage}.`}</p>
               </article>
-            )) : <EmptyState title="No application activity yet" description="Status and SOP events will appear here once applications enter the review pipeline." />}
+            )) : <EmptyState title="No application activity yet" description="Status and SOP events appear here as cases move." />}
           </div>
         </Card>
       </section>

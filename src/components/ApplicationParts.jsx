@@ -22,21 +22,48 @@ import { fmtDate } from '../lib/formatters';
 // application differently.
 
 // Standard Procedure stage track, shown on each Admissions Office queue entry and
-// in the staff review modal header.
+// in the staff review modal header. Nine labelled pills wrapped into three lines
+// on a phone and crowded the review header, so below the `sm` breakpoint the track
+// becomes a segmented progress bar under a caption naming the position; the status
+// badge beside the applicant already names the current stage. The stage names stay
+// in the markup for assistive tech, so the list reads the same at every width.
 export function SopStageTrack({ status }) {
   const currentIndex = sopStageIndex(status);
   if (currentIndex == null) {
     return <StatusBadge tone="neutral">Draft — not yet in the SOP pipeline</StatusBadge>;
   }
   return (
-    <ol className="flex flex-wrap gap-1" aria-label="Standard Procedure stage track">
-      {sopStages.map((stage, index) => (
-        <li
-          key={stage}
-          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${index < currentIndex ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-300' : index === currentIndex ? 'border-blue-500/60 bg-blue-500/10 text-app-text dark:border-sky-300/60 dark:bg-sky-400/20' : 'border-app-border bg-app-surface text-app-muted'}`}
-        >{getApplicationStatusLabel(stage)}</li>
-      ))}
-    </ol>
+    <div className="grid gap-1">
+      {/* The status badge beside the applicant already names the current stage, so
+          the caption only carries the position. */}
+      <span className="text-[11px] font-semibold text-app-muted sm:hidden">
+        Standard Procedure stage {currentIndex + 1} of {sopStages.length}
+      </span>
+      <ol className="flex min-w-0 gap-1 sm:flex-wrap" aria-label="Standard Procedure stage track">
+        {sopStages.map((stage, index) => {
+          const isDone = index < currentIndex;
+          const isCurrent = index === currentIndex;
+          // The phone bar is filled, so it uses a solid tone; the labelled pill
+          // colours are scoped to `sm` so the two treatments never fight over the
+          // same utility.
+          const fill = isDone ? 'bg-emerald-400/50' : isCurrent ? 'bg-sky-400/75' : 'bg-app-border';
+          const pill = isDone
+            ? 'sm:border-emerald-400/30 sm:bg-emerald-400/10 sm:text-emerald-300'
+            : isCurrent
+              ? 'sm:border-ateneo-strong/50 sm:bg-ateneo/15 sm:text-ateneo-strong sm:dark:border-blue-400/50 sm:dark:bg-blue-500/15 sm:dark:text-sky-200'
+              : 'sm:border-app-border sm:bg-app-surface sm:text-app-muted';
+          return (
+            <li
+              key={stage}
+              aria-current={isCurrent ? 'step' : undefined}
+              className={`h-1.5 min-w-0 flex-1 rounded-full border border-transparent ${fill} ${pill} sm:h-auto sm:flex-none sm:px-2 sm:py-0.5 sm:text-[10px] sm:font-semibold`}
+            >
+              <span className="sr-only sm:not-sr-only">{getApplicationStatusLabel(stage)}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -198,7 +225,7 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
             <span className="whitespace-pre-line">{doc.rejectionReason}</span>
           </p>
         ) : null}
-        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to the Admissions Office for verification.</p>
+        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to verification.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid content-start gap-1 text-xs font-semibold text-app-muted">
@@ -304,8 +331,8 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
       {isPhotoDocumentType(doc.documentType) ? (
         <p className="m-0 rounded-xl border border-sky-400/30 bg-sky-500/5 px-3 py-2 text-xs text-app-muted">
           {doc.documentType === 'Photos of Residence'
-            ? 'Check that the photos show the residence clearly, inside and out, with no people in the frame and no signs of editing.'
-            : "Check that the photo is recent, sharp, and unobstructed, with a plain background and the applicant's whole face visible."}
+            ? 'Check that the residence is clear, inside and out, with no people.'
+            : 'Check that the photo is recent, sharp, and unobstructed.'}
         </p>
       ) : null}
       {proofs.length ? (
@@ -482,7 +509,7 @@ export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto
           </div>
         </details>
       ))}
-      {legacy ? <p className="m-0 pt-2 text-xs text-app-muted">Submitted before eligibility answers, background, address, and family details were recorded with applications.</p> : null}
+      {legacy ? <p className="m-0 pt-2 text-xs text-app-muted">Submitted before the extended profile details were recorded.</p> : null}
       {snapshot.capturedAt ? <p className="m-0 pt-2 text-xs text-app-muted">Self-reported values as of {fmtDate(snapshot.capturedAt)}.</p> : null}
     </div>
   );

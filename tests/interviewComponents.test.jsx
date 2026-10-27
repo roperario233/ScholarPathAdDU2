@@ -53,7 +53,6 @@ const workspace = (overrides = {}) => ({
   onSchedule: () => ({ ok: true }),
   onReschedule: () => ({ ok: true }),
   onCancel: () => ({ ok: true }),
-  onRecordOutcome: () => ({ ok: true }),
   onAddNote: () => ({ ok: true }),
   ...overrides,
 });
@@ -69,6 +68,39 @@ const render = (props) => renderToStaticMarkup(
 );
 
 const buttonLabels = (html) => [...html.matchAll(/>([^<>]+)<\/button>/g)].map((match) => match[1].trim());
+// The full opening tag and inner markup of the button with this label, so a test
+// can assert its attributes and icon without matching a neighbour's.
+const buttonMarkup = (html, label) => (html.match(
+  new RegExp(`<button[^>]*>(?:(?!</button>)[\\s\\S])*${label}</button>`),
+) || [''])[0];
+
+describe('ApplicationReviewModal default tab', () => {
+  const selectedTab = (html) => (html.match(/id="review-tab-([a-z]+)"[^>]*aria-selected="true"/) || [])[1];
+
+  it('opens on the tab for the stage the application is in', () => {
+    expect(selectedTab(render({ application: application({ status: 'For Verification' }), role: 'admissions_office' })))
+      .toBe('documents');
+    expect(selectedTab(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_office' })))
+      .toBe('endorsement');
+    expect(selectedTab(render({ application: application({ status: 'Endorsed' }), role: 'admissions_office', interviewWorkspace: workspace() })))
+      .toBe('interview');
+    expect(selectedTab(render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'admissions_office',
+      interviewWorkspace: workspace(),
+    }))).toBe('interview');
+    expect(selectedTab(render({ application: application({ status: 'Submitted' }), role: 'admissions_office' })))
+      .toBe('overview');
+  });
+
+  it('keeps an explicitly requested tab over the stage default', () => {
+    expect(selectedTab(render({
+      application: application({ status: 'For Endorsement' }),
+      role: 'admissions_office',
+      initialTab: 'overview',
+    }))).toBe('overview');
+  });
+});
 
 describe('ApplicationReviewModal Interview tab', () => {
   it('opens the schedule form for the Admissions Office at Endorsed, with the panel limited to the applicant’s school', () => {
@@ -107,7 +139,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       interviewWorkspace: workspace({ viewerId: 'chair-sea' }),
     });
     expect(html).toContain('id="review-tab-interview"');
-    expect(html).toContain('has not scheduled the interview yet');
+    expect(html).toContain('Not scheduled yet.');
     expect(html).not.toContain('Schedule the interview');
     expect(buttonLabels(html)).not.toContain('Schedule interview');
   });
@@ -118,7 +150,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(render({ application: application(), role: 'admissions_office' })).not.toContain('id="review-tab-interview"');
   });
 
-  it('lets a Chair on the panel record attendance and notes', () => {
+  it('lets a Chair on the panel read the schedule and add notes without attendance controls', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'department_chair',
@@ -128,8 +160,12 @@ describe('ApplicationReviewModal Interview tab', () => {
         panelists: [{ id: 'p-1', applicationId: 'app-1', profileId: 'chair-sea', name: 'Ana Reyes', isLead: true, removedAt: null }],
       }),
     });
-    expect(html).toContain('Outcome due');
-    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Mark attended', 'Mark did not attend', 'Add note']));
+    expect(html).toContain('Interview Room A');
+    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add note']));
+    expect(buttonLabels(html)).not.toContain('Mark attended');
+    expect(buttonLabels(html)).not.toContain('Mark did not attend');
+    expect(html).not.toContain('Outcome due');
+    // Scheduling stays with the Admissions Office.
     expect(buttonLabels(html)).not.toContain('Reschedule');
   });
 
@@ -148,22 +184,42 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(buttonLabels(html)).not.toContain('Add note');
   });
 
-  it('blocks the recommendation until the panel records attendance', () => {
+  it('offers the recommendation as a normal stage action', () => {
+    // Attendance is not tracked, so the recommendation carries no warning icon
+    // and no waiver dialog: App.jsx closes a live schedule as part of the move.
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'admissions_office',
       interviewWorkspace: workspace(),
     });
-    expect(html).toContain('must record the applicant as attended before the sub-committee recommendation');
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*title="The interview panel must record the applicant as attended first"[^>]*>Recommend for approval<\/button>/);
-
-    const attended = render({
-      application: application({ status: 'Interview', interview: { ...pastInterview, state: 'completed' } }),
+    expect(html).not.toContain('The panel must record the applicant as attended first.');
+    expect(html).not.toContain('Outcome due');
+    const pending = buttonMarkup(html, 'Recommend for approval');
+    expect(pending).not.toContain('disabled=""');
+    expect(pending).not.toContain('title="No interview outcome recorded');
+    expect(pending).not.toContain('<svg');
+  });
+  it('still offers the calendar repair after the recommendation waived the interview', () => {
+    // The waiver cancels the schedule while the application is at Interview. If
+    // Google kept the event, the repair action must remain reachable even though
+    // scheduling itself is no longer offered at Recommended.
+    const html = render({
+      application: application({
+        status: 'Recommended',
+        interview: {
+          ...pastInterview,
+          state: 'cancelled',
+          revision: 2,
+          calendar: { provider: 'google', eventId: 'evt-1', htmlLink: '', removedAt: null },
+        },
+      }),
       role: 'admissions_office',
-      interviewWorkspace: workspace(),
+      initialTab: 'interview',
+      interviewWorkspace: workspace({ calendarConfigured: true, onRepairCalendar: () => ({ ok: true }) }),
     });
-    expect(attended).not.toContain('must record the applicant as attended before');
-    expect(attended).toMatch(/<button(?![^>]*disabled="")[^>]*>Recommend for approval<\/button>/);
+    expect(html).toContain('Cancelled');
+    expect(buttonLabels(html)).toContain('Repair calendar event');
+    expect(buttonLabels(html)).not.toContain('Schedule again');
   });
 });
 

@@ -7,6 +7,7 @@ import {
   getRecentApplicationActivity,
   getReleaseQueue,
   getReviewQueue,
+  getReviewStageTab,
 } from '../src/lib/admissionsOffice';
 
 const application = (overrides = {}) => ({
@@ -236,6 +237,22 @@ describe('buildAcceptedApplicantsReport', () => {
     expect(lines[0]).toBe('SCHOLARPATH ADDU — ACCEPTED APPLICANTS FOR THE ADMISSIONS OFFICE');
     expect(lines).toContain('Ada Cruz · Grant-in-Aid (GIA) · Released · Reference OAA-1234ABCD');
     expect(lines).toContain('Ada Cruz · Grant-in-Aid (GIA) · Approved · Reference Pending release');
+  });
+});
+
+// The review modal opens on the stage the application is in, so a reviewer never
+// has to hunt for the tab that stage needs.
+describe('getReviewStageTab', () => {
+  it('maps each stage to the tab that stage works in', () => {
+    expect(getReviewStageTab('For Verification')).toBe('documents');
+    expect(getReviewStageTab('For Endorsement')).toBe('endorsement');
+    expect(getReviewStageTab('Endorsed')).toBe('interview');
+    expect(getReviewStageTab('Interview')).toBe('interview');
+  });
+
+  it('opens on Overview when the stage has no tab of its own', () => {
+    ['Submitted', 'Under Review', 'Recommended', 'Approved', 'Released', 'Rejected', undefined]
+      .forEach((status) => expect(getReviewStageTab(status)).toBe('overview'));
   });
 });
 

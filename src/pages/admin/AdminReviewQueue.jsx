@@ -86,8 +86,8 @@ export default function AdminReviewQueue({
       <AdminPageHeader
         title="Application review queue"
         description={isHead
-          ? 'Run every Standard Procedure stage: start reviews, verify documents, hand off to the Department Chair, schedule interviews, and record recommendations. Approval and release are also available in the recommendation and release workspace.'
-          : 'Opening an application starts its review. Continue it to verification to review its attached documents, then schedule the interview with a panel from the applicant’s school after endorsement.'}
+          ? 'Run every stage, plus approval and release.'
+          : 'Prepare cases, verify documents, and schedule interviews.'}
         badge={`${reviewApplications.length} awaiting action`}
         badgeTone={reviewApplications.length ? 'warning' : 'success'}
       />
@@ -145,9 +145,11 @@ export default function AdminReviewQueue({
                     ) : entry.status === 'For Verification' ? (
                       <Button type="button" onClick={() => openReview(entry.id, 'documents')}>Review documents</Button>
                     ) : entry.status === 'For Endorsement' ? (
-                      <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>Open endorsement</Button>
+                      <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>
+                        {isHead ? 'Decide endorsement' : 'Open endorsement'}
+                      </Button>
                     ) : (
-                      <Button type="button" onClick={() => openReview(entry.id, documentsUnlocked ? 'documents' : null)}>Open review</Button>
+                      <Button type="button" onClick={() => openReview(entry.id)}>Open review</Button>
                     )}
                     {documentsUnlocked && outstanding ? (
                       <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge>

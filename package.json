@@ -8,7 +8,8 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "google:auth": "node scripts/google-calendar-auth.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

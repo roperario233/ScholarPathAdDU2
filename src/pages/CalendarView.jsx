@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, CalendarPlus, PartyPopper, X } from 'lucide-react';
+import { CalendarPlus, PartyPopper, X } from 'lucide-react';
 import { fmtDate } from '../lib/formatters';
+import { aggregateCalendarMarks, toCalendarDateKey } from '../lib/calendarMarks';
+import MonthCalendar from '../components/MonthCalendar';
 import { formatInterviewWhen, getInterviewDateKey, getInterviewEndsAt, isStructuredInterview } from '../lib/interview';
 
 const daysLeftLabel = (value) => {
@@ -41,13 +43,6 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
       setFormError('');
     }
   }, [showAddForm, todayInputValue]);
-
-  const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-  const getFirstDayOfMonth = (year, month) => new Date(year, month, 1).getDay();
-
-  const daysInMonth = getDaysInMonth(displayYear, displayMonth);
-  const firstDay = getFirstDayOfMonth(displayYear, displayMonth);
-  const monthName = new Date(displayYear, displayMonth).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   const handlePrevMonth = () => {
     if (displayMonth === 0) {
@@ -132,9 +127,29 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
 
   const selectedDateScholarships = selectedDate ? getScholarshipsForDate(selectedDate) : [];
 
-  const days = [];
-  for (let i = 0; i < firstDay; i++) days.push(null);
-  for (let i = 1; i <= daysInMonth; i++) days.push(i);
+  // The month grid only needs one mark per kind per day. The agenda below keeps
+  // reading the per-item lists, so the calendar's appearance is unchanged.
+  const rawMarks = {};
+  const addMark = (key, kind) => {
+    if (!key) return;
+    rawMarks[key] = [...(rawMarks[key] || []), { kind, count: 1 }];
+  };
+  scholarships.forEach((entry) => {
+    const date = new Date(entry.deadline);
+    if (!Number.isNaN(date.getTime())) {
+      addMark(toCalendarDateKey(date.getFullYear(), date.getMonth(), date.getDate()), 'deadline');
+    }
+  });
+  customDeadlines.forEach((entry) => {
+    const date = new Date(entry.deadline);
+    if (!Number.isNaN(date.getTime())) {
+      addMark(toCalendarDateKey(date.getFullYear(), date.getMonth(), date.getDate()), 'custom');
+    }
+  });
+  scheduledInterviews.forEach((entry) => addMark(entry.dateKey, 'interview'));
+  const marksByDate = Object.fromEntries(
+    Object.entries(rawMarks).map(([key, marks]) => [key, aggregateCalendarMarks(marks)]),
+  );
 
   return (
     <div className="grid gap-4">
@@ -169,40 +184,16 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
           </div>
         )}
         <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">
-          <div className="calendar-grid">
-            <div className="calendar-nav">
-              <button type="button" className="grid h-10 w-10 place-items-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={handlePrevMonth} aria-label="Previous month"><ArrowLeft size={18} /></button>
-              <h3 className="m-0 text-center text-lg font-semibold text-app-text">{monthName}</h3>
-              <button type="button" className="grid h-10 w-10 place-items-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={handleNextMonth} aria-label="Next month"><ArrowRight size={18} /></button>
-            </div>
-            <div className="calendar-weekdays">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-                <div key={day} className="calendar-day-label">{day}</div>
-              ))}
-            </div>
-            <div className="calendar-days">
-              {days.map((day, idx) => {
-                const dayScholarships = getScholarshipsForDate(day);
-                const dayCustomDeadlines = getCustomDeadlinesForDate(day);
-                const dayInterviews = getInterviewsForDate(day);
-                const hasDeadlines = dayScholarships.length > 0 || dayCustomDeadlines.length > 0 || dayInterviews.length > 0;
-                const isSelected = selectedDate === day;
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    className={`calendar-cell ${day ? 'active' : 'empty'} ${dayScholarships.length > 0 || dayInterviews.length > 0 ? 'has-deadline' : ''} ${dayCustomDeadlines.length > 0 ? 'has-custom-deadline' : ''} ${isSelected ? 'selected' : ''}`}
-                    onClick={() => day && setSelectedDate(isSelected ? null : day)}
-                    disabled={!day}
-                    aria-label={day ? `${day}${hasDeadlines ? ` - ${dayScholarships.length} scholarship${dayScholarships.length !== 1 ? 's' : ''} and ${dayCustomDeadlines.length} custom deadline${dayCustomDeadlines.length !== 1 ? 's' : ''}${dayInterviews.length ? `, ${dayInterviews.length} interview${dayInterviews.length !== 1 ? 's' : ''}` : ''}` : ''}` : undefined}
-                  >
-                    {day}
-                    {hasDeadlines && <span className="deadline-dot" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <MonthCalendar
+            month={displayMonth}
+            year={displayYear}
+            onPrevMonth={handlePrevMonth}
+            onNextMonth={handleNextMonth}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            marksByDate={marksByDate}
+            ariaLabel="Scholarship deadline calendar"
+          />
 
           <div className="grid content-start gap-4 rounded-[18px] border border-app-border bg-app-surface p-4">
             <div className="upcoming-deadlines-header">
@@ -290,7 +281,7 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
               <div>
                 <span className="eyebrow">Custom reminder</span>
                 <h3 id="deadline-modal-title">Add your own deadline</h3>
-                <p>Use this for document preparation, essay drafting, and other tasks that need a reminder before a deadline.</p>
+                <p>Use this for document prep, essays, or other tasks.</p>
               </div>
               <button type="button" className="deadline-modal-close" onClick={() => setShowAddForm(false)} aria-label="Close reminder modal">
                 <X size={18} />
@@ -318,7 +309,7 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
                   required
                 />
               </label>
-              <p className="deadline-form-note">Choose today or a future date. In-app reminders can be sent 7, 3, and 1 day before the deadline.</p>
+              <p className="deadline-form-note">Choose today or a future date. Reminders can arrive 7, 3, and 1 day before.</p>
               {formError && <p className="deadline-form-error">{formError}</p>}
               <div className="flex flex-wrap items-center gap-3">
                 <button type="button" className="inline-flex min-h-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => { setShowAddForm(false); setFormError(''); }}>Cancel</button>

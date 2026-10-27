@@ -23,37 +23,37 @@ export const PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 export const PHOTO_CAPTURE_SIZE = { portrait: 1024, scene: 1600 };
 
 const PORTRAIT_POINTS = [
-  'Use a recent photo (taken within the last six months) that clearly shows your face.',
-  'Face the camera directly with a neutral expression, eyes open, and mouth closed.',
-  'Keep your whole face visible - no cap, mask, sunglasses, or hair over your eyes.',
-  'Use a plain, well-lit background; face a window or light so there are no shadows or glare.',
-  'Center your head and shoulders in the frame, leaving a little space above your head.',
-  'Wear clean, presentable clothing, as you would for an interview.',
-  'Do not use filters, beauty mode, or editing, and do not send a screenshot or a scan of a printed photo.',
-  'Make sure only you are in the frame and that the photo is sharp, not blurry.',
-  'Keep a square crop and a plain background; the preview is mirrored, the saved photo is not.',
+  'Use a recent photo that clearly shows your face.',
+  'Face the camera directly with eyes open and mouth closed.',
+  'No cap, mask, sunglasses, or hair over your eyes.',
+  'Use a plain, well-lit background with no shadows or glare.',
+  'Center your head and shoulders, with space above your head.',
+  'Wear clean, presentable clothing.',
+  'No filters, beauty mode, editing, screenshots, or scans of printed photos.',
+  'Only you in the frame, sharp and not blurry.',
+  'Keep a square crop and a plain background.',
 ];
 
 const RESIDENCE_POINTS = [
-  'Take the photo in daylight or with the lights on; avoid glare and deep shadows.',
-  'Show the whole front of the house, including the door and any house number or street sign.',
-  "Add one or two interior photos: the living area, the kitchen, and the student's study or sleeping area.",
-  'Keep the photos sharp and straight; no filters, screenshots, or photos of a screen.',
-  'Do not include people in the frame.',
-  'Keep the home tidy and presentable, and do not stage or edit the photo.',
+  'Take the photo in daylight or with the lights on.',
+  'Show the whole front of the house, including the door and house number.',
+  'Add one or two interior photos: living area, kitchen, and study or sleeping area.',
+  'Keep the photos sharp and straight; no filters or screenshots.',
+  'No people in the frame.',
+  'Keep the home tidy; do not stage or edit the photo.',
   'Attach 2-3 photos when the scholarship asks for more than one.',
 ];
 
 export const PHOTO_GUIDES = {
   'Applicant Photo': {
     title: 'How to take a 2x2 ID photo that will pass review',
-    summary: 'The Admissions Office verifies this photo. A photo that does not follow these rules can be rejected and will need to be replaced.',
+    summary: 'A photo that does not follow these rules can be rejected.',
     points: PORTRAIT_POINTS,
     mode: 'portrait',
   },
   'Photos of Residence': {
     title: 'How to photograph your residence',
-    summary: 'The Admissions Office verifies these photos as part of your financial-aid case. You can attach more than one photo to this requirement.',
+    summary: 'Attach one or more photos of where you live.',
     points: RESIDENCE_POINTS,
     mode: 'scene',
   },

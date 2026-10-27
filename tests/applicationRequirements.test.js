@@ -9,6 +9,7 @@ import {
   describeStatusActor,
   describeDocumentDecision,
   getApplicationReadiness,
+  getApplicationLiveAttributeVerifications,
   getCatalogRequirements,
   getDocumentChecklist,
   getDocumentProofReview,
@@ -763,5 +764,47 @@ describe('profile answers behind the requirements', () => {
     const review = getDocumentProofReview(gradeReport, application);
     expect(review.map((entry) => [entry.key, entry.source, entry.staleReason])).toEqual([['qpi', 'snapshot', 'value'], ['academicStanding', 'snapshot', null]]);
     expect(review[0]).toMatchObject({ attested: 3.2, declared: 3.4 });
+  });
+});
+
+describe('live application badges on the reviewer overview', () => {
+  const submittedProfile = { ...continuingProfile, qpi: 3.3, householdIncome: 12312 };
+  const submittedAt = '2026-10-21T04:55:31.000Z';
+  const submittedApplication = (applicationDocuments) => ({
+    status: 'Interview',
+    certifiedAt: submittedAt,
+    attachedDocuments: applicationDocuments.map((entry) => entry.id),
+    profileSnapshot: buildProfileSnapshot(submittedProfile, {}, submittedAt),
+  });
+
+  it('reports a file verified after submission instead of the badge frozen before the decision', () => {
+    const gradeReport = { ...doc('grade-report', 'Grade Report', 'Verified', '2026-10-21T04:54:12.000Z'), linkedAttributes: ['qpi', 'academicStanding'] };
+    const application = submittedApplication([gradeReport]);
+    // The frozen snapshot is the record of what the student saw at submission.
+    expect(application.profileSnapshot.academic.verification).toBe('Unverified');
+    expect(getApplicationLiveAttributeVerifications(application, [gradeReport]))
+      .toMatchObject({ qpi: 'Verified', academicStanding: 'Verified' });
+  });
+
+  it('reads the attached file status now and ignores vault files the case does not attach', () => {
+    const attached = { ...doc('attached', 'Income Proof', 'Rejected', '2026-10-21T04:54:19.000Z'), linkedAttributes: ['householdIncome'] };
+    const vaultOnly = { ...doc('vault-only', 'Grade Report', 'Verified', '2026-10-21T04:54:12.000Z'), linkedAttributes: ['qpi'] };
+    expect(getApplicationLiveAttributeVerifications(submittedApplication([attached]), [attached, vaultOnly]))
+      .toMatchObject({ householdIncome: 'Rejected', qpi: 'Unverified' });
+  });
+
+  it('still counts a file whose links were not recorded at upload', () => {
+    const gradeReport = doc('legacy-report', 'Grade Report', 'Verified', '2026-10-21T04:54:12.000Z');
+    expect(getApplicationLiveAttributeVerifications(submittedApplication([gradeReport]), [gradeReport]).qpi).toBe('Verified');
+  });
+
+  it('judges an annual proof at submission time, so a later academic year never reads Outdated', () => {
+    const transcript = {
+      ...doc('transcript', 'Transcript', 'Verified', '2026-10-21T04:54:12.000Z'),
+      linkedAttributes: ['qpi', 'academicStanding'],
+      attestedValues: { qpi: 3.3 },
+    };
+    expect(getApplicationLiveAttributeVerifications(submittedApplication([transcript]), [transcript], { today: new Date('2027-07-01T00:00:00.000Z') }))
+      .toMatchObject({ qpi: 'Verified', academicStanding: 'Verified' });
   });
 });
