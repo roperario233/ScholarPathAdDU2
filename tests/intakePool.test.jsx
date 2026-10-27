@@ -146,8 +146,8 @@ describe('ApplicationReviewModal case officers', () => {
 
     expect(html).toContain('Case officers');
     expect(html).toContain('You');
+    expect(html).toContain('Admissions Office Staff · joined');
     expect(html).toContain('Leave case');
-    expect(html).toContain('the applicant is never told who holds it');
   });
 
   it('reports a case that only another officer opened', () => {

@@ -180,14 +180,15 @@ them from `supabase/migrations/20261026000001_add_applicant_photo_requirement.sq
 The Admissions Office is one office with two accountability lanes. **Admissions
 Office Staff** (`admissions_office`) prepare a case and **Admissions Office Head**
 (`admissions_head`) has full office authority: the Head can run every Staff stage
-and also decides approval and release. Both lanes share the overview and the
-review queue; only the Head sees the approval/release, catalog, and announcement
-pages.
+and also decides endorsement, approval, and release. Both lanes share the overview
+and the review queue; only the Head sees the endorsement, approval/release,
+catalog, and announcement pages.
 
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
 | `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-endorsement` | Endorsement | Head | SOP step 4: the cases the Staff handed over that await the endorsement decision, with the hand-off record, document readiness, waiting age against the 5-day target, the case officers who prepared the case, and the recorded-decisions history; each row opens the shared review surface on its Endorsement tab |
 | `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
 | `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Head's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Head's venue manager and planning-entry form live here |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |

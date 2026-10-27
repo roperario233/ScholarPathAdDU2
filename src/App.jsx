@@ -29,6 +29,7 @@ import DocumentVaultViewPage from './pages/DocumentVaultView';
 import AdminOverviewPage from './pages/admin/AdminOverview';
 import AdminIntakePoolPage from './pages/admin/AdminIntakePool';
 import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
+import AdminEndorsementPage from './pages/admin/AdminEndorsement';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
@@ -2547,6 +2548,7 @@ function App() {
       { view: 'admin', label: 'Dashboard', visible: true },
       { view: 'admin-intake', label: 'Intake pool', visible: true },
       { view: 'admin-review', label: 'Review queue', visible: true },
+      { view: 'admin-endorsement', label: 'Endorsement', visible: isAdmissionsHead },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
       { view: 'admin-release', label: 'Recommendation and release', visible: isAdmissionsHead },
@@ -2890,6 +2892,30 @@ function App() {
               onChangeDocument={changeDocumentStatus}
               reviewComments={state.reviewComments || []}
               onAddComment={addReviewComment}
+            />
+          )}
+
+          {isAdmissionsHead && state.activeView === 'admin-endorsement' && (
+            <AdminEndorsementPage
+              applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
+              currentUserId={currentProfile.id}
+              onOpenWorkspace={(view) => navigate(view)}
+              onChangeApplication={changeApplicationStatus}
+              onEndorseApplication={endorseApplication}
+              interviewWorkspace={interviewWorkspace}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
             />
           )}
 

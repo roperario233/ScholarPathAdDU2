@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   getApplicationComments,
+  getEndorsedApplications,
   getEndorsementAgeDays,
   getEndorsementDecisionEvent,
   getEndorsementHandoff,
+  getEndorsementQueue,
   isEndorsementOverdue,
 } from '../src/lib/endorsement';
 
@@ -111,5 +113,82 @@ describe('getApplicationComments', () => {
 
   it('tolerates a missing collection', () => {
     expect(getApplicationComments(undefined, 'app-1')).toEqual([]);
+  });
+});
+
+describe('endorsement queues', () => {
+  const handoffLog = (at) => [
+    {
+      id: `log-verification-${at}`,
+      toStatus: 'For Verification',
+      actorRole: 'admissions_office',
+      actorName: 'Ben Reyes',
+      reason: 'Continued to document verification.',
+      at: '2026-09-30T00:00:00.000Z',
+    },
+    {
+      id: `log-handoff-${at}`,
+      toStatus: 'For Endorsement',
+      actorRole: 'admissions_office',
+      actorName: 'Ben Reyes',
+      reason: 'Sent for endorsement.',
+      at,
+    },
+  ];
+
+  it('lists only the cases awaiting the Head decision, oldest hand-off first', () => {
+    const queue = getEndorsementQueue([
+      application({ id: 'later', statusLog: handoffLog('2026-10-05T00:00:00.000Z') }),
+      application({ id: 'earlier', statusLog: handoffLog('2026-10-01T00:00:00.000Z') }),
+      application({ id: 'verification', status: 'For Verification', statusLog: [] }),
+      application({ id: 'endorsed', status: 'Endorsed', statusLog: statusLogFor('Endorsed') }),
+      application({ id: 'rejected', status: 'Rejected', statusLog: [] }),
+    ]);
+
+    expect(queue.map((entry) => entry.id)).toEqual(['earlier', 'later']);
+  });
+
+  // A case recorded before the append-only status log existed still has to appear,
+  // ordered by the only date it carries.
+  it('falls back to the update time when no hand-off is recorded', () => {
+    const queue = getEndorsementQueue([
+      application({ id: 'logged', statusLog: handoffLog('2026-10-04T00:00:00.000Z') }),
+      application({ id: 'legacy', statusLog: [], updatedAt: '2026-10-01T00:00:00.000Z' }),
+    ]);
+
+    expect(queue.map((entry) => entry.id)).toEqual(['legacy', 'logged']);
+  });
+
+  it('lists decided endorsements newest decision first', () => {
+    const decided = (id, at) => application({
+      id,
+      status: 'Endorsed',
+      statusLog: [
+        ...handoffLog('2026-10-01T00:00:00.000Z'),
+        {
+          id: `log-endorsed-${id}`,
+          toStatus: 'Endorsed',
+          actorRole: 'admissions_head',
+          actorName: 'Mia Santos',
+          reason: 'Endorsed after central review.',
+          at,
+        },
+      ],
+    });
+
+    const list = getEndorsedApplications([
+      decided('older', '2026-10-03T00:00:00.000Z'),
+      decided('newer', '2026-10-06T00:00:00.000Z'),
+      application({ id: 'awaiting' }),
+    ]);
+
+    expect(list.map((entry) => entry.id)).toEqual(['newer', 'older']);
+  });
+
+  it('tolerates a missing collection', () => {
+    expect(getEndorsementQueue(undefined)).toEqual([]);
+    expect(getEndorsementQueue(null)).toEqual([]);
+    expect(getEndorsedApplications(undefined)).toEqual([]);
+    expect(getEndorsedApplications(null)).toEqual([]);
   });
 });

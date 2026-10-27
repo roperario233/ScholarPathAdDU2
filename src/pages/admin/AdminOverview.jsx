@@ -3,6 +3,7 @@ import AdminPageHeader from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { getApprovalQueue, getDocumentsAwaitingReview, getIntakePool, getMyReviewQueue, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
+import { getEndorsementQueue } from '../../lib/endorsement';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
@@ -23,6 +24,13 @@ const workspaces = [
     label: 'Review queue',
     description: 'The cases you opened: reviews, document checks, and interview scheduling.',
     action: 'Open review queue',
+  },
+  {
+    view: 'admin-endorsement',
+    label: 'Endorsement',
+    description: 'Record the office decision on the cases the Staff sent for endorsement.',
+    action: 'Open endorsement queue',
+    headOnly: true,
   },
   {
     view: 'admin-interviews',
@@ -76,7 +84,7 @@ export default function AdminOverview({ applications = [], documents = [], caseO
   const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
   // SOP step 4 cases the Head must endorse. Staff hand them off; the Head decides.
   const endorsementApplications = useMemo(
-    () => applications.filter((entry) => entry.status === 'For Endorsement'),
+    () => getEndorsementQueue(applications),
     [applications],
   );
   const blockingDocuments = useMemo(

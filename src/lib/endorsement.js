@@ -84,3 +84,40 @@ export const getApplicationComments = (reviewComments = [], applicationId) => (
     .filter((comment) => comment.applicationId === applicationId)
     .sort((left, right) => new Date(left.createdAt || 0) - new Date(right.createdAt || 0))
 );
+
+// --- The Head's SOP step-4 queue ---------------------------------------------
+// A hand-off is the only way into the endorsement stage, so the queue is ordered
+// by that event (oldest first) rather than by the status-change time. An
+// application that predates the append-only status log falls back to its
+// updatedAt, exactly as getEndorsementAgeDays() does.
+const eventTime = (value) => {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+};
+
+const handoffTime = (application) => eventTime(
+  getEndorsementHandoff(application)?.at || application?.updatedAt,
+);
+
+const decisionTime = (application) => eventTime(
+  getEndorsementDecisionEvent(application)?.at
+  || application?.endorsement?.decidedAt
+  || application?.updatedAt,
+);
+
+const byId = (left, right) => String(left?.id || '').localeCompare(String(right?.id || ''));
+
+// The cases the Admissions Office Staff handed over that still await the Head's
+// decision, first come first served, with a stable tie-break so the list never
+// reshuffles between renders.
+export const getEndorsementQueue = (applications = []) => asList(applications)
+  .filter((entry) => entry?.status === 'For Endorsement')
+  .sort((left, right) => (handoffTime(left) - handoffTime(right)) || byId(left, right));
+
+// The endorsement trail: cases the Head already decided (SOP step 4 complete),
+// newest decision first. The recorded note and reviewer live on
+// applications.endorsement, which the Endorsement tab renders read-only.
+export const getEndorsedApplications = (applications = []) => asList(applications)
+  .filter((entry) => entry?.status === 'Endorsed')
+  .sort((left, right) => (decisionTime(right) - decisionTime(left)) || byId(left, right));
