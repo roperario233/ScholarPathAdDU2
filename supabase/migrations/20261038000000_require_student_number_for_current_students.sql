@@ -11,8 +11,9 @@
 -- `v_transferee` is already constrained to 'Yes' / 'No' by the Applicant status
 -- check above, so `v_transferee = 'No'` is exactly the current-student case.
 --
--- CREATE OR REPLACE keeps the EXECUTE revokes from 20261036000001, so the
--- function stays unreachable over the API.
+-- CREATE OR REPLACE preserves the function's existing EXECUTE grants; it adds none.
+-- The gate function is not revoked from the API roles, so this migration does not
+-- make it unreachable over /rest/v1/rpc.
 -- ---------------------------------------------------------------------------
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text

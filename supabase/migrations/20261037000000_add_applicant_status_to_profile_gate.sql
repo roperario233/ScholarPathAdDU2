@@ -10,8 +10,10 @@
 -- the student application trigger refuses a Draft started from a profile that has
 -- not answered it.
 --
--- CREATE OR REPLACE keeps the EXECUTE revokes from 20261036000001, so the
--- function stays unreachable over the API.
+-- CREATE OR REPLACE preserves the function's existing EXECUTE grants; it adds none.
+-- The gate function is not revoked from the API roles (20261036000001 restricts the
+-- financial helpers), so this migration does not make it unreachable over
+-- /rest/v1/rpc.
 -- ---------------------------------------------------------------------------
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text

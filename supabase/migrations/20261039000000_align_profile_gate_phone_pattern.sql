@@ -9,8 +9,9 @@
 -- number is then never normalized, and every student is refused at the
 -- mobile-number check. Both patterns match the same characters.
 --
--- CREATE OR REPLACE keeps the EXECUTE revokes from 20261036000001, so the
--- function stays unreachable over the API.
+-- CREATE OR REPLACE preserves the function's existing EXECUTE grants; it adds none.
+-- The gate function is not revoked from the API roles, so this migration does not
+-- make it unreachable over /rest/v1/rpc.
 -- ---------------------------------------------------------------------------
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text
