@@ -864,8 +864,10 @@ $$;
 -- Status, and the current-student AdDU student number. Mirrors
 -- getProfileCompleteness() (group `application`) in src/lib/profile.js; the
 -- Applicant Status branch comes from
--- 20261037000000_add_applicant_status_to_profile_gate.sql and the student-number
--- branch from 20261038000000_require_student_number_for_current_students.sql.
+-- 20261037000000_add_applicant_status_to_profile_gate.sql, the student-number
+-- branch from 20261038000000_require_student_number_for_current_students.sql, and
+-- the backslash-free phone class from
+-- 20261039000000_align_profile_gate_phone_pattern.sql.
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text
 language plpgsql
@@ -919,7 +921,7 @@ begin
   if not public.parent_finances_answered(p_profile, 'father') then return 'Father''s employment and income'; end if;
   if not public.parent_finances_answered(p_profile, 'mother') then return 'Mother''s employment and income'; end if;
   -- A Philippine mobile number: 09XXXXXXXXX, +639XXXXXXXXX or 9XXXXXXXXX (formatting ignored).
-  if regexp_replace(coalesce(p_profile ->> 'phone', ''), '\D', '', 'g') !~ '^(63|0)?9[0-9]{9}$' then
+  if regexp_replace(coalesce(p_profile ->> 'phone', ''), '[^0-9]', '', 'g') !~ '^(63|0)?9[0-9]{9}$' then
     return 'Philippine mobile number';
   end if;
   return null;
@@ -2143,7 +2145,7 @@ for select using (auth.uid() = user_id);
 --
 -- The function deliberately runs with verify_jwt disabled: the platform-level
 -- JWT check rejects the service role key, and a shared secret is compared by
--- exact value inside the function instead. Never send the anon key here — it is
+-- exact value inside the function instead. Never send the anon key here  Eit is
 -- public, and this endpoint can email every student.
 -- ---------------------------------------------------------------------------
 -- create extension if not exists pg_cron;
@@ -2165,7 +2167,7 @@ for select using (auth.uid() = user_id);
 -- );
 
 -- ---------------------------------------------------------------------------
--- Database-triggered status notification (pg_net) — Chapter 3, Section 3.3.4.
+-- Database-triggered status notification (pg_net)  EChapter 3, Section 3.3.4.
 --
 -- Fires notify-application-status whenever applications.status changes, so the
 -- alert is sent even if the browser closes between the status write and its own
