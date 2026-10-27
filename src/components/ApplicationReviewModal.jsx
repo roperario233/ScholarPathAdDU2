@@ -639,9 +639,6 @@ export default function ApplicationReviewModal({
                     ))}
                   </ul>
                 ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
-                <p className="m-0 text-xs text-app-muted">
-                  Every officer who opens a case joins it, and the applicant is never told who holds it.
-                </p>
                 {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
               </Panel>
             ) : null}

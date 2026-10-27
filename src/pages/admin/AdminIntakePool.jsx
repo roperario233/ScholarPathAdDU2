@@ -173,7 +173,7 @@ export default function AdminIntakePool({
     <div className="grid gap-5">
       <AdminPageHeader
         title="Application intake pool"
-        description="The office's master list of open applications, oldest submission first. Pick up an unclaimed case to start its review; any officer who opens a case joins it."
+        description="Every open application in one list, oldest submission first. Pick up a case to start its review."
         badge={`${unclaimed.length} unclaimed`}
         badgeTone={unclaimed.length ? 'warning' : 'success'}
       />
