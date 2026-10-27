@@ -1,24 +1,35 @@
 import { DOCUMENT_REPLACEMENT_STATUSES, generalDocumentTypeOptions, getDocumentTypeLabel, sopStageIndex } from './constants';
 import { evaluateApplicationGate, getAcademicRequirement, getDeadlineStatus, isAdduInternalProgram } from './eligibility';
 import { fmtCurrency, fmtDate } from './formatters';
+import { getFinancialAnswersMissing } from './financialDetails';
 import {
   VERIFIABLE_ATTRIBUTE_KEYS,
   academicStandingOptions,
   civilStatusOptions,
+  composeFullName,
   deriveYearStanding,
   employmentOptions,
   familyPositionOptions,
+  grantLevelOptions,
+  grantStatusOptions,
+  grantTypeOptions,
+  housingTypeOptions,
+  sexAtBirthOptions,
+  siblingStatusOptions,
+  getApplicantStatusLabel,
   getApplicationProfileGate,
   getClaimedAttributes,
   getProvenAttributes,
+  getShsFinancialAid,
   getStandingRequirements,
   getVerifiableAttributeOption,
+  getYearStandingLabel,
   honorsRankOptions,
   ipCommunityOptions,
   isProofRequired,
+  isTransfereeProfile,
   pwdOptions,
   religionOptions,
-  yearStandingOptions,
 } from './profile';
 import {
   UNSET_ATTRIBUTE_STATUS,
@@ -49,7 +60,13 @@ export const REQUIREMENT_STANDINGS = [
   { value: 'continuing', label: 'Enrolled students only' },
 ];
 
-const APPLICATION_FORM = { id: 'application-form', label: 'Application Form', documentTypes: ['Application Form'], standing: 'all' };
+// The application itself is filled in the system (profile, financial situation,
+// statement). Two pages cannot be captured there and stay on paper: the Punong
+// Barangay certifies the residence photos and the applicant and parents sign the
+// affidavit of agreement. Both are printed from the application (Print
+// application form), signed, and uploaded. Mirrors 20261036000000.
+const BARANGAY_CERTIFICATION = { id: 'barangay-residence-certification', label: 'Barangay certification of residence (signed by the Punong Barangay)', documentTypes: ['Barangay Residence Certification'], standing: 'all' };
+const SIGNED_AFFIDAVIT = { id: 'signed-affidavit', label: 'Signed affidavit of agreement (applicant and parents)', documentTypes: ['Signed Affidavit of Agreement'], standing: 'all' };
 const APPLICANT_PHOTO = { id: 'applicant-photo', label: 'Recent 2x2 ID photo of the applicant', documentTypes: ['Applicant Photo'], standing: 'all' };
 const RESIDENCE_PHOTOS = { id: 'residence-photos', label: 'Photos of residence', documentTypes: ['Photos of Residence'], standing: 'all' };
 const GOOD_MORAL = { id: 'good-moral', label: 'Certificate of Good Moral Character', documentTypes: ['Good Moral Character'], standing: 'all' };
@@ -68,7 +85,6 @@ const CITIZENSHIP_PROOF = { id: 'citizenship-proof', label: 'Proof of Filipino c
 // 20261028000000_require_current_attribute_proofs.sql.
 export const DEFAULT_REQUIRED_DOCUMENTS = {
   'general-pool': [
-    APPLICATION_FORM,
     APPLICANT_PHOTO,
     CITIZENSHIP_PROOF,
     { id: 'entrance-exam', label: 'Entrance exam result with ACCEPTED remark', documentTypes: ['Entrance Exam Result'], standing: 'incoming' },
@@ -78,9 +94,10 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
     INCOME_PROOF,
     RESIDENCE_PHOTOS,
     GOOD_MORAL,
+    BARANGAY_CERTIFICATION,
+    SIGNED_AFFIDAVIT,
   ],
   honors: [
-    APPLICATION_FORM,
     APPLICANT_PHOTO,
     CITIZENSHIP_PROOF,
     { id: 'certificate-of-award', label: 'Certificate of Award as Rank 1 or 2', documentTypes: ['Certificate of Award'], standing: 'all' },
@@ -88,9 +105,10 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
     COLLEGE_GRADES,
     RESIDENCE_PHOTOS,
     GOOD_MORAL,
+    BARANGAY_CERTIFICATION,
+    SIGNED_AFFIDAVIT,
   ],
   'work-study': [
-    APPLICATION_FORM,
     APPLICANT_PHOTO,
     CITIZENSHIP_PROOF,
     INCOME_PROOF,
@@ -98,6 +116,8 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
     COLLEGE_GRADES,
     RESIDENCE_PHOTOS,
     GOOD_MORAL,
+    BARANGAY_CERTIFICATION,
+    SIGNED_AFFIDAVIT,
   ],
 };
 
@@ -257,17 +277,18 @@ export const REQUIREMENT_STATE_LABELS = {
   missing: { label: 'Not attached', tone: 'neutral' },
   attached: { label: 'Attached · Pending review', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
-  rejected: { label: 'Rejected · Replace file', tone: 'danger' },
+  rejected: { label: 'Reverted · Upload a replacement', tone: 'danger' },
   outdated: { label: 'Outdated · Upload a current proof', tone: 'danger' },
 };
 
 // The same states read against the whole Document Vault rather than one
-// application's attachments, for the My Profile document checklist.
+// application's attachments, for the My Profile document checklist. The stored
+// document decision is `Rejected`; the label says what the student has to do.
 export const VAULT_REQUIREMENT_STATE_LABELS = {
   missing: { label: 'Missing', tone: 'neutral' },
   attached: { label: 'Pending', tone: 'warning' },
   verified: { label: 'Verified', tone: 'success' },
-  rejected: { label: 'Rejected', tone: 'danger' },
+  rejected: { label: 'Reverted · Upload a replacement', tone: 'danger' },
   outdated: { label: 'Outdated', tone: 'danger' },
 };
 
@@ -458,7 +479,7 @@ const describeOutdatedRequirement = (requirement, { profile, now }) => {
 // profile must be complete. A submitted application is read against its frozen
 // snapshot (getProofContext), so the reviewers see the standing and values that
 // were declared.
-export const getApplicationReadiness = ({ application = {}, scholarship, documents = [], profile = {}, certified = false, today = new Date() } = {}) => {
+export const getApplicationReadiness = ({ application = {}, scholarship, documents = [], profile = {}, financialAnswers, certified = false, today = new Date() } = {}) => {
   const isInternal = Boolean(scholarship) && isAdduInternalProgram(scholarship);
   const attachedIds = new Set(application.attachedDocuments || []);
   const attachedDocuments = documents.filter((doc) => attachedIds.has(doc.id));
@@ -490,8 +511,14 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   const rejected = requirements.filter((item) => item.state === 'rejected');
   const outdated = requirements.filter((item) => item.state === 'outdated');
   if (missing.length) blockers.push(`Attach ${missing.length === 1 ? 'the required document' : `${missing.length} required documents`}: ${missing.map((item) => item.label).join('; ')}.`);
-  if (rejected.length) blockers.push(`Replace the rejected file for: ${rejected.map((item) => item.label).join('; ')}.`);
+  if (rejected.length) blockers.push(`Upload a replacement for the reverted file: ${rejected.map((item) => item.label).join('; ')}.`);
   outdated.forEach((item) => blockers.push(describeOutdatedRequirement(item, proofContext)));
+  // FORM 230-SCH time-sensitive answers (office-only). A submitted application
+  // already froze them, so only a Draft is held to the step.
+  if (!proofContext.frozen) {
+    const financialMissing = getFinancialAnswersMissing(financialAnswers);
+    if (financialMissing.length) blockers.push(`Complete the financial situation step: ${financialMissing.join('; ')}.`);
+  }
   if (!String(application.statement || '').trim()) blockers.push('Write your application statement.');
   if (!certified) blockers.push('Certify that your information and documents are true and complete.');
   if (getDeadlineStatus(scholarship.deadline, today).label === 'Closed' || scholarship.isActive === false) {
@@ -622,7 +649,7 @@ export const describeDocumentDecision = (doc, { showName = false } = {}) => {
   if (!doc) return 'No review decision recorded.';
   const status = doc.verificationStatus;
   if (!status || status === 'Pending') return 'Awaiting review — no decision recorded yet.';
-  const verb = status === 'Rejected' ? 'Rejected' : 'Verified';
+  const verb = status === 'Rejected' ? 'Reverted for resubmission' : 'Verified';
   if (!doc.decidedAt && !doc.reviewedBy && !doc.reviewedByRole) {
     return `${verb} · recorded before reviewer details were kept.`;
   }
@@ -632,9 +659,16 @@ export const describeDocumentDecision = (doc, { showName = false } = {}) => {
 };
 
 // Version 2 adds the eligibility answers, background, personal, address, and
-// family groups to the original nine fields. A snapshot without a version was
-// submitted before those groups were recorded.
-export const PROFILE_SNAPSHOT_VERSION = 2;
+// family groups to the original nine fields. Version 3 adds the FORM 230-SCH
+// details that are safe for the Department Chair too (birthdate, sex, pronouns,
+// housing, education, awards, parents' ages, siblings, household members, IP
+// group, previous grants, community service). Version 4 adds the printed name
+// parts (Last, First, Middle), the Applicant Status answer (transferee), the
+// senior high school graduate count, and the senior high school financial aid
+// rows. The financial details are never part of this JSON: they live in the
+// office-only application_financial_details table. A snapshot without a version
+// was submitted before those groups were recorded.
+export const PROFILE_SNAPSHOT_VERSION = 4;
 
 const asText = (value) => (value == null ? '' : String(value).trim());
 const asNumberOrNull = (value) => (value == null || value === '' || !Number.isFinite(Number(value)) ? null : Number(value));
@@ -659,7 +693,7 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
     degreeProgram: profile.degreeProgram || '',
     department: profile.department || '',
     yearStanding,
-    yearStandingLabel: yearStandingOptions.find((option) => option.value === yearStanding)?.label || '',
+    yearStandingLabel: getYearStandingLabel(yearStanding),
     academic: {
       credential: academic.credential,
       label: academic.label,
@@ -676,34 +710,69 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
       hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
       hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
-      ...(isIncomingFirstYear ? {
-        hsStrand: asText(profile.hsStrand),
-        programChoices: [asText(profile.programChoice2), asText(profile.programChoice3)],
-      } : {}),
+      // FORM 230-SCH Applicant Status. An incoming first-year is already known
+      // from the year standing; this answer separates a transferee.
+      isTransferee: asText(profile.isTransferee),
+      // The strand and the ranked choices are shown for an incoming first-year
+      // and for any other student who recorded them.
+      ...(isIncomingFirstYear || profile.hsStrand ? { hsStrand: asText(profile.hsStrand) } : {}),
+      ...(isIncomingFirstYear || profile.programChoice2 || profile.programChoice3
+        ? { programChoices: [asText(profile.programChoice2), asText(profile.programChoice3)] }
+        : {}),
     },
     background: {
       ipCommunity: proven('ipCommunity'),
       pwd: proven('pwd'),
       employed: proven('employed'),
+      ipGroupName: profile.ipCommunity === 'Yes' ? asText(profile.ipGroupName) : '',
     },
     personal: {
+      // FORM 230-SCH prints the name as Last, First, Middle. The parts are kept
+      // beside the composed `fullName` so a snapshot renders the printed form and
+      // an older profile that never split its name still shows the full name.
+      firstName: asText(profile.firstName),
+      middleName: asText(profile.middleName),
+      lastName: asText(profile.lastName),
       civilStatus: asText(profile.civilStatus),
       religion: asText(profile.religion),
+      birthdate: asText(profile.birthdate),
+      sexAtBirth: asText(profile.sexAtBirth),
+      pronouns: asText(profile.pronouns),
     },
     address: {
       completeAddress: asText(profile.completeAddress),
       residingAddress: asText(profile.sameAsCompleteAddress ? profile.completeAddress : profile.residingAddress),
       country: asText(profile.country),
+      housingType: asText(profile.housingType),
+      housingOther: profile.housingType === 'Other' ? asText(profile.housingOther) : '',
+    },
+    education: {
+      schoolLastAttended: {
+        name: asText(profile.schoolLastAttended?.name),
+        city: asText(profile.schoolLastAttended?.city),
+        province: asText(profile.schoolLastAttended?.province),
+      },
+      awards: asText(profile.awards),
     },
     family: {
       fatherName: asText(family.fatherName),
       fatherOccupation: asText(family.fatherOccupation),
       fatherDeceased: Boolean(family.fatherDeceased),
+      fatherAge: asNumberOrNull(family.fatherAge),
+      fatherDateOfDeath: asText(family.fatherDateOfDeath),
       motherName: asText(family.motherName),
       motherOccupation: asText(family.motherOccupation),
       motherDeceased: Boolean(family.motherDeceased),
+      motherAge: asNumberOrNull(family.motherAge),
+      motherDateOfDeath: asText(family.motherDateOfDeath),
       familyPosition: asText(family.familyPosition),
       numberOfSiblings: asNumberOrNull(family.numberOfSiblings),
+      siblings: Array.isArray(family.siblings) ? family.siblings.map((entry) => ({ ...entry })) : [],
+      householdAdults: Array.isArray(family.householdAdults) ? family.householdAdults.map((entry) => ({ ...entry })) : [],
+    },
+    aid: {
+      communityService: asText(profile.communityService),
+      previousGrants: Array.isArray(profile.previousGrants) ? profile.previousGrants.map((entry) => ({ ...entry })) : [],
     },
   };
 };
@@ -721,6 +790,25 @@ const optionLabel = (options, value) => options.find((option) => option.value ==
 const yesNo = (value) => (value ? 'Yes' : 'No');
 const attributeLabel = (key) => getVerifiableAttributeOption(key)?.label || key;
 const formatParent = (name, occupation, deceased) => [name, occupation, deceased ? 'Deceased' : ''].filter(Boolean).join(' · ');
+const formatParentAge = (age, deceased, dateOfDeath) => (deceased
+  ? (dateOfDeath ? `Died ${fmtDate(dateOfDeath)}` : '')
+  : (age == null || age === '' ? '' : `${age} years old`));
+const formatPerson = (entry = {}, statusOptions) => [
+  entry.name,
+  entry.age === '' || entry.age == null ? '' : `${entry.age} yrs`,
+  entry.relationship,
+  statusOptions ? optionLabel(statusOptions, entry.status) : '',
+].filter(Boolean).join(' · ');
+const formatGrant = (entry = {}) => [
+  entry.name,
+  optionLabel(grantTypeOptions, entry.type),
+  optionLabel(grantLevelOptions, entry.level),
+  optionLabel(grantStatusOptions, entry.status),
+  entry.institution,
+  Number.isFinite(Number(entry.amount)) && entry.amount !== '' && entry.amount != null
+    ? `${fmtCurrency(Number(entry.amount))} a year`
+    : '',
+].filter(Boolean).join(' · ');
 
 // The snapshot as labelled, display-ready rows, grouped the way My Profile
 // groups them. The application workspace, the student's application view, the
@@ -732,11 +820,14 @@ export const getProfileSnapshotSections = (snapshot) => {
   const row = (label, value, verification) => ({ label, value: value == null ? '' : String(value), ...(verification ? { verification } : {}) });
   const academic = snapshot.academic || {};
   const academicValue = academic.value == null ? '' : (academic.credential === 'qpi' ? Number(academic.value).toFixed(2) : String(academic.value));
+  // Version 4 stores the printed name as Last, First, Middle; an older snapshot
+  // (or a profile that never split its name) keeps the single full name.
+  const printedName = snapshot.version >= 4 ? composeFullName(snapshot.personal) : '';
   const sections = [{
     key: 'application',
     title: 'Needed to apply',
     rows: [
-      row('Name', snapshot.fullName),
+      printedName ? row('Name of applicant (Last, First, Middle)', printedName) : row('Name', snapshot.fullName),
       ...(snapshot.studentNumber ? [row('Student number', snapshot.studentNumber)] : []),
       row('Program', snapshot.degreeProgram),
       row('Year standing', snapshot.yearStandingLabel),
@@ -758,6 +849,9 @@ export const getProfileSnapshotSections = (snapshot) => {
       key: 'eligibility',
       title: 'Eligibility answers',
       rows: [
+        ...(snapshot.version >= 4
+          ? [row('Applicant status', getApplicantStatusLabel({ yearStanding: snapshot.yearStanding, isTransferee: eligibility.isTransferee }))]
+          : []),
         proven('academicStanding', eligibility.academicStanding, academicStandingOptions),
         ...(Object.prototype.hasOwnProperty.call(eligibility, 'hsStrand') ? [row('Senior high school strand', eligibility.hsStrand)] : []),
         ...(Array.isArray(eligibility.programChoices) ? [
@@ -765,7 +859,7 @@ export const getProfileSnapshotSections = (snapshot) => {
           row('3rd choice program', eligibility.programChoices[1]),
         ] : []),
         proven('honorsRank', eligibility.honorsRank, honorsRankOptions),
-        row('Graduating class size', eligibility.graduatingClassSize),
+        row(snapshot.version >= 4 ? 'Number of graduates of your senior high school' : 'Graduating class size', eligibility.graduatingClassSize),
         row('Prepaid tuition plan', yesNo(eligibility.isOnPrepaidPlan)),
         row('Sibling on AdDU financial aid', yesNo(eligibility.hasSiblingOnAid)),
         row('Another active scholarship', yesNo(eligibility.hasOtherActiveScholarship)),
@@ -778,29 +872,65 @@ export const getProfileSnapshotSections = (snapshot) => {
         proven('ipCommunity', background.ipCommunity, ipCommunityOptions),
         proven('pwd', background.pwd, pwdOptions),
         proven('employed', background.employed, employmentOptions),
+        ...(snapshot.version >= 3 && background.ipGroupName ? [row('Indigenous group', background.ipGroupName)] : []),
       ],
     },
     {
       key: 'personal',
       title: 'Personal and address',
       rows: [
+        ...(snapshot.version >= 3 ? [
+          row('Birthdate', personal.birthdate ? fmtDate(personal.birthdate) : ''),
+          row('Sex assigned at birth', optionLabel(sexAtBirthOptions, personal.sexAtBirth)),
+          ...(personal.pronouns ? [row('Preferred pronouns', personal.pronouns)] : []),
+        ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
         row('Religion', optionLabel(religionOptions, personal.religion)),
         row('Complete address', address.completeAddress),
         row('Residing address', address.residingAddress),
+        ...(snapshot.version >= 3 && address.housingType
+          ? [row('Where the student stays while studying', [optionLabel(housingTypeOptions, address.housingType), address.housingOther].filter(Boolean).join(' · '))]
+          : []),
         row('Country', address.country),
       ],
     },
+    ...(snapshot.version >= 3 ? [{
+      key: 'education',
+      title: 'Education',
+      rows: [
+        row(isTransfereeProfile({ isTransferee: eligibility.isTransferee }) ? 'College last attended' : 'School last attended', [snapshot.education?.schoolLastAttended?.name, snapshot.education?.schoolLastAttended?.city, snapshot.education?.schoolLastAttended?.province].filter(Boolean).join(', ')),
+        row('Awards received', snapshot.education?.awards),
+      ],
+    }] : []),
     {
       key: 'family',
       title: 'Family',
       rows: [
         row('Father', formatParent(family.fatherName, family.fatherOccupation, family.fatherDeceased)),
+        ...(snapshot.version >= 3 ? [row('Father (age or date of death)', formatParentAge(family.fatherAge, family.fatherDeceased, family.fatherDateOfDeath))] : []),
         row('Mother', formatParent(family.motherName, family.motherOccupation, family.motherDeceased)),
+        ...(snapshot.version >= 3 ? [row('Mother (age or date of death)', formatParentAge(family.motherAge, family.motherDeceased, family.motherDateOfDeath))] : []),
         row('Family position', optionLabel(familyPositionOptions, family.familyPosition)),
         row('Number of siblings', family.numberOfSiblings),
+        ...(snapshot.version >= 3 ? [
+          ...(Array.isArray(family.siblings) ? family.siblings : []).map((entry, index) => row(`Sibling ${index + 1}`, formatPerson(entry, siblingStatusOptions))),
+          ...(Array.isArray(family.householdAdults) ? family.householdAdults : []).map((entry, index) => row(`Other household member ${index + 1}`, formatPerson(entry))),
+        ] : []),
       ],
     },
+    ...(snapshot.version >= 3 ? [{
+      key: 'aid',
+      title: 'Financial aid and service',
+      rows: [
+        ...(snapshot.version >= 4
+          ? [row('Financial aid in senior high school', getShsFinancialAid(snapshot.aid?.previousGrants).map(formatGrant).join(' · ') || 'None listed')]
+          : []),
+        ...(Array.isArray(snapshot.aid?.previousGrants) && snapshot.aid.previousGrants.length
+          ? snapshot.aid.previousGrants.map((entry, index) => row(`Grant ${index + 1}`, formatGrant(entry)))
+          : [row('Other grants', 'None listed')]),
+        row('Willing to render community service', snapshot.aid?.communityService),
+      ],
+    }] : []),
   );
   return { legacy: false, sections };
 };

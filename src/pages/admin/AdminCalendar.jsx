@@ -129,6 +129,7 @@ export default function AdminCalendar({
   reviewComments = [],
   onAddComment,
   onChangeApplication,
+  onRejectApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
@@ -137,6 +138,11 @@ export default function AdminCalendar({
   officeCalendarEntries = [],
   onAddOfficeEntry,
   onDeleteOfficeEntry,
+  // Case officers: opening a case from the office calendar joins the officer to it.
+  caseOfficers = [],
+  currentUserId = '',
+  onJoinCase,
+  onLeaveCase,
 }) {
   const now = new Date();
   const todayKey = getManilaTodayKey(now);
@@ -406,6 +412,7 @@ export default function AdminCalendar({
           initialTab={selectedTab}
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
+          onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}
@@ -413,6 +420,10 @@ export default function AdminCalendar({
           onChangeDocument={onChangeDocument}
           reviewComments={reviewComments}
           onAddComment={onAddComment}
+          caseOfficers={caseOfficers}
+          currentUserId={currentUserId}
+          onJoinCase={onJoinCase}
+          onLeaveCase={onLeaveCase}
         />
       )}
 

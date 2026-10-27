@@ -14,6 +14,7 @@ const PROFILE_SECTION_LABELS = {
   personal: 'Personal information',
   academic: 'Academic profile',
   financial: 'Household and financial aid',
+  finances: 'Household finances',
   background: 'Eligibility background',
 };
 

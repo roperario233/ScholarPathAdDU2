@@ -3,6 +3,7 @@ import { StatCard } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
+import { REVIEW_ROLE_LABELS, getReviewScopeLabel } from '../lib/reviewScope';
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -39,9 +40,9 @@ export default function DepartmentReviewView({
     <div className="grid gap-5">
       <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
         <div className="page-title-copy">
-          <span className="page-section-label">Department Chair workspace</span>
-          <h2>{profile.department || 'Department'} applicant screening</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read your department&apos;s applications, endorsements, and interviews. Endorsement is a central decision.</p>
+          <span className="page-section-label">{REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} workspace</span>
+          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} applicant screening</h2>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Read the applications, endorsements, and interviews inside your scope. Endorsement is a central decision.</p>
         </div>
         <StatusBadge tone="info">{queue.length} queued</StatusBadge>
       </section>
@@ -50,7 +51,7 @@ export default function DepartmentReviewView({
         <StatCard label="Awaiting endorsement" value={awaitingEndorsement.length} />
         <StatCard label="Department recommendations" value={endorsed.length} />
         <StatCard label="Interviews on your panel" value={panelInterviews.length} />
-        <StatCard label="Department" value={profile.department || 'Unassigned'} />
+        <StatCard label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,0.65fr)]">

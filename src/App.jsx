@@ -5,16 +5,18 @@ import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
 import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
-import { academicPrograms, getAcademicProgram } from './lib/academicPrograms';
-import { DOCUMENT_REPLACEMENT_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
-import { getProfileAvatar, getProfileDetails, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, pickEligibilityAttributes, pickFields } from './lib/profile';
+import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
+import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
+import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
+import { isCaseOfficer } from './lib/admissionsOffice';
+import { normalizeFinancialAnswers } from './lib/financialDetails';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, loadSupabaseAcademicPrograms, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -26,7 +28,9 @@ import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
 import AdminOverviewPage from './pages/admin/AdminOverview';
+import AdminIntakePoolPage from './pages/admin/AdminIntakePool';
 import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
+import AdminEndorsementPage from './pages/admin/AdminEndorsement';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
@@ -40,12 +44,17 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
+import { getReviewPageLabel, getReviewerScope, getScopedQueue, isReviewerRole } from './lib/reviewScope';
 
 const roleLabels = {
   student: 'Student',
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
-  department_chair: 'Department Chair',
+  // The academic reviewer ladder: Dean (school), Assistant Dean (cluster), and
+  // Chairperson (department). None of them takes a stage action.
+  dean: 'Dean',
+  assistant_dean: 'Assistant Dean',
+  department_chair: 'Chairperson',
 };
 
 // The Google Calendar integration state the review surfaces read. `configured`
@@ -105,7 +114,7 @@ const identitySubtitle = (name, ...parts) => {
 // unknown value resolve to the staff lane / student respectively.
 const normalizeRole = (role) => {
   if (role === 'osa_admin') return 'admissions_office';
-  return ['student', 'admissions_office', 'admissions_head', 'department_chair'].includes(role) ? role : 'student';
+  return ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'].includes(role) ? role : 'student';
 };
 
 // Both Admissions Office lanes land on the office Dashboard (the `admin` route),
@@ -114,7 +123,7 @@ const normalizeRole = (role) => {
 // student dashboard. There is no separate role dashboard beside these pages.
 const landingViewForRole = (role) => (isAdmissionsReviewerRole(role)
   ? 'admin'
-  : role === 'department_chair' ? 'review' : 'dashboard');
+  : isReviewerRole(role) ? 'review' : 'dashboard');
 
 // A student profile is complete enough for matching once the core academic
 // fields and the onboarding eligibility essentials are all recorded. `profile`
@@ -124,7 +133,9 @@ const isIncompleteStudentProfile = (profile, attributes = {}) => {
   return (
     !profile?.degree_program
     || !standing.yearStanding
-    || (standing.requiresStudentNumber && !profile?.student_number)
+    // The AdDU student number belongs to a current Ateneo student, so a transferee
+    // and an incoming first-year are not asked for it.
+    || (requiresStudentNumber(attributes) && !profile?.student_number)
     || profile?.household_income == null
     // An incoming first-year has no college QPI yet, so it is not required.
     || (standing.requiresQpi && profile?.qpi == null)
@@ -200,6 +211,12 @@ const devicePreferencesOf = (state) => ({
   hasLoggedInBefore: state.hasLoggedInBefore,
 });
 
+// FORM 230-SCH financial details are sensitive and office-only, so they live in
+// component state (never in the persisted localStorage record) and are cleared
+// on sign-out. `profile` is the student's reusable financial profile and
+// `answersByApplication` the per-application "Financial situation" answers.
+const emptyFinancialState = { profile: null, answersByApplication: {}, snapshotsByApplication: {}, loaded: false, missing: false };
+
 // Stamps the persisted state with the signed-in Supabase user. If the record
 // still belongs to a different user (a shared browser where sign-out was
 // skipped), the previous user's session-scoped slices are discarded first.
@@ -272,6 +289,7 @@ function App() {
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupabaseWorkspaceLoaded, setIsSupabaseWorkspaceLoaded] = useState(false);
+  const [financial, setFinancial] = useState(emptyFinancialState);
   // When a My Profile link ("Attach proof" or the document checklist) opens the
   // vault it carries the profile attribute and/or document type so the upload
   // form opens on them.
@@ -325,6 +343,7 @@ function App() {
     setIsSupabaseWorkspaceLoaded(false);
     setDeadlineSync(null);
     setAvatarPreview({ path: '', url: '' });
+    setFinancial(emptyFinancialState);
     setSessionTimeoutState(null);
     setSessionNotice(notice);
     setIsSessionChecked(true);
@@ -341,6 +360,28 @@ function App() {
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(state));
   }, [state]);
+
+  // Load the student's office-only financial details once the workspace is up.
+  const financialOwnerId = state.viewerRole === 'student' ? state.authUser?.id : null;
+  useEffect(() => {
+    if (!isSupabaseWorkspaceLoaded || !financialOwnerId) return undefined;
+    let active = true;
+    (async () => {
+      const [profileResult, answersResult] = await Promise.all([
+        loadSupabaseFinancialProfile(financialOwnerId),
+        loadSupabaseFinancialAnswers(),
+      ]);
+      if (!active) return;
+      setFinancial({
+        profile: profileResult.success ? profileResult.details : null,
+        answersByApplication: answersResult.success ? answersResult.answersByApplication : {},
+        snapshotsByApplication: answersResult.success ? answersResult.snapshotsByApplication : {},
+        loaded: true,
+        missing: Boolean(profileResult.missing || answersResult.missing),
+      });
+    })();
+    return () => { active = false; };
+  }, [isSupabaseWorkspaceLoaded, financialOwnerId]);
 
   useEffect(() => {
     // Apply theme classes to the document root so body background updates and
@@ -556,6 +597,8 @@ function App() {
       const profile = profileResult.profile;
       const profileDetails = await getProfileDetails(user.id);
       if (!active) return;
+      const reviewScopeFields = await getProfileReviewScope(user.id);
+      if (!active) return;
       const profileAvatar = await getProfileAvatar(user.id);
       if (!active) return;
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
@@ -582,6 +625,9 @@ function App() {
             hasActiveGovernmentGrant: profile?.has_active_government_grant ?? false,
             bio: profileDetails.bio,
             avatarPath: profileAvatar.avatarPath || '',
+            // The reviewer scope ladder (src/lib/reviewScope.js): a Dean owns a
+            // school, an Assistant Dean a cluster, a Chairperson a department.
+            ...reviewScopeFields,
           },
           profileDraft: {
             ...base.profileDraft,
@@ -638,7 +684,7 @@ function App() {
       if (active && userRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes)) {
         if (readStoredState()?.profileSkipped) return;
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: user.id, fullName: profile?.full_name || user.user_metadata?.full_name || user.email || 'Signed in user', initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || user.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialIsTransferee: attributes.isTransferee || '', initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
       } catch {
         if (active) await endSession('revoked', sessionOwnerId || readStoredState()?.ownerId);
@@ -795,16 +841,22 @@ function App() {
   };
 
   const themeClass = state.theme === 'light' ? 'theme-light' : '';
-  const studentMatchProfile = { ...state.profileDraft, ...(state.authUser || {}) };
+  const studentMatchProfile = {
+    ...state.profileDraft,
+    ...(state.authUser || {}),
+    ...(financial.profile ? { financialProfile: financial.profile } : {}),
+  };
   const currentIdentity = state.viewerRole === 'student'
-    ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}) }
+    ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}), ...(financial.profile ? { financialProfile: financial.profile } : {}) }
     : currentProfile;
   // De-duplicated identity lines (see identitySubtitle): the role only, and the
   // role plus department, with anything already covered by the name removed.
   const identityRoleLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole]);
   const identityDetailLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole], currentIdentity.department);
   const activeAcademicPrograms = state.academicPrograms?.length ? state.academicPrograms : academicPrograms;
-  const activeAcademicProgramCategories = [...new Set(activeAcademicPrograms.map((program) => program.category))];
+  // The picker groups programs by "School — Cluster" with the academic department
+  // as each option's description, so all four levels are reachable from one list.
+  const activeAcademicProgramGroups = getAcademicProgramGroups(activeAcademicPrograms);
   const scholarshipCatalog = isSupabaseWorkspaceLoaded && state.scholarships?.length
     ? getAdduInternalPrograms(state.scholarships)
     : [];
@@ -863,19 +915,24 @@ function App() {
     totalPrograms: scholarshipCatalog.length,
     eligibleMatches: eligibleScholarships.length,
     // Role-aware so the dashboard agrees with the review queues: a student sees
-    // their own live applications, the Admissions Office sees everything
-    // awaiting an SOP action, and a Department Chair sees their department's
-    // pending queue.
+    // their own live applications, an Admissions Office Staff account sees the
+    // cases it joined plus the unclaimed intake pool, and a reviewer at any level of
+    // the academic ladder sees the pending queue inside its own scope.
     openApplications: countApplicationsToReview(state.applications, {
       role: state.viewerRole,
       studentId: currentProfile.id,
       department: currentProfile.department,
+      caseOfficers: state.caseOfficers,
+      userId: currentProfile.id,
+      reviewScope: getReviewerScope({ ...currentProfile, role: state.viewerRole }),
+      programs: activeAcademicPrograms,
     }),
     unreadNotifications: unreadNotifications.length,
   }), [
     eligibleScholarships.length,
     scholarshipCatalog.length,
     state.applications,
+    state.caseOfficers,
     state.viewerRole,
     currentProfile.id,
     currentProfile.department,
@@ -924,6 +981,7 @@ function App() {
       const profileResult = authResult.user?.id ? await getUserProfile(authResult.user.id) : { profile: null };
       const profile = profileResult.profile;
       const profileDetails = authResult.user?.id ? await getProfileDetails(authResult.user.id) : { bio: '', eligibilityAttributes: {} };
+      const reviewScopeFields = authResult.user?.id ? await getProfileReviewScope(authResult.user.id) : {};
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const accountId = authResult.user?.id;
       const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
@@ -953,6 +1011,8 @@ function App() {
               hasActiveGovernmentGrant: profile.has_active_government_grant ?? false,
               bio: profileDetails.bio,
             } : {}),
+            // The reviewer scope ladder (src/lib/reviewScope.js).
+            ...reviewScopeFields,
           },
           rememberMe: credentials.rememberMe || false,
           savedEmail: credentials.rememberMe ? credentials.email : base.savedEmail,
@@ -992,7 +1052,7 @@ function App() {
       }
       if (authResult.user?.id && resolvedRole === 'student' && isIncompleteStudentProfile(profile, profileDetails.eligibilityAttributes) && !readStoredState()?.profileSkipped) {
         const attributes = profileDetails.eligibilityAttributes || {};
-        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
+        setProfileOnboarding({ id: authResult.user.id, fullName: displayName, initialProgram: profile?.degree_program || '', initialProgramChoice2: attributes.programChoice2 || '', initialProgramChoice3: attributes.programChoice3 || '', initialStudentNumber: profile?.student_number || authResult.user?.user_metadata?.student_id || '', initialYearStanding: deriveYearStanding(attributes), initialIsTransferee: attributes.isTransferee || '', initialAcademicStanding: attributes.academicStanding || '', initialCitizenship: attributes.citizenship || '', initialPhone: profile?.phone || '', initialQpi: profile?.qpi ?? '', initialHsStrand: attributes.hsStrand || '', initialHsAverage: attributes.hsAverage ?? '', initialHouseholdIncome: profile?.household_income ?? '', initialHasActiveGovernmentGrant: profile?.has_active_government_grant ?? false });
       }
 
       return {
@@ -1108,7 +1168,9 @@ function App() {
 
     const result = await updateUserProfile(profileOnboarding.id, {
       degreeProgram: program.value,
-      department: program.department,
+      // `profiles.department` stores the SCHOOL, not the academic department: it is
+      // the label the reviewer scope ladder and the identity line read.
+      department: program.school,
       studentNumber: resolvedStudentNumber,
       householdIncome,
       qpi: resolvedQpi,
@@ -1130,7 +1192,7 @@ function App() {
     });
 
     updateState((previous) => ({
-      authUser: { ...previous.authUser, department: program.department, degreeProgram: program.value, studentNumber: resolvedStudentNumber, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, phone },
+      authUser: { ...previous.authUser, department: program.school, degreeProgram: program.value, studentNumber: resolvedStudentNumber, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, phone },
       profileDraft: { ...previous.profileDraft, degreeProgram: program.value, householdIncome, qpi: resolvedQpi, hasActiveGovernmentGrant, ...eligibilityAttributes },
       profileSkipped: false,
     }));
@@ -1269,8 +1331,28 @@ function App() {
     return { ok: true };
   };
 
-  const saveApplicationDraft = async (applicationId, { statement }) => {
+  // The per-application "Financial situation" answers are office-only and live in
+  // application_financial_details, not on the application row.
+  const persistFinancialAnswers = async (applicationId, rawAnswers) => {
+    const answers = normalizeFinancialAnswers(rawAnswers || {});
+    const result = await saveSupabaseFinancialAnswers({ applicationId, studentId: state.authUser?.id || currentProfile.id, answers });
+    if (!result.success) {
+      return {
+        error: result.missing
+          ? 'The financial situation answers need the latest database migration (20261036000000).'
+          : (result.error?.message || 'The financial situation answers could not be saved.'),
+      };
+    }
+    setFinancial((previous) => ({ ...previous, answersByApplication: { ...previous.answersByApplication, [applicationId]: result.answers } }));
+    return { ok: true, answers: result.answers };
+  };
+
+  const saveApplicationDraft = async (applicationId, { statement, financialAnswers }) => {
     if (!findOwnDraft(applicationId)) return { error: 'Only a draft application can be edited.' };
+    if (financialAnswers) {
+      const saved = await persistFinancialAnswers(applicationId, financialAnswers);
+      if (saved.error) return saved;
+    }
     const result = await updateSupabaseApplicationDraft(applicationId, { statement });
     if (result.error) return { error: result.error.message || 'The draft could not be saved.' };
     setState((previous) => ({
@@ -1284,14 +1366,18 @@ function App() {
   // persisted together with the frozen profile snapshot and certification. The
   // server repeats the gate (enforce_student_application_update), so the local
   // row changes only after the write succeeds.
-  const submitApplication = async (applicationId, { statement, certified } = {}) => {
+  const submitApplication = async (applicationId, { statement, certified, financialAnswers } = {}) => {
     const draft = findOwnDraft(applicationId);
     if (!draft) return { error: 'Only a draft application can be submitted.' };
     const application = { ...draft, statement: statement ?? draft.statement };
     const scholarship = scholarshipCatalog.find((entry) => entry.id === application.scholarshipId);
-    const readiness = getApplicationReadiness({ application, scholarship, documents: studentDocuments, profile: studentMatchProfile, certified });
+    const answers = normalizeFinancialAnswers(financialAnswers ?? financial.answersByApplication[applicationId] ?? {});
+    const readiness = getApplicationReadiness({ application, scholarship, documents: studentDocuments, profile: studentMatchProfile, financialAnswers: answers, certified });
     if (readiness.route !== 'internal') return { error: 'This program is tracked only. Apply through the provider.' };
     if (!readiness.ready) return { error: readiness.blockers[0], blockers: readiness.blockers };
+    // The database requires the answers on file before it accepts the submission.
+    const savedAnswers = await persistFinancialAnswers(applicationId, answers);
+    if (savedAnswers.error) return savedAnswers;
 
     const submittedAt = new Date().toISOString();
     const supportingCount = readiness.supportingDocuments.length;
@@ -1430,6 +1516,130 @@ function App() {
     return { ok: true };
   };
 
+  // An application rejection is recorded in two places on purpose. FORM 230-SCH
+  // affidavit clause 6 keeps the deliberations and their minutes confidential, so
+  // the reason a reviewer types is filed in the staff-only internal notes
+  // (application_review_comments, which has no student policy), and the student
+  // receives the fixed APPLICATION_REJECTION_NOTICE through the timeline — and
+  // therefore through application_status_log.reason, which the trigger derives
+  // from it. The note is written first: a rejection must never land without a
+  // recorded reason, and a failed note leaves the stage untouched.
+  const rejectApplication = async (applicationId, reason = '') => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can reject an application.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (!getNextApplicationStatuses(application.status, state.viewerRole).includes('Rejected')) {
+      return { error: 'Your role cannot reject this application at this stage.' };
+    }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) return { error: 'Record the reason for the rejection.' };
+    const maxReasonLength = 2000 - APPLICATION_REJECTION_REASON_PREFIX.length;
+    if (trimmed.length > maxReasonLength) {
+      return { error: `Keep the reason to ${maxReasonLength.toLocaleString()} characters or fewer.` };
+    }
+    const note = await addReviewComment(applicationId, `${APPLICATION_REJECTION_REASON_PREFIX}${trimmed}`);
+    if (note?.error) return { error: note.error };
+    return changeApplicationStatus(applicationId, 'Rejected', { note: APPLICATION_REJECTION_NOTICE });
+  };
+
+  // Case officers. Opening an Admissions Office application joins the officer to
+  // the case (application_case_officers): the roster is how the shared intake pool
+  // knows what has been picked up, and a second officer joining the same case is
+  // expected, not a conflict. Joining is the one place the review starts
+  // (Submitted -> Under Review), so the student notification fires from here.
+  const joinCaseReview = async (applicationId) => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can open an application for review.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (!CASE_OFFICER_JOINABLE_STATUSES.includes(application.status)) return { ok: true, joined: false };
+    if (isCaseOfficer(state.caseOfficers, applicationId, currentProfile.id)) return { ok: true, joined: false };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the case officer could not be recorded.' };
+    }
+    const result = await joinSupabaseApplicationReview(applicationId);
+    if (result?.error) {
+      return {
+        error: result.error.message
+          || 'The case officer could not be recorded. Apply the pending migration and try again.',
+      };
+    }
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    const status = row?.status || application.status;
+    const now = new Date().toISOString();
+    const joinedOfficer = {
+      id: `co-${crypto.randomUUID()}`,
+      applicationId,
+      officerId: currentProfile.id,
+      officerName: currentProfile.fullName || 'Admissions Office reviewer',
+      officerRole: state.viewerRole,
+      joinedAt: now,
+      leftAt: null,
+      leftReason: '',
+    };
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => (entry.id === applicationId ? {
+        ...entry,
+        status,
+        updatedAt: status === entry.status ? entry.updatedAt : now.slice(0, 10),
+        timeline: Array.isArray(row?.timeline) ? row.timeline : entry.timeline,
+      } : entry)),
+      caseOfficers: isCaseOfficer(previous.caseOfficers, applicationId, currentProfile.id)
+        ? previous.caseOfficers
+        : [...previous.caseOfficers, joinedOfficer],
+    }));
+    // The database trigger is the primary sender; this browser call is the retry
+    // for a tab that closed between the status write and the trigger.
+    if (status !== application.status) notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+    // Reconcile with the server so an officer who joined the same case shows up in
+    // the roster here too.
+    loadSupabaseApplicationCaseOfficers().then((refreshed) => {
+      if (!refreshed) return;
+      setState((previous) => ({
+        ...previous,
+        caseOfficers: refreshed.error ? previous.caseOfficers : (refreshed.caseOfficers || []),
+        caseOfficersReady: !refreshed.error,
+      }));
+    }).catch(() => undefined);
+    return { ok: true, joined: true, status };
+  };
+
+  // Leaving a case is self-service: the officer records why, and the application
+  // keeps its status (a reverse move to Submitted is not in the SOP map). If the
+  // last officer leaves, the case returns to the intake pool's unclaimed view.
+  const leaveCaseReview = async (applicationId, reason) => {
+    if (!isAdmissionsReviewerRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office can leave a case.' };
+    }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) return { error: 'A reason is required before leaving a case.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so leaving the case could not be saved.' };
+    }
+    const result = await leaveSupabaseApplicationReview(applicationId, trimmed);
+    if (result?.error) {
+      return {
+        error: result.error.message
+          || 'The case could not be left. Apply the pending migration and try again.',
+      };
+    }
+    const leftAt = new Date().toISOString();
+    setState((previous) => ({
+      ...previous,
+      caseOfficers: previous.caseOfficers.map((entry) => (
+        entry.applicationId === applicationId && entry.officerId === currentProfile.id && !entry.leftAt
+          ? { ...entry, leftAt, leftReason: trimmed }
+          : entry
+      )),
+    }));
+    return { ok: true };
+  };
+
+
   // SOP step 4: the Admissions Office Head records the endorsement of an
   // application the Staff sent over. The Department Chair has no endorsement role.
   const endorseApplication = async (applicationId, note = '') => {
@@ -1466,9 +1676,9 @@ function App() {
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application) return { error: 'The application could not be found.' };
-    if (state.viewerRole === 'department_chair'
-      && (application.studentDepartment || '') !== (currentProfile.department || '')) {
-      return { error: 'Your department scope does not include this application.' };
+    if (isReviewerRole(state.viewerRole)
+      && !getScopedQueue([application], { ...currentProfile, role: state.viewerRole }, activeAcademicPrograms).length) {
+      return { error: 'Your review scope does not include this application.' };
     }
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write a note before adding it to the case file.' };
@@ -1537,7 +1747,7 @@ function App() {
       draft,
       previous,
       location,
-      school: application.studentDepartment || '',
+      school: application.studentSchool || '',
       actorId: currentProfile.id,
       reason,
     });
@@ -1758,13 +1968,20 @@ function App() {
     return { ok: true, message: `The calendar event was ${label}.${swept}` };
   };
 
-  const addInterviewNote = async (applicationId, { body, rating = null } = {}) => {
+  const addInterviewNote = async (applicationId, { body, recommendationLevel = null, rating = null } = {}) => {
     const allowed = isAdmissionsReviewerRole(state.viewerRole)
-      || (state.viewerRole === 'department_chair' && isPanelistOn(applicationId));
+      || (isReviewerRole(state.viewerRole) && isPanelistOn(applicationId));
     if (!allowed) return { error: 'Only the interview panel or the Admissions Office can add an evaluation note.' };
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write the evaluation note first.' };
     if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
+    // The level is the panel's recommendation (SOP step 6 input). A note may hold
+    // observations only, so it is optional; an unknown value is refused rather
+    // than written, and the database repeats the same list.
+    const level = recommendationLevel ? String(recommendationLevel) : '';
+    if (level && !INTERVIEW_RECOMMENDATION_LEVELS.some((entry) => entry.value === level)) {
+      return { error: 'Choose one of the listed recommendation levels.' };
+    }
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the note could not be saved.' };
     }
@@ -1773,6 +1990,7 @@ function App() {
       authorId: currentProfile.id,
       authorRole: state.viewerRole,
       authorName: currentProfile.fullName || 'Reviewer',
+      recommendationLevel: level || null,
       rating: rating ? Number(rating) : null,
       body: trimmed,
     });
@@ -1812,6 +2030,10 @@ function App() {
   const interviewWorkspace = {
     viewerId: currentProfile.id,
     staffDirectory: state.staffDirectory || [],
+    // The panel picker resolves the applicant's school, cluster, and department from
+    // the program through this taxonomy (SOP 5a), so a reviewer at any level of the
+    // ladder whose scope covers the applicant can be suggested.
+    academicPrograms: activeAcademicPrograms,
     locations: state.interviewLocations || [],
     panelists: state.interviewPanelists || [],
     notes: state.interviewNotes || [],
@@ -1915,26 +2137,27 @@ function App() {
     });
   };
 
-  // The Admissions Office verifies or rejects a vault document here. Because an
-  // attribute's state is derived from its linked proof documents
-  // (src/lib/verification.js), verifying the file also verifies the attributes it
-  // proves. A rejection must carry a recorded reason (ReasonModal in
-  // ApplicationReviewModal); the database enforces the same rule. Verification is
-  // confirmed first (VerifyDocumentModal) because the review is attributed to the
-  // signed-in account: the trigger stamps reviewed_by, reviewed_by_role, and
-  // verification_decided_at, and a reset to Pending clears them. The student is
-  // notified server-side by notify-document-verification, which the database
-  // trigger calls; the browser call below is a retry for the idempotent channels.
+  // The Admissions Office verifies a vault document, or reverts it for
+  // resubmission, here. Because an attribute's state is derived from its linked
+  // proof documents (src/lib/verification.js), verifying the file also verifies
+  // the attributes it proves. A resubmission note is required (ReasonModal in
+  // ApplicationReviewModal); the database enforces the same rule and the stored
+  // value stays `Rejected`. Verification is confirmed first (VerifyDocumentModal)
+  // because the review is attributed to the signed-in account: the trigger stamps
+  // reviewed_by, reviewed_by_role, and verification_decided_at, and a reset to
+  // Pending clears them. The student is notified server-side by
+  // notify-document-verification, which the database trigger calls; the browser
+  // call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
     // Reviewing a vault file belongs to the Admissions Office. Staff verify
     // documents; the Head has the same authority as a superset.
     if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      const message = 'Only the Admissions Office can verify or reject a document.';
+      const message = 'Only the Admissions Office can verify a document or revert it for resubmission.';
       window.alert(message);
       return { error: message };
     }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
-    if (verificationStatus === 'Rejected' && !reason) return { error: 'A reason is required to reject a document.' };
+    if (verificationStatus === 'Rejected' && !reason) return { error: 'A note is required to revert a document for resubmission.' };
     const decidedAt = new Date().toISOString();
     if (isSupabaseWorkspaceLoaded) {
       const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
@@ -1964,10 +2187,10 @@ function App() {
     return { ok: true };
   };
 
-  // A Rejected file on a submitted, pre-endorsement application can be swapped
-  // for another vault file or a new upload (which lands in the vault first, as
-  // in the workspace). The status does not change; the new file arrives Pending
-  // for the Admissions Office. The server repeats every check
+  // A file reverted for resubmission on a submitted, pre-endorsement application
+  // can be swapped for another vault file or a new upload (which lands in the
+  // vault first, as in the workspace). The status does not change; the new file
+  // arrives Pending for the Admissions Office. The server repeats every check
   // (replace_rejected_application_document).
   const replaceRejectedDocument = async (applicationId, oldDocumentId, { documentId = '', file = null, documentType = '' } = {}) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
@@ -1976,7 +2199,7 @@ function App() {
       return { error: 'Documents can be replaced only before the application is endorsed.' };
     }
     if (!oldDocument || oldDocument.verificationStatus !== 'Rejected' || !(application.attachedDocuments || []).includes(oldDocumentId)) {
-      return { error: 'Only a rejected document attached to this application can be replaced.' };
+      return { error: 'Only a file reverted for resubmission and attached to this application can be replaced.' };
     }
     let replacementId = documentId;
     if (file) {
@@ -1988,7 +2211,7 @@ function App() {
     const result = await replaceSupabaseApplicationDocument(applicationId, oldDocumentId, replacementId);
     if (result.error) {
       return { error: file
-        ? `The file was saved to your Document Vault but could not replace the rejected one: ${result.error.message || 'please try again.'}`
+        ? `The file was saved to your Document Vault but could not replace the reverted one: ${result.error.message || 'please try again.'}`
         : result.error.message || 'The document could not be replaced.' };
     }
     setApplicationAttachments(applicationId, (ids) => [...ids.filter((id) => id !== oldDocumentId && id !== replacementId), replacementId], { touch: false });
@@ -2305,12 +2528,32 @@ function App() {
   // Saves one My Profile section. Students may edit academic and eligibility
   // fields; staff may edit only their name, mobile number, and bio, so a
   // Department Chair can never re-scope their own department from this page.
+  // Household finances are office-only (student_financial_profiles), so they are
+  // saved apart from saveProfile and never reach profile_details or localStorage.
+  const saveFinancialProfile = async (patch) => {
+    if (state.viewerRole !== 'student') return { success: false, message: 'Only students keep household finances.' };
+    const userId = state.authUser?.id || currentProfile.id;
+    const result = await saveSupabaseFinancialProfile(userId, patch.financialProfile);
+    if (!result.success) {
+      return {
+        success: false,
+        message: result.missing
+          ? 'Household finances need the latest database migration (20261036000000).'
+          : (result.error?.message || 'Unable to save your household finances.'),
+      };
+    }
+    setFinancial((previous) => ({ ...previous, profile: result.details, loaded: true }));
+    return { success: true, message: 'Household finances saved.' };
+  };
+
   const saveProfile = async (patch) => {
     const isStudent = state.viewerRole === 'student';
     const accountFields = pickFields(patch, isStudent ? ACCOUNT_FIELD_KEYS : STAFF_EDITABLE_FIELD_KEYS);
     if (isStudent && accountFields.degreeProgram) {
       const selectedProgram = activeAcademicPrograms.find((program) => program.value === accountFields.degreeProgram) || getAcademicProgram(accountFields.degreeProgram);
-      accountFields.department = selectedProgram.department;
+      // `profiles.department` is the SCHOOL the program belongs to; the academic
+      // department is the narrower level the reviewer scope ladder resolves.
+      accountFields.department = selectedProgram.school;
     }
     const eligibilityAttributes = isStudent ? pickEligibilityAttributes(patch) : {};
     const hasEligibilityAttributes = Object.keys(eligibilityAttributes).length > 0;
@@ -2326,7 +2569,7 @@ function App() {
       ...(hasEligibilityAttributes
         ? { eligibilityAttributes: { ...pickEligibilityAttributes(studentMatchProfile), ...eligibilityAttributes } }
         : {}),
-      ...(hasProfileDetails ? { profileDetails } : {}),
+      ...(hasProfileDetails ? { profileDetails: mergeProfileDetails(studentMatchProfile, profileDetails) } : {}),
     });
     if (!result.success) return result;
 
@@ -2420,15 +2663,17 @@ function App() {
   // Department queue is derived from applications joined to the student's
   // school-level department, so it stays consistent with profiles.department
   // from the academic program taxonomy rather than a separately seeded table.
-  const departmentQueue = state.applications.filter((entry) => (
-    (entry.studentDepartment || '') === currentProfile.department
-    && entry.status !== 'Draft'
-  ));
+  // One scoped queue for every reviewer level: a Dean sees its school, an Assistant
+  // Dean its cluster, and a Chairperson its department and the programs under it. A
+  // Chairperson an operator has not scoped yet keeps the old school-wide read.
+  const departmentQueue = getScopedQueue(state.applications, { ...currentProfile, role: state.viewerRole }, activeAcademicPrograms)
+    .filter((entry) => entry.status !== 'Draft');
   const studentStanding = getStandingRequirements(studentMatchProfile);
   const hasIncompleteStudentProfile = state.viewerRole === 'student' && (
     !currentIdentity.degreeProgram
     || !studentStanding.yearStanding
-    || (studentStanding.requiresStudentNumber && !currentIdentity.studentNumber)
+    // The AdDU student number belongs to a current Ateneo student only.
+    || (requiresStudentNumber(studentMatchProfile) && !currentIdentity.studentNumber)
     || currentIdentity.householdIncome == null
     || currentIdentity.householdIncome === ''
     // An incoming first-year is matched on senior high school standing, not QPI.
@@ -2444,7 +2689,9 @@ function App() {
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Dashboard', visible: true },
+      { view: 'admin-intake', label: 'Intake pool', visible: true },
       { view: 'admin-review', label: 'Review queue', visible: true },
+      { view: 'admin-endorsement', label: 'Endorsement', visible: isAdmissionsHead },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
       { view: 'admin-release', label: 'Recommendation and release', visible: isAdmissionsHead },
@@ -2462,9 +2709,9 @@ function App() {
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
     { view: 'calendar', label: 'Calendar', visible: state.viewerRole === 'student' },
     ...admissionsWorkspaceItems,
-    { view: 'review', label: 'Department Review', visible: state.viewerRole === 'department_chair' },
-    { view: 'chair-interviews', label: 'Interviews', visible: state.viewerRole === 'department_chair' },
-    { view: 'chair-calendar', label: 'Calendar', visible: state.viewerRole === 'department_chair' },
+    { view: 'review', label: getReviewPageLabel(state.viewerRole), visible: isReviewerRole(state.viewerRole) },
+    { view: 'chair-interviews', label: 'Interviews', visible: isReviewerRole(state.viewerRole) },
+    { view: 'chair-calendar', label: 'Calendar', visible: isReviewerRole(state.viewerRole) },
     { view: 'profile', label: 'My Profile', visible: true },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
@@ -2537,6 +2784,7 @@ function App() {
           initialProgramChoice3={profileOnboarding.initialProgramChoice3}
           initialStudentNumber={profileOnboarding.initialStudentNumber}
           initialYearStanding={profileOnboarding.initialYearStanding}
+          initialIsTransferee={profileOnboarding.initialIsTransferee}
           initialAcademicStanding={profileOnboarding.initialAcademicStanding}
           initialCitizenship={profileOnboarding.initialCitizenship}
           initialHsStrand={profileOnboarding.initialHsStrand}
@@ -2546,7 +2794,7 @@ function App() {
           initialQpi={profileOnboarding.initialQpi}
           initialHasActiveGovernmentGrant={profileOnboarding.initialHasActiveGovernmentGrant}
           academicPrograms={activeAcademicPrograms}
-          academicProgramCategories={activeAcademicProgramCategories}
+          academicProgramGroups={activeAcademicProgramGroups}
           documents={studentDocuments}
           attributeVerifications={attributeVerifications}
           onSave={saveAcademicProfile}
@@ -2711,6 +2959,8 @@ function App() {
               onReplaceDocument={replaceRejectedDocument}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
+              financialAnswersByApplication={financial.answersByApplication}
+              financialSnapshotsByApplication={financial.snapshotsByApplication}
               onSaveProfile={saveProfile}
               onOpenProfile={() => navigate('profile')}
             />
@@ -2732,21 +2982,57 @@ function App() {
           {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin' && (
             <AdminOverviewPage
               applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              currentUserId={currentProfile.id}
               documents={state.documents}
               role={state.viewerRole}
               onOpenWorkspace={(view) => navigate(view)}
             />
           )}
 
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-intake' && (
+            <AdminIntakePoolPage
+              applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              caseOfficersReady={state.caseOfficersReady !== false}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              currentUserId={currentProfile.id}
+              reviewerName={state.authUser?.fullName || ''}
+              onPickUpApplication={joinCaseReview}
+              onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
+              onEndorseApplication={endorseApplication}
+              interviewWorkspace={interviewWorkspace}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+            />
+          )}
+
+
           {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-review' && (
             <AdminReviewQueuePage
               applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              caseOfficersReady={state.caseOfficersReady !== false}
+              currentUserId={currentProfile.id}
+              onOpenWorkspace={(view) => navigate(view)}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
               students={state.students}
               documents={state.documents}
               scholarships={state.scholarships || []}
               role={state.viewerRole}
               reviewerName={state.authUser?.fullName || ''}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
@@ -2757,10 +3043,40 @@ function App() {
             />
           )}
 
+          {isAdmissionsHead && state.activeView === 'admin-endorsement' && (
+            <AdminEndorsementPage
+              applications={state.applications}
+              caseOfficers={state.caseOfficers || []}
+              students={state.students}
+              documents={state.documents}
+              scholarships={state.scholarships || []}
+              role={state.viewerRole}
+              reviewerName={state.authUser?.fullName || ''}
+              currentUserId={currentProfile.id}
+              onOpenWorkspace={(view) => navigate(view)}
+              onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
+              onEndorseApplication={endorseApplication}
+              interviewWorkspace={interviewWorkspace}
+              onRecordDeliberation={recordDeliberation}
+              onReleaseResults={releaseApplicationResults}
+              onChangeDocument={changeDocumentStatus}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+            />
+          )}
+
           {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-calendar' && (
             <AdminCalendarPage
               applications={state.applications}
               students={state.students}
+              caseOfficers={state.caseOfficers || []}
+              currentUserId={currentProfile.id}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+
               documents={state.documents}
               scholarships={state.scholarships || []}
               role={state.viewerRole}
@@ -2769,6 +3085,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onAddComment={addReviewComment}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
@@ -2783,6 +3100,11 @@ function App() {
             <AdminInterviewsPage
               applications={state.applications}
               students={state.students}
+              caseOfficers={state.caseOfficers || []}
+              currentUserId={currentProfile.id}
+              onJoinCase={joinCaseReview}
+              onLeaveCase={leaveCaseReview}
+
               documents={state.documents}
               scholarships={state.scholarships || []}
               role={state.viewerRole}
@@ -2791,6 +3113,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onAddComment={addReviewComment}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onEndorseApplication={endorseApplication}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
@@ -2813,6 +3136,7 @@ function App() {
               students={state.students}
               scholarships={state.scholarships || []}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
               onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
               interviewWorkspace={interviewWorkspace}
@@ -2826,7 +3150,7 @@ function App() {
             />
           )}
 
-          {state.activeView === 'review' && state.viewerRole === 'department_chair' && (
+          {state.activeView === 'review' && isReviewerRole(state.viewerRole) && (
             <DepartmentReviewViewPage
               profile={currentProfile}
               queue={departmentQueue}
@@ -2839,7 +3163,7 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'department_chair' && state.activeView === 'chair-calendar' && (
+          {isReviewerRole(state.viewerRole) && state.activeView === 'chair-calendar' && (
             <DepartmentCalendarViewPage
               profile={currentProfile}
               queue={departmentQueue}
@@ -2853,7 +3177,7 @@ function App() {
             />
           )}
 
-          {state.viewerRole === 'department_chair' && state.activeView === 'chair-interviews' && (
+          {isReviewerRole(state.viewerRole) && state.activeView === 'chair-interviews' && (
             <DepartmentInterviewsViewPage
               profile={currentProfile}
               queue={departmentQueue}
@@ -2872,9 +3196,11 @@ function App() {
               role={state.viewerRole}
               roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
-              academicProgramCategories={activeAcademicProgramCategories}
+              academicProgramGroups={activeAcademicProgramGroups}
               initialSection={profilePresetSection}
               onSaveProfile={saveProfile}
+              onSaveFinancialProfile={saveFinancialProfile}
+              financialMissing={financial.missing}
               avatar={{ url: avatarPreview.url, path: state.authUser?.avatarPath || '', isSaving: isSavingAvatar }}
               onChangeAvatar={saveProfileAvatar}
               onRemoveAvatar={removeProfileAvatar}

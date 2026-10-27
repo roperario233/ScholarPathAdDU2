@@ -28,6 +28,20 @@ import {
 import { documentTypeOptions } from '../src/lib/constants';
 import { fmtDate } from '../src/lib/formatters';
 
+const completeFinancialAnswers = {
+  otherIncomeAnswer: 'no',
+  difficultyAnswer: 'no',
+  allowanceDaily: 150,
+  allowanceEnough: 'yes',
+  foodIntakeAdequacy: 'adequate',
+  transportMode: 'public-transport',
+  expenseFood: 100,
+  expenseTransport: 40,
+  expenseOther: 20,
+};
+
+const readinessOf = (args) => getApplicationReadiness({ financialAnswers: completeFinancialAnswers, ...args });
+
 const continuingProfile = {
   fullName: 'Ana Reyes',
   studentNumber: '202300001',
@@ -38,6 +52,24 @@ const continuingProfile = {
   householdIncome: 180000,
   citizenship: 'Filipino',
   academicStanding: 'good',
+  // The remaining "Needed to apply" answers and the FORM 230-SCH core.
+  civilStatus: 'Single',
+  completeAddress: 'Roxas Ave, Davao City',
+  ipCommunity: 'No',
+  pwd: 'No',
+  employed: 'Not employed',
+  // FORM 230-SCH Applicant Status.
+  isTransferee: 'No',
+  phone: '0917 123 4567',
+  birthdate: '2005-04-12',
+  sexAtBirth: 'Female',
+  communityService: 'Yes',
+  schoolLastAttended: { name: 'Davao Senior High School' },
+  financialProfile: {
+    economicStatus: 'lower',
+    father: { employmentStatus: 'employed', annualIncome: 120000 },
+    mother: { employmentStatus: 'unemployed', annualIncome: 0 },
+  },
 };
 
 const incomingProfile = {
@@ -85,6 +117,15 @@ describe('scholarship requirements', () => {
     expect(known.has('Photos of Residence')).toBe(true);
   });
 
+  it('asks for the two paper pages, not the generic application form, on every in-scope track', () => {
+    Object.values(DEFAULT_REQUIRED_DOCUMENTS).forEach((items) => {
+      const byId = Object.fromEntries(items.map((item) => [item.id, item]));
+      expect(byId['application-form']).toBeUndefined();
+      expect(byId['barangay-residence-certification']).toMatchObject({ documentTypes: ['Barangay Residence Certification'], standing: 'all' });
+      expect(byId['signed-affidavit']).toMatchObject({ documentTypes: ['Signed Affidavit of Agreement'], standing: 'all' });
+    });
+  });
+
   it('filters the defaults by year standing', () => {
     const continuing = ids(getScholarshipRequirements(gia, continuingProfile));
     const incoming = ids(getScholarshipRequirements(gia, incomingProfile));
@@ -93,7 +134,10 @@ describe('scholarship requirements', () => {
     expect(continuing).not.toContain('hs-report-card');
     expect(incoming).toEqual(expect.arrayContaining(['entrance-exam', 'hs-report-card', 'recommendation']));
     expect(incoming).not.toContain('college-grades');
-    expect(incoming).toContain('application-form');
+    // The application is filled in the system; two pages stay on paper.
+    expect(continuing).toEqual(expect.arrayContaining(['barangay-residence-certification', 'signed-affidavit']));
+    expect(incoming).toEqual(expect.arrayContaining(['barangay-residence-certification', 'signed-affidavit']));
+    expect(incoming).not.toContain('application-form');
   });
 
   it('falls back to the rule family resolved from the title', () => {
@@ -119,8 +163,8 @@ describe('default attachments', () => {
   it('picks the newest non-rejected file per requirement', () => {
     const requirements = getScholarshipRequirements(gia, continuingProfile);
     const documents = [
-      doc('old-form', 'Application Form', 'Verified', '2026-01-01'),
-      doc('new-form', 'Application Form', 'Pending', '2026-09-01'),
+      doc('old-form', 'Signed Affidavit of Agreement', 'Verified', '2026-01-01'),
+      doc('new-form', 'Signed Affidavit of Agreement', 'Pending', '2026-09-01'),
       doc('bad-income', 'Income Proof', 'Rejected', '2026-09-02'),
     ];
     expect(pickDefaultAttachments(requirements, documents)).toEqual(['new-form']);
@@ -139,7 +183,7 @@ describe('application readiness', () => {
     const partialDocs = requirements
       .filter((item) => !photoIds.includes(item.id))
       .map((item, index) => doc(`partial-${index}`, item.documentTypes[0]));
-    const result = getApplicationReadiness({
+    const result = readinessOf({
       application: { attachedDocuments: partialDocs.map((entry) => entry.id), statement: 'I need support to continue my studies.' },
       scholarship: gia,
       documents: partialDocs,
@@ -152,7 +196,7 @@ describe('application readiness', () => {
   });
 
   it('is ready once every requirement is attached, the statement is written, and the student certifies', () => {
-    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
+    const result = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
     expect(result.route).toBe('internal');
     expect(result.blockers).toEqual([]);
     expect(result.ready).toBe(true);
@@ -160,13 +204,13 @@ describe('application readiness', () => {
   });
 
   it('blocks submission until certification', () => {
-    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile });
+    const result = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile });
     expect(result.ready).toBe(false);
     expect(result.blockers).toEqual(['Certify that your information and documents are true and complete.']);
   });
 
   it('reports missing documents and a blank statement', () => {
-    const result = getApplicationReadiness({ application: { attachedDocuments: [], statement: '  ' }, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
+    const result = readinessOf({ application: { attachedDocuments: [], statement: '  ' }, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
     expect(result.requirements.every((item) => item.state === 'missing')).toBe(true);
     expect(result.blockers[0]).toMatch(/^Attach \d+ required documents/);
     expect(result.blockers).toContain('Write your application statement.');
@@ -174,32 +218,49 @@ describe('application readiness', () => {
 
   it('treats a requirement whose only file was rejected as needing replacement', () => {
     const documents = allDocs.map((entry, index) => (index === 0 ? { ...entry, verificationStatus: 'Rejected' } : entry));
-    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
+    const result = readinessOf({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
     expect(result.requirements[0].state).toBe('rejected');
-    expect(result.blockers.some((blocker) => blocker.startsWith('Replace the rejected file'))).toBe(true);
+    expect(result.blockers.some((blocker) => blocker.startsWith('Upload a replacement for the reverted file'))).toBe(true);
   });
 
   it('marks verified files and allows pending ones', () => {
     const documents = allDocs.map((entry, index) => (index === 0 ? { ...entry, verificationStatus: 'Verified' } : entry));
-    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
+    const result = readinessOf({ application: complete, scholarship: gia, documents, profile: continuingProfile, certified: true });
     expect(result.requirements[0].state).toBe('verified');
     expect(result.requirements[1].state).toBe('attached');
     expect(result.ready).toBe(true);
   });
 
+  it('blocks submission until the financial situation step is complete', () => {
+    const base = { application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true };
+    const none = getApplicationReadiness(base);
+    expect(none.ready).toBe(false);
+    expect(none.blockers).toEqual([expect.stringMatching(/^Complete the financial situation step: Other sources of income;/)]);
+
+    const partial = getApplicationReadiness({ ...base, financialAnswers: { ...completeFinancialAnswers, difficultyAnswer: 'yes' } });
+    expect(partial.blockers[0]).toMatch(/Reasons for the financial difficulty; How the family copes/);
+    expect(getApplicationReadiness({ ...base, financialAnswers: completeFinancialAnswers }).ready).toBe(true);
+  });
+
+  it('does not ask a submitted application for the financial step again', () => {
+    const submitted = { ...complete, status: 'Submitted', profileSnapshot: buildProfileSnapshot(continuingProfile) };
+    const result = getApplicationReadiness({ application: submitted, scholarship: gia, documents: allDocs, profile: continuingProfile, certified: true });
+    expect(result.blockers.some((blocker) => blocker.includes('financial situation'))).toBe(false);
+  });
+
   it('blocks a closed scholarship', () => {
-    const result = getApplicationReadiness({ application: complete, scholarship: { ...gia, deadline: '2020-01-01' }, documents: allDocs, profile: continuingProfile, certified: true });
+    const result = readinessOf({ application: complete, scholarship: { ...gia, deadline: '2020-01-01' }, documents: allDocs, profile: continuingProfile, certified: true });
     expect(result.blockers).toContain('This scholarship is no longer accepting applications.');
   });
 
   it('re-runs the eligibility gate on the current profile', () => {
-    const result = getApplicationReadiness({ application: complete, scholarship: gia, documents: allDocs, profile: { ...continuingProfile, householdIncome: 900000 }, certified: true });
+    const result = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: { ...continuingProfile, householdIncome: 900000 }, certified: true });
     expect(result.ready).toBe(false);
     expect(result.blockers.some((blocker) => blocker.startsWith('Eligibility:'))).toBe(true);
   });
 
   it('tracks external entries without a submit route', () => {
-    const result = getApplicationReadiness({ application: {}, scholarship: external, documents: [], profile: continuingProfile, certified: true });
+    const result = readinessOf({ application: {}, scholarship: external, documents: [], profile: continuingProfile, certified: true });
     expect(result).toMatchObject({ route: 'external', ready: false, requirements: [] });
   });
 });
@@ -211,7 +272,7 @@ describe('profile snapshot', () => {
       capturedAt: '2026-10-12T00:00:00.000Z',
       fullName: 'Ana Reyes',
       yearStanding: '2nd',
-      yearStandingLabel: '2nd year',
+      yearStandingLabel: 'Incoming 2nd year',
       academic: { credential: 'qpi', value: 3.2, verification: 'Verified' },
       householdIncome: { value: 180000, verification: 'Unverified' },
       citizenship: { value: 'Filipino', verification: 'Unverified' },
@@ -244,7 +305,7 @@ describe('profile snapshot', () => {
 
   it('freezes the eligibility answers, background, personal, address, and family groups', () => {
     const snapshot = buildProfileSnapshot(fullProfile, { honorsRank: 'Verified', pwd: 'Pending' });
-    expect(snapshot.version).toBe(2);
+    expect(snapshot.version).toBe(4);
     expect(snapshot.eligibility).toEqual({
       academicStanding: { value: 'good', verification: 'Unverified' },
       honorsRank: { value: 'Valedictorian', verification: 'Verified' },
@@ -252,12 +313,38 @@ describe('profile snapshot', () => {
       isOnPrepaidPlan: false,
       hasSiblingOnAid: true,
       hasOtherActiveScholarship: false,
+      isTransferee: 'No',
     });
     expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
-    expect(snapshot.personal).toEqual({ civilStatus: 'Single', religion: 'Roman Catholic' });
-    expect(snapshot.address).toEqual({ completeAddress: 'Roxas Ave, Davao City', residingAddress: 'Roxas Ave, Davao City', country: 'Philippines' });
+    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: '' });
+    expect(snapshot.address).toEqual({ completeAddress: 'Roxas Ave, Davao City', residingAddress: 'Roxas Ave, Davao City', country: 'Philippines', housingType: '', housingOther: '' });
+    expect(snapshot.education).toEqual({ schoolLastAttended: { name: 'Davao Senior High School', city: '', province: '' }, awards: '' });
+    expect(snapshot.aid).toEqual({ communityService: 'Yes', previousGrants: [] });
+    expect(snapshot.background.ipGroupName).toBe('');
     expect(snapshot.family).toMatchObject({ fatherName: 'Jose Reyes', motherDeceased: true, numberOfSiblings: 2 });
     expect(JSON.stringify(snapshot)).not.toContain('My default statement.');
+  });
+
+  it('never carries the office-only financial details into the snapshot the Department Chair can read', () => {
+    const json = JSON.stringify(buildProfileSnapshot(fullProfile));
+    ['economicStatus', 'annualIncome', 'employmentStatus', 'assets', 'appliances', 'financialProfile'].forEach((key) => expect(json).not.toContain(key));
+  });
+
+  it('records the FORM 230-SCH family, education and grant details', () => {
+    const snapshot = buildProfileSnapshot({
+      ...fullProfile,
+      ipGroupName: 'Bagobo',
+      housingType: 'Other',
+      housingOther: 'Rented room',
+      awards: 'With Honors',
+      previousGrants: [{ type: 'Government', name: 'CHED', status: 'applied', institution: 'CHED XI' }],
+      familyDetails: { ...fullProfile.familyDetails, fatherAge: 52, siblings: [{ name: 'Mika', age: 12, relationship: 'Sister', status: 'Studying' }], householdAdults: [{ name: 'Lola Ana', age: 70, relationship: 'Grandmother' }] },
+    });
+    expect(snapshot.background.ipGroupName).toBe('Bagobo');
+    expect(snapshot.address).toMatchObject({ housingType: 'Other', housingOther: 'Rented room' });
+    expect(snapshot.education.awards).toBe('With Honors');
+    expect(snapshot.family).toMatchObject({ fatherAge: 52, siblings: [{ name: 'Mika', age: 12 }], householdAdults: [{ name: 'Lola Ana' }] });
+    expect(snapshot.aid.previousGrants).toEqual([{ type: 'Government', name: 'CHED', status: 'applied', institution: 'CHED XI' }]);
   });
 
   it('adds the strand and ranked program choices only for an incoming first-year', () => {
@@ -275,7 +362,7 @@ describe('profile snapshot sections', () => {
       familyDetails: { motherName: 'Maria Reyes', motherOccupation: 'Vendor', motherDeceased: true },
     }, { qpi: 'Verified' }));
     expect(legacy).toBe(false);
-    expect(sections.map((section) => section.key)).toEqual(['application', 'eligibility', 'background', 'personal', 'family']);
+    expect(sections.map((section) => section.key)).toEqual(['application', 'eligibility', 'background', 'personal', 'education', 'family', 'aid']);
     const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row]));
     expect(rows['Annual QPI']).toEqual({ label: 'Annual QPI', value: '3.20', verification: 'Verified' });
     expect(rows['Household income'].value).toBe('₱180,000');
@@ -283,6 +370,49 @@ describe('profile snapshot sections', () => {
     expect(rows['Employment status'].value).toBe('Part-time employed');
     expect(rows['Sibling on AdDU financial aid'].value).toBe('No');
     expect(rows.Mother.value).toBe('Maria Reyes · Vendor · Deceased');
+    expect(rows['Sex assigned at birth'].value).toBe('Female');
+    expect(rows['School last attended'].value).toBe('Davao Senior High School');
+    expect(rows['Willing to render community service'].value).toBe('Yes');
+  });
+
+  it('lists siblings, household members and grants as labelled rows', () => {
+    const { sections } = getProfileSnapshotSections(buildProfileSnapshot({
+      ...continuingProfile,
+      previousGrants: [{ type: 'Private', name: 'Alumni grant', status: 'accepted', institution: 'AdDU' }],
+      familyDetails: { siblings: [{ name: 'Mika', age: 12, relationship: 'Sister', status: 'Studying' }], householdAdults: [{ name: 'Lola Ana', age: 70, relationship: 'Grandmother' }] },
+    }));
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row.value]));
+    expect(rows['Sibling 1']).toBe('Mika · 12 yrs · Sister · Still studying');
+    expect(rows['Other household member 1']).toBe('Lola Ana · 70 yrs · Grandmother');
+    expect(rows['Grant 1']).toBe('Alumni grant · Private · Accepted · AdDU');
+  });
+
+  it('renders the FORM 230-SCH printed name, applicant status and senior high school aid', () => {
+    const { sections } = getProfileSnapshotSections(buildProfileSnapshot({
+      ...continuingProfile,
+      isTransferee: 'Yes',
+      lastName: 'Reyes', firstName: 'Ana', middleName: 'Cruz',
+      graduatingClassSize: '120',
+      previousGrants: [{ type: 'Government', name: 'CHED', level: 'Senior high school', status: 'accepted', institution: 'CHED', amount: 12000 }],
+    }));
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row.value]));
+    expect(rows['Name of applicant (Last, First, Middle)']).toBe('Reyes, Ana Cruz');
+    expect(rows.Name).toBeUndefined();
+    expect(rows['Applicant status']).toBe('Transferee');
+    expect(rows['College last attended']).toBe('Davao Senior High School');
+    expect(rows['Number of graduates of your senior high school']).toBe('120');
+    expect(rows['Financial aid in senior high school']).toContain('Senior high school');
+    expect(rows['Financial aid in senior high school']).toContain('₱12,000 a year');
+  });
+
+  it('keeps a version 2 snapshot rendering without the version 3 groups', () => {
+    const current = buildProfileSnapshot(continuingProfile);
+    const v2 = { ...current, version: 2 };
+    delete v2.education;
+    delete v2.aid;
+    const { sections } = getProfileSnapshotSections(v2);
+    expect(sections.map((section) => section.key)).toEqual(['application', 'eligibility', 'background', 'personal', 'family']);
+    expect(sections.flatMap((section) => section.rows).map((row) => row.label)).not.toContain('Birthdate');
   });
 
   it('shows only the original fields for a snapshot submitted before the extended groups', () => {
@@ -307,14 +437,14 @@ describe('supporting documents', () => {
   const application = { attachedDocuments: [...required, pwdId, extraTranscript].map((entry) => entry.id), statement: 'Statement.' };
 
   it('lists attached files that match no requirement without changing readiness', () => {
-    const result = getApplicationReadiness({ application, scholarship: gia, documents: [...required, pwdId, extraTranscript], profile: continuingProfile, certified: true });
+    const result = readinessOf({ application, scholarship: gia, documents: [...required, pwdId, extraTranscript], profile: continuingProfile, certified: true });
     expect(ids(result.supportingDocuments)).toEqual(['pwd-id']);
     expect(result.ready).toBe(true);
     expect(result.attachedCount).toBe(result.requiredCount);
   });
 
   it('is empty for tracked external entries', () => {
-    expect(getApplicationReadiness({ application, scholarship: external, documents: [pwdId], profile: continuingProfile }).supportingDocuments).toEqual([]);
+    expect(readinessOf({ application, scholarship: external, documents: [pwdId], profile: continuingProfile }).supportingDocuments).toEqual([]);
   });
 });
 
@@ -371,11 +501,11 @@ describe('My Profile document checklist', () => {
   it('merges the open internal scholarships into one list per document', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa, closed, inactive, external], profile: continuingProfile, today });
     expect(checklist.scholarships.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
-    expect(ids(checklist.items)).toEqual(['application-form', 'applicant-photo', 'citizenship-proof', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'certificate-of-award']);
-    expect(keyOf(checklist.items, 'application-form').askedByAll).toBe(true);
+    expect(ids(checklist.items)).toEqual(['applicant-photo', 'citizenship-proof', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'barangay-residence-certification', 'signed-affidavit', 'certificate-of-award']);
+    expect(keyOf(checklist.items, 'signed-affidavit').askedByAll).toBe(true);
     expect(keyOf(checklist.items, 'income-proof').scholarships.map((item) => item.id)).toEqual(['gia', 'sa']);
     expect(keyOf(checklist.items, 'income-proof').notAskedBy).toEqual([{ id: 'jubilee', title: jubilee.title }]);
-    expect(keyOf(checklist.items, 'application-form').notAskedBy).toEqual([]);
+    expect(keyOf(checklist.items, 'signed-affidavit').notAskedBy).toEqual([]);
     expect(keyOf(checklist.items, 'certificate-of-award')).toMatchObject({ askedByAll: false, scholarships: [{ id: 'jubilee', title: jubilee.title }] });
   });
 
@@ -389,10 +519,11 @@ describe('My Profile document checklist', () => {
   });
 
   it('reads each document against the whole vault', () => {
-    const documents = [doc('a', 'Application Form', 'Verified'), doc('t', 'Transcript'), doc('i', 'Income Proof', 'Rejected')];
+    const documents = [doc('a', 'Signed Affidavit of Agreement', 'Verified'), doc('t', 'Transcript'), doc('i', 'Income Proof', 'Rejected')];
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa], profile: continuingProfile, documents, today });
     expect(Object.fromEntries(checklist.items.map((item) => [item.id, item.state]))).toEqual({
-      'application-form': 'verified',
+      'signed-affidavit': 'verified',
+      'barangay-residence-certification': 'missing',
       'applicant-photo': 'missing',
       'citizenship-proof': 'missing',
       'college-grades': 'attached',
@@ -402,7 +533,7 @@ describe('My Profile document checklist', () => {
       'certificate-of-award': 'missing',
     });
     // A pending file counts, a rejected one does not: the same bar as submitting.
-    expect([checklist.ready, checklist.total]).toEqual([2, 8]);
+    expect([checklist.ready, checklist.total]).toEqual([2, 9]);
   });
 
   it('is empty when no internal scholarship is open', () => {
@@ -525,7 +656,7 @@ describe('out-of-scope internal programs', () => {
   });
 
   it('routes an out-of-scope application as tracked-only (no readiness)', () => {
-    const readiness = getApplicationReadiness({
+    const readiness = readinessOf({
       application: { id: 'app-v', attachedDocuments: [] },
       scholarship: villanueva,
       documents: [],
@@ -596,7 +727,7 @@ describe('describeDocumentDecision', () => {
   it('labels the Head lane and a rejection', () => {
     const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_head', reviewedByName: 'Ada Cruz' };
     expect(describeDocumentDecision(rejected, { showName: true }))
-      .toBe(`Rejected by Ada Cruz · Admissions Office Head · ${on}`);
+      .toBe(`Reverted for resubmission by Ada Cruz · Admissions Office Head · ${on}`);
   });
 
   it('treats a reset file as awaiting review', () => {
@@ -608,7 +739,7 @@ describe('describeDocumentDecision', () => {
     expect(describeDocumentDecision({ verificationStatus: 'Verified' }))
       .toBe('Verified · recorded before reviewer details were kept.');
     expect(describeDocumentDecision({ verificationStatus: 'Rejected', rejectionReason: 'Blurry' }))
-      .toBe('Rejected · recorded before reviewer details were kept.');
+      .toBe('Reverted for resubmission · recorded before reviewer details were kept.');
   });
 
   it('falls back to the Admissions Office lane when no role was recorded', () => {
@@ -682,7 +813,7 @@ describe('profile answers behind the requirements', () => {
     expect(byId['college-grades'].proves).toEqual(['qpi', 'academicStanding']);
     expect(byId['income-proof'].proves).toEqual(['householdIncome']);
     expect(byId['citizenship-proof'].proves).toEqual(['citizenship']);
-    expect(byId['application-form'].proves).toEqual([]);
+    expect(byId['signed-affidavit'].proves).toEqual([]);
     const incoming = Object.fromEntries(getScholarshipRequirements(gia, incomingProfile).map((item) => [item.id, item]));
     expect(incoming['hs-report-card'].proves).toEqual(['hsAverage', 'academicStanding']);
   });
@@ -695,9 +826,9 @@ describe('profile answers behind the requirements', () => {
 
   it('is ready with current proofs and blocks a proof the profile no longer matches', () => {
     const documents = currentDocs();
-    const ready = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: continuingProfile, certified: true, today });
+    const ready = readinessOf({ application: draft(documents), scholarship: gia, documents, profile: continuingProfile, certified: true, today });
     expect(ready.blockers).toEqual([]);
-    const changed = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.5 }, certified: true, today });
+    const changed = readinessOf({ application: draft(documents), scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.5 }, certified: true, today });
     expect(changed.requirements.find((item) => item.id === 'college-grades').state).toBe('outdated');
     expect(changed.ready).toBe(false);
     expect(changed.blockers).toContain('Upload a current proof for Latest grade report or transcript: your Annual QPI in My Profile is now 3.50, which the attached file was not uploaded to prove.');
@@ -712,7 +843,7 @@ describe('profile answers behind the requirements', () => {
 
   it('blocks an annual proof from an earlier academic year', () => {
     const documents = currentDocs().map((entry) => (entry.documentType === 'Income Proof' ? { ...entry, uploadedAt: '2026-05-01' } : entry));
-    const result = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: continuingProfile, certified: true, today });
+    const result = readinessOf({ application: draft(documents), scholarship: gia, documents, profile: continuingProfile, certified: true, today });
     expect(result.requirements.find((item) => item.id === 'income-proof').state).toBe('outdated');
     expect(result.blockers.some((blocker) => blocker.includes('earlier academic year'))).toBe(true);
   });
@@ -724,7 +855,7 @@ describe('profile answers behind the requirements', () => {
     expect(rows.some((item) => item.id === 'proof-ipCommunity')).toBe(false);
     expect(getScholarshipRequirements(gia, { ...claiming, pwd: 'No' }).some((item) => item.id === 'proof-pwd')).toBe(false);
     const documents = currentDocs();
-    const blocked = getApplicationReadiness({ application: draft(documents), scholarship: gia, documents, profile: claiming, certified: true, today });
+    const blocked = readinessOf({ application: draft(documents), scholarship: gia, documents, profile: claiming, certified: true, today });
     expect(blocked.blockers.some((blocker) => blocker.includes('Proof of PWD status'))).toBe(true);
   });
 
@@ -740,7 +871,7 @@ describe('profile answers behind the requirements', () => {
     const ids = getScholarshipRequirements(gia, unset).map((item) => item.id);
     expect(ids).not.toContain('college-grades');
     expect(ids).not.toContain('hs-report-card');
-    const result = getApplicationReadiness({ application: draft([]), scholarship: gia, documents: [], profile: unset, certified: true, today });
+    const result = readinessOf({ application: draft([]), scholarship: gia, documents: [], profile: unset, certified: true, today });
     expect(result.blockers[0]).toBe('Set your year standing in My Profile so the documents for your standing can be listed.');
   });
 
@@ -753,7 +884,7 @@ describe('profile answers behind the requirements', () => {
       profileSnapshot: buildProfileSnapshot(continuingProfile, {}, '2026-10-05T00:00:00.000Z'),
     };
     const later = new Date('2027-07-01T00:00:00');
-    const result = getApplicationReadiness({ application: submitted, scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.9 }, today: later });
+    const result = readinessOf({ application: submitted, scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.9 }, today: later });
     expect(result.requirements.every((item) => item.state !== 'outdated')).toBe(true);
   });
 

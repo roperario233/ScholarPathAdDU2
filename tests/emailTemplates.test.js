@@ -223,18 +223,19 @@ describe('describeApplicationStatusUpdate', () => {
 });
 
 describe('renderDocumentRejectionEmail', () => {
-  it('carries the document, the escaped reason, and the applications that use it', () => {
+  it('carries the document, the escaped note, and the applications that use it', () => {
     const { subject, html, text } = renderDocumentRejectionEmail({
       documentTitle: 'Income Tax Return',
       reason: 'Wrong document type — upload the <BIR 2316>',
       scholarshipTitles: ['GIA Grant', 'Student Assistant Program'],
       siteUrl: 'https://example.org/',
     });
-    expect(subject).toBe('Income Tax Return needs a replacement');
+    expect(subject).toBe('Income Tax Return needs to be resubmitted');
     expect(html).toContain('&lt;BIR 2316&gt;');
     expect(html).not.toContain('<BIR 2316>');
-    expect(text).toContain('Reason: Wrong document type — upload the <BIR 2316>');
+    expect(text).toContain('What to correct: Wrong document type — upload the <BIR 2316>');
     expect(text).toContain('Applications: GIA Grant, Student Assistant Program');
+    expect(text).toContain('reverted this document for resubmission');
     expect(text).toContain('replace the file');
   });
 

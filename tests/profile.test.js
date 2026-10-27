@@ -1,28 +1,43 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyApplicantStatus,
+  applyYearStanding,
+  composeFullName,
   deriveYearStanding,
+  getApplicantStatus,
+  getApplicantStatusLabel,
   getApplicationProfileGate,
   getClaimedAttributes,
   getCurrentAcademicYear,
   getProgramChoiceOptions,
   getProofSkipReason,
+  getShsFinancialAid,
+  getYearStandingLabel,
+  getYearStandingOptions,
+  isParentFinancesAnswered,
   isProofRequired,
+  isTransfereeProfile,
   getProfileCompleteness,
   normalizeAttestedValue,
   getStandingRequirements,
+  mergeProfileDetails,
   pickEligibilityAttributes,
   pickFields,
   resolveYearStanding,
+  requiresStudentNumber,
+  splitLegacyFullName,
   validateAcademicSection,
   validateAddressSection,
   validateBackgroundSection,
   validateFamilySection,
+  validateOptionalDate,
   validateFinancialSection,
   validateMobileNumber,
   validateOnboardingEssentials,
   validatePasswordChange,
   validatePersonalSection,
   validateQpi,
+  yearStandingOptions,
 } from '../src/lib/profile';
 import { checkAdduInternalGate } from '../src/lib/eligibility';
 
@@ -44,6 +59,29 @@ const chairProfile = {
   phone: '+63 918 000 0000',
 };
 
+// The FORM 230-SCH "Needed to apply" answers: applicant status, birthdate, sex,
+// school, community service, and the office-only household finances merged in as
+// financialProfile.
+const formCore = {
+  civilStatus: 'Single',
+  completeAddress: '123 Rizal St, Davao City',
+  ipCommunity: 'No',
+  pwd: 'No',
+  employed: 'Not employed',
+  isTransferee: 'No',
+  phone: '0917 123 4567',
+  hsStrand: 'STEM',
+  birthdate: '2005-04-12',
+  sexAtBirth: 'Female',
+  communityService: 'Yes',
+  schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' },
+  financialProfile: {
+    economicStatus: 'lower',
+    father: { employmentStatus: 'employed', annualIncome: 120000 },
+    mother: { employmentStatus: 'unemployed', annualIncome: 0 },
+  },
+};
+
 describe('field validators', () => {
   it('rounds QPI to two decimals and rejects values outside 0.00–4.00', () => {
     expect(validateQpi('3.256')).toEqual({ value: 3.26, error: '' });
@@ -58,11 +96,79 @@ describe('field validators', () => {
   });
 });
 
+describe('FORM 230-SCH applicant status and name parts', () => {
+  it('composes the printed name as Last, First Middle', () => {
+    expect(composeFullName({ lastName: ' Dela  Cruz ', firstName: 'Juan', middleName: 'Santos' })).toBe('Dela Cruz, Juan Santos');
+    expect(composeFullName({ lastName: 'Dela Cruz', firstName: 'Juan', middleName: '' })).toBe('Dela Cruz, Juan');
+    expect(composeFullName({ firstName: 'Juan' })).toBe('Juan');
+    expect(composeFullName({})).toBe('');
+  });
+
+  it('splits only an unambiguous stored name', () => {
+    expect(splitLegacyFullName('Dela Cruz, Juan Santos')).toEqual({ firstName: 'Juan', middleName: 'Santos', lastName: 'Dela Cruz' });
+    expect(splitLegacyFullName('Juan Dela Cruz')).toEqual({ firstName: 'Juan', middleName: 'Dela', lastName: 'Cruz' });
+    expect(splitLegacyFullName('Prince')).toEqual({ firstName: '', middleName: '', lastName: '' });
+  });
+
+  it('lets the name parts become the display name without breaking the single name', () => {
+    const withParts = validatePersonalSection({ fullName: 'Old Name', lastName: 'Reyes', firstName: 'Ana', middleName: 'Cruz' });
+    expect(withParts.errors).toEqual({});
+    expect(withParts.values.fullName).toBe('Reyes, Ana Cruz');
+    // A profile that only holds the single name is untouched.
+    expect(validatePersonalSection({ fullName: 'Ana Reyes' }).values.fullName).toBe('Ana Reyes');
+  });
+
+  it('derives the applicant status from the standing and the transferee answer', () => {
+    expect(getApplicantStatus({ yearStanding: 'incoming-1st' })).toBe('incoming');
+    expect(getApplicantStatus({ yearStanding: '2nd', isTransferee: 'No' })).toBe('current');
+    expect(getApplicantStatus({ yearStanding: '2nd', isTransferee: 'Yes' })).toBe('transferee');
+    expect(getApplicantStatus({})).toBe('');
+    // The answer survives while the year is being re-picked.
+    expect(getApplicantStatus({ isTransferee: 'Yes' })).toBe('transferee');
+    expect(getApplicantStatus({ isTransferee: 'No' })).toBe('');
+    expect(getApplicantStatusLabel({ yearStanding: '2nd', isTransferee: 'Yes' })).toBe('Transferee');
+    expect(isTransfereeProfile({ isTransferee: 'Yes' })).toBe(true);
+  });
+
+  it('keeps the applicant status out of the first-login essentials but in the gate', () => {
+    const onboarding = validateOnboardingEssentials({
+      studentNumber: '2023001', degreeProgram: 'BS Information Technology', yearStanding: '2nd',
+      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+    }, programs);
+    expect(onboarding.errors).toEqual({});
+    const missing = getApplicationProfileGate({
+      fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
+      academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino', ...formCore, isTransferee: '',
+    }).missing.map((item) => item.key);
+    expect(missing).toEqual(['applicantStatus']);
+  });
+
+  it('asks a transferee for the college last attended', () => {
+    const completeTransferee = {
+      fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
+      academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino',
+      ...formCore, isTransferee: 'Yes', schoolLastAttended: { name: '' },
+    };
+    const gate = getApplicationProfileGate(completeTransferee);
+    expect(gate.missing.map((item) => [item.key, item.label])).toEqual([['schoolLastAttended', 'College last attended']]);
+  });
+
+  it('finds the senior high school grants', () => {
+    const grants = [
+      { name: 'CHED', level: 'Senior high school' },
+      { name: 'DOST', level: 'College' },
+      { name: 'SHS voucher', level: 'Both' },
+    ];
+    expect(getShsFinancialAid(grants).map((entry) => entry.name)).toEqual(['CHED', 'SHS voucher']);
+    expect(getShsFinancialAid(undefined)).toEqual([]);
+  });
+});
+
 describe('section validators', () => {
   it('normalizes personal information and limits the bio length', () => {
     const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', essay: '' });
+    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
 
     expect(validatePersonalSection({ fullName: 'A', bio: 'x'.repeat(281) }).errors).toMatchObject({
       fullName: expect.any(String),
@@ -101,14 +207,86 @@ describe('section validators', () => {
       fatherName: 'Roberto Espinosa',
       fatherOccupation: 'Fisherman',
       fatherDeceased: false,
+      fatherAge: '',
+      fatherDateOfDeath: '',
       motherName: 'Liza Espinosa',
       motherOccupation: '',
       motherDeceased: true,
+      motherAge: '',
+      motherDateOfDeath: '',
       familyPosition: 'Eldest',
       numberOfSiblings: 2,
+      siblings: [],
+      householdAdults: [],
     });
     expect(validateFamilySection({ familyDetails: { familyPosition: 'First born' } }).errors.familyPosition).toBeTruthy();
     expect(validateFamilySection({ familyDetails: { numberOfSiblings: 'lots' } }).errors.numberOfSiblings).toBeTruthy();
+  });
+
+  it('validates the FORM 230-SCH personal details', () => {
+    const valid = validatePersonalSection({ fullName: 'Ana Cruz', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: '  she/her ' });
+    expect(valid.errors).toEqual({});
+    expect(valid.values).toMatchObject({ birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: 'she/her' });
+
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', birthdate: '2005-02-31' }).errors.birthdate).toBeTruthy();
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', birthdate: '2999-01-01' }).errors.birthdate).toBeTruthy();
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', sexAtBirth: 'Other' }).errors.sexAtBirth).toBeTruthy();
+    expect(validateOptionalDate('').error).toBe('');
+  });
+
+  it('keeps the housing detail only for the Other option', () => {
+    const other = validateAddressSection({ completeAddress: 'x', housingType: 'Other', housingOther: ' Rented room ' });
+    expect(other.errors).toEqual({});
+    expect(other.values).toMatchObject({ housingType: 'Other', housingOther: 'Rented room' });
+    expect(validateAddressSection({ completeAddress: 'x', housingType: 'Other', housingOther: '' }).errors.housingOther).toBeTruthy();
+    expect(validateAddressSection({ completeAddress: 'x', housingType: 'With relatives', housingOther: 'ignored' }).values.housingOther).toBe('');
+    expect(validateAddressSection({ completeAddress: 'x', housingType: 'Castle' }).errors.housingType).toBeTruthy();
+  });
+
+  it('cleans the sibling and household member lists and drops blank rows', () => {
+    const result = validateFamilySection({
+      familyDetails: {
+        fatherDeceased: true,
+        fatherDateOfDeath: '2020-05-01',
+        fatherAge: '60',
+        siblings: [
+          { name: '  Mika  Cruz ', age: '12', relationship: 'Sister', status: 'Studying' },
+          { name: '', age: '', relationship: '', status: '' },
+          { name: 'Paolo', age: '3', status: 'Aged 3 or below' },
+        ],
+        householdAdults: [{ name: 'Lola Ana', age: '70', relationship: 'Grandmother' }],
+      },
+    });
+    expect(result.errors).toEqual({});
+    expect(result.values.familyDetails.siblings).toEqual([
+      { name: 'Mika Cruz', age: 12, relationship: 'Sister', status: 'Studying' },
+      { name: 'Paolo', age: 3, relationship: '', status: 'Aged 3 or below' },
+    ]);
+    expect(result.values.familyDetails.householdAdults).toEqual([{ name: 'Lola Ana', age: 70, relationship: 'Grandmother' }]);
+    // The date of death only counts for a deceased parent; the age is ignored text for the living.
+    expect(result.values.familyDetails.fatherDateOfDeath).toBe('2020-05-01');
+    expect(validateFamilySection({ familyDetails: { motherDeceased: false, motherDateOfDeath: '2020-05-01' } }).values.familyDetails.motherDateOfDeath).toBe('');
+    expect(validateFamilySection({ familyDetails: { siblings: [{ name: 'Mika', age: '200' }] } }).errors.siblings).toMatch(/Sibling 1/);
+    expect(validateFamilySection({ familyDetails: { siblings: [{ name: '', age: '9' }] } }).errors.siblings).toMatch(/name/);
+  });
+
+  it('validates the education, IP group, community service and grants answers', () => {
+    const academic = validateAcademicSection({
+      yearStanding: '2nd', degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', qpi: '3',
+      schoolLastAttended: { name: ' Davao SHS ', city: 'Davao City', province: '' }, awards: ' With honors ',
+    }, programs);
+    expect(academic.values.schoolLastAttended).toEqual({ name: 'Davao SHS', city: 'Davao City', province: '' });
+    expect(academic.values.awards).toBe('With honors');
+
+    const background = validateBackgroundSection({
+      citizenship: 'Filipino', ipCommunity: 'Yes', ipGroupName: ' Bagobo ', communityService: 'Yes',
+      previousGrants: [{ type: 'Government', name: 'CHED', status: 'applied', institution: '' }, { type: '', name: '', status: '', institution: '' }],
+    });
+    expect(background.errors).toEqual({});
+    expect(background.values).toMatchObject({ ipGroupName: 'Bagobo', communityService: 'Yes' });
+    expect(background.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', level: '', status: 'applied', institution: '', amount: '' }]);
+    expect(validateBackgroundSection({ citizenship: 'Filipino', ipCommunity: 'No', ipGroupName: 'Bagobo' }).values.ipGroupName).toBe('');
+    expect(validateBackgroundSection({ citizenship: 'Filipino', previousGrants: [{ name: 'DOST' }] }).errors.previousGrants).toMatch(/Grant 1/);
   });
 
   it('derives applicant type and year level from the year standing', () => {
@@ -126,7 +304,11 @@ describe('section validators', () => {
     expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '' }, programs).errors.qpi).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '2nd', qpi: '3.1' }, programs).errors.studentNumber).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
-    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeUndefined();
+    // The strand is asked only of an incoming first-year, and only there is it
+    // validated; another standing keeps a valid recorded answer.
+    expect(validateAcademicSection({ ...base, yearStanding: 'incoming-1st', hsStrand: 'x', hsAverage: '94' }, programs).errors.hsStrand).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', isTransferee: 'No', hsStrand: 'STEM' }, programs).values.hsStrand).toBe('STEM');
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '' }, programs).errors.yearStanding).toBeTruthy();
     expect(validateAcademicSection({ ...base, degreeProgram: 'BS Unknown', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs).errors.degreeProgram).toBeTruthy();
   });
@@ -150,11 +332,14 @@ describe('section validators', () => {
     const ranked = validateAcademicSection({ ...base, programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' }, choices);
     expect(ranked.errors).toEqual({});
     expect(ranked.values).toMatchObject({ programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' });
-    // A continuing student is not asked for program choices, so an inherited
-    // ranked list is cleared instead of saved through My Profile.
-    const continuing = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology', programChoice3: 'BS Accountancy' }, choices);
+    // Only an incoming first-year ranks a 2nd and 3rd choice, so a continuing
+    // student's inherited list is cleared instead of validated or kept.
+    const continuing = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Computer Science', programChoice3: 'BS Accountancy' }, choices);
     expect(continuing.errors.programChoice2).toBeUndefined();
     expect(continuing.values).toMatchObject({ programChoice2: '', programChoice3: '' });
+    const duplicated = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1', programChoice2: 'BS Information Technology' }, choices);
+    expect(duplicated.errors.programChoice2).toBeUndefined();
+    expect(duplicated.values.programChoice2).toBe('');
   });
 
   it('offers only the programs not already chosen in another slot', () => {
@@ -233,13 +418,91 @@ describe('year standing', () => {
   });
 
   it('reports what each standing requires in one place', () => {
-    expect(getStandingRequirements('incoming-1st')).toMatchObject({ requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: true, requiresProgramChoices: true, programLabel: 'Program / Course (to be enrolled)' });
-    expect(getStandingRequirements('4th')).toMatchObject({ yearStanding: '4th', requiresStudentNumber: true, requiresQpi: true, requiresHsStanding: false, requiresProgramChoices: false, programLabel: 'Program / Course' });
+    expect(getStandingRequirements('incoming-1st')).toMatchObject({ requiresQpi: false, requiresHsStanding: true, requiresProgramChoices: true, programLabel: 'Program / Course (to be enrolled)' });
+    expect(getStandingRequirements('4th')).toMatchObject({ yearStanding: '4th', requiresQpi: true, requiresHsStanding: false, requiresProgramChoices: false, programLabel: 'Program / Course' });
     // Accepts a profile-shaped object too, for the routing gates.
-    expect(getStandingRequirements({ applicantType: 'current', yearLevel: 3 })).toMatchObject({ yearStanding: '3rd', requiresStudentNumber: true, requiresProgramChoices: false });
+    expect(getStandingRequirements({ applicantType: 'current', yearLevel: 3 })).toMatchObject({ yearStanding: '3rd', requiresProgramChoices: false });
     // An unanswered standing requires nothing yet, so no standing-specific field
     // shows before the student picks one.
-    expect(getStandingRequirements('')).toMatchObject({ yearStanding: '', requiresStudentNumber: false, requiresQpi: false, requiresHsStanding: false, requiresProgramChoices: false });
+    expect(getStandingRequirements('')).toMatchObject({ yearStanding: '', requiresQpi: false, requiresHsStanding: false, requiresProgramChoices: false });
+  });
+
+  it('asks only a current Ateneo student for an AdDU student number', () => {
+    // The number is issued by AdDU, so an incoming first-year has none yet and a
+    // transferee's record belongs to the college they left.
+    expect(requiresStudentNumber({ yearStanding: '2nd', isTransferee: 'No' })).toBe(true);
+    expect(requiresStudentNumber({ yearStanding: '5th', isTransferee: 'No' })).toBe(true);
+    expect(requiresStudentNumber({ yearStanding: '2nd', isTransferee: 'Yes' })).toBe(false);
+    expect(requiresStudentNumber({ yearStanding: 'incoming-1st', isTransferee: 'No' })).toBe(false);
+    expect(requiresStudentNumber({ yearStanding: '', isTransferee: 'No' })).toBe(false);
+    // A transferee's profile is complete without one, and the section accepts it.
+    const transferee = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '', yearStanding: '2nd', qpi: '3.1', isTransferee: 'Yes' }, programs);
+    expect(transferee.errors).toEqual({});
+    expect(transferee.values.studentNumber).toBe('');
+    // The first-login essentials follow the same rule, so a transferee is never
+    // blocked by a field the modal does not show.
+    const onboarding = validateOnboardingEssentials({
+      studentNumber: '', degreeProgram: 'BS Information Technology', yearStanding: '2nd', isTransferee: 'Yes',
+      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+    }, programs);
+    expect(onboarding.errors).toEqual({});
+  });
+
+  it('names each standing as the year the applicant is going into', () => {
+    // Offers open in the summer, so a continuing applicant answers with the year
+    // they are going into and `1st year` is no longer offered.
+    expect(yearStandingOptions.map((option) => option.value)).toEqual(['incoming-1st', '2nd', '3rd', '4th', '5th']);
+    expect(yearStandingOptions.map((option) => option.label)).toEqual(['Incoming 1st year', 'Incoming 2nd year', 'Incoming 3rd year', 'Incoming 4th year', 'Incoming 5th year']);
+    expect(getYearStandingLabel('3rd')).toBe('Incoming 3rd year');
+  });
+
+  it('offers only the standings the applicant status allows', () => {
+    // An incoming first-year has nothing to pick, and an enrolled applicant is
+    // never offered the incoming-first-year standing.
+    expect(getYearStandingOptions('incoming')).toEqual([]);
+    expect(getYearStandingOptions('current').map((option) => option.value)).toEqual(['2nd', '3rd', '4th', '5th']);
+    expect(getYearStandingOptions('transferee').map((option) => option.value)).toEqual(['2nd', '3rd', '4th', '5th']);
+    // An unanswered status keeps the full list, so a profile saved before the
+    // status existed is never locked out of its own standing.
+    expect(getYearStandingOptions('').map((option) => option.value)).toEqual(['incoming-1st', '2nd', '3rd', '4th', '5th']);
+  });
+
+  it('keeps a standing saved before the labels changed', () => {
+    expect(deriveYearStanding({ yearStanding: '1st', applicantType: 'current', yearLevel: 1 })).toBe('1st');
+    expect(resolveYearStanding('1st')).toMatchObject({ yearStanding: '1st', isIncomingFirstYear: false, applicantType: 'current', yearLevel: 1 });
+    expect(getStandingRequirements('1st')).toMatchObject({ requiresQpi: true, requiresHsStanding: false });
+    expect(requiresStudentNumber({ yearStanding: '1st', isTransferee: 'No' })).toBe(true);
+    expect(getYearStandingLabel('1st')).toBe('1st year');
+  });
+
+  it('keeps an incoming first-year from also being a transferee', () => {
+    const incoming = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', isTransferee: 'Yes' }, programs);
+    expect(incoming.values.isTransferee).toBe('No');
+    const transferee = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', isTransferee: 'Yes' }, programs);
+    expect(transferee.values.isTransferee).toBe('Yes');
+    // An answered standing records the status the control shows, instead of leaving
+    // it blank while the student believes they answered it.
+    const current = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', isTransferee: '' }, programs);
+    expect(current.values.isTransferee).toBe('No');
+  });
+
+  it('keeps the applicant status answer while the year is still unanswered', () => {
+    // Regression: the status used to be re-derived from the year standing, so
+    // choosing Current or Transferee before a year snapped it back to the
+    // placeholder and the control could not be used.
+    expect(applyApplicantStatus({ yearStanding: '' }, 'current')).toMatchObject({ applicantStatus: 'current', yearStanding: '', isTransferee: 'No' });
+    expect(applyApplicantStatus({ yearStanding: '' }, 'transferee')).toMatchObject({ applicantStatus: 'transferee', yearStanding: '', isTransferee: 'Yes' });
+    // A year the new status still offers is kept; one it cannot offer is cleared.
+    expect(applyApplicantStatus({ yearStanding: '3rd' }, 'transferee')).toMatchObject({ applicantStatus: 'transferee', yearStanding: '3rd', isTransferee: 'Yes' });
+    expect(applyApplicantStatus({ yearStanding: 'incoming-1st' }, 'current')).toMatchObject({ yearStanding: '' });
+    // Incoming answers the standing and its transferee question, and leaves the
+    // ranked choices alone because they belong to that case.
+    const incoming = applyApplicantStatus({ yearStanding: '2nd' }, 'incoming');
+    expect(incoming).toMatchObject({ applicantStatus: 'incoming', yearStanding: 'incoming-1st', isTransferee: 'No' });
+    expect(incoming).not.toHaveProperty('programChoice2');
+    // Picking the incoming year answers the status too, so the two controls agree.
+    expect(applyYearStanding('incoming-1st')).toMatchObject({ yearStanding: 'incoming-1st', applicantStatus: 'incoming', isTransferee: 'No' });
+    expect(applyYearStanding('4th')).toEqual({ yearStanding: '4th' });
   });
 });
 
@@ -269,6 +532,7 @@ describe('getProfileCompleteness', () => {
     ipCommunity: 'No',
     pwd: 'No',
     employed: 'Not employed',
+    ...formCore,
   };
   const keysOf = (completeness, group) => completeness.items.filter((item) => item.group === group).map((item) => item.key);
 
@@ -278,14 +542,14 @@ describe('getProfileCompleteness', () => {
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
     // The default scholarship statement is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
-    expect(completeness.percent).toBe(Math.round((13 / 14) * 100));
+    expect(completeness.percent).toBe(Math.round((20 / 21) * 100));
   });
 
   it('separates what an application needs from the descriptive details', () => {
     const completeness = getProfileCompleteness(completeStudent, 'student');
-    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship']);
-    expect(keysOf(completeness, 'details')).toEqual(['phone', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed']);
-    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 8, 8], ['details', 6, 6]]);
+    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
+    expect(keysOf(completeness, 'details')).toEqual([]);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 21, 21]]);
     expect(completeness.percent).toBe(100);
   });
 
@@ -297,7 +561,7 @@ describe('getProfileCompleteness', () => {
     expect(keys).not.toContain('studentNumber');
     expect(keys).not.toContain('qpi');
     expect(keysOf(completeness, 'application')).toContain('hsAverage');
-    expect(keysOf(completeness, 'details')).toContain('hsStrand');
+    expect(keysOf(completeness, 'application')).toContain('hsStrand');
     expect(completeness.items.find((item) => item.key === 'degreeProgram').label).toBe('Program to be enrolled');
     expect(completeness.items.filter((item) => !item.done).map((item) => item.key)).toEqual(['hsAverage', 'hsStrand']);
 
@@ -482,6 +746,7 @@ describe('getApplicationProfileGate', () => {
     qpi: 3.2,
     householdIncome: 180000,
     citizenship: 'Filipino',
+    ...formCore,
   };
 
   it('allows a profile whose "Needed to apply" answers are complete', () => {
@@ -499,5 +764,75 @@ describe('getApplicationProfileGate', () => {
     const gate = getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '' });
     expect(gate.missing.map((item) => item.key)).toEqual(['hsAverage']);
     expect(getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 91 }).allowed).toBe(true);
+  });
+});
+
+describe('mergeProfileDetails', () => {
+  it('keeps the stored details of other sections when one section saves', () => {
+    const stored = { religion: 'Roman Catholic', civilStatus: 'Single', essay: 'Kept', familyDetails: { fatherName: 'Roberto' }, qpi: 1.5 };
+    const merged = mergeProfileDetails(stored, { completeAddress: 'Davao City', country: 'Philippines' });
+    expect(merged).toEqual({
+      religion: 'Roman Catholic',
+      civilStatus: 'Single',
+      essay: 'Kept',
+      familyDetails: { fatherName: 'Roberto' },
+      completeAddress: 'Davao City',
+      country: 'Philippines',
+    });
+  });
+
+  it('lets the saved section overwrite its own keys and tolerates a missing profile', () => {
+    expect(mergeProfileDetails({ religion: 'Islam' }, { religion: '' })).toEqual({ religion: '' });
+    expect(mergeProfileDetails(null, { country: 'Philippines' })).toEqual({ country: 'Philippines' });
+  });
+});
+
+describe('FORM 230-SCH core answers', () => {
+  const complete = {
+    fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
+    academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino', ...formCore,
+  };
+
+  it('asks for each core answer and links it to the section that holds it', () => {
+    const gate = getApplicationProfileGate({
+      ...complete, birthdate: '', sexAtBirth: '', communityService: '', financialProfile: undefined,
+    });
+    expect(gate.missing.map((item) => [item.key, item.section])).toEqual([
+      ['birthdate', 'personal'],
+      ['sexAtBirth', 'personal'],
+      ['communityService', 'background'],
+      ['economicStatus', 'finances'],
+      ['fatherFinances', 'finances'],
+      ['motherFinances', 'finances'],
+    ]);
+  });
+
+  it('requires civil status, address, IP community, PWD, employment, mobile number and (incoming) strand before applying', () => {
+    const gate = getApplicationProfileGate({ ...complete, civilStatus: '', completeAddress: '', ipCommunity: '', pwd: '', employed: '', phone: '' });
+    expect(gate.missing.map((item) => [item.key, item.section])).toEqual([
+      ['civilStatus', 'personal'],
+      ['completeAddress', 'address'],
+      ['ipCommunity', 'background'],
+      ['pwd', 'background'],
+      ['employed', 'background'],
+      ['phone', 'personal'],
+    ]);
+    const incoming = { ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, hsStrand: '' };
+    expect(getApplicationProfileGate(incoming).missing.map((item) => [item.key, item.section])).toEqual([['hsStrand', 'academic']]);
+    expect(getApplicationProfileGate({ ...complete, hsStrand: '' }).allowed).toBe(true);
+  });
+
+  it('asks only an incoming first-year for the senior high school last attended', () => {
+    const incoming = { ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, schoolLastAttended: { name: '' } };
+    expect(getApplicationProfileGate(incoming).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
+    expect(getApplicationProfileGate({ ...complete, schoolLastAttended: { name: '' } }).allowed).toBe(true);
+  });
+
+  it('counts a deceased parent as answered and accepts a 0 income', () => {
+    expect(isParentFinancesAnswered({ familyDetails: { fatherDeceased: true } }, 'father')).toBe(true);
+    expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'unemployed', annualIncome: 0 } } }, 'mother')).toBe(true);
+    expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'unemployed', annualIncome: '' } } }, 'mother')).toBe(false);
+    expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'retired', annualIncome: 10 } } }, 'mother')).toBe(false);
+    expect(isParentFinancesAnswered({}, 'father')).toBe(false);
   });
 });

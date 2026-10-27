@@ -2,7 +2,8 @@ import { useMemo } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
-import { getApprovalQueue, getDocumentsAwaitingReview, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
+import { getApprovalQueue, getDocumentsAwaitingReview, getIntakePool, getMyReviewQueue, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
+import { getEndorsementQueue } from '../../lib/endorsement';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
@@ -13,10 +14,23 @@ import { fmtDate } from '../../lib/formatters';
 // workspaces and metrics.
 const workspaces = [
   {
+    view: 'admin-intake',
+    label: 'Intake pool',
+    description: 'Pick up newly submitted applications and see every open case, taken or not.',
+    action: 'Open intake pool',
+  },
+  {
     view: 'admin-review',
-    label: 'Application review queue',
-    description: 'Reviews, document checks, and interview scheduling.',
+    label: 'Review queue',
+    description: 'The cases you opened: reviews, document checks, and interview scheduling.',
     action: 'Open review queue',
+  },
+  {
+    view: 'admin-endorsement',
+    label: 'Endorsement',
+    description: 'Record the office decision on the cases the Staff sent for endorsement.',
+    action: 'Open endorsement queue',
+    headOnly: true,
   },
   {
     view: 'admin-interviews',
@@ -53,17 +67,24 @@ const workspaces = [
   },
 ];
 
-export default function AdminOverview({ applications = [], documents = [], role = 'admissions_office', onOpenWorkspace }) {
+export default function AdminOverview({ applications = [], documents = [], caseOfficers = [], currentUserId = '', role = 'admissions_office', onOpenWorkspace }) {
   const isHead = isAdmissionsHeadRole(role);
   const visibleWorkspaces = useMemo(
     () => workspaces.filter((workspace) => !workspace.headOnly || isHead),
     [isHead],
   );
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
+  // The officer's own cases, and the pool nobody has opened yet. Together they are
+  // the day's work for either office lane.
+  const myQueue = useMemo(
+    () => getMyReviewQueue(applications, caseOfficers, currentUserId),
+    [applications, caseOfficers, currentUserId],
+  );
+  const intakePool = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
   const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
   // SOP step 4 cases the Head must endorse. Staff hand them off; the Head decides.
   const endorsementApplications = useMemo(
-    () => applications.filter((entry) => entry.status === 'For Endorsement'),
+    () => getEndorsementQueue(applications),
     [applications],
   );
   const blockingDocuments = useMemo(
@@ -87,18 +108,19 @@ export default function AdminOverview({ applications = [], documents = [], role 
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Intake pool" value={intakePool.length} note="Open cases nobody has picked up" />
+        <StatCard label="In my review queue" value={myQueue.length} note="Cases you opened" />
         {isHead ? (
           <>
             <StatCard label="Awaiting your endorsement" value={endorsementApplications.length} note="Verified cases ready for your decision" />
             <StatCard label="Awaiting your approval" value={approvalApplications.length} note="Sub-committee recommendations" />
             <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for release" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released to applicants" />
-            <StatCard label="Open cases" value={reviewApplications.length} note="Awaiting action" />
+            <StatCard label="Open cases across the office" value={reviewApplications.length} note="Every application awaiting action" />
           </>
         ) : (
           <>
-            <StatCard label="Applications in review" value={reviewApplications.length} note="Standard Procedure workflow queue" />
-            <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files on applications at verification" />
+            <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files across the office" />
             <StatCard label="Awaiting endorsement" value={endorsementApplications.length} note="With the Admissions Office Head" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Head" />
           </>

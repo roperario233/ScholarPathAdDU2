@@ -1,4 +1,6 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
+import { isHierarchyProgram } from './academicPrograms';
+import { isReviewerRole } from './reviewScope';
 import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
 import { AVATAR_BUCKET, buildAvatarStoragePath } from './avatarStorage';
 
@@ -57,7 +59,10 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
     attachedDocuments: documentIdsByApplication[row.id] || [],
     studentName: student.full_name || 'Student applicant',
     studentProgram: student.degree_program || '',
-    studentDepartment: student.department || '',
+    // The profile's stored school. The academic department and cluster are derived
+    // from the program through the taxonomy (src/lib/reviewScope.js), so a student
+    // who changes program changes department without a second column to keep in step.
+    studentSchool: student.department || '',
     studentQpi: student.qpi ?? null,
     studentHouseholdIncome: student.household_income ?? null,
     endorsement: row.endorsement ?? null,
@@ -74,12 +79,16 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
   };
 };
 
+// School -> Cluster -> Department -> Degree program. `school` is the value
+// `profiles.department` stores and `department` is what the reviewer scope ladder
+// resolves against, so both must survive the row mapping.
 const toAcademicProgram = (row) => ({
   id: row.id,
   value: row.value,
   label: row.label,
-  department: row.department,
-  category: row.category,
+  school: row.school || '',
+  cluster: row.cluster || '',
+  department: row.department || '',
 });
 
 const toAnnouncement = (row) => ({ ...row, createdAt: row.created_at });
@@ -122,6 +131,20 @@ const toReviewComment = (row) => ({
   createdAt: row.created_at,
 });
 
+// The Admissions Office case-officer roster (application_case_officers). Staff
+// only: the student never learns which officer opened their application, so these
+// rows are never merged into an application object.
+const toCaseOfficer = (row) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  officerId: row.officer_id || null,
+  officerName: row.officer_name || 'Admissions Office reviewer',
+  officerRole: row.officer_role || '',
+  joinedAt: row.joined_at,
+  leftAt: row.left_at || null,
+  leftReason: row.left_reason || '',
+});
+
 // SOP step 5 (20261029000000_overhaul_interview_stage.sql). Locations are read by
 // the Admissions Office; panel membership and evaluation notes are staff-only,
 // and the RLS policies scope a Department Chair to their own department.
@@ -153,12 +176,18 @@ const toInterviewNote = (row, nameById = {}) => ({
   authorId: row.author_id,
   authorRole: row.author_role,
   authorName: nameById[row.author_id] || null,
+  // The panel's recommendation (SOP step 6 input). `rating` stays for notes
+  // recorded before recommendation levels existed.
+  recommendationLevel: row.recommendation_level ?? null,
   rating: row.rating ?? null,
   body: row.body,
   createdAt: row.created_at,
 });
 
-const STAFF_ROLES = ['admissions_office', 'admissions_head', 'department_chair'];
+// Reviewer accounts read a department-scoped slice of the office workflow. All three
+// academic levels (Dean, Assistant Dean, Chairperson) sit on this ladder; the two
+// Admissions Office lanes read every case.
+const STAFF_ROLES = ['admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'];
 
 const ensureReady = () => hasSupabaseConfig && supabase;
 
@@ -171,13 +200,13 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
     supabase.from('announcements').select('*').order('created_at', { ascending: false }),
     supabase.from('notifications').select('*').eq('profile_id', userId).order('created_at', { ascending: false }),
-    role === 'department_chair'
+    isReviewerRole(role)
       ? supabase.from('department_reviews').select('*').eq('department', department).order('created_at', { ascending: false })
       : Promise.resolve({ data: [], error: null }),
     supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId),
     // Staff queues need applicant context. students_read is limited to their own
     // profile by RLS, so this select is safe for every role.
-    supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income'),
+    supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income, review_school, review_cluster, review_department'),
     // Office calendar planning entries are a staff-only slice. A student session
     // never asks for them, so they cannot leak into the student calendar.
     role === 'student'
@@ -275,20 +304,50 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // The Admissions Office case-officer roster (application_case_officers, from
+  // 20261027043147). Admissions Office sessions only: the student and the
+  // Department Chair never receive these rows. The roster is what splits the
+  // shared intake pool from each officer's own review queue. A pending migration
+  // yields no rows and reports caseOfficersReady: false, so the workspace can say
+  // so instead of quietly treating every case as unopened.
+  let caseOfficers = [];
+  let caseOfficersReady = true;
+  if (role !== 'student' && !isReviewerRole(role)) {
+    const caseOfficersResult = await supabase
+      .from('application_case_officers')
+      .select('*')
+      .is('left_at', null)
+      .order('joined_at', { ascending: true });
+    if (caseOfficersResult.error) {
+      caseOfficersReady = false;
+    } else {
+      caseOfficers = (caseOfficersResult.data || []).map(toCaseOfficer);
+    }
+  }
+
   // SOP step 5 interview data. Staff only; a pending migration yields empty
   // lists rather than failing the whole workspace.
   const nameById = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, entry.full_name || '']));
-  // The staff accounts visible to this session: the interview panel picker reads
-  // the Department Chairs of the applicant's school from it (SOP 5a).
+  // The staff accounts visible to this session: the interview panel picker draws the
+  // Dean, Assistant Dean, and Chairperson whose scope covers the applicant from it
+  // (SOP 5a), so each entry carries its review scope as well as its school.
   const staffDirectory = (profilesResult.data || [])
     .filter((entry) => STAFF_ROLES.includes(entry.role))
-    .map((entry) => ({ userId: entry.user_id, fullName: entry.full_name || 'Staff member', role: entry.role, department: entry.department || '' }));
+    .map((entry) => ({
+      userId: entry.user_id,
+      fullName: entry.full_name || 'Staff member',
+      role: entry.role,
+      department: entry.department || '',
+      reviewSchool: entry.review_school || '',
+      reviewCluster: entry.review_cluster || '',
+      reviewDepartment: entry.review_department || '',
+    }));
   let interviewLocations = [];
   let interviewPanelists = [];
   let interviewNotes = [];
   if (role !== 'student') {
     const [locationsResult, panelistsResult, notesResult] = await Promise.all([
-      role === 'department_chair'
+      isReviewerRole(role)
         ? Promise.resolve({ data: [], error: null })
         : supabase.from('interview_locations').select('*').order('name', { ascending: true }),
       applicationIds.length
@@ -315,6 +374,10 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
     reviewComments,
     staffDirectory,
+    // Staff-only case-officer roster: which Admissions Office accounts have
+    // opened which application. Empty for a student or Department Chair session.
+    caseOfficers,
+    caseOfficersReady,
     interviewLocations,
     interviewPanelists,
     interviewNotes,
@@ -333,11 +396,16 @@ export const loadSupabaseAcademicPrograms = async () => {
   const result = await supabase.from('academic_programs').select('*').order('sort_order', { ascending: true });
   if (result.error) return { success: false, fallback: false, message: result.error.message };
 
-  return {
-    success: true,
-    fallback: false,
-    academicPrograms: (result.data || []).map(toAcademicProgram),
-  };
+  const academicPrograms = (result.data || []).map(toAcademicProgram);
+  // Pending-migration tolerance: a project whose `academic_programs` table has not
+  // been migrated to the four-level hierarchy returns rows with no `school` or
+  // `department`. Falling back to the bundled catalog keeps the academic profile
+  // readable instead of painting empty school and department lines.
+  if (academicPrograms.length && !academicPrograms.every(isHierarchyProgram)) {
+    return { success: false, fallback: true };
+  }
+
+  return { success: true, fallback: false, academicPrograms };
 };
 
 export const createSupabaseScholarship = async (scholarship) => {
@@ -394,6 +462,41 @@ export const updateSupabaseApplicationStage = (applicationId, status, stagePatch
   ensureReady()
     ? supabase.from('applications').update({ status, updated_at: new Date().toISOString(), ...stagePatch }).eq('id', applicationId).then(({ error }) => ({ error }))
     : Promise.resolve({ error: null })
+);
+
+// The Admissions Office case-officer roster. Re-read after a join so the client
+// sees every officer on the case, not only this tab's own write.
+export const loadSupabaseApplicationCaseOfficers = async () => {
+  if (!ensureReady()) {
+    return { caseOfficers: [], error: { message: 'Supabase is not configured.' } };
+  }
+  const result = await supabase
+    .from('application_case_officers')
+    .select('*')
+    .is('left_at', null)
+    .order('joined_at', { ascending: true });
+  return {
+    caseOfficers: result.error ? [] : (result.data || []).map(toCaseOfficer),
+    error: result.error,
+  };
+};
+
+// join_application_review (20261027043147): joins the signed-in Admissions Office
+// account to the case and starts the review when the application is still
+// Submitted. Idempotent, so re-opening a case writes nothing. Returns the updated
+// application row.
+export const joinSupabaseApplicationReview = (applicationId) => (
+  ensureReady()
+    ? supabase.rpc('join_application_review', { p_application_id: applicationId })
+    : Promise.resolve({ data: null, error: { message: 'Supabase is not configured.' } })
+);
+
+// leave_application_review: removes the signed-in officer from the roster with a
+// recorded reason. The application keeps its status.
+export const leaveSupabaseApplicationReview = (applicationId, reason) => (
+  ensureReady()
+    ? supabase.rpc('leave_application_review', { p_application_id: applicationId, p_reason: reason }).then(({ error }) => ({ error }))
+    : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
 );
 
 // The internal endorsement thread. The Admissions Office and the Department
@@ -456,12 +559,13 @@ export const replaceSupabaseInterviewPanel = async (applicationId, panel = [], n
   return { data: (inserted.data || []).map((row) => toInterviewPanelist(row, nameById)), error: inserted.error };
 };
 
-export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, rating, body }) => {
+export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, recommendationLevel = null, rating = null, body }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const result = await supabase.from('application_interview_notes').insert({
     application_id: applicationId,
     author_id: authorId,
     author_role: authorRole,
+    recommendation_level: recommendationLevel ?? null,
     rating: rating ?? null,
     body,
   }).select('*').single();
@@ -710,6 +814,78 @@ export const createSupabaseOfficeCalendarEntry = ({ id, title, entryDate, kind, 
 export const deleteSupabaseOfficeCalendarEntry = (id) => (
   ensureReady() ? supabase.from('office_calendar_entries').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
+
+// FORM 230-SCH financial details live in two office-only tables (see
+// 20261036000000_add_application_financial_details.sql). A project that has not
+// applied the migration answers with `missing: true` so the app says so instead
+// of failing the whole workspace.
+const isMissingTableError = (error) => ['42P01', 'PGRST205'].includes(error?.code);
+
+const financialResult = ({ data, error }, pick) => {
+  if (error) return { success: false, missing: isMissingTableError(error), error };
+  return { success: true, missing: false, ...pick(data) };
+};
+
+export const loadSupabaseFinancialProfile = async (studentId) => {
+  if (!ensureReady() || !studentId) return { success: true, missing: false, details: null };
+  const response = await supabase
+    .from('student_financial_profiles')
+    .select('details')
+    .eq('student_id', studentId)
+    .maybeSingle();
+  return financialResult(response, (data) => ({ details: data?.details || null }));
+};
+
+export const saveSupabaseFinancialProfile = async (studentId, details) => {
+  if (!ensureReady() || !studentId) return { success: true, missing: false };
+  const response = await supabase
+    .from('student_financial_profiles')
+    .upsert({ student_id: studentId, details, updated_at: new Date().toISOString() }, { onConflict: 'student_id' })
+    .select('details')
+    .single();
+  return financialResult(response, (data) => ({ details: data?.details || details }));
+};
+
+// The signed-in student's per-application answers and the financial profile
+// frozen at submission, each keyed by application id.
+export const loadSupabaseFinancialAnswers = async () => {
+  if (!ensureReady()) return { success: true, missing: false, answersByApplication: {}, snapshotsByApplication: {} };
+  const response = await supabase
+    .from('application_financial_details')
+    .select('application_id, answers, financial_snapshot');
+  return financialResult(response, (data) => ({
+    answersByApplication: Object.fromEntries((data || []).map((row) => [row.application_id, row.answers || {}])),
+    snapshotsByApplication: Object.fromEntries((data || []).filter((row) => row.financial_snapshot).map((row) => [row.application_id, row.financial_snapshot])),
+  }));
+};
+
+export const saveSupabaseFinancialAnswers = async ({ applicationId, studentId, answers }) => {
+  if (!ensureReady() || !applicationId || !studentId) return { success: true, missing: false };
+  const response = await supabase
+    .from('application_financial_details')
+    .upsert(
+      { application_id: applicationId, student_id: studentId, answers, updated_at: new Date().toISOString() },
+      { onConflict: 'application_id' },
+    )
+    .select('answers')
+    .single();
+  return financialResult(response, (data) => ({ answers: data?.answers || answers }));
+};
+
+// Admissions Office only: one application's answers and the financial profile
+// the database froze when it was submitted. RLS returns nothing to a Chair.
+export const loadSupabaseApplicationFinancialDetails = async (applicationId) => {
+  if (!ensureReady() || !applicationId) return { success: true, missing: false, answers: null, financialSnapshot: null };
+  const response = await supabase
+    .from('application_financial_details')
+    .select('answers, financial_snapshot')
+    .eq('application_id', applicationId)
+    .maybeSingle();
+  return financialResult(response, (data) => ({
+    answers: data?.answers || null,
+    financialSnapshot: data?.financial_snapshot || null,
+  }));
+};
 
 // Both email Edge Functions answer with a normalized shape so the UI can report
 // real delivery feedback instead of assuming success.

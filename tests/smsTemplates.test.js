@@ -119,12 +119,12 @@ describe('renderApplicationStatusSms', () => {
 });
 
 describe('renderDocumentRejectionSms', () => {
-  it('names the document and the reason', () => {
+  it('names the document and the note', () => {
     expect(renderDocumentRejectionSms({ documentTitle: 'Income Tax Return', reason: 'Document is incomplete or missing pages' }).message)
-      .toBe('ScholarPath AdDU: Income Tax Return was rejected (Document is incomplete or missing pages). Sign in to replace the file.');
+      .toBe('ScholarPath AdDU: Income Tax Return was reverted for resubmission (Document is incomplete or missing pages). Sign in to upload a corrected file.');
   });
 
-  it('shortens a long reason and collapses whitespace', () => {
+  it('shortens a long note and collapses whitespace', () => {
     const { message } = renderDocumentRejectionSms({ documentTitle: 'ITR', reason: `Line one\n\n${'x'.repeat(300)}` });
     expect(message).toContain('(Line one x');
     expect(message).toContain('…)');
@@ -132,9 +132,9 @@ describe('renderDocumentRejectionSms', () => {
     expect(message.length).toBeLessThan(200);
   });
 
-  it('omits the parentheses when no reason is recorded', () => {
+  it('omits the parentheses when no note is recorded', () => {
     expect(renderDocumentRejectionSms({ documentTitle: '', reason: '' }).message)
-      .toBe('ScholarPath AdDU: a document was rejected. Sign in to replace the file.');
+      .toBe('ScholarPath AdDU: a document was reverted for resubmission. Sign in to upload a corrected file.');
   });
 });
 

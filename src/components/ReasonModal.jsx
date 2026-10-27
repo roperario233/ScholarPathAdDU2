@@ -3,9 +3,9 @@ import { Button, ModalShell } from './ui';
 
 // Reusable reason dialog built on the shared ModalShell. It replaces
 // window.prompt for status actions that require a recorded human reason so the
-// justification is captured consistently. Today it backs application and
-// Document Vault rejection; Stop, Conditional Revert, and Lapsed overrides reuse
-// it as those stages land.
+// justification is captured consistently. Today it backs application rejection
+// and the Document Vault resubmission note; Stop, Conditional Revert, and Lapsed
+// overrides reuse it as those stages land.
 //
 // Without `options` the reason is free text. With `options` ({ value, label,
 // requiresNotes }) the reviewer picks a preset reason and may add notes; the
@@ -26,11 +26,19 @@ export default function ReasonModal({
   const [choice, setChoice] = useState('');
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const selected = options ? options.find((option) => option.value === choice) || null : null;
   const notesRequired = Boolean(selected?.requiresNotes);
 
-  const handleConfirm = () => {
+  // A caller that writes twice (the application rejection records its reason in
+  // the staff-only notes before the status move) returns a promise. The dialog
+  // then waits for it and reports a failure in place instead of closing on a
+  // rejection that was never saved. A synchronous caller is unchanged: it gets
+  // no promise back and closes itself as before.
+  const handleConfirm = async () => {
+    if (busy) return;
     const trimmed = reason.trim();
+    let value;
     if (options) {
       if (!selected) {
         setError('Select a reason before this action can be recorded.');
@@ -40,14 +48,21 @@ export default function ReasonModal({
         setError('Add a note that explains the reason.');
         return;
       }
-      onConfirm(notesRequired ? trimmed : [selected.label, trimmed].filter(Boolean).join(' — '));
-      return;
+      value = notesRequired ? trimmed : [selected.label, trimmed].filter(Boolean).join(' — ');
+    } else {
+      if (!trimmed) {
+        setError('A reason is required before this action can be recorded.');
+        return;
+      }
+      value = trimmed;
     }
-    if (!trimmed) {
-      setError('A reason is required before this action can be recorded.');
-      return;
-    }
-    onConfirm(trimmed);
+    const pending = onConfirm(value);
+    if (!pending || typeof pending.then !== 'function') return;
+    setBusy(true);
+    setError('');
+    const result = await pending;
+    setBusy(false);
+    if (result?.error) setError(result.error);
   };
 
   return (
@@ -100,8 +115,8 @@ export default function ReasonModal({
         )}
         {error && <span className="text-sm text-rose-300" role="alert">{error}</span>}
         <div className="flex flex-wrap justify-end gap-2">
-          <Button type="button" onClick={onClose}>Cancel</Button>
-          <Button type="button" variant={confirmVariant} onClick={handleConfirm}>{confirmLabel}</Button>
+          <Button type="button" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button type="button" variant={confirmVariant} onClick={handleConfirm} disabled={busy}>{busy ? 'Saving…' : confirmLabel}</Button>
         </div>
       </div>
     </ModalShell>

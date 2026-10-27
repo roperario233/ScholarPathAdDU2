@@ -74,7 +74,7 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Personal information | Everyone | Profile photo (take one with the camera or choose an existing image), full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
-| Academic profile | Students | Degree program (sets the department), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
+| Academic profile | Students | Degree program (sets the school, cluster, and academic department the profile is filed under), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
 | Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
 | Eligibility background | Students | Citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
 | Account security | Everyone | Change password or email a reset link |
@@ -158,7 +158,7 @@ Program) asks for two verifiable photo requirements:
   of the student's home; one requirement can hold several attached files.
 
 Students can take either with the device camera or choose an existing image, from
-the application workspace, the Document Vault, or a rejected-file replacement.
+the application workspace, the Document Vault, or a resubmission replacement.
 The camera opens from a tap, supports switching between the front and rear
 camera, and falls back to an existing photo or the native device camera when
 permission is blocked or unavailable. Captures are normalized to a JPEG: the ID
@@ -169,25 +169,87 @@ card, and it applies **only to application photos** — the profile photo has no
 such rules.
 
 Both are ordinary Document Vault files, so the Admissions Office verifies them at
-Standard Procedure step 3 like any other required document, rejects them with a
-recorded reason (including photo-specific reasons), and the student can replace a
-rejected file with another capture or upload. The two requirements come from the
-default lists in `src/lib/applicationRequirements.js`; existing catalog rows get
-them from `supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
+Standard Procedure step 3 like any other required document, reverts them for
+resubmission with a recorded note (including photo-specific notes), and the
+student can replace a reverted file with another capture or upload. The stored
+decision stays `Rejected`; the student-facing label is **Reverted for
+resubmission**, and the recorded note stays visible because it tells the student
+what to correct. The two requirements come from the default lists in
+`src/lib/applicationRequirements.js`; existing catalog rows get them from
+`supabase/migrations/20261026000001_add_applicant_photo_requirement.sql`.
+
+## Database maintenance
+
+Four helpers live in `supabase/`. None of them is a migration, none changes the
+schema, and nothing runs them automatically.
+
+- `supabase/application_status_log_checks.sql` — read-only checks over the
+  append-only status log (RQ2).
+- `supabase/maintenance_out_of_scope_applications.sql` — the issue #3 queries
+  and the deactivation statement for catalog rows outside the three Appendix A
+  tracks.
+- `supabase/maintenance_reset_transactional_data.sql` — the clean-demo reset.
+- `supabase/maintenance_redact_rejection_reasons.sql` — the one-time privacy
+  redaction behind Consultation 2 #8: it replaces the reason already stored in
+  `application_status_log.reason` and in the `Rejected` entry of
+  `applications.timeline` with **Application not accepted.**, because those two
+  columns are readable by the student. The recorded reason stays in the
+  staff-only `application_review_comments` thread. It touches no
+  `documents.rejection_reason` value — a document resubmission note stays visible.
+  It is idempotent and runs in one transaction with
+  `session_replication_role = replica` so the append-only log and the application
+  triggers do not block it.
+
+### Resetting the demo data
+
+Run `supabase/maintenance_reset_transactional_data.sql` against the project to
+clear every application, document, notification, and office-workflow row while
+keeping the catalog and the accounts. It keeps `profiles` (so every role can
+still sign in, with its answers and notification preferences intact),
+`annual_qpi_records`, `student_financial_profiles`, `scholarships`,
+`academic_programs`, and `interview_locations`.
+
+The script snapshots what it removes into the `backups` schema
+(`backups.reset_<date>_<table>`) before deleting, runs inside one transaction
+that aborts if a row survives, and revokes the snapshot from the API roles. Drop
+it once the reset is accepted with `drop schema backups cascade;`. The status log
+is cleared before the applications (its foreign key does not cascade) and the
+documents after them, so no deletion trigger blocks the run.
+
+### Reclaiming orphaned Storage files
+
+`documents.storage_path` and `profiles.avatar_path` are the only handles the app
+has on a file, so a row deleted without its object leaves bytes in the private
+bucket that nothing can reach. Delete the rows first (the reset above does), then
+sweep the buckets:
+
+```powershell
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+npm run cleanup:storage              # dry run: one line per orphan, grouped by folder
+npm run cleanup:storage -- --apply   # delete, then re-run the dry run to confirm 0
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+The service role is required because the bucket policies only let a folder owner
+delete, and most orphans sit in folders of accounts that no longer exist. The
+project URL is read from `.env`; the key must come from the shell for a single
+run and never from a `VITE_` variable. Deleting `storage.objects` rows directly
+is not a substitute: it hides the files without freeing the space.
 
 ## Admissions Office workspace
 
 The Admissions Office is one office with two accountability lanes. **Admissions
 Office Staff** (`admissions_office`) prepare a case and **Admissions Office Head**
 (`admissions_head`) has full office authority: the Head can run every Staff stage
-and also decides approval and release. Both lanes share the overview and the
-review queue; only the Head sees the approval/release, catalog, and announcement
-pages.
+and also decides endorsement, approval, and release. Both lanes share the overview
+and the review queue; only the Head sees the endorsement, approval/release,
+catalog, and announcement pages.
 
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying or rejecting attached documents, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying attached documents or reverting one for resubmission, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-endorsement` | Endorsement | Head | SOP step 4: the cases the Staff handed over that await the endorsement decision, with the hand-off record, document readiness, waiting age against the 5-day target, the case officers who prepared the case, and the recorded-decisions history; each row opens the shared review surface on its Endorsement tab |
 | `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
 | `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Head's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Head's venue manager and planning-entry form live here |
 | `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
@@ -233,10 +295,11 @@ these seeded credentials:
 | --- | --- | --- | --- |
 | Admissions Office Staff | `john67.admissions@gmail.com` | `john6767` | Admissions Office overview and review queue |
 | Admissions Office Head | `samantha.headadmissions@gmail.com` | `scholarpath67` | Admissions Office overview, approval/release, catalog, and announcements |
-| Department Chair (SEA) | `miguel.chair.sea@gmail.com` | `scholarpath67` | Department Review and interview panel (School of Engineering and Architecture scoped) |
+| Dean (SEA) | `miguel.chair.sea@gmail.com` | `scholarpath67` | School Review and interview panel (every department in the School of Engineering and Architecture) |
 | Admissions Office Staff (earlier seed) | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
 | Admissions Office Head (earlier seed) | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
-| Department Chair (earlier seed, CCS) | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (College of Computer Studies scoped) |
+| Assistant Dean (Computer Studies) | `ogs@addu.edu.ph` | — | Cluster Review (the Computer Studies cluster inside the School of Arts and Sciences) |
+| Chairperson (IT & IS Department) | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (the Information Technology and Information Systems Department) |
 
 These credentials exist only for the capstone prototype; do not reuse them in
 any real deployment. The addresses deliberately sit on Gmail rather than
@@ -269,7 +332,8 @@ set role = 'admissions_head', department = 'Office of Admissions'
 where email = 'samantha.headadmissions@gmail.com';
 
 update public.profiles
-set role = 'department_chair', department = 'School of Engineering and Architecture (SEA)'
+set role = 'dean', department = 'School of Engineering and Architecture (SEA)',
+    review_school = 'School of Engineering and Architecture (SEA)'
 where email = 'miguel.chair.sea@gmail.com';
 
 -- Earlier seeded accounts (kept for reference; the credentials table above
@@ -283,15 +347,44 @@ set role = 'admissions_head', department = 'Office of Admissions'
 where email = 'scholarpath.admissionshead@gmail.com';
 
 update public.profiles
-set role = 'department_chair', department = 'College of Computer Studies (CCS)'
+set role = 'assistant_dean', department = 'School of Arts and Sciences (SAS)',
+    review_school = 'School of Arts and Sciences (SAS)', review_cluster = 'Computer Studies'
+where email = 'ogs@addu.edu.ph';
+
+update public.profiles
+set role = 'department_chair', department = 'School of Arts and Sciences (SAS)',
+    review_department = 'Information Technology and Information Systems Department'
 where email = 'scholarpath.chair@gmail.com';
 ```
 
-The Department Chair `department` scopes the Department Review queue and the
-interview panel, so it must match the applicant department the chair should see.
-`miguel.chair.sea@gmail.com` is scoped to `School of Engineering and
-Architecture (SEA)`; the earlier `scholarpath.chair@gmail.com` seed stays scoped
-to `College of Computer Studies (CCS)`. Sign-in resolves the role
+## Academic reviewer ladder
+
+Reviewers own one level of the AdDU hierarchy
+**School → Cluster → Department → Degree Program**:
+
+| Role value | Title | Scope column | Sees |
+| --- | --- | --- | --- |
+| `dean` | Dean | `review_school` | every cluster and department in that school |
+| `assistant_dean` | Assistant Dean | `review_school` + `review_cluster` | every department in that cluster |
+| `department_chair` | Chairperson | `review_department` | that department and its degree programs |
+
+None of them takes a stage move — endorsement, approval, and release stay with the
+Admissions Office. `public.reviewer_scopes_to_student()` is the single predicate
+behind every reviewer row-level policy, and `src/lib/reviewScope.js` mirrors it for
+the pages. The applicant's level is resolved from their degree program through
+`academic_programs`, so adding a program or department needs no policy change.
+
+`profiles.department` holds the **school** for students and reviewers, which is the
+label the sidebar and the SOP 5a panel heading show; it is not the academic
+department. A Chairperson whose `review_department` is still empty keeps a legacy
+school-wide read, so an account that has not been assigned a department yet is never
+locked out of its own queue. Assign the scope with an operator-run `update` like the
+ones above; it is never self-editable.
+
+The reviewer scope above is what decides which cases a reviewer can read, so it must
+always name a level that exists in `academic_programs` (`school`, `school`+`cluster`,
+or `department`). `profiles.department` stays the school label for every role, which
+is also what the SOP 5a panel heading and the sidebar show. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
 Office Staff and Head routes, and the Department Review view, appear in the
@@ -458,9 +551,24 @@ browser. The refresh token stays in Supabase secrets.
 
 ### 2. Mint the refresh token
 
+Put the client id and secret in `.env` in the project root (either line works;
+the helper only reads those two keys):
+
+```dotenv
+GOOGLE_OAUTH_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_OAUTH_CLIENT_SECRET=...
+```
+
+Then, from the project root:
+
 ```powershell
-$env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
 npm run google:auth
+```
+
+Exporting them in the shell also works and wins over `.env` for that run:
+
+```powershell
+$env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."; npm run google:auth
 ```
 
 Approve the consent screen **with the account that owns the interview calendar**.

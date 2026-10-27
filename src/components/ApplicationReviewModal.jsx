@@ -4,15 +4,19 @@ import DocumentPreviewModal, { DocumentPreview, useDocumentPreviewUrl } from './
 import ReasonModal from './ReasonModal';
 import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
+import ApplicationPrintButton from './ApplicationPrintSheet';
+import { FinancialDetailsNotice, useApplicationFinancialSections } from './ApplicationFinancialDetails';
+import { isReviewerRole } from '../lib/reviewScope';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
-import { AUTOMATIC_STAGE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
-import { getReviewStageTab } from '../lib/admissionsOffice';
+import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { getApplicationComments } from '../lib/endorsement';
+import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
-import { createInterviewDraft, getInterviewStateLabel, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
+import { createInterviewDraft, getInterviewStateLabel, getLatestPanelRecommendation, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -121,7 +125,7 @@ function DocumentRow({ doc, selected, onSelect }) {
           <span className="block truncate text-sm text-app-text">{doc.title}</span>
           <span className="block truncate text-xs text-app-muted">{getDocumentTypeLabel(doc.documentType)}</span>
         </span>
-        <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{doc.verificationStatus}</StatusBadge>
+        <StatusBadge tone={verificationTone(doc.verificationStatus)} className="shrink-0">{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
       </button>
     </li>
   );
@@ -140,6 +144,11 @@ export default function ApplicationReviewModal({
   initialTab = null,
   onClose,
   onStatusChange,
+  // An application rejection records its reason in the staff-only internal notes
+  // and sends the student the fixed notice (App.jsx rejectApplication). Without
+  // it the reject action refuses rather than writing a reason the student can
+  // read.
+  onRejectApplication,
   onEndorse,
   // SOP step 5 data and actions (App.jsx interviewWorkspace). Without it the
   // Interview tab is not shown.
@@ -149,6 +158,13 @@ export default function ApplicationReviewModal({
   onChangeDocument,
   reviewComments = [],
   onAddComment,
+  // The Admissions Office case-officer roster. Opening a case joins the officer to
+  // it, so a second officer opening the same application is expected rather than a
+  // conflict, and any officer can leave with a recorded reason.
+  caseOfficers = [],
+  currentUserId = '',
+  onJoinCase,
+  onLeaveCase,
 }) {
   // Both Admissions Office lanes can run the preparation stages; the Head is a
   // superset and also decides the endorsement (SOP step 4), approval, and
@@ -156,13 +172,40 @@ export default function ApplicationReviewModal({
   const isAdmissionsHead = isAdmissionsHeadRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const isWide = useIsWide();
+  // Case officers. Opening an application is what adds the officer to it, so the
+  // effect below runs once per open unless the signed-in account is already on the
+  // roster. A failed join stays silent: reading the case must never be blocked by
+  // it, and the next open retries.
+  const caseOfficersOnApplication = getCaseOfficers(caseOfficers, application.id);
+  const isOnCase = Boolean(currentUserId)
+    && caseOfficersOnApplication.some((entry) => entry.officerId === currentUserId);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [leaveError, setLeaveError] = useState('');
+  const joinAttemptedRef = useRef(false);
+  useEffect(() => {
+    if (!isAdmissionsReviewer || !onJoinCase) return;
+    if (!CASE_OFFICER_JOINABLE_STATUSES.includes(application.status)) return;
+    if (isCaseOfficer(caseOfficers, application.id, currentUserId)) return;
+    if (joinAttemptedRef.current) return;
+    joinAttemptedRef.current = true;
+    Promise.resolve(onJoinCase(application.id)).catch(() => undefined);
+  }, [application.id, application.status, caseOfficers, currentUserId, isAdmissionsReviewer, onJoinCase]);
+
   const previewPaneRef = useRef(null);
   const nextStatuses = getNextApplicationStatuses(application.status, role);
   const linkedDocuments = getLinkedDocuments(application, documents);
   // The 2x2 ID photo heads the snapshot view, so a reviewer can put a face to
   // the application without opening the Documents tab.
   const applicantPhoto = getApplicantPhotoDocument(application, documents);
+  // Household finances and the financial situation are office-only (RLS): the
+  // Admissions Office reads them here, a Department Chair never does.
+  const financialDetails = useApplicationFinancialSections(application, isAdmissionsReviewer);
   const statusLog = Array.isArray(application.statusLog) ? application.statusLog : [];
+  // The staff-only internal notes for this case (application_review_comments).
+  // A rejection reason is recorded here rather than in the student-readable
+  // timeline, and the History tab reads it back when the Endorsement tab (whose
+  // thread owns this table) is not open yet.
+  const caseNotes = getApplicationComments(reviewComments, application.id);
   // Manuscript 3.3.3: an application whose attached files are still Pending or
   // Rejected cannot be endorsed or advance to any later SOP stage. The database
   // enforces the same rule, so the UI disables the forward actions first and
@@ -201,6 +244,11 @@ export default function ApplicationReviewModal({
   const applicationPanelists = (interviewWorkspace?.panelists || []).filter((row) => (
     row.applicationId === application.id && !row.removedAt
   ));
+  // SOP step 6 reads the panel's latest recommendation level (the interview notes
+  // carry it instead of a 1-5 rating), so the deliberation action states it.
+  const latestPanelRecommendation = getLatestPanelRecommendation(
+    (interviewWorkspace?.notes || []).filter((note) => note.applicationId === application.id),
+  );
   const interviewUnlocked = Boolean(interviewWorkspace) && (
     INTERVIEW_TAB_STATUSES.includes(application.status)
     || (application.status === 'Rejected' && Boolean(application.interview))
@@ -256,10 +304,10 @@ export default function ApplicationReviewModal({
     isWide && Boolean(selectedDoc),
   );
 
-  // A document rejection must carry a recorded reason, so it opens the reason
-  // dialog; a verification is attributed to the reviewer, so it opens the
-  // confirmation dialog. A reset to Pending is a quiet correction and applies
-  // directly.
+  // Reverting a document for resubmission must carry a recorded note, so it
+  // opens the reason dialog; a verification is attributed to the reviewer, so it
+  // opens the confirmation dialog. A reset to Pending is a quiet correction and
+  // applies directly.
   const changeDocument = (documentId, status) => {
     const target = linkedDocuments.find((doc) => doc.id === documentId) || null;
     if (status === 'Rejected') {
@@ -436,7 +484,8 @@ export default function ApplicationReviewModal({
   };
   const runAction = async (status) => {
     if (status === 'Rejected') {
-      // A rejection must carry a recorded reason, so it opens the reason dialog.
+      // A rejection must carry a recorded reason. The reason stays with the
+      // office (internal notes); the student receives the general notice.
       setRejectReasonOpen(true);
       return;
     }
@@ -520,12 +569,12 @@ export default function ApplicationReviewModal({
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
     : application.status === 'For Endorsement'
-      ? (role === 'department_chair'
+      ? (isReviewerRole(role)
         ? 'Awaiting the Office of Admissions & Aid endorsement decision.'
         : 'Awaiting the Admissions Office Head endorsement decision.')
       : isAdmissionsHead
         ? 'No stage action is available at this stage.'
-        : role === 'department_chair'
+        : isReviewerRole(role)
           ? 'The next action at this stage belongs to the Admissions Office.'
           : 'No stage action is available to your role at this stage.';
 
@@ -536,7 +585,7 @@ export default function ApplicationReviewModal({
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full">
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
-            <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentDepartment || 'Department on file'}</p>
+            <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentSchool || 'School on file'}</p>
           </div>
           <StatusBadge tone={statusTone(application.status)}>{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
@@ -551,6 +600,16 @@ export default function ApplicationReviewModal({
               <StatusBadge tone="neutral">{totalDocuments} document{totalDocuments === 1 ? '' : 's'} attached · reviewed at verification</StatusBadge>
             )
           ) : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
+          {isAdmissionsReviewer ? (
+            <StatusBadge tone={caseOfficersOnApplication.length ? 'info' : 'neutral'}>
+              {caseOfficersOnApplication.length === 0
+                ? 'No case officers yet'
+                : isOnCase
+                  ? `You${caseOfficersOnApplication.length > 1 ? ` + ${caseOfficersOnApplication.length - 1}` : ''} on this case`
+                  : `${caseOfficersOnApplication.length} case officer${caseOfficersOnApplication.length === 1 ? '' : 's'}`}
+            </StatusBadge>
+          ) : null}
+
         </div>
       </header>
 
@@ -571,6 +630,43 @@ export default function ApplicationReviewModal({
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
             {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
+            {isAdmissionsReviewer ? (
+              <Panel className="grid content-start gap-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <h4 className={sectionHeading}>Case officers</h4>
+                  {isOnCase && onLeaveCase ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setLeaveError('');
+                        setLeaveOpen(true);
+                      }}
+                    >
+                      Leave case
+                    </Button>
+                  ) : null}
+                </div>
+                {caseOfficersOnApplication.length ? (
+                  <ul className="m-0 grid gap-2 p-0">
+                    {caseOfficersOnApplication.map((officer) => (
+                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
+                        <span className="min-w-0 text-sm font-semibold text-app-text">
+                          {officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName}
+                        </span>
+                        <span className="text-xs text-app-muted">
+                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
+                          {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
+                {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
+              </Panel>
+            ) : null}
+
+
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
               <Panel className="grid content-start gap-2">
@@ -672,19 +768,58 @@ export default function ApplicationReviewModal({
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
             <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
-            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} />
+            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} extraSections={financialDetails.sections} />
+            <FinancialDetailsNotice status={financialDetails.status} />
+            <div className="pt-2">
+              <ApplicationPrintButton
+                label="Print case"
+                sheet={{
+                  application,
+                  snapshot: application.profileSnapshot,
+                  financialSections: financialDetails.sections,
+                  statement: application.statement,
+                  requirements,
+                  applicantPhoto,
+                  audience: isAdmissionsReviewer ? 'office' : 'chair',
+                }}
+              />
+            </div>
           </Panel>
         )}
 
         {visibleActiveTab === 'history' && (
-          <Panel className="grid gap-2">
-            <h4 className={sectionHeading}>Status history</h4>
-            <StatusHistoryList
-              statusLog={statusLog}
-              timeline={application.timeline}
-              showActorName={isAdmissionsReviewer || role === 'department_chair'}
-            />
-          </Panel>
+          <div className="grid gap-3">
+            {/* The recorded rejection reason is staff-only, and the Endorsement
+                tab's thread only exists from For Endorsement on. A case rejected
+                before that hand-off is still readable here, where the office
+                looks for the decision's justification. */}
+            {!endorsementUnlocked && caseNotes.length ? (
+              <Panel className="grid gap-2">
+                <h4 className={sectionHeading}>Internal notes</h4>
+                <p className="m-0 text-xs text-app-muted">Visible to reviewers only, never to the student.</p>
+                <ul className="m-0 grid gap-2 p-0">
+                  {caseNotes.map((comment) => (
+                    <li key={comment.id} className="grid gap-1 rounded-[14px] border border-app-border bg-app-surface p-3">
+                      <span className="text-xs text-app-muted">
+                        <strong className="text-app-text">{comment.authorName || 'Reviewer'}</strong>
+                        {' · '}{getActorRoleLabel(comment.authorRole) || 'Staff'}
+                        {' · '}{fmtDate(comment.createdAt)}
+                      </span>
+                      <p className="m-0 whitespace-pre-line text-sm text-app-text">{comment.body}</p>
+                    </li>
+                  ))}
+                </ul>
+              </Panel>
+            ) : null}
+            <Panel className="grid gap-2">
+              <h4 className={sectionHeading}>Status history</h4>
+              <StatusHistoryList
+                statusLog={statusLog}
+                timeline={application.timeline}
+                showActorName={isAdmissionsReviewer || isReviewerRole(role)}
+              />
+            </Panel>
+          </div>
         )}
 
         {visibleActiveTab === 'interview' && interviewWorkspace && (
@@ -731,10 +866,21 @@ export default function ApplicationReviewModal({
         ) : null}
 
         {showDeliberationField ? (
-          <label className="grid gap-1 text-sm text-app-text">
-            <span className="font-semibold">Sub-committee note</span>
-            <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the sub-committee deliberation." />
-          </label>
+          <div className="grid gap-1">
+            <label className="grid gap-1 text-sm text-app-text">
+              <span className="font-semibold">Sub-committee note</span>
+              <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the sub-committee deliberation." />
+            </label>
+            <p className="m-0 text-xs text-app-muted">
+              {latestPanelRecommendation
+                ? `Panel recommendation: ${[
+                  latestPanelRecommendation.label,
+                  latestPanelRecommendation.authorName,
+                  latestPanelRecommendation.createdAt ? fmtDate(latestPanelRecommendation.createdAt) : '',
+                ].filter(Boolean).join(' · ')}`
+                : 'No panel recommendation recorded yet. The Interview tab records it with the panel’s evaluation note.'}
+            </p>
+          </div>
         ) : null}
 
         {actionError ? (
@@ -796,25 +942,29 @@ export default function ApplicationReviewModal({
     {rejectReasonOpen ? (
       <ReasonModal
         title="Reject application"
-        label="Reason for rejection"
-        hint="Record why this application is being rejected. The applicant sees this reason."
+        label="Reason for rejection (staff only)"
+        hint="Recorded in the internal notes for the office. The applicant only sees a general notice that the application was not accepted."
         confirmLabel="Reject application"
-        onConfirm={(note) => {
-          onStatusChange(application.id, 'Rejected', { note });
+        onConfirm={async (note) => {
+          const result = onRejectApplication
+            ? await onRejectApplication(application.id, note)
+            : { error: 'Rejection is not available on this page.' };
+          if (result?.error) return result;
           setRejectReasonOpen(false);
           onClose();
+          return result;
         }}
         onClose={() => setRejectReasonOpen(false)}
       />
     ) : null}
     {documentRejectTarget ? (
       <ReasonModal
-        title="Reject document"
-        label="Reason for rejection"
-        hint={`The student sees this reason for “${documentRejectTarget.title}” so they can upload a correct replacement.`}
+        title="Revert document for resubmission"
+        label="What the student must correct"
+        hint={`The student sees this note for “${documentRejectTarget.title}” so they can upload a correct replacement. The recorded decision stays Rejected.`}
         options={getDocumentRejectionReasons(documentRejectTarget.documentType)}
         notesHint="Add details, such as which page or value needs correcting."
-        confirmLabel="Reject document"
+        confirmLabel="Revert for resubmission"
         onConfirm={(reason) => {
           onChangeDocument?.(documentRejectTarget.id, 'Rejected', reason);
           setDocumentRejectTarget(null);
@@ -837,6 +987,24 @@ export default function ApplicationReviewModal({
           setVerifyTarget(null);
           setVerifyError('');
         }}
+      />
+    ) : null}
+
+    {leaveOpen ? (
+      <ReasonModal
+        title="Leave this case"
+        label="Reason"
+        hint="Recorded on the case-officer roster. Leaving does not change the application status; the case stays in the office's open work."
+        confirmLabel="Leave case"
+        onConfirm={async (reason) => {
+          const result = await onLeaveCase?.(application.id, reason);
+          if (result?.error) {
+            setLeaveError(result.error);
+            return;
+          }
+          setLeaveOpen(false);
+        }}
+        onClose={() => setLeaveOpen(false)}
       />
     ) : null}
     </>

@@ -51,12 +51,18 @@ export default function AdminInterviews({
   reviewComments = [],
   onAddComment,
   onChangeApplication,
+  onRejectApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
   onChangeDocument,
   interviewWorkspace = null,
   initialFilter = 'upcoming',
+  // Case officers: opening a case from the interview board joins the officer to it.
+  caseOfficers = [],
+  currentUserId = '',
+  onJoinCase,
+  onLeaveCase,
 }) {
   const now = new Date();
   const [filter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : 'upcoming');
@@ -156,6 +162,7 @@ export default function AdminInterviews({
           initialTab="interview"
           onClose={() => setSelectedId(null)}
           onStatusChange={onChangeApplication}
+          onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}
@@ -163,6 +170,10 @@ export default function AdminInterviews({
           onChangeDocument={onChangeDocument}
           reviewComments={reviewComments}
           onAddComment={onAddComment}
+          caseOfficers={caseOfficers}
+          currentUserId={currentUserId}
+          onJoinCase={onJoinCase}
+          onLeaveCase={onLeaveCase}
         />
       )}
     </div>

@@ -49,12 +49,12 @@ describe('DocumentDecisionRecord', () => {
 describe('DocumentVerificationItem actions', () => {
   const application = { status: 'For Verification', studentQpi: 3.2, attachedDocuments: ['doc-1'] };
 
-  it('offers explicit Verify and Reject actions to the Admissions Office', () => {
+  it('offers explicit Verify and Revert for resubmission actions to the Admissions Office', () => {
     const html = renderToStaticMarkup(
       <DocumentVerificationItem doc={{ ...verifiedDoc, verificationStatus: 'Pending', decidedAt: null }} application={application} onChangeDocument={() => {}} />,
     );
     expect(html).toContain('Verify document');
-    expect(html).toContain('Reject');
+    expect(html).toContain('Revert for resubmission');
     // No decision exists yet, so there is nothing to reset.
     expect(html).not.toContain('Reset to pending');
   });
@@ -73,7 +73,7 @@ describe('DocumentVerificationItem actions', () => {
   it('stays read-only for a Department Chair and still shows the record', () => {
     const html = renderToStaticMarkup(<DocumentVerificationItem doc={verifiedDoc} application={application} />);
     expect(html).not.toContain('Verify document');
-    expect(html).not.toContain('Reject');
+    expect(html).not.toContain('Revert for resubmission');
     expect(html).toContain(`Verified by Juan Dela Cruz · Admissions Office Staff · ${on}`);
   });
 
@@ -126,14 +126,16 @@ describe('ProfileSnapshotList 2x2 photo', () => {
     expect(html).toContain('2x2 photo not attached');
   });
 
-  it('carries the recorded rejection reason when the photo was rejected', () => {
+  it('carries what to correct when the photo was reverted for resubmission', () => {
     const html = renderToStaticMarkup(
       <ProfileSnapshotList
         snapshot={snapshot}
         applicantPhoto={{ ...applicantPhoto, verificationStatus: 'Rejected', rejectionReason: 'Photo is blurred.' }}
       />,
     );
+    expect(html).toContain('What to correct:');
     expect(html).toContain('Photo is blurred.');
+    expect(html).toContain('Reverted for resubmission');
   });
 
   it('offers the full document when the surface can preview it', () => {

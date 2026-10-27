@@ -4,9 +4,13 @@ import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
+import ApplicationFinancialStep from './ApplicationFinancialStep';
+import ApplicationPrintButton from './ApplicationPrintSheet';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
-import { getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
+import { getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
+import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_INSTRUCTION, ESSAY_TARGET_WORDS, ESSAY_TOPIC, countWords } from '../lib/applicationForm';
+import { getFinancialAnswersMissing, getFinancialDetailSections, normalizeFinancialAnswers } from '../lib/financialDetails';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, photoRequirementNeedsCamera } from '../lib/photoGuide';
 import { ESSAY_MAX_LENGTH, getVerifiableAttributeOption } from '../lib/profile';
@@ -15,6 +19,7 @@ import { fmtDate } from '../lib/formatters';
 const STEPS = [
   { key: 'documents', label: 'Required documents' },
   { key: 'profile', label: 'Profile snapshot' },
+  { key: 'financial', label: 'Financial situation' },
   { key: 'statement', label: 'Statement' },
   { key: 'review', label: 'Review and submit' },
 ];
@@ -23,7 +28,7 @@ const PROFILE_STEP_INDEX = STEPS.findIndex((entry) => entry.key === 'profile');
 
 // The certification doubles as the student's consent to share the application
 // with the reviewers who handle it.
-const CERTIFICATION_TEXT = 'I certify that the information and documents I provided are true and complete, and I agree to share them with the Admissions Office and my Department Chair for this application.';
+const CERTIFICATION_TEXT = 'I certify that the information and documents I provided are true and complete, and I agree to share them with the Admissions Office and my Department Chair for this application. My household finances and financial situation answers go to the Admissions Office only.';
 
 // One required document: what it accepts, what is attached, and the ways to
 // satisfy it - reuse a Document Vault file, upload a new one into the vault, or
@@ -75,7 +80,7 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
             <li key={doc.id} className="grid min-w-0 gap-2 rounded-xl border border-app-border/70 px-3 py-3">
               <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="mt-0.5 block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName}</span></span>
               <span className="flex min-w-0 flex-wrap items-center gap-2">
-                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
+                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(requirement, doc.id)}>Remove</Button>
               </span>
@@ -97,7 +102,7 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
             <option value="">{reusable.length ? 'Select a file…' : 'No matching files in your vault'}</option>
             {reusable.map((doc) => (
               <option key={doc.id} value={doc.id} disabled={doc.verificationStatus === 'Rejected'}>
-                {doc.title} · {doc.verificationStatus} · {fmtDate(doc.uploadedAt)}
+                {doc.title} · {getDocumentStatusLabel(doc.verificationStatus)} · {fmtDate(doc.uploadedAt)}
               </option>
             ))}
           </select>
@@ -156,7 +161,7 @@ function SupportingDocumentsBlock({ readiness, documents, attachedIds, busy, err
   ));
   const proofs = candidates.filter((doc) => doc.linkedAttributes?.length);
   const others = candidates.filter((doc) => !doc.linkedAttributes?.length);
-  const optionFor = (doc) => <option key={doc.id} value={doc.id}>{doc.title} · {doc.verificationStatus} · {fmtDate(doc.uploadedAt)}</option>;
+  const optionFor = (doc) => <option key={doc.id} value={doc.id}>{doc.title} · {getDocumentStatusLabel(doc.verificationStatus)} · {fmtDate(doc.uploadedAt)}</option>;
 
   return (
     <section className="grid gap-3 rounded-2xl border border-dashed border-app-border bg-app-surface/60 p-4" aria-label="Additional supporting documents">
@@ -170,7 +175,7 @@ function SupportingDocumentsBlock({ readiness, documents, attachedIds, busy, err
             <li key={doc.id} className="grid min-w-0 gap-2 rounded-xl border border-app-border/70 px-3 py-3">
               <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="mt-0.5 block text-xs text-app-muted [overflow-wrap:anywhere]">{doc.fileName}</span></span>
               <span className="flex min-w-0 flex-wrap items-center gap-2">
-                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{doc.verificationStatus}</StatusBadge>
+                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
                 <Button type="button" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => onPreview(doc)}>View</Button>
                 <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" disabled={busy} onClick={() => onDetach(doc.id)}>Remove</Button>
               </span>
@@ -205,6 +210,7 @@ export default function ApplicationWorkspaceModal({
   scholarship,
   documents,
   profile,
+  financialAnswers: savedFinancialAnswers,
   onAttach,
   onDetach,
   onUploadAndAttach,
@@ -218,6 +224,11 @@ export default function ApplicationWorkspaceModal({
   // A draft started before statements existed falls back to the profile essay.
   const [savedStatement, setSavedStatement] = useState(() => application.statement || profile?.essay || '');
   const [statement, setStatement] = useState(savedStatement);
+  // The per-application financial situation answers (office-only). Saved with
+  // the draft in application_financial_details.
+  const [savedFinancial, setSavedFinancial] = useState(() => normalizeFinancialAnswers(savedFinancialAnswers || {}));
+  const [financialAnswers, setFinancialAnswers] = useState(savedFinancial);
+  const [financialMessage, setFinancialMessage] = useState('');
   const [certified, setCertified] = useState(false);
   const [busyRequirement, setBusyRequirement] = useState('');
   const [rowErrors, setRowErrors] = useState({});
@@ -231,8 +242,9 @@ export default function ApplicationWorkspaceModal({
     scholarship,
     documents,
     profile,
+    financialAnswers,
     certified,
-  }), [application, statement, scholarship, documents, profile, certified]);
+  }), [application, statement, scholarship, documents, profile, financialAnswers, certified]);
   // The badges come from the files this application attaches, exactly as the
   // submission will freeze them.
   const snapshot = useMemo(
@@ -240,6 +252,13 @@ export default function ApplicationWorkspaceModal({
     [profile, application, documents],
   );
   const isStatementDirty = statement !== savedStatement;
+  const financialMissing = useMemo(() => getFinancialAnswersMissing(financialAnswers), [financialAnswers]);
+  const isFinancialDirty = JSON.stringify(normalizeFinancialAnswers(financialAnswers)) !== JSON.stringify(savedFinancial);
+  const financialSections = useMemo(
+    () => getFinancialDetailSections({ financialProfile: profile?.financialProfile, answers: financialAnswers, family: profile?.familyDetails || {} }),
+    [profile, financialAnswers],
+  );
+  const wordCount = countWords(statement);
   const eligibilityBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Eligibility:'));
   const documentsDone = readiness.requirements.every((item) => item.state === 'attached' || item.state === 'verified');
   const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Complete your profile') || blocker.startsWith('Set your year standing'));
@@ -248,6 +267,7 @@ export default function ApplicationWorkspaceModal({
   const stepDone = {
     documents: documentsDone,
     profile: eligibilityBlockers.length === 0 && profileBlockers.length === 0,
+    financial: financialMissing.length === 0,
     statement: Boolean(statement.trim()),
     review: readiness.ready,
   };
@@ -266,6 +286,17 @@ export default function ApplicationWorkspaceModal({
       return;
     }
     runRowAction(requirement, () => onUploadAndAttach(application.id, { file, documentType }));
+  };
+
+  const saveFinancial = async () => {
+    setFinancialMessage('');
+    const normalized = normalizeFinancialAnswers(financialAnswers);
+    const result = await onSaveDraft(application.id, { statement: savedStatement, financialAnswers: normalized });
+    if (!result?.error) {
+      setFinancialAnswers(normalized);
+      setSavedFinancial(normalized);
+    }
+    setFinancialMessage(result?.error || 'Financial situation saved.');
   };
 
   const saveStatement = async () => {
@@ -292,14 +323,14 @@ export default function ApplicationWorkspaceModal({
   };
 
   const handleClose = () => {
-    if (isStatementDirty && !window.confirm('Discard the unsaved changes to your statement?')) return;
+    if ((isStatementDirty || isFinancialDirty) && !window.confirm('Discard your unsaved changes to this application?')) return;
     onClose();
   };
 
   const handleSubmit = async () => {
     setSubmitError('');
     setIsSubmitting(true);
-    const result = await onSubmit(application.id, { statement, certified });
+    const result = await onSubmit(application.id, { statement, certified, financialAnswers });
     setIsSubmitting(false);
     if (result?.error) { setSubmitError(result.error); return; }
     onClose();
@@ -315,7 +346,7 @@ export default function ApplicationWorkspaceModal({
             Application workspace · Deadline {fmtDate(scholarship?.deadline)} · {readiness.attachedCount} of {readiness.requiredCount} required documents attached
           </p>
 
-          <ol className="m-0 grid grid-cols-2 gap-2 p-0 sm:grid-cols-4" aria-label="Application steps">
+          <ol className="m-0 grid grid-cols-2 gap-2 p-0 sm:grid-cols-5" aria-label="Application steps">
             {STEPS.map((entry, index) => {
               const isActive = index === step;
               const done = stepDone[entry.key];
@@ -371,8 +402,8 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Profile snapshot">
-              <p className="m-0 text-sm text-app-muted">Frozen on submit. The Admissions Office and your Department Chair see these values.</p>
-              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} /></Panel>
+              <p className="m-0 text-sm text-app-muted">Frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
+              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections} /></Panel>
               {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
                   {[...profileBlockers, ...eligibilityBlockers].map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
@@ -382,10 +413,22 @@ export default function ApplicationWorkspaceModal({
             </section>
           )}
 
+          {current === 'financial' && (
+            <>
+              <ApplicationFinancialStep answers={financialAnswers} onChange={(next) => { setFinancialAnswers(next); setFinancialMessage(''); }} missing={financialMissing} />
+              <div className="flex flex-wrap items-center gap-3">
+                <Button type="button" onClick={saveFinancial} disabled={!isFinancialDirty}>Save draft</Button>
+                {financialMessage ? <span className="text-sm text-app-muted" role="status">{financialMessage}</span> : null}
+              </div>
+            </>
+          )}
+
           {current === 'statement' && (
             <section className="grid gap-3" aria-label="Application statement">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Why are you applying for this scholarship?</span>
+                <span className="text-sm font-semibold text-app-text">Scholarship essay</span>
+                <span className="text-sm text-app-muted">{ESSAY_TOPIC}</span>
+                <small className="field-hint">{ESSAY_INSTRUCTION}</small>
                 <textarea
                   rows={9}
                   maxLength={ESSAY_MAX_LENGTH}
@@ -393,7 +436,7 @@ export default function ApplicationWorkspaceModal({
                   onChange={(event) => { setStatement(event.target.value); setStatementMessage(''); }}
               placeholder="Describe your circumstances, goals, and how this scholarship helps."
                 />
-                <small className="field-hint">Starts from your default statement. Changes apply to this application unless you save them as your default. {statement.length}/{ESSAY_MAX_LENGTH}</small>
+                <small className="field-hint">Starts from your default statement. Changes apply to this application unless you save them as your default. {wordCount} of about {ESSAY_TARGET_WORDS} words · {statement.length}/{ESSAY_MAX_LENGTH} characters</small>
               </label>
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="button" onClick={saveStatement} disabled={statement === (application.statement || '')}>Save draft</Button>
@@ -409,7 +452,8 @@ export default function ApplicationWorkspaceModal({
               <Panel className="grid gap-1 text-sm text-app-muted">
                 <span><strong className="text-app-text">Documents</strong> {readiness.attachedCount} of {readiness.requiredCount} attached</span>
                 <span><strong className="text-app-text">Supporting documents</strong> {supportingCount} attached (optional)</span>
-                <span><strong className="text-app-text">Statement</strong> {statement.trim() ? `${statement.trim().length} characters` : 'Not written yet'}</span>
+                <span><strong className="text-app-text">Financial situation</strong> {financialMissing.length ? 'Not complete yet' : 'Answered'}</span>
+                <span><strong className="text-app-text">Statement</strong> {statement.trim() ? `${wordCount} words` : 'Not written yet'}</span>
                 <span><strong className="text-app-text">Profile</strong> {eligibilityBlockers.length ? 'Does not meet the current qualification rules' : 'Meets the current qualification rules'}</span>
               </Panel>
               {readiness.blockers.filter((blocker) => !blocker.startsWith('Certify')).length ? (
@@ -423,10 +467,20 @@ export default function ApplicationWorkspaceModal({
               <div className="grid gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3" role="note" aria-label="What you are sharing">
                 <strong className="text-sm text-app-text">What you are sharing</strong>
                 <p className="m-0 text-sm text-app-muted">
-                  Your required documents, {supportingCount} supporting {supportingCount === 1 ? 'document' : 'documents'}, your statement, and your full profile snapshot, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application.
+                  Your required documents, {supportingCount} supporting {supportingCount === 1 ? 'document' : 'documents'}, your statement, and your full profile snapshot, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
                 </p>
                 <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your profile snapshot</Button></div>
               </div>
+              <Panel className="grid gap-2 text-sm text-app-muted">
+                <strong className="text-app-text">Two pages stay on paper</strong>
+                <p className="m-0">Print the application form, have the Punong Barangay certify the residence photos, and have yourself and both parents sign the affidavit. Upload the signed pages in the Required documents step.</p>
+                <div><ApplicationPrintButton sheet={{ application, snapshot, financialSections, statement, requirements: readiness.requirements, applicantPhoto: getApplicantPhotoDocument(application, documents) }} /></div>
+              </Panel>
+              <details className="rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-muted">
+                <summary className="cursor-pointer font-semibold text-app-text">Affidavit of agreement and data privacy notice</summary>
+                <ol className="mt-2 grid gap-2 pl-5">{AFFIDAVIT_CLAUSES.map((clause) => <li key={clause}>{clause}</li>)}</ol>
+                <p className="mb-0 mt-3">{DATA_PRIVACY_NOTICE}</p>
+              </details>
               <label className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
                 <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={certified} onChange={(event) => setCertified(event.target.checked)} />
                 <span>{CERTIFICATION_TEXT}</span>

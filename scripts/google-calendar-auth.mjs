@@ -2,10 +2,19 @@
 /**
  * Mints the Google Calendar refresh token the interview integration needs.
  *
+ *   npm run google:auth
+ *
+ * The client id and secret come from `.env` in the project root, so they can sit
+ * beside the other Supabase settings, or from the shell for a single run:
+ *
  *   $env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."
  *   npm run google:auth
  *
- * A browser window opens on Google's consent screen. Sign in with the account
+ * A value exported in the shell wins over the same key in `.env`, matching
+ * Vite's precedence, so an override is never silently ignored.
+ *
+ * A browser window opens on Google's consent screen: the script prints the
+ * authorization URL, you approve it there. Sign in with the account
  * that OWNS the interview calendar (or has "Make changes to events" on it) — the
  * refresh token is bound to that account, so signing in with a different one is
  * how a "404 Not Found" from Calendar usually starts.
@@ -23,6 +32,7 @@
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 const PORT = 5555;
 const REDIRECT_URI = `http://localhost:${PORT}/oauth2callback`;
@@ -33,14 +43,53 @@ const SCOPES = [
   'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
 ];
 
-const clientId = String(process.env.GOOGLE_OAUTH_CLIENT_ID || '').trim();
-const clientSecret = String(process.env.GOOGLE_OAUTH_CLIENT_SECRET || '').trim();
+const ENV_KEYS = ['GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET'];
+
+/**
+ * Reads the two OAuth values from `.env`, the same file the Vite build uses, so
+ * re-running this helper every week (External + Testing consent screens hand out
+ * 7-day refresh tokens) does not also mean re-exporting them in each new shell.
+ * No dependency: `.env` is a flat KEY=value list, optionally quoted, and only the
+ * keys this script needs are read.
+ */
+const readEnvFile = () => {
+  let text = '';
+  try {
+    text = readFileSync(new URL('../.env', import.meta.url), 'utf8').replace(/^\uFEFF/, '');
+  } catch {
+    return {}; // no .env: the shell has to supply both values
+  }
+  const found = {};
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/);
+    if (!match || !ENV_KEYS.includes(match[1])) continue;
+    const value = match[2].replace(/^(['"])([\s\S]*)\1$/, '$2').trim();
+    if (value) found[match[1]] = value;
+  }
+  return found;
+};
+
+const fromFile = readEnvFile();
+const fromShell = ENV_KEYS.filter((key) => String(process.env[key] || '').trim());
+const valueOf = (key) => String(process.env[key] || fromFile[key] || '').trim();
+
+const clientId = valueOf('GOOGLE_OAUTH_CLIENT_ID');
+const clientSecret = valueOf('GOOGLE_OAUTH_CLIENT_SECRET');
 
 if (!clientId || !clientSecret) {
   console.error('Missing GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET.');
-  console.error('PowerShell: $env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."');
+  console.error('Add both to .env in the project root, or export them for this shell:');
+  console.error('PowerShell: $env:GOOGLE_OAUTH_CLIENT_ID="..."; $env:GOOGLE_OAUTH_CLIENT_SECRET="..."; npm run google:auth');
   process.exit(1);
 }
+
+console.log(
+  `OAuth client values: ${fromShell.length === ENV_KEYS.length
+    ? 'shell environment'
+    : fromShell.length
+      ? `shell environment (${fromShell.join(', ')}) + .env`
+      : '.env'}.`,
+);
 
 const state = randomBytes(16).toString('hex');
 const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   DEFAULT_INTERVIEW_INSTRUCTIONS,
+  INTERVIEW_RECOMMENDATION_LEVELS,
   buildCancelledInterview,
   buildGoogleCalendarTemplateUrl,
   buildInterviewIcs,
@@ -12,7 +13,9 @@ import {
   formatInterviewWhen,
   getEligiblePanelists,
   getInterviewDateKey,
+  getInterviewRecommendationLevelLabel,
   getInterviewReminderKey,
+  getLatestPanelRecommendation,
   isInterviewLive,
   isoToManilaInputs,
   manilaInputToIso,
@@ -31,15 +34,27 @@ import { describeApplicationStatusUpdate, renderApplicationStatusEmail, renderIn
 import { renderApplicationStatusSms, renderInterviewReminderSms, renderInterviewUpdateSms } from '../supabase/functions/_shared/sms.js';
 
 const SEA = 'School of Engineering and Architecture (SEA)';
-const CAS = 'College of Arts and Sciences (CAS)';
+const SAS = 'School of Arts and Sciences (SAS)';
+const CAS = SAS;
 const NOW = new Date('2026-11-01T00:00:00.000Z');
 
+// The reviewer ladder (Dean -> school, Assistant Dean -> cluster, Chairperson ->
+// department). Every entry carries the scope columns the panel picker reads.
 const staffDirectory = [
-  { userId: 'chair-sea', fullName: 'Ana Reyes', role: 'department_chair', department: SEA },
-  { userId: 'chair-sea-2', fullName: 'Ben Cruz', role: 'department_chair', department: SEA },
-  { userId: 'chair-cas', fullName: 'Carla Lim', role: 'department_chair', department: CAS },
+  { userId: 'chair-sea', fullName: 'Ana Reyes', role: 'department_chair', department: SEA, reviewDepartment: 'Architecture Department' },
+  { userId: 'chair-sea-2', fullName: 'Ben Cruz', role: 'department_chair', department: SEA, reviewDepartment: 'Aerospace Engineering Department' },
+  { userId: 'chair-cas', fullName: 'Carla Lim', role: 'department_chair', department: SAS, reviewDepartment: 'Computer Science Department' },
+  { userId: 'asst-cas', fullName: 'Eli Tan', role: 'assistant_dean', department: SAS, reviewSchool: SAS, reviewCluster: 'Computer Studies' },
+  { userId: 'dean-sea', fullName: 'Faye Ong', role: 'dean', department: SEA, reviewSchool: SEA },
   { userId: 'staff-1', fullName: 'Dana Uy', role: 'admissions_office', department: 'Office of Admissions' },
 ];
+
+// The applicant's resolved levels, as the panel page builds them from the taxonomy.
+const architectureApplicant = {
+  studentSchool: SEA,
+  studentCluster: '',
+  studentDepartment: 'Architecture Department',
+};
 
 const validDraft = (overrides = {}) => ({
   mode: 'onsite',
@@ -79,19 +94,41 @@ describe('Manila time helpers', () => {
 });
 
 describe('getEligiblePanelists (SOP 5a)', () => {
-  it('lists the Department Chairs of the applicant’s school first', () => {
-    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: SEA });
-    expect(panel.map((entry) => entry.userId)).toEqual(['chair-sea', 'chair-sea-2', 'staff-1']);
+  it('orders the ladder narrowest first: Chairperson, Dean, then the Admissions Office', () => {
+    // The applicant is in SEA / Architecture, so its Chairperson and its Dean both
+    // qualify, and the Chairperson is listed first as the closest reviewer.
+    const panel = getEligiblePanelists(staffDirectory, architectureApplicant);
+    expect(panel.map((entry) => entry.userId)).toEqual(['chair-sea', 'dean-sea', 'staff-1']);
+  });
+
+  it('adds the Assistant Dean of the applicant’s cluster between the Chair and the Dean', () => {
+    const panel = getEligiblePanelists(staffDirectory, {
+      studentSchool: CAS,
+      studentCluster: 'Computer Studies',
+      studentDepartment: 'Computer Science Department',
+    });
+    expect(panel.map((entry) => entry.userId)).toEqual(['chair-cas', 'asst-cas', 'staff-1']);
+  });
+
+  it('excludes a reviewer scoped to another department or cluster', () => {
+    // A different department in the same school is out of scope.
+    expect(getEligiblePanelists(staffDirectory, {
+      studentSchool: SEA,
+      studentCluster: '',
+      studentDepartment: 'Civil Engineering Department',
+    }).map((entry) => entry.userId)).toEqual(['dean-sea', 'staff-1']);
+
+    // A different cluster in the same school is out of scope for its Assistant Dean.
+    expect(getEligiblePanelists(staffDirectory, {
+      studentSchool: CAS,
+      studentCluster: 'Natural Sciences and Mathematics',
+      studentDepartment: 'Physics Department',
+    }).map((entry) => entry.userId)).toEqual(['staff-1']);
   });
 
   it('still offers the Admissions Office when the applicant’s school is unknown', () => {
-    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: '' });
+    const panel = getEligiblePanelists(staffDirectory, { studentSchool: '' });
     expect(panel.map((entry) => entry.userId)).toEqual(['staff-1']);
-  });
-
-  it('offers Admissions Office accounts on any panel', () => {
-    const panel = getEligiblePanelists(staffDirectory, { studentDepartment: CAS });
-    expect(panel.map((entry) => entry.userId)).toEqual(['chair-cas', 'staff-1']);
   });
 });
 
@@ -463,5 +500,41 @@ describe('Google Calendar client', () => {
 
   it('reads the Meet link from the conference entry points', () => {
     expect(extractMeetLink({ conferenceData: { entryPoints: [{ entryPointType: 'phone', uri: 'tel:1' }, { entryPointType: 'video', uri: 'https://meet.google.com/a' }] } })).toBe('https://meet.google.com/a');
+  });
+});
+
+// Consultation 2, request #7: the panel recommends instead of rating 1-5, and
+// the deliberation reads the panel's latest level.
+describe('interview recommendation levels', () => {
+  it('lists the five levels the database accepts', () => {
+    expect(INTERVIEW_RECOMMENDATION_LEVELS.map((entry) => entry.value)).toEqual([
+      'highly_recommended',
+      'recommended',
+      'recommended_with_reservation',
+      'not_recommended',
+      'deferred',
+    ]);
+    expect(getInterviewRecommendationLevelLabel('recommended_with_reservation')).toBe('Recommended with reservation');
+    expect(getInterviewRecommendationLevelLabel('not-a-level')).toBe('');
+    expect(getInterviewRecommendationLevelLabel('')).toBe('');
+  });
+
+  it('reads the newest note that states a level', () => {
+    const latest = getLatestPanelRecommendation([
+      { id: 'n-1', recommendationLevel: 'recommended', authorName: 'Ana Reyes', createdAt: '2026-01-05T02:00:00.000Z' },
+      { id: 'n-2', authorName: 'Carlo Uy', createdAt: '2026-01-06T02:00:00.000Z' },
+      { id: 'n-3', recommendationLevel: 'not_recommended', authorName: 'Carla Lim', createdAt: '2026-01-07T02:00:00.000Z' },
+    ]);
+    expect(latest).toMatchObject({
+      level: 'not_recommended',
+      label: 'Not recommended',
+      authorName: 'Carla Lim',
+      createdAt: '2026-01-07T02:00:00.000Z',
+    });
+  });
+
+  it('says nothing when the panel only recorded observations', () => {
+    expect(getLatestPanelRecommendation([{ id: 'n-1', rating: 4, body: 'Clear goals.' }])).toBeNull();
+    expect(getLatestPanelRecommendation()).toBeNull();
   });
 });

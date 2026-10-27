@@ -148,7 +148,7 @@ Deno.serve(async (req) => {
   let inAppError = null;
   if (isInAppEnabledForUser(preferences)) {
     const body = isRejected
-      ? `The Admissions Office could not verify “${title}”.${reason ? ` Reason: ${withPeriod(reason)}` : ''} ${scholarshipTitles.length
+      ? `The Admissions Office reverted “${title}” for resubmission.${reason ? ` What to correct: ${withPeriod(reason)}` : ''} ${scholarshipTitles.length
         ? `Replace the file from the application details under Applications (${scholarshipTitles.join(', ')}) so the review can continue.`
         : 'Upload a corrected file to your Document Vault.'}`
       : `The Admissions Office verified “${title}”. Any profile attributes it proves are now verified.`;
@@ -156,7 +156,7 @@ Deno.serve(async (req) => {
       .from('notifications')
       .upsert({
         profile_id: document.owner_id,
-        title: isRejected ? `${title} needs a replacement` : `${title} verified`,
+        title: isRejected ? `${title} needs to be resubmitted` : `${title} verified`,
         body,
         channel: 'In-app',
         status: 'Unread',

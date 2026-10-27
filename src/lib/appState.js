@@ -1,4 +1,4 @@
-import { academicPrograms } from './academicPrograms';
+import { academicPrograms, isHierarchyProgram } from './academicPrograms';
 import { pageViewKeys } from './constants';
 
 // The app's local persistence key. It was renamed from the old
@@ -127,6 +127,12 @@ const createDefaultState = () => ({
   // The internal endorsement thread. Staff-only rows; a student session always
   // keeps this empty.
   reviewComments: [],
+  // The Admissions Office case-officer roster: which office accounts have opened
+  // which application. Staff-only, so a student or Department Chair session always
+  // keeps this empty. `caseOfficersReady` turns false when the roster migration is
+  // not applied yet, so the workspace can say so.
+  caseOfficers: [],
+  caseOfficersReady: true,
   // SOP step 5 interview data (staff only): the visible staff accounts for the
   // panel picker, the Head-managed venues, the active panel members, and the
   // private evaluation notes. A student session always keeps these empty.
@@ -154,7 +160,7 @@ export const createInitialState = () => {
   // Session state key. `admissions_head` is the approval lane; the legacy
   // combined `admissions_office` value is the staff lane, so a saved session
   // keeps working after the split.
-  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_head', 'department_chair'];
+  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'];
   const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
@@ -201,13 +207,22 @@ export const createInitialState = () => {
     notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
     reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
+    caseOfficers: Array.isArray(stored.caseOfficers) ? stored.caseOfficers : defaults.caseOfficers,
+    caseOfficersReady: stored.caseOfficersReady === false ? false : defaults.caseOfficersReady,
     staffDirectory: Array.isArray(stored.staffDirectory) ? stored.staffDirectory : defaults.staffDirectory,
     interviewLocations: Array.isArray(stored.interviewLocations) ? stored.interviewLocations : defaults.interviewLocations,
     interviewPanelists: Array.isArray(stored.interviewPanelists) ? stored.interviewPanelists : defaults.interviewPanelists,
     interviewNotes: Array.isArray(stored.interviewNotes) ? stored.interviewNotes : defaults.interviewNotes,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
     officeCalendarEntries: Array.isArray(stored.officeCalendarEntries) ? stored.officeCalendarEntries : defaults.officeCalendarEntries,
-    academicPrograms: Array.isArray(stored.academicPrograms) && stored.academicPrograms.length ? stored.academicPrograms : defaults.academicPrograms,
+    // A cached catalog written before the four-level hierarchy existed carries the
+    // retired `College of …` school names and no department, so it is discarded
+    // rather than used for the pre-load paint.
+    academicPrograms: Array.isArray(stored.academicPrograms)
+      && stored.academicPrograms.length
+      && stored.academicPrograms.every(isHierarchyProgram)
+      ? stored.academicPrograms
+      : defaults.academicPrograms,
     profileSkipped: stored.profileSkipped ?? defaults.profileSkipped,
     ownerId: typeof stored.ownerId === 'string' && stored.ownerId ? stored.ownerId : defaults.ownerId,
     sessionsStartedAt: stored.sessionsStartedAt ?? null,

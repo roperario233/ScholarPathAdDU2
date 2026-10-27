@@ -32,6 +32,40 @@ export const INTERVIEW_STATE_LABELS = {
   cancelled: 'Cancelled',
 };
 
+// SOP step 6 input: the panel states a recommendation rather than scoring the
+// applicant out of five (Consultation 2, request #7). The stored value is the
+// key; `rating` survives only so a note recorded before this list existed still
+// displays. The whole note stays staff-only (application_interview_notes has no
+// student policy).
+export const INTERVIEW_RECOMMENDATION_LEVELS = [
+  { value: 'highly_recommended', label: 'Highly recommended' },
+  { value: 'recommended', label: 'Recommended' },
+  { value: 'recommended_with_reservation', label: 'Recommended with reservation' },
+  { value: 'not_recommended', label: 'Not recommended' },
+  { value: 'deferred', label: 'Deferred' },
+];
+
+export const getInterviewRecommendationLevelLabel = (level) => (
+  INTERVIEW_RECOMMENDATION_LEVELS.find((entry) => entry.value === level)?.label || ''
+);
+
+// The newest evaluation note that states a level, for the line beside the
+// deliberation action. Notes may arrive in any order, so the list is ordered by
+// creation time first; a note without a level (an observation only) is skipped.
+export const getLatestPanelRecommendation = (notes = []) => {
+  const latest = (Array.isArray(notes) ? notes : [])
+    .filter((note) => getInterviewRecommendationLevelLabel(note?.recommendationLevel))
+    .sort((left, right) => new Date(right?.createdAt || 0) - new Date(left?.createdAt || 0))[0];
+  if (!latest) return null;
+  return {
+    level: latest.recommendationLevel,
+    label: getInterviewRecommendationLevelLabel(latest.recommendationLevel),
+    authorName: latest.authorName || '',
+    authorRole: latest.authorRole || '',
+    createdAt: latest.createdAt || null,
+  };
+};
+
 export const DEFAULT_INTERVIEW_INSTRUCTIONS = {
   onsite: 'Bring a valid school or government ID and arrive at least 10 minutes before your schedule.',
   online: 'Join from a quiet place with a stable connection, keep your camera on, and have a valid school or government ID ready.',
@@ -130,21 +164,58 @@ export const isSafeMeetingUrl = (value) => {
 
 // Department Chair accounts from the applicant's school (SOP 5a). The database
 // repeats the rule in validate_interview_panelist().
+// Narrowest scope first: the Chair of the applicant's own department is the most
+// relevant reviewer, the Dean of its school the least, and the Admissions Office
+// lanes coordinate every interview.
+const PANEL_LEVEL_ORDER = ['department', 'cluster', 'school', 'office'];
+
 /**
- * Who can sit on the panel. SOP 5a draws the Department Chairs from the school
- * where the applicant's program belongs, and the Admissions Office coordinates
- * the interview (SOP step 5), so its two lanes may join any panel. Either kind of
- * member can be the lead.
+ * Who can sit on the panel. SOP 5a draws the reviewers from the applicant's school,
+ * so every level of the academic ladder whose scope covers the applicant qualifies:
+ * the Chairperson of its department, the Assistant Dean of its cluster, and the Dean
+ * of its school. The Admissions Office coordinates the interview (SOP step 5), so its
+ * two lanes may join any panel. Any member can be the lead.
+ *
+ * `applicantScope` is the applicant's resolved `{ school, cluster, department }`;
+ * the panel page builds it from the taxonomy. The application's own `studentSchool`
+ * etc. are the fallback so a caller without the taxonomy still gets school level.
  */
-export const getEligiblePanelists = (staffDirectory = [], application = {}) => {
-  const school = String(application?.studentDepartment || '').trim();
+export const getEligiblePanelists = (staffDirectory = [], application = {}, applicantScope = null) => {
   const entries = Array.isArray(staffDirectory) ? staffDirectory : [];
+  const target = {
+    // `applicantScope` is the resolved `{ school, cluster, department }`; the
+    // application's own fields are the fallback so a caller without the taxonomy
+    // still gets school level (and a raw application object still works).
+    school: String(applicantScope?.school ?? applicantScope?.studentSchool ?? application?.studentSchool ?? '').trim(),
+    cluster: String(applicantScope?.cluster ?? applicantScope?.studentCluster ?? application?.studentCluster ?? '').trim(),
+    department: String(applicantScope?.department ?? applicantScope?.studentDepartment ?? application?.studentDepartment ?? '').trim(),
+  };
   const byName = (a, b) => String(a.fullName || '').localeCompare(String(b.fullName || ''));
-  const chairs = entries.filter((entry) => entry?.role === 'department_chair'
-    && school
-    && String(entry.department || '').trim() === school);
-  const office = entries.filter((entry) => entry?.role === 'admissions_office' || entry?.role === 'admissions_head');
-  return [...chairs.sort(byName), ...office.sort(byName)];
+  const levelOf = (entry) => {
+    const role = entry?.role || '';
+    if (role === 'admissions_office' || role === 'admissions_head') return 'office';
+    const reviewSchool = String(entry?.reviewSchool || '').trim();
+    const reviewCluster = String(entry?.reviewCluster || '').trim();
+    const reviewDepartment = String(entry?.reviewDepartment || '').trim();
+    const legacySchool = String(entry?.department || '').trim();
+    if (role === 'dean') return target.school && reviewSchool === target.school ? 'school' : null;
+    if (role === 'assistant_dean') {
+      if (!target.school || reviewSchool !== target.school) return null;
+      return reviewCluster && reviewCluster !== target.cluster ? null : 'cluster';
+    }
+    if (role !== 'department_chair') return null;
+    // A Chairperson is scoped to a department. One an operator has not scoped yet
+    // keeps the legacy school-wide read so an existing account is never dropped.
+    if (reviewDepartment) return reviewDepartment === target.department ? 'department' : null;
+    return legacySchool && legacySchool === target.school ? 'department' : null;
+  };
+  return entries
+    .map((entry) => ({ entry, level: levelOf(entry) }))
+    .filter((row) => row.level)
+    .sort((a, b) => (
+      PANEL_LEVEL_ORDER.indexOf(a.level) - PANEL_LEVEL_ORDER.indexOf(b.level) || byName(a.entry, b.entry)
+    ))
+    .map((row) => row.entry);
 };
 
 // A panel member in the schedule form: an account (`profileId`) or a typed

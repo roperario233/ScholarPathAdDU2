@@ -1764,3 +1764,31 @@ a:focus-visible {
     max-width: 100%;
   }
 }
+
+/* Printable application (FORM 230-SCH order). The sheet is mounted in a portal on
+   <body> only while printing, so print mode hides every other body child,
+   including portaled modals, and shows just the sheet on a white page. */
+.print-sheet-root { display: none; }
+
+@media print {
+  @page { size: A4; margin: 14mm; }
+
+  html,
+  body { background: #fff !important; }
+
+  body > *:not(.print-sheet-root) { display: none !important; }
+
+  .print-sheet-root {
+    display: block !important;
+    color: #000;
+    background: #fff;
+    color-scheme: light;
+    font-size: 11pt;
+    line-height: 1.35;
+  }
+
+  .print-sheet-root .print-page-break { break-before: page; }
+  .print-sheet-root section { break-inside: avoid-page; }
+  .print-sheet-root table { break-inside: auto; }
+  .print-sheet-root tr { break-inside: avoid; }
+}

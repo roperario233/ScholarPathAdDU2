@@ -17,6 +17,7 @@ export default function AdminResultsRelease({
   scholarships = [],
   role = 'admissions_head',
   onChangeApplication,
+  onRejectApplication,
   onApproveApplication,
   onReleaseResults,
   interviewWorkspace = null,
@@ -108,6 +109,7 @@ export default function AdminResultsRelease({
           role={role}
           onClose={() => setApprovalId(null)}
           onStatusChange={handleStatusChange}
+          onRejectApplication={onRejectApplication}
           onRelease={onReleaseResults}
           interviewWorkspace={interviewWorkspace}
         />

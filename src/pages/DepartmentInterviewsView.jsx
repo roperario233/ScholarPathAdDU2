@@ -10,6 +10,7 @@ import {
   getUpcomingInterviews,
   groupInterviewsByDate,
 } from '../lib/interviewRoster';
+import { REVIEW_ROLE_LABELS, getReviewScopeLabel } from '../lib/reviewScope';
 
 // SOP step 5 for the Department Chair: panel work only. Scheduling belongs to the
 // Admissions Office, so this page opens the Interview tab and never writes a
@@ -66,8 +67,8 @@ export default function DepartmentInterviewsView({
     <div className="grid content-start gap-5 self-start">
       <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
         <div className="page-title-copy">
-          <span className="page-section-label">Department Chair interviews</span>
-          <h2>{profile.department || 'Department'} interview panel</h2>
+          <span className="page-section-label">{REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} interviews</span>
+          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} interview panel</h2>
         </div>
         <StatusBadge tone="info">{panelUpcoming.length} on your panel</StatusBadge>
       </section>

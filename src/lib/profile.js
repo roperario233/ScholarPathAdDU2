@@ -31,6 +31,12 @@ export const ELIGIBILITY_ATTRIBUTE_KEYS = [
   'ipCommunity',
   'pwd',
   'employed',
+  // FORM 230-SCH "Applicant Status": Incoming First Year, Current Ateneo Student
+  // (College), or Transferee. The year standing already carries the first two, so
+  // only the transferee answer is stored. It is kept apart from `yearStanding`
+  // because the standing decides whether the QPI or the senior high school
+  // average is read, and adding a standing value would break that branch.
+  'isTransferee',
 ];
 
 export const SPONSOR_TIE_KEYS = ['gsisMemberDependent', 'afpDependent', 'usVeteranDependent'];
@@ -40,6 +46,13 @@ export const SPONSOR_TIE_KEYS = ['gsisMemberDependent', 'afpDependent', 'usVeter
 // `profiles.profile_details` JSON column in Supabase. Family details are stored
 // as one nested object.
 export const PROFILE_DETAIL_KEYS = [
+  // FORM 230-SCH asks for the name as Last, First, Middle. The three parts are
+  // stored alongside `fullName`, which stays the single display value on
+  // `profiles.full_name` and the only name the profile gate requires, so a
+  // student who has not split their name is never blocked from applying.
+  'firstName',
+  'middleName',
+  'lastName',
   'religion',
   'civilStatus',
   'completeAddress',
@@ -47,6 +60,19 @@ export const PROFILE_DETAIL_KEYS = [
   'residingAddress',
   'sameAsCompleteAddress',
   'familyDetails',
+  // FORM 230-SCH details (Application for Financial Aid). Stable facts that are
+  // reused across applications; the sensitive financial ones live in the
+  // office-only student_financial_profiles table instead (see financialDetails.js).
+  'birthdate',
+  'sexAtBirth',
+  'pronouns',
+  'housingType',
+  'housingOther',
+  'schoolLastAttended',
+  'awards',
+  'ipGroupName',
+  'previousGrants',
+  'communityService',
   // A longer free-text scholarship essay the student writes once and can reuse
   // across applications. Unlike the short bio it keeps its paragraph breaks.
   'essay',
@@ -344,7 +370,45 @@ export const getDocumentSelectionForType = (documentType, profile = null) => (
 export const BIO_MAX_LENGTH = 280;
 export const ESSAY_MAX_LENGTH = 5000;
 export const FULL_NAME_MAX_LENGTH = 100;
+export const NAME_PART_MAX_LENGTH = 60;
 export const PASSWORD_MIN_LENGTH = 8;
+
+// FORM 230-SCH prints the name as "Last Name, First Name, Middle Name". The
+// parts are optional details: a profile that only holds `fullName` (every account
+// created before the parts existed) still applies, prints, and matches, so the
+// form falls back to it whenever the parts are blank.
+export const composeFullName = ({ firstName, middleName, lastName } = {}) => {
+  const clean = (value) => String(value ?? '').trim().replace(/\s+/g, ' ');
+  const last = clean(lastName);
+  const given = [clean(firstName), clean(middleName)].filter(Boolean).join(' ');
+  if (last && given) return `${last}, ${given}`;
+  return last || given;
+};
+
+// Last, First Middle | First Middle Last | a single name. Returns blank parts when
+// the stored value cannot be split with confidence, so the student types it once
+// instead of the app guessing wrong.
+export const splitLegacyFullName = (fullName) => {
+  const value = String(fullName ?? '').trim().replace(/\s+/g, ' ');
+  if (!value) return { firstName: '', middleName: '', lastName: '' };
+  if (value.includes(',')) {
+    const [lastPart, ...rest] = value.split(',');
+    const given = rest.join(',').trim().split(' ');
+    return {
+      firstName: given[0] || '',
+      middleName: given.slice(1).join(' '),
+      lastName: lastPart.trim(),
+    };
+  }
+  const words = value.split(' ');
+  if (words.length < 2) return { firstName: '', middleName: '', lastName: '' };
+  return {
+    firstName: words[0],
+    middleName: words.length > 2 ? words.slice(1, -1).join(' ') : '',
+    lastName: words[words.length - 1],
+  };
+};
+
 
 // Year standing is the single control a student picks. The eligibility engine
 // and the profile gates still read the derived `applicantType` and `yearLevel`
@@ -352,16 +416,49 @@ export const PASSWORD_MIN_LENGTH = 8;
 // directions and let records saved before this control existed keep resolving.
 // An incoming first-year has no college QPI yet (its programs key off senior
 // high school standing), while every continuing year reports a QPI.
+//
+// The labels follow the Admissions Office calendar: offers open in the summer, so
+// a standing names the year the applicant is going into. A first-year applicant is
+// therefore the incoming first-year, which is why `1st` is retired from the picker
+// (a record saved with it still resolves — see YEAR_STANDING_LABELS). The stored
+// values stay stable because the eligibility branch, the Document Vault standing
+// scope, and the database checks all read them.
 export const yearStandingOptions = [
   { value: 'incoming-1st', label: 'Incoming 1st year' },
-  { value: '1st', label: '1st year' },
-  { value: '2nd', label: '2nd year' },
-  { value: '3rd', label: '3rd year' },
-  { value: '4th', label: '4th year' },
-  { value: '5th', label: '5th year' },
+  { value: '2nd', label: 'Incoming 2nd year' },
+  { value: '3rd', label: 'Incoming 3rd year' },
+  { value: '4th', label: 'Incoming 4th year' },
+  { value: '5th', label: 'Incoming 5th year' },
 ];
 
-const YEAR_STANDING_VALUES = new Set(yearStandingOptions.map((option) => option.value));
+// Every label the app can print, including the retired `1st`, so a stored profile
+// or a frozen snapshot recorded before this change still shows a year.
+export const YEAR_STANDING_LABELS = {
+  'incoming-1st': 'Incoming 1st year',
+  '1st': '1st year',
+  '2nd': 'Incoming 2nd year',
+  '3rd': 'Incoming 3rd year',
+  '4th': 'Incoming 4th year',
+  '5th': 'Incoming 5th year',
+};
+
+export const getYearStandingLabel = (value) => YEAR_STANDING_LABELS[value] || '';
+
+// A student who is already enrolled reports the year they are going into, so
+// `Incoming 1st year` belongs to the applicant status and is never offered here.
+export const continuingYearStandingOptions = yearStandingOptions.filter((option) => option.value !== 'incoming-1st');
+
+// Which standings the picker offers for an answered FORM 230-SCH applicant
+// status. An incoming first-year has nothing to pick (the status already says it),
+// while an unanswered status keeps the full list so a profile saved before the
+// status existed is never locked out.
+export const getYearStandingOptions = (applicantStatus = '') => {
+  if (applicantStatus === 'incoming') return [];
+  if (applicantStatus === 'current' || applicantStatus === 'transferee') return continuingYearStandingOptions;
+  return yearStandingOptions;
+};
+
+const YEAR_STANDING_VALUES = new Set(['1st', ...yearStandingOptions.map((option) => option.value)]);
 const YEAR_LEVEL_ORDINALS = { 1: '1st', 2: '2nd', 3: '3rd', 4: '4th', 5: '5th' };
 
 // Reconstructs the single standing from stored attributes: a saved standing
@@ -391,7 +488,7 @@ export const resolveYearStanding = (value) => {
 // the rules independently. Accepts a standing value or a profile-shaped object.
 // An unanswered standing requires nothing yet; an incoming first-year reports
 // senior high school standing and has no AdDU student number or college QPI,
-// while every continuing year (1st–5th) reports both.
+// while every continuing year reports a QPI.
 export const getStandingRequirements = (value) => {
   const yearStanding = value && typeof value === 'object' ? deriveYearStanding(value) : value;
   const resolved = resolveYearStanding(yearStanding);
@@ -399,7 +496,6 @@ export const getStandingRequirements = (value) => {
   return {
     ...resolved,
     isContinuing,
-    requiresStudentNumber: isContinuing,
     requiresQpi: isContinuing,
     requiresHsStanding: resolved.isIncomingFirstYear,
     // Only an incoming first-year ranks program choices (1st, 2nd, 3rd), because
@@ -409,6 +505,17 @@ export const getStandingRequirements = (value) => {
     // program/course being applied for; an enrolled student keeps the plain form.
     programLabel: resolved.isIncomingFirstYear ? 'Program / Course (to be enrolled)' : 'Program / Course',
   };
+};
+
+// An AdDU student number is issued to an enrolled Ateneo student, so it is tied to
+// the FORM 230-SCH applicant status rather than to the year standing alone: an
+// incoming first-year has not been issued one yet, and a transferee's record
+// belongs to the institution they left. My Profile therefore asks for it only for
+// a current Ateneo student, and every surface (the onboarding modal, the section
+// validator, the completeness gate, and the App routing gates) reads this one rule.
+export const requiresStudentNumber = (profile = {}) => {
+  const standing = getStandingRequirements(profile);
+  return standing.isContinuing && profile.isTransferee !== 'Yes';
 };
 
 export const academicStandingOptions = [
@@ -470,6 +577,134 @@ export const familyPositionOptions = [
   { value: 'Youngest', label: 'Youngest' },
 ];
 
+export const siblingStatusOptions = [
+  { value: '', label: 'Select status' },
+  { value: 'Studying', label: 'Still studying' },
+  { value: 'Aged 3 or below', label: 'Aged 3 or below' },
+  { value: 'Employed', label: 'Employed' },
+  { value: 'Married', label: 'Married' },
+];
+
+// FORM 230-SCH personal and background options.
+export const sexAtBirthOptions = [
+  { value: '', label: 'Select' },
+  { value: 'Female', label: 'Female' },
+  { value: 'Male', label: 'Male' },
+];
+
+export const housingTypeOptions = [
+  { value: '', label: 'Not applicable (I live at home)' },
+  { value: 'Boarding house or dormitory', label: 'Boarding house or dormitory' },
+  { value: 'With relatives', label: 'With relatives' },
+  { value: 'Other', label: 'Other' },
+];
+
+export const communityServiceOptions = [
+  { value: '', label: 'Select' },
+  { value: 'Yes', label: 'Yes' },
+  { value: 'No', label: 'No' },
+];
+
+// FORM 230-SCH "Applicant Status". The three answers are a display layer over
+// `yearStanding` (Incoming 1st year, then Incoming 2nd-5th year) plus
+// `isTransferee`, so the eligibility branch between the QPI and the senior high
+// school average is never rewritten by a status change. The status also decides
+// which of the two controls My Profile shows (see getYearStandingOptions).
+export const APPLICANT_STATUS_VALUES = ['incoming', 'current', 'transferee'];
+export const applicantStatusOptions = [
+  { value: 'incoming', label: 'Incoming First Year' },
+  { value: 'current', label: 'Current Ateneo Student (College)' },
+  { value: 'transferee', label: 'Transferee' },
+];
+
+export const isTransfereeOptions = [
+  { value: '', label: 'Select' },
+  { value: 'No', label: 'No' },
+  { value: 'Yes', label: 'Yes' },
+];
+
+export const getApplicantStatus = ({ yearStanding, isTransferee } = {}) => {
+  const standing = deriveYearStanding({ yearStanding });
+  if (standing === 'incoming-1st') return 'incoming';
+  // A recorded transferee answer still describes the applicant while the year is
+  // being re-picked, so the status control is not left blank behind it.
+  if (!standing) return isTransferee === 'Yes' ? 'transferee' : '';
+  return isTransferee === 'Yes' ? 'transferee' : 'current';
+};
+
+// The academic-profile draft after the applicant status changes. The status is kept
+// in the draft as its own answer, so choosing Current or Transferee before a year
+// is picked no longer snaps the control back to blank while the form re-derives the
+// status from an unanswered standing. The year standing and the transferee answer
+// move with it, so the two controls can never disagree: an incoming first-year is
+// always Incoming 1st year and never a transferee, and a year the new status does
+// not offer is cleared instead of guessed. Only an incoming first-year ranks a 2nd
+// and 3rd program choice, so those are dropped on the way out.
+export const applyApplicantStatus = (values = {}, status = '') => {
+  const keepsStanding = status === 'incoming'
+    ? false
+    : getYearStandingOptions(status).some((option) => option.value === values.yearStanding);
+  return {
+    applicantStatus: status,
+    yearStanding: status === 'incoming' ? 'incoming-1st' : keepsStanding ? values.yearStanding : '',
+    isTransferee: status === 'transferee' ? 'Yes' : status ? 'No' : '',
+    ...(status === 'incoming' ? {} : { programChoice2: '', programChoice3: '' }),
+  };
+};
+
+// Answering the status by picking the year instead: the incoming standing is the
+// Incoming First Year status, so the two controls stay in step either way. A
+// continuing year leaves the status to the student, because only they know whether
+// they are a transferee.
+export const applyYearStanding = (value = '') => (
+  value === 'incoming-1st'
+    ? { yearStanding: value, applicantStatus: 'incoming', isTransferee: 'No' }
+    : { yearStanding: value }
+);
+
+export const getApplicantStatusLabel = (profile = {}) => {
+  const status = getApplicantStatus(profile);
+  return applicantStatusOptions.find((option) => option.value === status)?.label || '';
+};
+
+// A transferee has already attended college, so the "School last attended" block
+// records that college instead of a senior high school (FORM 230-SCH).
+export const isTransfereeProfile = (profile = {}) => profile?.isTransferee === 'Yes';
+
+export const grantTypeOptions = [
+  { value: 'Government', label: 'Government (CHED, DOST, STEP, GSIS, others)' },
+  { value: 'Private', label: 'Private' },
+];
+
+export const grantStatusOptions = [
+  { value: 'applied', label: 'Applied for' },
+  { value: 'accepted', label: 'Accepted' },
+];
+
+// FORM 230-SCH asks separately whether the applicant enjoyed financial aid in
+// senior high school, applied for or received a government grant, and applied for
+// or received a private one. One grant list with a level answers all three.
+export const grantLevelOptions = [
+  { value: 'Senior high school', label: 'Senior high school' },
+  { value: 'College', label: 'College' },
+  { value: 'Both', label: 'Senior high school and college' },
+];
+
+// The grants that answer "Did the applicant enjoy any form of financial aid in
+// senior high school?" — a grant the student applied for or received at that level.
+export const getShsFinancialAid = (previousGrants = []) => (
+  Array.isArray(previousGrants)
+    ? previousGrants.filter((entry) => ['Senior high school', 'Both'].includes(entry?.level))
+    : []
+);
+
+export const PRONOUNS_MAX_LENGTH = 40;
+export const SCHOOL_FIELD_MAX_LENGTH = 100;
+export const AWARDS_MAX_LENGTH = 500;
+export const MAX_SIBLING_ROWS = 15;
+export const MAX_HOUSEHOLD_ADULT_ROWS = 10;
+export const MAX_GRANT_ROWS = 10;
+
 export const FAMILY_NAME_MAX_LENGTH = 100;
 export const FAMILY_OCCUPATION_MAX_LENGTH = 100;
 export const ADDRESS_MAX_LENGTH = 240;
@@ -502,6 +737,14 @@ const isBlank = (value) => value === undefined || value === null || String(value
 export const pickFields = (source = {}, keys = []) => Object.fromEntries(
   keys.filter((key) => hasOwn(source, key) && source[key] !== undefined).map((key) => [key, source[key]]),
 );
+
+// `profiles.profile_details` is replaced on write, so a section save sends the
+// stored detail fields merged with the section's own patch. Writing the patch
+// alone would erase every other section's details on the server.
+export const mergeProfileDetails = (storedProfile, detailPatch) => ({
+  ...pickFields(storedProfile || {}, PROFILE_DETAIL_KEYS),
+  ...detailPatch,
+});
 
 // Returns only the known eligibility attributes, with sponsor ties narrowed to
 // booleans so stored JSON cannot inject unexpected keys into the matcher.
@@ -632,12 +875,86 @@ const validateText = (raw, { max, message }) => {
   return value.length > max ? { value, error: message } : ok(value);
 };
 
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const todayKey = () => new Date().toISOString().slice(0, 10);
+
+// ISO calendar date (YYYY-MM-DD) that is a real day and not in the future.
+// Blank is allowed; completeness decides whether the answer is required.
+export const validateOptionalDate = (raw, { label, minYear = 1930 } = {}) => {
+  const value = String(raw ?? '').trim();
+  if (!value) return ok('');
+  const parsed = new Date(`${value}T00:00:00Z`);
+  const isRealDate = DATE_PATTERN.test(value)
+    && !Number.isNaN(parsed.getTime())
+    && parsed.toISOString().slice(0, 10) === value;
+  if (!isRealDate) return { value, error: `Enter ${label || 'the date'} as a valid date.` };
+  if (Number(value.slice(0, 4)) < minYear || value > todayKey()) {
+    return { value, error: `Enter ${label || 'the date'} as a past date.` };
+  }
+  return ok(value);
+};
+
+const toWholeNumber = (raw, { min, max }) => {
+  if (isBlank(raw)) return { value: '', error: false };
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= min && value <= max
+    ? { value, error: false }
+    : { value: raw, error: true };
+};
+
+// Repeatable-row validator for the siblings, household adults and grants lists.
+// `columns` maps a row key to its normalizer: `{ text: max }`, `{ age: true }`
+// or `{ options: [...] }`. A row with every column blank is dropped. Returns the
+// cleaned rows and the first error (rows are small, so one message is enough).
+const validateRows = (raw, { max, label, columns, required = [] }) => {
+  const rows = Array.isArray(raw) ? raw : [];
+  const cleaned = [];
+  let error = '';
+  rows.forEach((entry, index) => {
+    const row = {};
+    Object.entries(columns).forEach(([key, rule]) => {
+      if (rule.age) {
+        const age = toWholeNumber(entry?.[key], { min: 0, max: 120 });
+        row[key] = age.value;
+        if (age.error && !error) error = `${label} ${index + 1}: enter the age as a whole number from 0 to 120.`;
+      } else if (rule.amount) {
+        // A peso amount: blank is allowed, otherwise 0 or more.
+        const rawAmount = String(entry?.[key] ?? '').trim();
+        if (!rawAmount) {
+          row[key] = '';
+        } else {
+          const amount = Number(rawAmount.replace(/,/g, ''));
+          row[key] = Number.isFinite(amount) && amount >= 0 ? Math.round(amount) : rawAmount;
+          if ((!Number.isFinite(amount) || amount < 0) && !error) error = `${label} ${index + 1}: enter the amount as a number of 0 or more.`;
+        }
+      } else if (rule.options) {
+        const value = String(entry?.[key] ?? '');
+        row[key] = rule.options.some((option) => option.value === value) ? value : '';
+      } else {
+        const text = validateText(entry?.[key], { max: rule.text, message: '' });
+        row[key] = text.value.slice(0, rule.text);
+        if (text.error && !error) error = `${label} ${index + 1}: keep each entry within ${rule.text} characters.`;
+      }
+    });
+    if (Object.values(row).every((value) => value === '' || value === undefined)) return;
+    const missing = required.find((key) => row[key] === '' || row[key] === undefined);
+    if (missing && !error) error = `${label} ${index + 1}: fill in the ${missing === 'name' ? 'name' : missing}.`;
+    cleaned.push(row);
+  });
+  if (cleaned.length > max && !error) error = `List at most ${max} entries.`;
+  return { value: cleaned.slice(0, max), error };
+};
+
 export const validatePersonalSection = (form = {}) => {
   const bio = String(form.bio ?? '').trim();
   // The essay is longer than the bio and keeps its paragraph breaks, so it is
   // only trimmed at the edges and capped, never whitespace-collapsed.
   const essay = String(form.essay ?? '').trim();
-  return collect({
+  const result = collect({
+    firstName: validateText(form.firstName, { max: NAME_PART_MAX_LENGTH, message: `Keep your first name within ${NAME_PART_MAX_LENGTH} characters.` }),
+    middleName: validateText(form.middleName, { max: NAME_PART_MAX_LENGTH, message: `Keep your middle name within ${NAME_PART_MAX_LENGTH} characters.` }),
+    lastName: validateText(form.lastName, { max: NAME_PART_MAX_LENGTH, message: `Keep your last name within ${NAME_PART_MAX_LENGTH} characters.` }),
     fullName: validateFullName(form.fullName),
     phone: validateMobileNumber(form.phone),
     bio: bio.length > BIO_MAX_LENGTH
@@ -645,10 +962,25 @@ export const validatePersonalSection = (form = {}) => {
       : ok(bio),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
+    birthdate: validateOptionalDate(form.birthdate, { label: 'your birthdate' }),
+    sexAtBirth: oneOf(form.sexAtBirth || '', sexAtBirthOptions, 'Choose an option.'),
+    pronouns: validateText(form.pronouns, { max: PRONOUNS_MAX_LENGTH, message: `Keep the pronouns within ${PRONOUNS_MAX_LENGTH} characters.` }),
     essay: essay.length > ESSAY_MAX_LENGTH
       ? { value: essay, error: `Keep your default statement within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
+  // The name parts are what FORM 230-SCH prints (Last, First, Middle), so once
+  // they are filled in they become the display name and `profiles.full_name`
+  // never disagrees with them. A profile that only holds the single name keeps
+  // working untouched.
+  const composed = composeFullName(result.values);
+  if (composed && !result.errors.firstName && !result.errors.lastName) {
+    const composedName = validateFullName(composed);
+    result.values.fullName = composedName.value;
+    if (composedName.error) result.errors.fullName = composedName.error;
+    else delete result.errors.fullName;
+  }
+  return result;
 };
 
 // Address panel. "Residing address" can mirror the complete address through the
@@ -661,9 +993,16 @@ export const validateAddressSection = (form = {}) => {
     residingAddress: sameAsCompleteAddress
       ? ok('')
       : validateText(form.residingAddress, { max: ADDRESS_MAX_LENGTH, message: `Keep your residing address within ${ADDRESS_MAX_LENGTH} characters.` }),
+    housingType: oneOf(form.housingType || '', housingTypeOptions, 'Choose where you stay while studying.'),
+    housingOther: validateText(form.housingOther, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep this within ${SCHOOL_FIELD_MAX_LENGTH} characters.` }),
   });
+  if (result.values.housingType === 'Other' && !result.values.housingOther && !result.errors.housingOther) {
+    result.errors.housingOther = 'Describe where you stay.';
+  }
   return {
     values: {
+      housingType: result.values.housingType,
+      housingOther: result.values.housingType === 'Other' ? result.values.housingOther : '',
       completeAddress: result.values.completeAddress,
       country: result.values.country,
       sameAsCompleteAddress,
@@ -684,6 +1023,31 @@ export const validateFamilySection = (form = {}) => {
     motherOccupation: validateText(family.motherOccupation, { max: FAMILY_OCCUPATION_MAX_LENGTH, message: `Keep the occupation within ${FAMILY_OCCUPATION_MAX_LENGTH} characters.` }),
     familyPosition: oneOf(family.familyPosition || '', familyPositionOptions, 'Choose your family position.'),
     numberOfSiblings: validateOptionalInteger(family.numberOfSiblings, { min: 0, max: 30, message: 'Enter the number of siblings as a whole number.' }),
+    fatherAge: validateOptionalInteger(family.fatherAge, { min: 15, max: 120, message: 'Enter the age as a whole number from 15 to 120.' }),
+    motherAge: validateOptionalInteger(family.motherAge, { min: 15, max: 120, message: 'Enter the age as a whole number from 15 to 120.' }),
+    fatherDateOfDeath: validateOptionalDate(family.fatherDeceased ? family.fatherDateOfDeath : '', { label: 'the date of death' }),
+    motherDateOfDeath: validateOptionalDate(family.motherDeceased ? family.motherDateOfDeath : '', { label: 'the date of death' }),
+    siblings: validateRows(family.siblings, {
+      max: MAX_SIBLING_ROWS,
+      label: 'Sibling',
+      columns: {
+        name: { text: FAMILY_NAME_MAX_LENGTH },
+        age: { age: true },
+        relationship: { text: FAMILY_OCCUPATION_MAX_LENGTH },
+        status: { options: siblingStatusOptions },
+      },
+      required: ['name'],
+    }),
+    householdAdults: validateRows(family.householdAdults, {
+      max: MAX_HOUSEHOLD_ADULT_ROWS,
+      label: 'Household member',
+      columns: {
+        name: { text: FAMILY_NAME_MAX_LENGTH },
+        age: { age: true },
+        relationship: { text: FAMILY_OCCUPATION_MAX_LENGTH },
+      },
+      required: ['name'],
+    }),
   });
   return {
     values: {
@@ -691,11 +1055,17 @@ export const validateFamilySection = (form = {}) => {
         fatherName: result.values.fatherName,
         fatherOccupation: result.values.fatherOccupation,
         fatherDeceased: Boolean(family.fatherDeceased),
+        fatherAge: result.values.fatherAge,
+        fatherDateOfDeath: result.values.fatherDateOfDeath,
         motherName: result.values.motherName,
         motherOccupation: result.values.motherOccupation,
         motherDeceased: Boolean(family.motherDeceased),
+        motherAge: result.values.motherAge,
+        motherDateOfDeath: result.values.motherDateOfDeath,
         familyPosition: result.values.familyPosition,
         numberOfSiblings: result.values.numberOfSiblings,
+        siblings: result.values.siblings,
+        householdAdults: result.values.householdAdults,
       },
     },
     errors: result.errors,
@@ -707,7 +1077,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
   const result = collect({
     // An incoming first-year has not been issued an AdDU student number yet, so
     // only a continuing student is required to provide one.
-    studentNumber: standing.requiresStudentNumber
+    // An AdDU student number is issued to a current Ateneo student, so only that
+    // applicant status requires one; a transferee and an incoming first-year are
+    // not asked, and a value they already stored is kept instead of cleared.
+    studentNumber: requiresStudentNumber(form)
       ? validateStudentNumber(form.studentNumber)
       : (isBlank(form.studentNumber) ? ok('') : validateStudentNumber(form.studentNumber)),
     degreeProgram: !form.degreeProgram || (academicPrograms.length && !academicPrograms.some((program) => program.value === form.degreeProgram))
@@ -722,14 +1095,39 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     qpi: standing.requiresQpi ? validateQpi(form.qpi) : (isBlank(form.qpi) ? ok('') : validateQpi(form.qpi)),
     // Senior high school standing lives with the academic profile (see My
     // Profile); incoming first-years are matched on it instead of a QPI.
-    hsStrand: oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.'),
+    // The strand is an incoming-first-year answer: My Profile shows it only for that
+    // standing, so another standing keeps whatever it already recorded and a hidden
+    // field can never fail the section.
+    hsStrand: standing.requiresHsStanding
+      ? oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.')
+      : ok(hsStrandOptions.some((option) => option.value === (form.hsStrand || '')) ? (form.hsStrand || '') : ''),
     hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
-    // Ranked program choices for an incoming first-year. Choice 1 is the degree
-    // program above; choices 2 and 3 are optional and must differ from each other.
-    // A standing that does not rank choices clears any inherited selection, so a
-    // student who switches to an enrolled year never carries stale duplicates.
+    // FORM 230-SCH ranks a 1st and 2nd choice for an incoming first-year ("in case
+    // there is a scholarship slot in other programs"). A student who is already
+    // enrolled holds a degree program, so its pickers are not offered and any
+    // inherited list is cleared instead of kept.
     programChoice2: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice2, academicPrograms) : ok(''),
     programChoice3: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice3, academicPrograms) : ok(''),
+    // Applicant Status: a transferee already attended college. The answer is kept
+    // apart from the year standing so the QPI / senior high school average branch
+    // never changes. A blank answer is allowed here, like civil status and the
+    // other optional selects, because the first-login modal does not ask for it;
+    // the completeness checklist and the database gate require it to apply.
+    // An incoming first-year is not a transferee, and an answered standing already
+    // separates a current student from a transferee, so the answer is recorded
+    // instead of being left blank while the control always shows one of the three.
+    isTransferee: standing.isIncomingFirstYear
+      ? ok('No')
+      : standing.yearStanding
+        ? ok(form.isTransferee === 'Yes' ? 'Yes' : 'No')
+        : oneOf(form.isTransferee || '', isTransfereeOptions, 'Choose your applicant status.'),
+    // FORM 230-SCH education details, stored with the descriptive profile fields.
+    schoolLastAttended: ok({
+      name: validateText(form.schoolLastAttended?.name, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
+      city: validateText(form.schoolLastAttended?.city, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
+      province: validateText(form.schoolLastAttended?.province, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
+    }),
+    awards: validateText(form.awards, { max: AWARDS_MAX_LENGTH, message: `Keep the awards within ${AWARDS_MAX_LENGTH} characters.` }),
     // Derived so the eligibility engine keeps reading the same attributes.
     applicantType: ok(standing.applicantType),
     yearLevel: standing.yearLevel == null
@@ -742,9 +1140,12 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
   if (standing.requiresHsStanding) {
     if (!result.values.hsStrand && !result.errors.hsStrand) result.errors.hsStrand = 'Choose your senior high school strand.';
     if (result.values.hsAverage === '' && !result.errors.hsAverage) result.errors.hsAverage = 'Add your senior high school general average.';
-    // Program choices must be distinct when more than one is provided. The
-    // comparison is trimmed so a stray space can never slip a duplicate past the
-    // picker's exact-value filtering.
+  }
+  // An incoming first-year's program choices must be distinct from each other.
+  // The comparison is trimmed so a stray space can never slip a duplicate past the
+  // picker's exact-value filtering. (A non-incoming standing carries no choices,
+  // so both comparisons are skipped.)
+  {
     const firstChoice = String(result.values.degreeProgram ?? '').trim();
     const secondChoice = String(result.values.programChoice2 ?? '').trim();
     const thirdChoice = String(result.values.programChoice3 ?? '').trim();
@@ -778,6 +1179,23 @@ export const validateBackgroundSection = (form = {}) => {
     isHonorsGraduate: ok(Boolean(honorsRank)),
     graduatingClassSize: validateOptionalInteger(form.graduatingClassSize, { min: 1, max: 10000, message: 'Enter the graduating class size as a whole number.' }),
     sponsorTies: ok(Object.fromEntries(SPONSOR_TIE_KEYS.map((key) => [key, Boolean(form.sponsorTies?.[key])]))),
+    ipGroupName: form.ipCommunity === 'Yes'
+      ? validateText(form.ipGroupName, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep the group name within ${SCHOOL_FIELD_MAX_LENGTH} characters.` })
+      : ok(''),
+    communityService: oneOf(form.communityService || '', communityServiceOptions, 'Choose an option.'),
+    previousGrants: validateRows(form.previousGrants, {
+      max: MAX_GRANT_ROWS,
+      label: 'Grant',
+      columns: {
+        type: { options: grantTypeOptions },
+        name: { text: SCHOOL_FIELD_MAX_LENGTH },
+        level: { options: grantLevelOptions },
+        status: { options: grantStatusOptions },
+        institution: { text: SCHOOL_FIELD_MAX_LENGTH },
+        amount: { amount: true },
+      },
+      required: ['name', 'type', 'status'],
+    }),
   });
 
   if (honorsRank && result.values.graduatingClassSize === '' && !result.errors.graduatingClassSize) {
@@ -854,6 +1272,20 @@ const countDone = (items) => items.filter((item) => item.done).length;
 // missing items (each with its My Profile section) so the Scholarship Explorer
 // can link the student straight to them. Mirrored for the in-scope tracks by
 // enforce_student_application_update on insert.
+const hasNumber = (value) => !isBlank(value) && Number.isFinite(Number(value)) && Number(value) >= 0;
+
+export const PARENT_EMPLOYMENT_VALUES = ['employed', 'self-employed', 'unemployed'];
+export const ECONOMIC_STATUS_VALUES = ['lower', 'middle', 'upper'];
+
+// A parent counts as answered when marked deceased in Family details, or when
+// the Household finances section records an employment status and an annual
+// income (0 is valid). Mirrors parent_finances_answered() in the database.
+export const isParentFinancesAnswered = (profile = {}, parent = 'father') => {
+  if (profile.familyDetails?.[`${parent}Deceased`] === true) return true;
+  const details = profile.financialProfile?.[parent] || {};
+  return PARENT_EMPLOYMENT_VALUES.includes(details.employmentStatus) && hasNumber(details.annualIncome);
+};
+
 export const getApplicationProfileGate = (profile = {}) => {
   const missing = getProfileCompleteness(profile, 'student').items
     .filter((item) => item.group === 'application' && !item.done);
@@ -876,22 +1308,41 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   add(isStudent ? 'application' : 'details', 'fullName', 'Full name', 'personal', !validateFullName(profile.fullName).error);
   if (isStudent) {
     add('application', 'yearStanding', 'Year standing', 'academic', standing.yearStanding);
-    if (standing.requiresStudentNumber) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
+    // An AdDU student number is issued to a current Ateneo student, so a transferee
+    // and an incoming first-year are never asked for one.
+    if (requiresStudentNumber(profile)) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
     add('application', 'degreeProgram', standing.isIncomingFirstYear ? 'Program to be enrolled' : 'Degree program', 'academic', !isBlank(profile.degreeProgram));
     add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
     if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);
     if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);
     add('application', 'householdIncome', 'Annual household income', 'financial', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
+    add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
+    if (standing.requiresHsStanding) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
+    add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    add('application', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
+    add('application', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
+    add('application', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
+    // FORM 230-SCH Applicant Status. The year standing already answers "Incoming
+    // First Year" and "Current Ateneo Student (College)", so the new answer only
+    // distinguishes a transferee from a current student.
+    add('application', 'applicantStatus', 'Applicant status', 'academic', isTransfereeOptions.some((option) => option.value && option.value === profile.isTransferee));
+    // FORM 230-SCH core answers. The financial ones come from the office-only
+    // student_financial_profiles row, merged into `profile.financialProfile`.
+    add('application', 'birthdate', 'Birthdate', 'personal', DATE_PATTERN.test(String(profile.birthdate || '')));
+    add('application', 'sexAtBirth', 'Sex assigned at birth', 'personal', sexAtBirthOptions.some((option) => option.value && option.value === profile.sexAtBirth));
+    if (standing.requiresHsStanding || isTransfereeProfile(profile)) {
+      add('application', 'schoolLastAttended', isTransfereeProfile(profile) ? 'College last attended' : 'Senior high school last attended', 'academic', !isBlank(profile.schoolLastAttended?.name));
+    }
+    add('application', 'communityService', 'Willingness to render community service', 'background', communityServiceOptions.some((option) => option.value && option.value === profile.communityService));
+    add('application', 'economicStatus', 'Perceived economic status', 'finances', ECONOMIC_STATUS_VALUES.includes(profile.financialProfile?.economicStatus));
+    add('application', 'fatherFinances', 'Father\'s employment and income', 'finances', isParentFinancesAnswered(profile, 'father'));
+    add('application', 'motherFinances', 'Mother\'s employment and income', 'finances', isParentFinancesAnswered(profile, 'mother'));
   }
-  add('details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
+  // The application form asks every applicant for a contact number, so it is
+  // needed to apply; staff keep it as a plain detail.
+  add(isStudent ? 'application' : 'details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
   if (isStudent) {
-    add('details', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
-    if (standing.requiresHsStanding) add('details', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
-    add('details', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
-    add('details', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
-    add('details', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
-    add('details', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
   }
 
   const groups = PROFILE_COMPLETENESS_GROUPS

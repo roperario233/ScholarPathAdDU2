@@ -1,3 +1,5 @@
+import { buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isReviewerRole } from './reviewScope';
+
 export const coverageTypes = ['all', 'Full Tuition', 'Partial Tuition', 'Allowance'];
 export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
 
@@ -75,14 +77,17 @@ const roleNextStatusMap = {
     Recommended: ['Approved', 'Rejected'],
     Approved: ['Released'],
   },
-  // The Department Chair has read-only department visibility and panel work
-  // (the schedule and private evaluation notes). Endorsement is an Admissions
-  // Office decision (SOP step 4), so the Chair has no stage move.
+  // The academic reviewer ladder — Dean (school), Assistant Dean (cluster), and
+  // Chairperson (department) — has read-only visibility over its scope plus panel
+  // work (the schedule and private evaluation notes). Endorsement is an Admissions
+  // Office decision (SOP step 4), so no reviewer level has a stage move.
   department_chair: {},
+  assistant_dean: {},
+  dean: {},
 };
 
 export const getNextApplicationStatuses = (status, role) => {
-  if (role === 'department_chair') return roleNextStatusMap.department_chair[status] || [];
+  if (isReviewerRole(role)) return roleNextStatusMap[role]?.[status] || [];
   if (isAdmissionsReviewerRole(role)) return roleNextStatusMap[role][status] || [];
   return nextStatusMap[status] || [];
 };
@@ -94,6 +99,21 @@ export const getNextApplicationStatuses = (status, role) => {
 // a Submitted application can still continue straight to verification if the
 // automatic write did not land.
 export const AUTOMATIC_STAGE_STATUSES = ['Under Review'];
+
+// The stages that can still take a case officer. Opening an application in the
+// Admissions Office workspace joins the officer to the case, and joining is the
+// one status move that can start the review (Submitted -> Under Review).
+// Recommended and Approved are the Head's decision lane, and a closed
+// application takes nobody, so neither can be joined. Mirrors the status list in
+// public.join_application_review().
+export const CASE_OFFICER_JOINABLE_STATUSES = [
+  'Submitted',
+  'Under Review',
+  'For Verification',
+  'For Endorsement',
+  'Endorsed',
+  'Interview',
+];
 
 // The labels every surface shows for a stored application status. Kept in the
 // shared Edge Function module so the emails and SMS use the same words as the
@@ -118,6 +138,16 @@ const stageActionLabels = {
 
 export const getStageActionLabel = (status) => stageActionLabels[status] || status;
 
+// The one sentence a student is told when an application is rejected (FORM
+// 230-SCH affidavit clause 6: the results and the minutes of the deliberations
+// are confidential), and the prefix that files the recorded reason in the
+// staff-only `application_review_comments` thread instead. The reason never
+// reaches a student-readable column, so the timeline note and the status log's
+// derived reason both carry this notice. Document resubmission reasons stay
+// student-visible: they tell the student what to correct.
+export const APPLICATION_REJECTION_NOTICE = 'Application not accepted.';
+export const APPLICATION_REJECTION_REASON_PREFIX = 'Rejection reason — ';
+
 // Student-facing next-step copy for the application workspace. The card and
 // the detail modal show this instead of the static creation note, so a student
 // always knows what the current stage means and whether they need to act.
@@ -132,7 +162,7 @@ const applicationStatusGuidance = {
   Recommended: 'The sub-committee has recommended your application for approval.',
   Approved: 'Approved and awaiting release of results.',
   Released: 'Results released. Open the application to review the outcome.',
-  Rejected: 'The application did not proceed. The reason is in the status history.',
+  Rejected: 'The application was not accepted. No further action is needed for this application period.',
 };
 
 export const getApplicationStatusGuidance = (status) => applicationStatusGuidance[status] || '';
@@ -156,7 +186,9 @@ export const pageViewKeys = [
   'vault',
   'calendar',
   'admin',
+  'admin-intake',
   'admin-review',
+  'admin-endorsement',
   'admin-calendar',
   'admin-interviews',
   'admin-catalog',
@@ -178,27 +210,43 @@ export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
-//   - Admissions Office Staff: every application awaiting a staff action (the
-//     same filter as the staff review queue route).
+//   - Admissions Office Staff: the cases they joined plus everything still
+//     unclaimed in the intake pool. Without `caseOfficers` / `userId` (an older
+//     caller) it falls back to the whole office queue.
 //   - Admissions Office Head: the endorsement, approval, and release decisions
 //     the Head owns.
-//   - Department Chair: the department's live applications, which the Chair reads.
-export const countApplicationsToReview = (applications = [], { role, studentId, department } = {}) => {
+//   - Department Chair / Assistant Dean / Dean: the live applications inside their
+//     review scope (they take no stage action, so the count is what their scope has
+//     in flight at the Admissions Office, shown read-only).
+export const countApplicationsToReview = (applications = [], { role, studentId, department, caseOfficers, userId, reviewScope, programs } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
 
   if (isAdmissionsStaffRole(role)) {
-    return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
+    const roster = Array.isArray(caseOfficers) ? caseOfficers.filter((entry) => !entry.leftAt) : null;
+    if (!roster || !userId) {
+      return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
+    }
+    const claimed = new Set(roster.map((entry) => entry.applicationId));
+    const mine = new Set(roster.filter((entry) => entry.officerId === userId).map((entry) => entry.applicationId));
+    return list.filter((entry) => (
+      !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)
+      && (mine.has(entry.id) || !claimed.has(entry.id))
+    )).length;
   }
 
   if (isAdmissionsHeadRole(role)) {
     return list.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
   }
 
-  // The Chair has no stage action, so the count is what the department has
-  // in flight at the Admissions Office, shown read-only.
-  if (role === 'department_chair') {
+  // A reviewer at any level reads a scoped slice with no stage action, so the count
+  // is what that scope has in flight at the Admissions Office.
+  if (isReviewerRole(role)) {
+    // `reviewScope` may be the already-normalised scope (with a `level`) or the
+    // reviewer's profile fields; normalise the latter here.
+    const scope = reviewScope?.level ? reviewScope : getReviewerScope({ role, department, ...(reviewScope || {}) });
+    const programIndex = buildProgramScopeIndex(programs);
     return list.filter((entry) => (
-      (entry.studentDepartment || '') === (department || '')
+      isApplicationInReviewerScope(entry, scope, programIndex)
       && ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(entry.status)
     )).length;
   }
@@ -219,14 +267,24 @@ export const departmentReviewStatuses = ['For Endorsement', 'Pending Documents',
 
 export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 
+// How a Document Vault decision reads on screen. The stored value stays
+// `Rejected` — the check constraint, the replace-in-place RPC, the verification
+// gate, and every trigger read it — and only the label translates, exactly as
+// `Endorsed` is displayed as "Endorsement". "Reverted for resubmission" is the
+// office's own wording for the decision (Consultation 2, request #3), and the
+// recorded reason stays visible because it tells the student what to correct.
+export const documentStatusLabels = { Rejected: 'Reverted for resubmission' };
+export const getDocumentStatusLabel = (status) => documentStatusLabels[status] || status;
+
 // Statuses in which a student may replace a Rejected file on a submitted
 // application. After For Verification every attached file is Verified, so a
 // rejected file cannot exist there. Mirrors replace_rejected_application_document
 // (20261021000000).
 export const DOCUMENT_REPLACEMENT_STATUSES = ['Submitted', 'Under Review', 'For Verification'];
 
-// Preset reasons the Admissions Office picks from when rejecting a Document
-// Vault file. "Other" carries no preset text, so its note is required.
+// Preset reasons the Admissions Office picks from when reverting a Document
+// Vault file for resubmission. "Other" carries no preset text, so its note is
+// required. The stored decision stays `Rejected`.
 export const documentRejectionReasons = [
   { value: 'illegible', label: 'File is blurry, cropped, or unreadable' },
   { value: 'incomplete', label: 'Document is incomplete or missing pages' },
@@ -275,6 +333,10 @@ export const generalDocumentTypeOptions = [
   { value: 'Recommendation Letter', label: 'Recommendation' },
   { value: 'Income Proof', label: 'Income Doc' },
   { value: 'Photos of Residence', label: 'Photos of Residence' },
+  // The two pages of the application that must stay on paper: printed from
+  // Print application form, signed, then uploaded.
+  { value: 'Barangay Residence Certification', label: 'Barangay Certification of Residence' },
+  { value: 'Signed Affidavit of Agreement', label: 'Signed Affidavit of Agreement' },
   { value: 'Good Moral Character', label: 'Good Moral Certificate' },
   { value: 'Certificate of Award', label: 'Certificate of Award' },
   { value: 'Transcript', label: 'Transcript' },
