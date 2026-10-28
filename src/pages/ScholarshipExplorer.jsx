@@ -40,11 +40,18 @@ const verdictSummary = ({ verdict, rows, failed, unanswered }) => {
   return [failed && `${failed} not met`, unanswered && `${unanswered} not answered`].filter(Boolean).join(' · ');
 };
 
-function EligibilityChecklist({ checklist, rowSpan, onOpenProfileSection }) {
-  // One subgrid row per criterion, so the same check sits at the same height in
-  // every card; gap-y-0 lets the rows abut inside the card's row gap.
+function EligibilityChecklist({ checklist, onOpenProfileSection }) {
+  // The checklist is one slot of the card's subgrid, never one shared row per
+  // criterion: a criterion is only as tall as its own answer, so the message and
+  // the Update action a failing check adds no longer stretch the matching row on
+  // the cards that pass (they used to, which left those rows mostly empty). The
+  // slots around it (header, coverage, verdict, documents, action) still line up
+  // across the cards in a row. `self-start`/`content-start` keep the list at its
+  // natural height, so the taller sibling card's checklist leaves one block of
+  // space below this one instead of stretching every criterion; gap-y-0 lets the
+  // criteria abut.
   return (
-    <ul className="m-0 grid list-none grid-rows-subgrid gap-y-0 p-0" style={{ gridRow: `span ${rowSpan}` }} aria-label="Smart Eligibility Checker results">
+    <ul className="m-0 grid list-none content-start gap-y-0 self-start p-0" aria-label="Smart Eligibility Checker results">
       {checklist.rows.map((row) => {
         const status = ROW_STATUS[row.status];
         const StatusIcon = status.icon;
@@ -111,11 +118,13 @@ function RequiredDocumentsModal({ scholarship, requirements, profile, onClose })
 }
 
 // The card's fixed slots (header, coverage, verdict, documents, action) plus one
-// row per checklist criterion. Every card spans the same rows of the page grid
-// as a subgrid, so each slot lines up across the cards in a row.
+// block for the whole checklist. Every card spans the same rows of the page grid
+// as a subgrid, so each slot lines up across the cards in a row; the criteria
+// inside the checklist block size to their own card instead.
 const CARD_SLOT_ROWS = 5;
+const CARD_ROWS = CARD_SLOT_ROWS + 1;
 
-function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onApply, onOpenProfileSection, applyError }) {
+function ScholarshipCard({ scholarship, profile, profileGate, onApply, onOpenProfileSection, applyError }) {
   const isInternal = isAdduInternalProgram(scholarship);
   const guide = getScholarshipGuide(scholarship);
   const deadline = getDeadlineStatus(scholarship.deadline);
@@ -127,7 +136,7 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
   const [documentsOpen, setDocumentsOpen] = useState(false);
 
   return (
-    <article className="grid min-w-0 grid-rows-subgrid rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur" style={{ gridRow: `span ${CARD_SLOT_ROWS + checklistRows}` }}>
+    <article className="grid min-w-0 grid-rows-subgrid rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur" style={{ gridRow: `span ${CARD_ROWS}` }}>
       <header className="flex items-start gap-3">
         <ScholarshipTrackIcon ruleFamily={getInternalRuleFamily(scholarship)} />
         <div className="min-w-0 flex-1">
@@ -156,7 +165,7 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
             </div>
           </div>
 
-          <EligibilityChecklist checklist={checklist} rowSpan={checklistRows} onOpenProfileSection={onOpenProfileSection} />
+          <EligibilityChecklist checklist={checklist} onOpenProfileSection={onOpenProfileSection} />
 
           {requirements.length > 0 ? (
             <button type="button" className="flex w-full items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-left text-sm font-semibold text-app-text" onClick={() => setDocumentsOpen(true)} aria-haspopup="dialog">
@@ -188,7 +197,7 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
       ) : (
         <>
           <div />
-          <div style={{ gridRow: `span ${checklistRows}` }} />
+          <div />
           <div />
           <div className="grid content-end gap-2">
             <button type="button" className={primaryButton} onClick={() => onApply(scholarship)}>Track this program</button>
@@ -216,11 +225,10 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
   // "Needed to apply" answer is complete. Browsing and the Smart Eligibility
   // Checker stay open.
   const profileGate = getApplicationProfileGate(profile);
-  const missingSections = [...new Set(profileGate.missing.map((item) => item.section))];  const internal = scholarships.filter(isAdduInternalProgram);
+  const missingSections = [...new Set(profileGate.missing.map((item) => item.section))];
+  const internal = scholarships.filter(isAdduInternalProgram);
   const checklists = internal.map((scholarship) => getEligibilityChecklist(profile, scholarship));
   const qualifiedCount = checklists.filter((checklist) => checklist.verdict === 'eligible').length;
-  // Every card reserves as many checklist rows as the longest checklist.
-  const checklistRows = Math.max(1, ...checklists.map((checklist) => checklist.rows.length));
 
   return (
     <div className="grid gap-4">
@@ -327,7 +335,6 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
             scholarship={scholarship}
             profile={profile}
             profileGate={profileGate}
-            checklistRows={checklistRows}
             onApply={handleApply}
             onOpenProfileSection={onOpenProfileSection}
             applyError={applyErrors[scholarship.id]}
