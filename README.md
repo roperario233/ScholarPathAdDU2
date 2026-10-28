@@ -149,7 +149,7 @@ signed URL in memory and falls back to the user's initials when it expires.
 
 ### Photos submitted with applications
 
-Every in-scope AdDU track (Grant-in-Aid, Jubilee, and the Student Assistant
+Every in-scope AdDU track (Grant-in-Aid, Jubilee, and the Working Scholar
 Program) asks for two verifiable photo requirements:
 
 - **Applicant photo** (`Applicant Photo`, shown as *2x2 ID Photo*): a recent

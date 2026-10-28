@@ -11,6 +11,37 @@ export const GENERAL_POOL_QPI_FLOOR = 2.5;
 // scholarship can override it with its own `minimumShsAverage` catalog value.
 export const GENERAL_POOL_SHS_AVERAGE_FLOOR = 85;
 export const GENERAL_POOL_EXCLUDED_DEGREES = ['BS Nursing', 'BS Architecture'];
+// The Working Scholar Program (WSP) accepts only the programs the Office of
+// Admission and Aid leaflet lists, as `academic_programs.value` keys. A leaflet
+// entry with several majors or minors in the taxonomy (Entrepreneurship,
+// Interdisciplinary Studies, International Studies) admits each of them;
+// Sociology maps to the taxonomy's only sociology program.
+export const WORKING_SCHOLAR_ELIGIBLE_DEGREES = [
+  'BS Business Management',
+  'BS Entrepreneurship',
+  'BS Entrepreneurship Major in Agri-Business',
+  'BS Finance',
+  'BS Human Resource Development and Management',
+  'BS Management Accounting',
+  'BS Marketing',
+  'BS Mathematics',
+  'BS Public Management',
+  'AB Communications',
+  'AB Development Studies',
+  'AB Economics',
+  'AB English Language',
+  'AB Interdisciplinary Studies Minor in Language and Literature',
+  'AB Interdisciplinary Studies Minor in Media and Business',
+  'AB Interdisciplinary Studies Minor in Media and Philosophy',
+  'AB Interdisciplinary Studies Minor in Media and Technology',
+  'AB Interdisciplinary Studies Minor in Philosophy and Theology',
+  'AB International Studies Major in American Studies',
+  'AB International Studies Major in Asian Studies',
+  'AB Philosophy',
+  'AB Political Science',
+  'AB Psychology',
+  'BS Sociology',
+];
 
 const toFiniteNumber = (value) => {
   if (value == null || value === '') return null;
@@ -85,18 +116,18 @@ export const DENIAL_MESSAGE = "You don't have any qualifications for this schola
 export const ADDU_INTERNAL_PROGRAM_TITLES = [
   'Grant-in-Aid (GIA)',
   'Jubilee Scholarship Fund (Valedictorian & Salutatorian)',
-  'Student Assistant (SA) Program',
+  'Working Scholar Program (WSP)',
 ];
 
 const ADDU_INTERNAL_PROGRAM_TITLE_SET = new Set(ADDU_INTERNAL_PROGRAM_TITLES.map((title) => title.toLowerCase()));
 
 // A title that names one of the three in-scope tracks, tolerating the wording
 // variants the catalog and the documents use (for example "Jubilee Scholarship"
-// and "Student Assistant Program (Working Scholars)").
+// and the program's earlier title, "Student Assistant (SA) Program").
 const ADDU_INTERNAL_PROGRAM_TITLE_PATTERN = /jubilee|grant[ -]?in[ -]?aid|\bgia\b|student assistant|working scholar/;
 
-// The single in-scope predicate: only GIA, Jubilee, and the Student Assistant /
-// Working Scholar program may be applied to. It reads the *title*, never
+// The single in-scope predicate: only GIA, Jubilee, and the Working Scholar
+// Program (formerly Student Assistant) may be applied to. It reads the *title*, never
 // ruleFamily/category alone, because other internal catalog entries (for example
 // a donor endowment set to `general-pool`) share those values without being one
 // of the three tracks. Use this wherever an application can be started,
@@ -214,7 +245,13 @@ const evaluateHonorsTrack = (profile) => {
   return issues;
 };
 
-const evaluateWorkStudy = () => [];
+const evaluateWorkStudy = (profile) => {
+  if (!profile.degreeProgram) return [issue('Choose your degree program before checking qualifications.', 'degreeProgram')];
+  if (!WORKING_SCHOLAR_ELIGIBLE_DEGREES.includes(profile.degreeProgram)) {
+    return [issue(`${profile.degreeProgram} is not among the Working Scholar Program courses.`, 'degreeProgram')];
+  }
+  return [];
+};
 
 const GOV_EVALUATORS = {
   CHED_SSP: () => [issue('SSP is reserved for SUC/LUC students \u2014 AdDU is a private HEI, so this program does not apply.')],

@@ -288,11 +288,11 @@ export const getDocumentsAwaitingReview = (applications = [], documents = []) =>
 };
 
 // The system tracks only the three Appendix A AdDU tracks: Grant-in-Aid (GIA),
-// the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars)
-// Program. "In scope" is decided by the title, exactly as the student Explorer,
+// the Jubilee Scholarship Fund, and the Working Scholar Program (WSP, formerly
+// the Student Assistant Program). "In scope" is decided by the title, exactly as the student Explorer,
 // the application gate, and public.is_addu_in_scope_track() decide it. A
 // category/rule-family test would list every donor endowment seeded as
-// `general-pool` and would hide the Student Assistant program, which the catalog
+// `general-pool` and would hide the Working Scholar Program, which the catalog
 // stores under the `Specialized Service` category.
 export const getInternalCatalogEntries = (scholarships = []) => asList(scholarships)
   .filter((entry) => entry.isExternal !== true && isAdduInternalProgram(entry));

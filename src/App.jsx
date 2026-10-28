@@ -2427,7 +2427,7 @@ function App() {
       return false;
     }
     if (!isAdduInternalProgram(scholarship)) {
-      window.alert('Only the three Appendix A tracks can be published: Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Student Assistant (Working Scholars) Program.');
+      window.alert('Only the three Appendix A tracks can be published: Grant-in-Aid (GIA), the Jubilee Scholarship Fund, and the Working Scholar Program (WSP).');
       return false;
     }
     if (!scholarship?.title || !scholarship?.coverage || !['general-pool', 'honors', 'work-study'].includes(scholarship.ruleFamily)) return;
