@@ -1210,6 +1210,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
     pwd: values.pwd,
     employed: values.employed,
     communityService: values.communityService,
+    honorsRank: values.honorsRank,
     graduatingClassSize: values.graduatingClassSize,
     previousGrantsAnswered: values.previousGrantsAnswered,
   });
@@ -1236,9 +1237,11 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
         <SelectField fieldKey="pwd" label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} required={need.has('pwd')} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField fieldKey="employed" label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} required={need.has('employed')} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField fieldKey="honorsRank" label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <FormField fieldKey="graduatingClassSize" label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Needed to apply, and needed to support your honors standing.' : 'Needed to apply.'} error={errors.graduatingClassSize} required={need.has('graduatingClassSize')}>
-          <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
-        </FormField>
+        {values.honorsRank && (
+          <FormField fieldKey="graduatingClassSize" label="Number of graduates of your senior high school" hint="Needed to apply, and needed to support your honors standing." error={errors.graduatingClassSize} required={need.has('graduatingClassSize')}>
+            <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
+          </FormField>
+        )}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField fieldKey="communityService" label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} required={need.has('communityService')} />

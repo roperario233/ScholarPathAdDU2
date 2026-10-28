@@ -655,7 +655,7 @@ describe('getProfileCompleteness', () => {
       'numberOfSiblings', 'siblings', 'householdAdults',
       'ipCommunity', 'pwd', 'employed', 'applicantStatus',
       'birthdate', 'sexAtBirth', 'religion', 'pronouns', 'schoolLastAttended', 'awards',
-      'communityService', 'graduatingClassSize', 'previousGrantsAnswered',
+      'communityService', 'previousGrantsAnswered',
       // Household finances (office-only).
       'economicStatus', 'fatherFinances', 'motherFinances',
       'fatherEmployer', 'motherUnemployment', 'assets', 'appliances',
@@ -975,10 +975,12 @@ describe('FORM 230-SCH full-form parity', () => {
     expect(missingFor({ religion: 'Prefer not to say', housingType: 'I live at home' })).toEqual([]);
   });
 
-  it('requires the school, the strand, the class size, and the awards for every applicant', () => {
+  it('requires the school, the strand, and the awards for every applicant, and the class size with an honors standing', () => {
     expect(missingFor({ schoolLastAttended: { name: 'Davao SHS', city: 'Davao City', province: '' } })).toEqual(['schoolLastAttended']);
     expect(missingFor({ hsStrand: '' })).toEqual(['hsStrand']);
-    expect(missingFor({ graduatingClassSize: '' })).toEqual(['graduatingClassSize']);
+    // The class size supports an honors standing, so it is asked only when one is claimed.
+    expect(missingFor({ graduatingClassSize: '' })).toEqual([]);
+    expect(missingFor({ honorsRank: 'Valedictorian', graduatingClassSize: '' })).toEqual(['graduatingClassSize']);
     expect(missingFor({ awards: '', awardsNone: false })).toEqual(['awards']);
     // "No awards received" is an answer, so the field itself can stay blank.
     expect(missingFor({ awards: '', awardsNone: true })).toEqual([]);

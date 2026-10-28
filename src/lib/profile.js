@@ -1369,6 +1369,11 @@ export const validateBackgroundSection = (form = {}) => {
   if (honorsRank && result.values.graduatingClassSize === '' && !result.errors.graduatingClassSize) {
     result.errors.graduatingClassSize = 'Add your graduating class size to support your honors standing.';
   }
+  // The field is hidden without an honors standing, so a leftover value is dropped.
+  if (!honorsRank) {
+    result.values.graduatingClassSize = '';
+    delete result.errors.graduatingClassSize;
+  }
   if (grantListActive && !result.values.previousGrants.length && !result.errors.previousGrants) {
     result.errors.previousGrants = 'Add the grant you applied for or received, or answer No to the financial aid question.';
   }
@@ -1574,7 +1579,8 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     );
     add('application', 'awards', 'Awards received', 'academic', Boolean(profile.awardsNone) || !isBlank(profile.awards));
     add('application', 'communityService', 'Willingness to render community service', 'background', communityServiceOptions.some((option) => option.value && option.value === profile.communityService));
-    add('application', 'graduatingClassSize', 'Number of graduates of your senior high school', 'background', hasNumber(profile.graduatingClassSize) && Number(profile.graduatingClassSize) >= 1);
+    // The class size supports an honors standing, so it is asked only when one is claimed.
+    if (!isBlank(profile.honorsRank)) add('application', 'graduatingClassSize', 'Number of graduates of your senior high school', 'background', hasNumber(profile.graduatingClassSize) && Number(profile.graduatingClassSize) >= 1);
     // "Did you enjoy financial aid in senior high school / apply for or receive a
     // grant?" — one recorded Yes/No, with the grant list required when Yes.
     add('application', 'previousGrantsAnswered', 'Financial aid already received', 'background', grantHistoryOptions.some((option) => option.value && option.value === profile.previousGrantsAnswered));

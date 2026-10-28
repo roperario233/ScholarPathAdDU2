@@ -1096,8 +1096,10 @@ begin
   if coalesce(p_profile ->> 'communityService', '') not in ('Yes', 'No') then
     return 'Willingness to render community service';
   end if;
-  if public.proof_numeric_value(p_profile ->> 'graduatingClassSize') is null
-    or public.proof_numeric_value(p_profile ->> 'graduatingClassSize') < 1 then
+  -- The class size supports an honors standing, so it is asked only when one is claimed.
+  if coalesce(btrim(p_profile ->> 'honorsRank'), '') <> ''
+    and (public.proof_numeric_value(p_profile ->> 'graduatingClassSize') is null
+      or public.proof_numeric_value(p_profile ->> 'graduatingClassSize') < 1) then
     return 'Number of graduates of your senior high school';
   end if;
   if coalesce(p_profile ->> 'previousGrantsAnswered', '') not in ('Yes', 'No') then
