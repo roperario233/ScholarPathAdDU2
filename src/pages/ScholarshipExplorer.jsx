@@ -124,8 +124,6 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
   const VerdictIcon = verdict?.icon;
   const requirements = isInternal ? getScholarshipRequirements(scholarship, profile) : [];
   const coverage = guide?.coverage || [scholarship.coverage].filter(Boolean);
-  const firstMissing = profileGate.missing[0];
-  const firstMissingSection = firstMissing?.section;
   const [documentsOpen, setDocumentsOpen] = useState(false);
 
   return (
@@ -175,8 +173,8 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
                 <ArrowRight size={16} aria-hidden="true" />
               </button>
             )}
-            {checklist.verdict === 'eligible' && !profileGate.allowed && firstMissingSection && onOpenProfileSection && (
-              <button type="button" className={`${secondaryButton} w-full justify-center`} onClick={() => onOpenProfileSection(firstMissingSection, firstMissing.key)}>
+            {checklist.verdict === 'eligible' && !profileGate.allowed && onOpenProfileSection && (
+              <button type="button" className={`${secondaryButton} w-full justify-center`} onClick={() => onOpenProfileSection('overview')}>
                 Finish your Application Form to apply
                 <ArrowRight size={15} aria-hidden="true" />
               </button>
