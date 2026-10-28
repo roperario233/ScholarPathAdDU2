@@ -198,10 +198,14 @@ export default function ProfileView({
 
   const formMenuSections = visibleSections.filter((section) => formSections[section.key]);
   // The title bar's Continue target: the first unfinished part, or the one after
-  // it while the student is already working on that part.
-  const nextSection = formProgress?.next?.key === activeSection
-    ? getNextApplicationFormSection(formProgress, activeSection)
-    : formProgress?.next;
+  // it while the student is already working on that part. Once every answer is in,
+  // the remaining work is in the Document Vault, so the primary action becomes the
+  // scholarship search and the proof line says what still needs attaching.
+  const nextSection = !formProgress || formProgress.readyToApply
+    ? null
+    : formProgress.next?.key === activeSection
+      ? getNextApplicationFormSection(formProgress, activeSection)
+      : formProgress.next;
 
   return (
     <div className="grid content-start gap-4">
@@ -218,7 +222,7 @@ export default function ProfileView({
               </p>
             )}
             {/* The page's one primary action sits with the explanation it follows from. */}
-            {formProgress && (nextSection || (formProgress.ready && onFindScholarship)) ? (
+            {formProgress && (nextSection || (formProgress.readyToApply && onFindScholarship)) ? (
               <div className="mt-4">
                 {nextSection ? (
                   <Button
@@ -240,8 +244,8 @@ export default function ProfileView({
           </div>
           {formProgress ? (
             <div className="page-metric w-full rounded-2xl border border-app-border bg-app-surface p-4 text-center sm:w-auto sm:min-w-36">
-              <strong>{formProgress.ready ? 'Ready' : `${formProgress.answered} of ${formProgress.total}`}</strong>
-              <span>{formProgress.ready ? 'to apply' : 'answered'}</span>
+              <strong>{formProgress.readyToApply ? 'Ready' : `${formProgress.answersMissing}`}</strong>
+              <span>{formProgress.readyToApply ? 'to apply' : formProgress.answersMissing === 1 ? 'answer to go' : 'answers to go'}</span>
             </div>
           ) : (
             <div className="page-metric rounded-2xl border border-app-border bg-app-surface p-4 text-center sm:min-w-36">

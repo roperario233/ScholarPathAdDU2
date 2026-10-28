@@ -226,6 +226,10 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
   // Checker stay open.
   const profileGate = getApplicationProfileGate(profile);
   const missingSections = [...new Set(profileGate.missing.map((item) => item.section))];
+  // The banner names the first few answers and opens the part that holds them, so a
+  // student does not have to hunt through six parts for "N answers missing".
+  const firstMissing = profileGate.missing[0] || null;
+  const missingPreview = profileGate.missing.slice(0, 3).map((item) => item.label);
   const internal = scholarships.filter(isAdduInternalProgram);
   const checklists = internal.map((scholarship) => getEligibilityChecklist(profile, scholarship));
   const qualifiedCount = checklists.filter((checklist) => checklist.verdict === 'eligible').length;
@@ -311,14 +315,15 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
             <div className="grid min-w-0 gap-0.5">
               <strong className="text-sm text-app-text">Complete your Application Form to apply</strong>
               <span className="text-xs text-app-muted">
-                {profileGate.missing.length} answer{profileGate.missing.length === 1 ? '' : 's'} missing across {missingSections.length} of {APPLICATION_FORM_SECTIONS.length} parts. You can keep checking your eligibility meanwhile.
+                {profileGate.missing.length} answer{profileGate.missing.length === 1 ? '' : 's'} missing across {missingSections.length} of {APPLICATION_FORM_SECTIONS.length} parts
+                {missingPreview.length ? `: ${missingPreview.join(', ')}` : ''}{profileGate.missing.length > missingPreview.length ? `, and ${profileGate.missing.length - missingPreview.length} more` : ''}. You can keep checking your eligibility meanwhile.
               </span>
             </div>
             {onOpenProfileSection ? (
               <button
                 type="button"
                 className="hero-action group inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-center text-sm font-bold text-amber-950 shadow-sm transition hover:-translate-y-px hover:bg-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-500/30 sm:w-auto"
-                onClick={() => onOpenProfileSection('overview')}
+                onClick={() => onOpenProfileSection(firstMissing?.section || 'overview')}
               >
                 Continue your Application Form
                 <ArrowRight className="shrink-0 transition group-hover:translate-x-1" size={16} aria-hidden="true" />

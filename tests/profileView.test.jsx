@@ -21,18 +21,38 @@ const student = {
   academicStanding: 'good',
   civilStatus: '',
   completeAddress: 'Roxas Ave, Davao City',
+  housingType: 'I live at home',
   ipCommunity: 'No',
   pwd: 'No',
   employed: 'Not employed',
   isTransferee: 'No',
   birthdate: '',
   sexAtBirth: 'Female',
+  religion: 'Roman Catholic',
+  pronouns: 'she/her',
+  awardsNone: true,
+  graduatingClassSize: 120,
+  previousGrantsAnswered: 'No',
+  hsStrand: 'STEM',
   communityService: 'Yes',
-  familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes' },
+  schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' },
+  familyDetails: {
+    fatherName: 'Jose Reyes',
+    fatherAge: 52,
+    fatherOccupation: 'Driver',
+    motherName: 'Maria Reyes',
+    motherAge: 49,
+    motherOccupation: 'Teacher',
+    numberOfSiblings: 0,
+    siblingsNone: true,
+    householdAdultsNone: true,
+  },
   financialProfile: {
     economicStatus: 'lower',
-    father: { employmentStatus: 'employed', annualIncome: 120000 },
-    mother: { employmentStatus: 'unemployed', annualIncome: 0 },
+    father: { employmentStatus: 'employed', annualIncome: 120000, employer: 'Davao Transit' },
+    mother: { employmentStatus: 'unemployed', annualIncome: 0, lastEmployed: 'March 2024', unemploymentReason: 'Health' },
+    assets: { none: true, others: '' },
+    appliances: { none: true, others: '' },
   },
 };
 
@@ -54,7 +74,7 @@ describe('My Profile as the application form', () => {
     expect(html).toContain('Reverted');
     expect(html).toContain(': Needs attention, 1 proof to replace');
     expect(html).toContain('Continue: Personal information');
-    expect(html).toContain('21 of 23');
+    expect(html).toContain('answers to go');
     expect(html).toContain('>Application form<');
     expect(html).toContain('Your application form');
   });

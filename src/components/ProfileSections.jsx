@@ -52,6 +52,7 @@ import {
   getStandingRequirements,
   getVerifiableAttributeOption,
   getYearStandingOptions,
+  grantHistoryOptions,
   honorsRankOptions,
   hsStrandOptions,
   ipCommunityOptions,
@@ -303,7 +304,6 @@ const standingNote = (standing) => {
 };
 
 const completenessGroupNotes = {
-  application: 'Required to start an application. Each answer needs a current proof in your Document Vault.',
   details: 'Included in every application you submit. A mobile number enables SMS reminders.',
 };
 
@@ -345,6 +345,11 @@ function ApplicationFormChecklist({ formProgress, standing, onEditSection, attri
       <p className="-mt-1 mb-4 text-sm text-app-muted">
         Every AdDU scholarship application copies these answers when you submit it, so complete each part once. {standingNote(standing)}
       </p>
+      {formProgress.proofsPending > 0 && (
+        <p className="-mt-2 mb-3 text-sm text-amber-600 dark:text-amber-300">
+          {formProgress.proofsPending === 1 ? '1 proof' : `${formProgress.proofsPending} proofs`} still {formProgress.proofsPending === 1 ? 'needs' : 'need'} attaching or replacing in your Document Vault before you can submit.
+        </p>
+      )}
       <div
         className="h-3 overflow-hidden rounded-full bg-app-surface"
         role="progressbar"
@@ -714,6 +719,8 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       civilStatus: values.civilStatus,
       birthdate: values.birthdate,
       sexAtBirth: values.sexAtBirth,
+      religion: values.religion,
+      pronouns: values.pronouns,
     })
     : new Set();
   // The fallback Full name input replaces the parts only while both are blank, so
@@ -761,11 +768,11 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField fieldKey="phone" label="Mobile number" hint={isStudent ? 'Needed to apply. Also used for SMS reminders.' : 'Optional. Used for SMS reminders.'} error={errors.phone} required={need.has('phone')}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
-        {isStudent && <SelectField label="Religion" hint="Optional. Included in each application." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
+        {isStudent && <SelectField fieldKey="religion" label="Religion" hint="Needed to apply." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} required={need.has('religion')} />}
         {isStudent && <SelectField fieldKey="civilStatus" label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} required={need.has('civilStatus')} />}
         {isStudent && <FormField fieldKey="birthdate" label="Birthdate" hint="Needed to apply." error={errors.birthdate} required={need.has('birthdate')}><input className={controlClass} type="date" max={todayInputValue()} value={values.birthdate} onChange={(event) => update({ birthdate: event.target.value })} autoComplete="bday" aria-invalid={Boolean(errors.birthdate)} /></FormField>}
         {isStudent && <SelectField fieldKey="sexAtBirth" label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} required={need.has('sexAtBirth')} />}
-        {isStudent && <FormField label="Preferred pronouns" hint="Optional." error={errors.pronouns}><input className={controlClass} value={values.pronouns} onChange={(event) => update({ pronouns: event.target.value.slice(0, PRONOUNS_MAX_LENGTH) })} placeholder="e.g. she/her" aria-invalid={Boolean(errors.pronouns)} /></FormField>}
+        {isStudent && <FormField label="Preferred pronouns" hint="Needed to apply. Write NA if not applicable." error={errors.pronouns} required={need.has('pronouns')}><input className={controlClass} value={values.pronouns} onChange={(event) => update({ pronouns: event.target.value.slice(0, PRONOUNS_MAX_LENGTH) })} placeholder="e.g. she/her" aria-invalid={Boolean(errors.pronouns)} /></FormField>}
       </div>
       {isStudent && (
         <FormField label="Default statement/essay" hint={`Optional. Prefills each new application. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
@@ -810,7 +817,7 @@ export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifi
   });
   const { values, errors, update } = form;
   // A required answer is starred until this draft answers it.
-  const need = getMissingRequiredAnswers({ ...profile, completeAddress: values.completeAddress });
+  const need = getMissingRequiredAnswers({ ...profile, completeAddress: values.completeAddress, housingType: values.housingType });
   return (
     <SectionForm title="Address" description={`${formPart('address')} Copied into each application you submit. Every application asks for a proof of address.`} form={form}>
       <FormField fieldKey="completeAddress" label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress} required={need.has('completeAddress')}
@@ -828,7 +835,7 @@ export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifi
         </FormField>
       )}
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Where do you stay while studying?" hint="Choose this if you are not from Davao City." value={values.housingType} onChange={(value) => update({ housingType: value }, ['housingOther'])} options={housingTypeOptions} error={errors.housingType} />
+        <SelectField fieldKey="housingType" label="Where do you stay while studying?" hint="Needed to apply. Choose “I live at home” when it does not apply." value={values.housingType} onChange={(value) => update({ housingType: value }, ['housingOther'])} options={housingTypeOptions} error={errors.housingType} required={need.has('housingType')} />
         {values.housingType === 'Other' && <FormField label="Describe where you stay" error={errors.housingOther}><input className={controlClass} value={values.housingOther} onChange={(event) => update({ housingOther: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) })} aria-invalid={Boolean(errors.housingOther)} /></FormField>}
       </div>
     </SectionForm>
@@ -882,7 +889,7 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
   const need = getMissingRequiredAnswers({ ...profile, familyDetails: values.familyDetails });
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } }, ['siblings', 'householdAdults']);
   return (
-    <SectionForm title="Family details" description={`${formPart('family')} Each parent's name is needed to apply. Copied into each application, with a proof of family details.`} form={form}>
+    <SectionForm title="Family details" description={`${formPart('family')} Each parent's name, age or date of death, and occupation are needed to apply, with the household details below and a proof of family details.`} form={form}>
       <FamilyProofRow attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />
       <div className="grid gap-4 md:grid-cols-2">
         {['father', 'mother'].map((parent) => {
@@ -904,21 +911,28 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
               {!unknown && (
                 <>
                   <FormField fieldKey={`${parent}Name`} label={`${noun}'s name`} hint="Needed to apply." error={errors[`${parent}Name`]} required={need.has(`${parent}Name`)}><input className={controlClass} value={family[`${parent}Name`]} onChange={(event) => updateFamily({ [`${parent}Name`]: event.target.value })} aria-invalid={Boolean(errors[`${parent}Name`])} /></FormField>
-                  <FormField label={`${noun}'s occupation`} error={errors[`${parent}Occupation`]}><input className={controlClass} value={family[`${parent}Occupation`]} onChange={(event) => updateFamily({ [`${parent}Occupation`]: event.target.value })} /></FormField>
+                  <FormField fieldKey={`${parent}Occupation`} label={`${noun}'s occupation`} hint="Needed to apply. Write NA if not applicable." error={errors[`${parent}Occupation`]} required={need.has(`${parent}Occupation`)}><input className={controlClass} value={family[`${parent}Occupation`]} onChange={(event) => updateFamily({ [`${parent}Occupation`]: event.target.value })} aria-invalid={Boolean(errors[`${parent}Occupation`])} /></FormField>
                   <SettingToggle checked={deceased} onChange={(checked) => updateFamily({ [`${parent}Deceased`]: checked })} title={`${noun} is deceased`} description={`Mark this if your ${lower} has passed away.`} />
                   {deceased
-                    ? <FormField label={`${noun}'s date of death`} error={errors[`${parent}DateOfDeath`]}><input className={controlClass} type="date" max={todayInputValue()} value={family[`${parent}DateOfDeath`]} onChange={(event) => updateFamily({ [`${parent}DateOfDeath`]: event.target.value })} /></FormField>
-                    : <FormField label={`${noun}'s current age`} error={errors[`${parent}Age`]}><input className={controlClass} value={family[`${parent}Age`]} onChange={(event) => updateFamily({ [`${parent}Age`]: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
+                    ? <FormField fieldKey={`${parent}DateOfDeath`} label={`${noun}'s date of death`} hint="Needed to apply." error={errors[`${parent}DateOfDeath`]} required={need.has(`${parent}DateOfDeath`)}><input className={controlClass} type="date" max={todayInputValue()} value={family[`${parent}DateOfDeath`]} onChange={(event) => updateFamily({ [`${parent}DateOfDeath`]: event.target.value })} /></FormField>
+                    : <FormField fieldKey={`${parent}Age`} label={`${noun}'s current age`} hint="Needed to apply." error={errors[`${parent}Age`]} required={need.has(`${parent}Age`)}><input className={controlClass} value={family[`${parent}Age`]} onChange={(event) => updateFamily({ [`${parent}Age`]: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
                 </>
               )}
             </Fragment>
           );
         })}
         <SelectField label="Family position" value={family.familyPosition} onChange={(value) => updateFamily({ familyPosition: value })} options={familyPositionOptions} error={errors.familyPosition} />
-        <FormField label="Number of siblings" error={errors.numberOfSiblings}><input className={controlClass} value={family.numberOfSiblings} onChange={(event) => updateFamily({ numberOfSiblings: event.target.value.replace(/\D/g, '').slice(0, 2) })} inputMode="numeric" aria-invalid={Boolean(errors.numberOfSiblings)} /></FormField>
+        <FormField fieldKey="numberOfSiblings" label="Number of siblings" hint="Needed to apply. Enter 0 if you have none." error={errors.numberOfSiblings} required={need.has('numberOfSiblings')}><input className={controlClass} value={family.numberOfSiblings} onChange={(event) => updateFamily({ numberOfSiblings: event.target.value.replace(/\D/g, '').slice(0, 2) })} inputMode="numeric" aria-invalid={Boolean(errors.numberOfSiblings)} /></FormField>
       </div>
-      <RepeatableRows
+      <SettingToggle
+        checked={Boolean(family.siblingsNone)}
+        onChange={(checked) => updateFamily({ siblingsNone: checked, ...(checked ? { siblings: [] } : {}) })}
+        title="No siblings to list"
+        description="Mark this if you have no sibling who is studying, below 18, employed, or married."
+      />
+      {!family.siblingsNone && (<RepeatableRows
         legend="Sibling"
+        required={need.has('siblings')}
         rows={family.siblings}
         max={MAX_SIBLING_ROWS}
         addLabel="Add a sibling"
@@ -930,9 +944,16 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
           { key: 'relationship', label: 'Relationship' },
           { key: 'status', label: 'Status', type: 'select', options: siblingStatusOptions },
         ]}
+      />)}
+      <SettingToggle
+        checked={Boolean(family.householdAdultsNone)}
+        onChange={(checked) => updateFamily({ householdAdultsNone: checked, ...(checked ? { householdAdults: [] } : {}) })}
+        title="No other adults in the household"
+        description="Mark this if no grandparent, aunt, cousin, or other adult lives with you."
       />
-      <RepeatableRows
+      {!family.householdAdultsNone && (<RepeatableRows
         legend="Household member"
+        required={need.has('householdAdults')}
         rows={family.householdAdults}
         max={MAX_HOUSEHOLD_ADULT_ROWS}
         addLabel="Add another adult in the household"
@@ -943,7 +964,7 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
           { key: 'age', label: 'Age', type: 'age' },
           { key: 'relationship', label: 'Relationship' },
         ]}
-      />
+      />)}
     </SectionForm>
   );
 }
@@ -970,6 +991,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         province: asText(profile.schoolLastAttended?.province),
       },
       awards: asText(profile.awards),
+      awardsNone: Boolean(profile.awardsNone),
     },
     validate: (values) => validateAcademicSection(values, academicPrograms),
     onSave,
@@ -994,6 +1016,8 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
     hsStrand: values.hsStrand,
     hsAverage: values.hsAverage,
     schoolLastAttended: values.schoolLastAttended,
+    awards: values.awards,
+    awardsNone: values.awardsNone,
   });
   const isTransferee = values.isTransferee === 'Yes';
   // FORM 230-SCH Applicant Status. The status is its own answer in the draft (it
@@ -1076,28 +1100,34 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         <SelectField fieldKey="academicStanding" label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} required={need.has('academicStanding')} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && <FormField fieldKey="qpi" label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} required={need.has('qpi')} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
-      {standing.requiresHsStanding && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <SelectField fieldKey="hsStrand" label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={need.has('hsStrand')} />
-          <FormField fieldKey="hsAverage" label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} required={need.has('hsAverage')} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* FORM 230-SCH asks every applicant for the strand in senior high school,
+            so it is shown (and required) for a continuing student too. */}
+        <SelectField fieldKey="hsStrand" label="Senior high school strand" hint="Needed to apply." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={need.has('hsStrand')} />
+        {standing.requiresHsStanding && <FormField fieldKey="hsAverage" label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} required={need.has('hsAverage')} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>}
+      </div>
+      <div data-field="schoolLastAttended" className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
+        <div>
+          <p className="m-0 text-sm font-semibold text-app-text">{isTransferee ? 'College last attended' : 'Senior high school last attended'}</p>
+          <small className="field-hint mt-1 block">The school name, city, and province are needed to apply.</small>
         </div>
-      )}
-      {(standing.requiresHsStanding || isTransferee) && (
-        <div data-field="schoolLastAttended" className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
-          <div>
-            <p className="m-0 text-sm font-semibold text-app-text">{isTransferee ? 'College last attended' : 'Senior high school last attended'}</p>
-            <small className="field-hint mt-1 block">The school name is needed to apply.</small>
-          </div>
-          <div className="grid gap-3 md:grid-cols-3">
-            <FormField label="School name" required={need.has('schoolLastAttended')}><input className={controlClass} value={values.schoolLastAttended.name} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, name: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
-            <FormField label="City"><input className={controlClass} value={values.schoolLastAttended.city} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, city: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
-            <FormField label="Province"><input className={controlClass} value={values.schoolLastAttended.province} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, province: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} /></FormField>
-          </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <FormField fieldKey="schoolLastAttended" label="School name" error={errors.schoolLastAttended} required={need.has('schoolLastAttended')}><input className={controlClass} value={values.schoolLastAttended.name} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, name: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} aria-invalid={Boolean(errors.schoolLastAttended)} /></FormField>
+          <FormField fieldKey="schoolLastAttendedCity" label="City" error={errors.schoolLastAttendedCity} required={need.has('schoolLastAttended')}><input className={controlClass} value={values.schoolLastAttended.city} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, city: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} aria-invalid={Boolean(errors.schoolLastAttendedCity)} /></FormField>
+          <FormField fieldKey="schoolLastAttendedProvince" label="Province" error={errors.schoolLastAttendedProvince} required={need.has('schoolLastAttended')}><input className={controlClass} value={values.schoolLastAttended.province} onChange={(event) => update({ schoolLastAttended: { ...values.schoolLastAttended, province: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) } })} aria-invalid={Boolean(errors.schoolLastAttendedProvince)} /></FormField>
         </div>
+      </div>
+      <SettingToggle
+        checked={values.awardsNone}
+        onChange={(checked) => update({ awardsNone: checked, ...(checked ? { awards: '' } : {}) })}
+        title="No awards received"
+        description="Mark this when you have no award to list."
+      />
+      {!values.awardsNone && (
+        <FormField fieldKey="awards" label="Awards received" hint={`Needed to apply. ${values.awards.length}/${AWARDS_MAX_LENGTH} characters.`} error={errors.awards} required={need.has('awards')}>
+          <textarea className="min-h-24" value={values.awards} onChange={(event) => update({ awards: event.target.value.slice(0, AWARDS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.awards)} />
+        </FormField>
       )}
-      <FormField label="Awards received" hint={`Optional. ${values.awards.length}/${AWARDS_MAX_LENGTH} characters.`} error={errors.awards}>
-        <textarea className="min-h-24" value={values.awards} onChange={(event) => update({ awards: event.target.value.slice(0, AWARDS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.awards)} />
-      </FormField>
     </SectionForm>
   );
 }
@@ -1120,6 +1150,9 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       },
       ipGroupName: asText(profile.ipGroupName),
       communityService: asText(profile.communityService),
+      // FORM 230-SCH "Did you enjoy financial aid in senior high school / apply
+      // for or receive a grant?" — one answer opens the list below.
+      previousGrantsAnswered: asText(profile.previousGrantsAnswered),
       // Household income and the Exclusion Flag Hierarchy answers moved here from
       // the retired "Household and financial aid" section.
       householdIncome: asText(profile.householdIncome),
@@ -1146,9 +1179,12 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
     householdIncome: values.householdIncome,
     citizenship: values.citizenship,
     ipCommunity: values.ipCommunity,
+    ipGroupName: values.ipGroupName,
     pwd: values.pwd,
     employed: values.employed,
     communityService: values.communityService,
+    graduatingClassSize: values.graduatingClassSize,
+    previousGrantsAnswered: values.previousGrantsAnswered,
   });
   // The grant list is only active while the student says they already receive aid.
   // `isGrantListActive` is the single rule behind both the rendering and the
@@ -1169,16 +1205,26 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField fieldKey="citizenship" label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} required={need.has('citizenship')} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField fieldKey="ipCommunity" label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} required={need.has('ipCommunity')} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        {values.ipCommunity === 'Yes' && <FormField label="Indigenous group" hint="Name of your community." error={errors.ipGroupName}><input className={controlClass} value={values.ipGroupName} onChange={(event) => update({ ipGroupName: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) })} aria-invalid={Boolean(errors.ipGroupName)} /></FormField>}
+        {values.ipCommunity === 'Yes' && <FormField fieldKey="ipGroupName" label="Indigenous group" hint="Needed to apply. Name of your community." error={errors.ipGroupName} required={need.has('ipGroupName')}><input className={controlClass} value={values.ipGroupName} onChange={(event) => update({ ipGroupName: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) })} aria-invalid={Boolean(errors.ipGroupName)} /></FormField>}
         <SelectField fieldKey="pwd" label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} required={need.has('pwd')} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField fieldKey="employed" label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} required={need.has('employed')} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <SelectField fieldKey="honorsRank" label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update(value ? { honorsRank: value } : { honorsRank: value, graduatingClassSize: '' })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <FormField fieldKey="graduatingClassSize" label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Required to support your honors standing.' : undefined} error={errors.graduatingClassSize} required={Boolean(values.honorsRank) && !values.graduatingClassSize}>
+        <SelectField fieldKey="honorsRank" label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <FormField fieldKey="graduatingClassSize" label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Needed to apply, and needed to support your honors standing.' : 'Needed to apply.'} error={errors.graduatingClassSize} required={need.has('graduatingClassSize')}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
         </FormField>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField fieldKey="communityService" label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} required={need.has('communityService')} />
+        <SelectField
+          fieldKey="previousGrantsAnswered"
+          label="Did you enjoy financial aid in senior high school, or apply for or receive a grant?"
+          hint="Needed to apply. Answer Yes to list each grant below."
+          value={values.previousGrantsAnswered}
+          onChange={(value) => update(value === 'No' ? { previousGrantsAnswered: value, previousGrants: [] } : { previousGrantsAnswered: value })}
+          options={grantHistoryOptions}
+          error={errors.previousGrantsAnswered}
+          required={need.has('previousGrantsAnswered')}
+        />
       </div>
       <fieldset data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid" className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
@@ -1237,7 +1283,7 @@ const parentFinanceInitial = (parent = {}) => ({
   unemploymentReason: asText(parent.unemploymentReason),
 });
 
-function ParentFinanceFields({ legend, deceased, unknown = false, value, errors, prefix, onChange, needsAnswer = false }) {
+function ParentFinanceFields({ legend, deceased, unknown = false, value, errors, prefix, onChange, need }) {
   if (deceased || unknown) {
     return (
       <fieldset className="m-0 grid gap-2 rounded-2xl border border-app-border bg-app-surface/60 p-4">
@@ -1246,21 +1292,27 @@ function ParentFinanceFields({ legend, deceased, unknown = false, value, errors,
       </fieldset>
     );
   }
+  // Each parent's employment answers are their own "Needed to apply" items: the
+  // employment status and income, the employer of a working parent, and the last
+  // employment and reason of an unemployed one.
+  const employmentNeeded = need?.has(`${prefix}Finances`);
+  const employerNeeded = need?.has(`${prefix}Employer`);
+  const unemploymentNeeded = need?.has(`${prefix}Unemployment`);
   return (
     <fieldset data-field={`${prefix}Finances`} className="m-0 grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
       <legend className="px-1 text-sm font-semibold text-app-text">{legend}</legend>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Employment status" hint="Needed to apply." value={value.employmentStatus} onChange={(next) => onChange({ employmentStatus: next })} options={parentEmploymentOptions} required={needsAnswer && !value.employmentStatus} />
-        <FormField label="Annual income (PHP)" hint="As it appears on the income document. Enter 0 if none. Needed to apply." error={errors[`${prefix}AnnualIncome`]} required={needsAnswer && !String(value.annualIncome).trim()}>
+        <SelectField label="Employment status" hint="Needed to apply." value={value.employmentStatus} onChange={(next) => onChange({ employmentStatus: next })} options={parentEmploymentOptions} required={Boolean(employmentNeeded && !value.employmentStatus)} />
+        <FormField label="Annual income (PHP)" hint="As it appears on the income document. Enter 0 if none. Needed to apply." error={errors[`${prefix}AnnualIncome`]} required={Boolean(employmentNeeded && !String(value.annualIncome).trim())}>
           <input className={controlClass} value={value.annualIncome} onChange={(event) => onChange({ annualIncome: event.target.value.replace(/[^\d.]/g, '').slice(0, 12) })} inputMode="decimal" placeholder="e.g. 180000" />
         </FormField>
         {value.employmentStatus === 'employed' || value.employmentStatus === 'self-employed'
-          ? <FormField label={value.employmentStatus === 'employed' ? 'Company or employer' : 'Business or trade'} error={errors[`${prefix}Employer`]}><input className={controlClass} value={value.employer} onChange={(event) => onChange({ employer: event.target.value })} /></FormField>
+          ? <FormField label={value.employmentStatus === 'employed' ? 'Company or employer' : 'Business or trade'} hint="Needed to apply." error={errors[`${prefix}Employer`]} required={Boolean(employerNeeded && !String(value.employer).trim())}><input className={controlClass} value={value.employer} onChange={(event) => onChange({ employer: event.target.value })} /></FormField>
           : null}
         {value.employmentStatus === 'unemployed' && (
           <>
-            <FormField label="When last employed" error={errors[`${prefix}LastEmployed`]}><input className={controlClass} value={value.lastEmployed} onChange={(event) => onChange({ lastEmployed: event.target.value })} placeholder="e.g. March 2024" /></FormField>
-            <FormField label="Reason for being unemployed" error={errors[`${prefix}UnemploymentReason`]}><input className={controlClass} value={value.unemploymentReason} onChange={(event) => onChange({ unemploymentReason: event.target.value })} /></FormField>
+            <FormField label="When last employed" hint="Needed to apply." error={errors[`${prefix}LastEmployed`]} required={Boolean(unemploymentNeeded && !String(value.lastEmployed).trim())}><input className={controlClass} value={value.lastEmployed} onChange={(event) => onChange({ lastEmployed: event.target.value })} placeholder="e.g. March 2024" /></FormField>
+            <FormField label="Reason for being unemployed" hint="Needed to apply." error={errors[`${prefix}UnemploymentReason`]} required={Boolean(unemploymentNeeded && !String(value.unemploymentReason).trim())}><input className={controlClass} value={value.unemploymentReason} onChange={(event) => onChange({ unemploymentReason: event.target.value })} /></FormField>
           </>
         )}
       </div>
@@ -1296,6 +1348,8 @@ export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissi
       economicStatus: values.economicStatus,
       father: values.father,
       mother: values.mother,
+      assets: values.assets,
+      appliances: values.appliances,
     },
   });
   const setFlag = (group, key, checked) => {
@@ -1318,11 +1372,11 @@ export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissi
     <SectionForm title="Household finances" description={`${formPart('finances')} Shared with the Admissions Office only; your Department Chair cannot see these answers.`} form={form}>
       {migrationMissing ? <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="status">Household finances need the latest database migration before they can be saved.</p> : null}
       <SelectField fieldKey="economicStatus" label="How would you describe your family's economic status?" hint="Needed to apply." value={values.economicStatus} onChange={(value) => update({ economicStatus: value })} options={economicStatusOptions} error={errors.economicStatus} required={need.has('economicStatus')} />
-      <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} unknown={Boolean(family.fatherUnknown)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} needsAnswer={need.has('fatherFinances')} />
-      <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} unknown={Boolean(family.motherUnknown)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} needsAnswer={need.has('motherFinances')} />
+      <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} unknown={Boolean(family.fatherUnknown)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} need={need} />
+      <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} unknown={Boolean(family.motherUnknown)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} need={need} />
       {[['assets', 'Assets owned by the family', ASSET_OPTIONS], ['appliances', 'Appliances and services', APPLIANCE_OPTIONS]].map(([group, legend, options]) => (
         <fieldset key={group} className="m-0 grid gap-3 border-0 p-0">
-          <legend className="mb-3 text-sm font-semibold text-app-text">{legend}</legend>
+          <legend className="mb-3 text-sm font-semibold text-app-text">{legend}{need.has(group) && <RequiredMark />}</legend>
           <div className="grid gap-3 md:grid-cols-3">
             {options.map((option) => <SettingToggle key={option.key} checked={values[group][option.key]} onChange={(checked) => setFlag(group, option.key, checked)} title={option.label} description="" />)}
           </div>

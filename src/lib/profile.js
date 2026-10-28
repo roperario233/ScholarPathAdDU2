@@ -1,5 +1,6 @@
 import { formatPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
 import { generalDocumentTypeOptions, getDocumentTypeLabel } from './constants';
+import { APPLIANCE_OPTIONS, ASSET_OPTIONS } from './financialDetails';
 
 // Profile fields the Smart Eligibility Checker reads beyond the core academic
 // columns (QPI, household income, degree program, active government grant).
@@ -70,8 +71,17 @@ export const PROFILE_DETAIL_KEYS = [
   'housingOther',
   'schoolLastAttended',
   'awards',
+  // FORM 230-SCH asks for the awards received and says to write NA when none
+  // apply, so "none" is a recorded answer instead of a blank the gate cannot read.
+  'awardsNone',
   'ipGroupName',
   'previousGrants',
+  // FORM 230-SCH asks whether the applicant enjoyed financial aid in senior high
+  // school and applied for or received government / private grants. One answered
+  // Yes/No opens the existing grant list, so a "No" is recorded rather than
+  // inferred from an empty list. (The sibling and household "none" answers live
+  // inside `familyDetails`, beside the rows they replace.)
+  'previousGrantsAnswered',
   'communityService',
   // The longer free-text statement/essay the student writes once and can reuse
   // across applications. It keeps its paragraph breaks.
@@ -636,9 +646,12 @@ export const hsStrandOptions = [
 ];
 
 // Personal information options. Religion and civil status are descriptive only;
-// they are never read by the Smart Eligibility Checker.
+// they are never read by the Smart Eligibility Checker. FORM 230-SCH asks every
+// applicant for a religion (writing NA when it does not apply), so "prefer not to
+// say" is a recorded answer instead of the blank the field starts on.
 export const religionOptions = [
-  { value: '', label: 'Prefer not to say' },
+  { value: '', label: 'Select' },
+  { value: 'Prefer not to say', label: 'Prefer not to say' },
   { value: 'Roman Catholic', label: 'Roman Catholic' },
   { value: 'Protestant', label: 'Protestant' },
   { value: 'Iglesia ni Cristo', label: 'Iglesia ni Cristo' },
@@ -682,13 +695,25 @@ export const sexAtBirthOptions = [
 ];
 
 export const housingTypeOptions = [
-  { value: '', label: 'Not applicable (I live at home)' },
-  { value: 'Boarding house or dormitory', label: 'Boarding house or dormitory' },
+  { value: '', label: 'Select' },
+  // FORM 230-SCH asks this only of an applicant who is not from Davao City, and
+  // its first answer covers a boarding house, an apartment, or a dormitory.
+  { value: 'Boarding house or dormitory', label: 'Boarding house, apartment, or dormitory' },
   { value: 'With relatives', label: 'With relatives' },
+  { value: 'I live at home', label: 'I live at home (not applicable)' },
   { value: 'Other', label: 'Other' },
 ];
 
 export const communityServiceOptions = [
+  { value: '', label: 'Select' },
+  { value: 'Yes', label: 'Yes' },
+  { value: 'No', label: 'No' },
+];
+
+// FORM 230-SCH "Did the applicant enjoy any form of financial aid in senior high
+// school?" (and the same question for government and private grants). One answer
+// opens the grant list, so an empty list is no longer read as "no".
+export const grantHistoryOptions = [
   { value: '', label: 'Select' },
   { value: 'Yes', label: 'Yes' },
   { value: 'No', label: 'No' },
@@ -1104,6 +1129,9 @@ export const validateAddressSection = (form = {}) => {
 // hidden value is never sent with an application.
 export const validateFamilySection = (form = {}) => {
   const source = form.familyDetails && typeof form.familyDetails === 'object' ? form.familyDetails : {};
+  // "None" is an answer: it empties the list so a hidden row is never submitted.
+  const siblingsNone = Boolean(source.siblingsNone);
+  const householdAdultsNone = Boolean(source.householdAdultsNone);
   const clearParent = (parent) => (source[`${parent}Unknown`]
     ? { [`${parent}Name`]: '', [`${parent}Occupation`]: '', [`${parent}Deceased`]: false, [`${parent}Age`]: '', [`${parent}DateOfDeath`]: '' }
     : {});
@@ -1119,7 +1147,7 @@ export const validateFamilySection = (form = {}) => {
     motherAge: validateOptionalInteger(family.motherAge, { min: 15, max: 120, message: 'Enter the age as a whole number from 15 to 120.' }),
     fatherDateOfDeath: validateOptionalDate(family.fatherDeceased ? family.fatherDateOfDeath : '', { label: 'the date of death' }),
     motherDateOfDeath: validateOptionalDate(family.motherDeceased ? family.motherDateOfDeath : '', { label: 'the date of death' }),
-    siblings: validateRows(family.siblings, {
+    siblings: validateRows(siblingsNone ? [] : family.siblings, {
       max: MAX_SIBLING_ROWS,
       label: 'Sibling',
       columns: {
@@ -1130,7 +1158,7 @@ export const validateFamilySection = (form = {}) => {
       },
       required: ['name'],
     }),
-    householdAdults: validateRows(family.householdAdults, {
+    householdAdults: validateRows(householdAdultsNone ? [] : family.householdAdults, {
       max: MAX_HOUSEHOLD_ADULT_ROWS,
       label: 'Household member',
       columns: {
@@ -1158,6 +1186,8 @@ export const validateFamilySection = (form = {}) => {
         motherDateOfDeath: result.values.motherDateOfDeath,
         familyPosition: result.values.familyPosition,
         numberOfSiblings: result.values.numberOfSiblings,
+        siblingsNone,
+        householdAdultsNone,
         siblings: result.values.siblings,
         householdAdults: result.values.householdAdults,
       },
@@ -1166,7 +1196,7 @@ export const validateFamilySection = (form = {}) => {
   };
 };
 
-export const validateAcademicSection = (form = {}, academicPrograms = []) => {
+export const validateAcademicSection = (form = {}, academicPrograms = [], { fullForm = true } = {}) => {
   const standing = getStandingRequirements(form.yearStanding);
   const result = collect({
     // An incoming first-year has not been issued an AdDU student number yet, so
@@ -1189,10 +1219,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
     qpi: standing.requiresQpi ? validateQpi(form.qpi) : (isBlank(form.qpi) ? ok('') : validateQpi(form.qpi)),
     // Senior high school standing lives with the academic profile (see My
     // Profile); incoming first-years are matched on it instead of a QPI.
-    // The strand is an incoming-first-year answer: My Profile shows it only for that
-    // standing, so another standing keeps whatever it already recorded and a hidden
-    // field can never fail the section.
-    hsStrand: standing.requiresHsStanding
+    // FORM 230-SCH asks every applicant for their strand, so My Profile requires it
+    // for every standing. The first-login modal only asks the eligibility
+    // essentials (`fullForm: false`), so it keeps the incoming-only rule.
+    hsStrand: standing.requiresHsStanding || fullForm
       ? oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.')
       : ok(hsStrandOptions.some((option) => option.value === (form.hsStrand || '')) ? (form.hsStrand || '') : ''),
     hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
@@ -1221,7 +1251,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
       city: validateText(form.schoolLastAttended?.city, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
       province: validateText(form.schoolLastAttended?.province, { max: SCHOOL_FIELD_MAX_LENGTH, message: '' }).value.slice(0, SCHOOL_FIELD_MAX_LENGTH),
     }),
-    awards: validateText(form.awards, { max: AWARDS_MAX_LENGTH, message: `Keep the awards within ${AWARDS_MAX_LENGTH} characters.` }),
+    awards: form.awardsNone ? ok('') : validateText(form.awards, { max: AWARDS_MAX_LENGTH, message: `Keep the awards within ${AWARDS_MAX_LENGTH} characters.` }),
+    // FORM 230-SCH says to write NA for a question that does not apply, so "no
+    // awards" is a recorded answer instead of an empty field the gate cannot read.
+    awardsNone: ok(Boolean(form.awardsNone)),
     // Derived so the eligibility engine keeps reading the same attributes.
     applicantType: ok(standing.applicantType),
     yearLevel: standing.yearLevel == null
@@ -1234,6 +1267,15 @@ export const validateAcademicSection = (form = {}, academicPrograms = []) => {
   if (standing.requiresHsStanding) {
     if (!result.values.hsStrand && !result.errors.hsStrand) result.errors.hsStrand = 'Choose your senior high school strand.';
     if (result.values.hsAverage === '' && !result.errors.hsAverage) result.errors.hsAverage = 'Add your senior high school general average.';
+  }
+  // FORM 230-SCH prints one line for the school last attended and one for its city
+  // and province. Only My Profile asks for them (`fullForm`), so the first-login
+  // modal is unaffected.
+  if (fullForm) {
+    const school = result.values.schoolLastAttended || {};
+    if (!school.name) result.errors.schoolLastAttended = 'Add the name of the school.';
+    if (!school.city) result.errors.schoolLastAttendedCity = 'Add the city of the school.';
+    if (!school.province) result.errors.schoolLastAttendedProvince = 'Add the province of the school.';
   }
   // An incoming first-year's program choices must be distinct from each other.
   // The comparison is trimmed so a stray space can never slip a duplicate past the
@@ -1264,14 +1306,17 @@ export const validateFinancialSection = (form = {}) => collect({
 
 // The grant list ("grants applied for or received") sits under the Exclusion Flag
 // Hierarchy answers in Eligibility background, and it is only active when the
-// student says they already receive aid: a government grant, another active
-// scholarship, or a prepaid tuition plan. A sibling on AdDU financial aid is about
-// the sibling, not the applicant, so it does not open the list. The list also stays
-// open while a saved row exists, so a grant recorded earlier can never become
-// unreachable (and the submitted snapshot keeps listing it). Shared by the My
-// Profile section and its validator so the two cannot disagree.
+// student says they already receive aid or has answered the printed form's "did
+// you enjoy financial aid / apply for a grant?" question with Yes: a government
+// grant, another active scholarship, or a prepaid tuition plan. A sibling on AdDU
+// financial aid is about the sibling, not the applicant, so it does not open the
+// list. The list also stays open while a saved row exists, so a grant recorded
+// earlier can never become unreachable (and the submitted snapshot keeps listing
+// it). Shared by the My Profile section and its validator so the two cannot
+// disagree.
 export const isGrantListActive = (form = {}) => (
-  Boolean(form.hasActiveGovernmentGrant)
+  form.previousGrantsAnswered === 'Yes'
+  || Boolean(form.hasActiveGovernmentGrant)
   || Boolean(form.hasOtherActiveScholarship)
   || Boolean(form.isOnPrepaidPlan)
   || (Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
@@ -1279,7 +1324,8 @@ export const isGrantListActive = (form = {}) => (
 
 export const validateBackgroundSection = (form = {}) => {
   const honorsRank = form.honorsRank || '';
-  const grants = validateRows(form.previousGrants, {
+  // "No" is an answer: it clears the list so a hidden grant is never submitted.
+  const grants = validateRows(form.previousGrantsAnswered === 'No' ? [] : form.previousGrants, {
     max: MAX_GRANT_ROWS,
     label: 'Grant',
     columns: {
@@ -1311,6 +1357,9 @@ export const validateBackgroundSection = (form = {}) => {
       ? validateText(form.ipGroupName, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep the group name within ${SCHOOL_FIELD_MAX_LENGTH} characters.` })
       : ok(''),
     communityService: oneOf(form.communityService || '', communityServiceOptions, 'Choose an option.'),
+    // FORM 230-SCH: "Did the applicant enjoy any form of financial aid in senior
+    // high school?" / "applied for or received a grant?" — one answer opens the list.
+    previousGrantsAnswered: oneOf(form.previousGrantsAnswered || '', grantHistoryOptions, 'Choose Yes or No.'),
     // A saved row activates the list itself, so a grant the student can no longer
     // see is never validated (and never blocks the save).
     previousGrants: grants,
@@ -1320,7 +1369,7 @@ export const validateBackgroundSection = (form = {}) => {
     result.errors.graduatingClassSize = 'Add your graduating class size to support your honors standing.';
   }
   if (grantListActive && !result.values.previousGrants.length && !result.errors.previousGrants) {
-    result.errors.previousGrants = 'Add at least one grant, or turn off the answers that say you already receive aid.';
+    result.errors.previousGrants = 'Add the grant you applied for or received, or answer No to the financial aid question.';
   }
   return result;
 };
@@ -1329,7 +1378,9 @@ export const validateBackgroundSection = (form = {}) => {
 // needs beyond the credentials form. It reuses the same section rules as My
 // Profile so the onboarding modal and the profile editor never disagree.
 export const validateOnboardingEssentials = (form = {}, academicPrograms = []) => {
-  const academic = validateAcademicSection(form, academicPrograms);
+  // The first-login modal collects only the eligibility essentials, so it is not
+  // held to the full FORM 230-SCH answers My Profile asks for.
+  const academic = validateAcademicSection(form, academicPrograms, { fullForm: false });
   const financial = validateFinancialSection(form);
   const phone = validateMobileNumber(form.phone);
   const citizenship = oneOf(form.citizenship, citizenshipOptions, 'Choose your citizenship.');
@@ -1414,18 +1465,35 @@ export const isParentNameAnswered = (profile = {}, parent = 'father') => (
   profile.familyDetails?.[`${parent}Unknown`] === true || !isBlank(profile.familyDetails?.[`${parent}Name`])
 );
 
+// FORM 230-SCH prints "NAME OF SENIOR HIGH SCHOOL (College if Transferee)" with
+// one line for the school and one for its city and province, so all three are
+// needed to answer it.
+export const isSchoolLastAttendedAnswered = (profile = {}) => {
+  const school = profile.schoolLastAttended || {};
+  return !isBlank(school.name) && !isBlank(school.city) && !isBlank(school.province);
+};
+
+// One of the printed form's checkbox groups (assets, appliances): "None of the
+// above", a typed "Others", or at least one checked item is an answer. Mirrors
+// financial_option_group_answered() in the database.
+export const isOptionGroupAnswered = (group = {}, options = []) => (
+  Boolean(group?.none)
+  || options.some((option) => option.key !== 'none' && Boolean(group?.[option.key]))
+  || !isBlank(group?.others)
+);
+
 // The gate's message prefix. The application workspace sorts its blockers by it,
 // so the two read one constant instead of matching a copy of the sentence.
 export const APPLICATION_FORM_BLOCKER_PREFIX = 'Complete your Application Form';
 
-export const getApplicationProfileGate = (profile = {}) => {
+export const getApplicationProfileGate = (profile = {}, { verb = 'applying' } = {}) => {
   const missing = getProfileCompleteness(profile, 'student').items
     .filter((item) => item.group === 'application' && !item.done);
   return {
     allowed: missing.length === 0,
     missing,
     reasons: missing.length
-      ? [`${APPLICATION_FORM_BLOCKER_PREFIX} before applying: ${missing.map((item) => item.label).join(', ')}.`]
+      ? [`${APPLICATION_FORM_BLOCKER_PREFIX} before ${verb}: ${missing.map((item) => item.label).join(', ')}.`]
       : [],
   };
 };
@@ -1433,6 +1501,8 @@ export const getApplicationProfileGate = (profile = {}) => {
 export const getProfileCompleteness = (profile = {}, role = 'student') => {
   const standing = getStandingRequirements(profile);
   const isStudent = role === 'student';
+  const family = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
+  const financial = profile.financialProfile && typeof profile.financialProfile === 'object' ? profile.financialProfile : {};
   const items = [];
   const add = (group, key, label, section, done) => items.push({ group, key, label, section, done: Boolean(done) });
 
@@ -1450,10 +1520,29 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     add('application', 'householdIncome', 'Annual household income', 'background', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
     add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
-    if (standing.requiresHsStanding) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
+    // The printed form asks every applicant for the school last attended, its
+    // strand, and the number of graduates — not only an incoming first-year.
+    add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
     add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    add('application', 'housingType', 'Where you stay while studying', 'address', !isBlank(profile.housingType));
     add('application', 'fatherName', 'Father\'s name', 'family', isParentNameAnswered(profile, 'father'));
     add('application', 'motherName', 'Mother\'s name', 'family', isParentNameAnswered(profile, 'mother'));
+    // Each listed parent's age (or date of death) and occupation are printed on the
+    // form. A parent marked unknown is left out, as in every other parent answer.
+    [['father', 'Father'], ['mother', 'Mother']].forEach(([parent, parentLabel]) => {
+      if (family[`${parent}Unknown`] === true) return;
+      if (family[`${parent}Deceased`] === true) {
+        add('application', `${parent}DateOfDeath`, `${parentLabel}'s date of death`, 'family', DATE_PATTERN.test(String(family[`${parent}DateOfDeath`] || '')));
+      } else {
+        const age = Number(family[`${parent}Age`]);
+        add('application', `${parent}Age`, `${parentLabel}'s age`, 'family', hasNumber(family[`${parent}Age`]) && age >= 15 && age <= 120);
+      }
+      add('application', `${parent}Occupation`, `${parentLabel}'s occupation`, 'family', !isBlank(family[`${parent}Occupation`]));
+    });
+    // Household details: the sibling total, and each list or an explicit "none".
+    add('application', 'numberOfSiblings', 'Number of siblings', 'family', hasNumber(family.numberOfSiblings));
+    add('application', 'siblings', 'Siblings (names and ages), or none', 'family', Boolean(family.siblingsNone) || (Array.isArray(family.siblings) && family.siblings.length > 0));
+    add('application', 'householdAdults', 'Other adults in the household, or none', 'family', Boolean(family.householdAdultsNone) || (Array.isArray(family.householdAdults) && family.householdAdults.length > 0));
     add('application', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
     add('application', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
     add('application', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
@@ -1465,13 +1554,42 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     // student_financial_profiles row, merged into `profile.financialProfile`.
     add('application', 'birthdate', 'Birthdate', 'personal', DATE_PATTERN.test(String(profile.birthdate || '')));
     add('application', 'sexAtBirth', 'Sex assigned at birth', 'personal', sexAtBirthOptions.some((option) => option.value && option.value === profile.sexAtBirth));
-    if (standing.requiresHsStanding || isTransfereeProfile(profile)) {
-      add('application', 'schoolLastAttended', isTransfereeProfile(profile) ? 'College last attended' : 'Senior high school last attended', 'academic', !isBlank(profile.schoolLastAttended?.name));
-    }
+    // FORM 230-SCH asks every applicant for a religion and preferred pronouns, and
+    // says to write NA when one does not apply.
+    add('application', 'religion', 'Religion', 'personal', !isBlank(profile.religion));
+    add('application', 'pronouns', 'Preferred pronouns', 'personal', !isBlank(profile.pronouns));
+    add(
+      'application',
+      'schoolLastAttended',
+      isTransfereeProfile(profile) ? 'College last attended (name, city, and province)' : 'Senior high school last attended (name, city, and province)',
+      'academic',
+      isSchoolLastAttendedAnswered(profile),
+    );
+    add('application', 'awards', 'Awards received', 'academic', Boolean(profile.awardsNone) || !isBlank(profile.awards));
     add('application', 'communityService', 'Willingness to render community service', 'background', communityServiceOptions.some((option) => option.value && option.value === profile.communityService));
+    add('application', 'graduatingClassSize', 'Number of graduates of your senior high school', 'background', hasNumber(profile.graduatingClassSize) && Number(profile.graduatingClassSize) >= 1);
+    // "Did you enjoy financial aid in senior high school / apply for or receive a
+    // grant?" — one recorded Yes/No, with the grant list required when Yes.
+    add('application', 'previousGrantsAnswered', 'Financial aid already received', 'background', grantHistoryOptions.some((option) => option.value && option.value === profile.previousGrantsAnswered));
+    if (profile.previousGrantsAnswered === 'Yes') add('application', 'previousGrants', 'Grants applied for or received', 'background', Array.isArray(profile.previousGrants) && profile.previousGrants.length > 0);
     add('application', 'economicStatus', 'Perceived economic status', 'finances', ECONOMIC_STATUS_VALUES.includes(profile.financialProfile?.economicStatus));
     add('application', 'fatherFinances', 'Father\'s employment and income', 'finances', isParentFinancesAnswered(profile, 'father'));
     add('application', 'motherFinances', 'Mother\'s employment and income', 'finances', isParentFinancesAnswered(profile, 'mother'));
+    // The printed form asks for the employer of a working parent and, for an
+    // unemployed one, when they last worked and why.
+    [['father', 'Father'], ['mother', 'Mother']].forEach(([parent, parentLabel]) => {
+      if (family[`${parent}Unknown`] === true || family[`${parent}Deceased`] === true) return;
+      const employment = financial[parent]?.employmentStatus;
+      if (employment === 'employed' || employment === 'self-employed') {
+        add('application', `${parent}Employer`, `${parentLabel}'s employer or business`, 'finances', !isBlank(financial[parent]?.employer));
+      }
+      if (employment === 'unemployed') {
+        add('application', `${parent}Unemployment`, `${parentLabel}'s last employment and reason`, 'finances', !isBlank(financial[parent]?.lastEmployed) && !isBlank(financial[parent]?.unemploymentReason));
+      }
+    });
+    // The two checkbox groups: "None of the above", a typed "Others", or an item.
+    add('application', 'assets', 'Assets owned by the family', 'finances', isOptionGroupAnswered(financial.assets, ASSET_OPTIONS));
+    add('application', 'appliances', 'Appliances and services owned by the family', 'finances', isOptionGroupAnswered(financial.appliances, APPLIANCE_OPTIONS));
   }
   // The application form asks every applicant for a contact number, so it is
   // needed to apply; staff keep it as a plain detail.
@@ -1574,14 +1692,28 @@ export const getApplicationFormProgress = (profile = {}, attributeVerifications 
       total: items.length,
     };
   });
-  const ready = sections.every((section) => section.state === 'complete');
+  const answersMissing = sections.reduce((total, section) => total + section.missing.length, 0);
+  const proofsPending = sections.reduce((total, section) => total + section.alerts.length + section.unprovenClaims.length, 0);
+  // Two different questions, so the student is never told "not ready" for a proof
+  // the application gate does not read:
+  // - `readyToApply`: every "Needed to apply" answer is in, so an application can
+  //   be started (the same rule as getApplicationProfileGate);
+  // - `ready`: the answers plus every claim / replaced proof, so nothing blocks the
+  //   submission that follows.
+  const readyToApply = answersMissing === 0;
+  const ready = readyToApply && proofsPending === 0;
   return {
     sections,
     answered: completeness.completed,
     total: completeness.total,
     percent: completeness.percent,
+    answersMissing,
+    proofsPending,
+    readyToApply,
     ready,
-    next: sections.find((section) => section.state !== 'complete') || null,
+    // "Continue" points at a missing answer first, because a proof can only be
+    // attached from the Document Vault after its answer is saved.
+    next: sections.find((section) => section.missing.length) || sections.find((section) => section.state !== 'complete') || null,
   };
 };
 

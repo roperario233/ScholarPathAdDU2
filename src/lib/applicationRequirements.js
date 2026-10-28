@@ -552,7 +552,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   if (!getStandingRequirements(requirementProfile).yearStanding) {
     blockers.push('Set your year standing in your Application Form so the documents for your standing can be listed.');
   }
-  const profileGate = getApplicationProfileGate(profile);
+  const profileGate = getApplicationProfileGate(profile, { verb: 'submitting' });
   if (!proofContext.frozen && !profileGate.allowed) blockers.push(...profileGate.reasons);
   const missing = requirements.filter((item) => item.state === 'missing');
   const rejected = requirements.filter((item) => item.state === 'rejected');
@@ -785,6 +785,10 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       birthdate: asText(profile.birthdate),
       sexAtBirth: asText(profile.sexAtBirth),
       pronouns: asText(profile.pronouns),
+      // FORM 230-SCH asks for an email address and a contact number; both are frozen
+      // with the snapshot so the printed sheet carries what the student submitted.
+      email: asText(profile.email),
+      phone: asText(profile.phone),
     },
     address: {
       completeAddress: asText(profile.completeAddress),
@@ -950,6 +954,8 @@ export const getProfileSnapshotSections = (snapshot) => {
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
         row('Religion', optionLabel(religionOptions, personal.religion)),
+        ...(personal.email ? [row('Email address', personal.email)] : []),
+        ...(personal.phone ? [row('Contact number', personal.phone)] : []),
         row('Complete address', address.completeAddress, address.verification?.completeAddress),
         row('Residing address', address.residingAddress, address.verification?.residingAddress),
         ...(snapshot.version >= 3 && address.housingType
