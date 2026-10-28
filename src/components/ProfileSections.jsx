@@ -273,15 +273,19 @@ function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
   const showStatus = item.done && status !== undefined;
   const showAttachProof = showStatus && !isAttributeProofSettled(status) && onAttachProof;
   return (
-    <li className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
-      <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
+    <li className="grid min-h-11 grid-cols-1 items-center gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      {/* A fixed two-column row: the answer keeps the free space and wraps its own
+          text, while the verification state sits with the action that resolves it,
+          right-aligned. As flex items the badge and the chip could split, and a wrapped
+          chip landed alone at the row's left edge. */}
+      <span className="flex min-w-0 items-center gap-2 text-sm text-app-text">
         {item.done
           ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
           : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
         <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
-        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>}
       </span>
-      <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>}
         {showAttachProof && (
           <button type="button" className="proof-action shrink-0" onClick={() => onAttachProof(item.key)}>
             <Paperclip size={13} className="shrink-0" aria-hidden="true" />
@@ -289,7 +293,7 @@ function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
           </button>
         )}
         {!item.done && (
-          <button type="button" className="proof-action shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
+          <button type="button" className="proof-action" onClick={() => onEditSection(item.section)}>Add</button>
         )}
       </span>
     </li>
@@ -332,8 +336,8 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
             const state = VAULT_REQUIREMENT_STATE_LABELS[item.state] || VAULT_REQUIREMENT_STATE_LABELS.missing;
             const scope = describeDocumentScope(item, scholarships.length);
             return (
-              <li key={item.key} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
-                <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+              <li key={item.key} className="grid min-h-11 grid-cols-1 items-center gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <span className="grid min-w-0 gap-0.5">
                   <span className="text-sm font-semibold text-app-text">{item.label}</span>
                   {scope && <span className="text-xs text-app-muted">{scope}</span>}
                 </span>
@@ -351,8 +355,8 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
           })}
         </ul>
       )}
-      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
-        <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+      <div className={`grid grid-cols-1 items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto] ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
+        <span className="grid min-w-0 gap-0.5">
           <span className="text-sm font-semibold text-app-text">Default statement/essay</span>
           <span className="text-xs text-app-muted">Optional. Prefills each application's statement/essay.</span>
         </span>
@@ -690,7 +694,7 @@ function FamilyProofRow({ attributeVerifications = {}, onAttachProof }) {
     <div className="grid gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-3">
       <p className="m-0 text-xs uppercase tracking-[0.08em] text-app-muted">Proof of family details</p>
       {rows.map(({ key, label }) => (
-        <div key={key} className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-sm text-app-text">
+        <div key={key} className="grid grid-cols-1 items-center gap-x-3 gap-y-2 text-sm text-app-text sm:grid-cols-[minmax(0,1fr)_auto]">
           <span className="min-w-0">{label}</span>
           <AttributeVerification attributeKey={key} attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
         </div>
