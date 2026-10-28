@@ -77,6 +77,20 @@ describe('My Profile as the application form', () => {
     expect(academic).toContain('data-field="qpi"');
   });
 
+  it('marks an unanswered required answer with a red asterisk', () => {
+    const personal = render({ profile: student, role: 'student', initialSection: 'personal' });
+    // The fixture leaves civil status and birthdate blank, so exactly those two
+    // required answers are marked; the answered mobile number is not.
+    expect(personal.match(/\(required\)/g)).toHaveLength(2);
+    expect(personal).toContain('are still missing.');
+    const answered = render({
+      profile: { ...student, civilStatus: 'Single', birthdate: '2005-04-12' },
+      role: 'student',
+      initialSection: 'personal',
+    });
+    expect(answered).not.toContain('(required)');
+  });
+
   it('keeps the plain profile page for staff', () => {
     const html = render({ profile: { fullName: 'Office Staff', phone: '' }, role: 'admissions_office' });
     expect(html).toContain('Profile and account details');
