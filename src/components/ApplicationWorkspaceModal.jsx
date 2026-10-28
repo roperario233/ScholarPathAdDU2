@@ -404,7 +404,7 @@ export default function ApplicationWorkspaceModal({
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Application form">
               <p className="m-0 text-sm text-app-muted">Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
-              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections} /></Panel>
+              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections.filter((section) => section.key !== 'situation')} /></Panel>
               {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
                   {[...profileBlockers, ...eligibilityBlockers].map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
