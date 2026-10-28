@@ -43,7 +43,7 @@ const clearAuthRedirectParams = () => {
   window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
 };
 
-function SelectPicker({ label, value, onChange, options, idPrefix, error = '', required = false }) {
+function SelectPicker({ label, value, onChange, options, idPrefix, error = '', required = false, placeholder = '' }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const selectableOptions = options.filter((option) => !option.isGroup);
@@ -64,7 +64,10 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
     };
   }, []);
 
-  const selectedOption = selectableOptions.find((option) => option.value === value) ?? selectableOptions[0];
+  // With a placeholder, an unmatched value reads as "nothing chosen" instead of
+  // silently showing the first option.
+  const selectedOption = selectableOptions.find((option) => option.value === value)
+    ?? (placeholder ? { label: placeholder } : selectableOptions[0]);
 
   const chooseOption = (nextValue) => {
     onChange(nextValue);

@@ -8,7 +8,7 @@ import PhotoCaptureModal from '../components/PhotoCaptureModal';
 import PhotoGuide from '../components/PhotoGuide';
 import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
-import { generalDocumentTypeOptions, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
+import { getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, PHOTO_MIME_TYPES } from '../lib/photoGuide';
 import {
@@ -44,7 +44,9 @@ const initialSelection = (attributeKey = '', documentType = '', profile = null) 
       : getDocumentSelectionForType(documentType, profile);
   }
   if (attributeKey) return encodeDocumentSelection(attributeKey, getAcceptedDocumentTypes(attributeKey, profile)[0]?.value || '');
-  return encodeDocumentSelection('', generalDocumentTypeOptions[0]?.value || '');
+  // No default type: a silent first option labelled every file uploaded without
+  // touching the picker (and every upload after a reset) as that type.
+  return '';
 };
 
 // Why a proof no longer covers its attribute, phrased for the student.
@@ -197,11 +199,15 @@ export default function DocumentVaultView({ documents, applications = [], profil
             onChange={handleSelection}
             options={documentPickerOptions}
             idPrefix="vault-document-type"
+            placeholder="Choose a document type"
+            required
           />
           <small className="field-hint -mt-1">
-            {provesOnUpload.length
-              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in your Application Form now.`
-              : 'A general document proves no profile answer.'}
+            {!documentType
+              ? 'Choose what this file is before uploading it.'
+              : provesOnUpload.length
+                ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in your Application Form now.`
+                : 'A general document proves no profile answer.'}
           </small>
           {isPhoto ? (
             <div className="grid gap-3">
@@ -230,7 +236,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
           )}
           <p className="field-hint m-0">The Admissions Office and your Department Chair can view these files to verify them.</p>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p>
+            {documentType ? <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p> : null}
             <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>
           </div>
           {formError && <p className="form-error" role="alert">{formError}</p>}
