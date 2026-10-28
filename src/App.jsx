@@ -20,6 +20,7 @@ import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSu
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
+import { SidebarNav, SidebarProfile, SidebarStats } from './components/SidebarParts';
 import SessionTimeoutModal from './components/SessionTimeoutModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -855,10 +856,11 @@ function App() {
   const currentIdentity = state.viewerRole === 'student'
     ? { ...currentProfile, ...state.profileDraft, ...(state.authUser || {}), ...(financial.profile ? { financialProfile: financial.profile } : {}) }
     : currentProfile;
-  // De-duplicated identity lines (see identitySubtitle): the role only, and the
-  // role plus department, with anything already covered by the name removed.
+  // De-duplicated identity lines (see identitySubtitle): the role only (the
+  // sidebar's role pill and the mobile header), and the department alone (the
+  // sidebar's detail line), with anything already covered by the name removed.
   const identityRoleLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole]);
-  const identityDetailLine = identitySubtitle(currentIdentity.fullName, roleLabels[state.viewerRole], currentIdentity.department);
+  const identityDetailLine = identitySubtitle(currentIdentity.fullName, currentIdentity.department);
   const activeAcademicPrograms = state.academicPrograms?.length ? state.academicPrograms : academicPrograms;
   // The picker groups programs by "School — Cluster" with the academic department
   // as each option's description, so all four levels are reachable from one list.
@@ -2720,19 +2722,7 @@ function App() {
   ].filter((item) => item.visible);
 
   const renderNavigation = (className = '') => (
-    <nav className={`grid gap-2 ${className}`} aria-label="Page navigation">
-      {navigationItems.map((item) => (
-        <button
-          key={item.view}
-          type="button"
-          className={`min-h-11 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition hover:-translate-y-px hover:bg-app-surface focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${state.activeView === item.view ? 'bg-gradient-to-br from-blue-500/95 to-sky-400/70 text-white shadow-sm' : 'bg-app-surface text-app-text'}`}
-          onClick={() => navigate(item.view)}
-          aria-current={state.activeView === item.view ? 'page' : undefined}
-        >
-          {item.label}
-        </button>
-      ))}
-    </nav>
+    <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className} />
   );
 
   if (isBooting || !isSessionChecked) {
@@ -2880,29 +2870,12 @@ function App() {
             taller than the window its top (the page links) stays in view and the
             summary boxes below come into view at the bottom of the page. */}
         <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
-          <div className="flex items-center gap-4 border-b border-app-border pb-4">
-            <ProfileAvatar src={avatarPreview.url} name={currentIdentity.fullName} size="lg" rounded="rounded-[18px]" className="!h-[50px] !w-[50px]" />
-            <div className="min-w-0">
-              <h2 className="m-0 text-base font-semibold text-app-text">{currentIdentity.fullName}</h2>
-              {identityDetailLine && <p className="mt-1 text-sm text-app-muted">{identityDetailLine}</p>}
-            </div>
-          </div>
+          <SidebarProfile avatarUrl={avatarPreview.url} name={currentIdentity.fullName} roleLine={identityRoleLine} detailLine={identityDetailLine} />
 
           {renderNavigation('my-4')}
 
-          <div className="mt-4 grid gap-2">
-            <div className="flex items-center justify-between gap-3 rounded-[18px] bg-app-surface p-3">
-              <span className="text-xs text-app-muted">Programs</span>
-              <strong className="text-lg text-app-text">{stats.totalPrograms}</strong>
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-[18px] bg-app-surface p-3">
-              <span className="text-xs text-app-muted">Open deadlines</span>
-              <strong className="text-lg text-app-text">{activeDeadlineCount}</strong>
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-[18px] bg-app-surface p-3">
-              <span className="text-xs text-app-muted">Unread alerts</span>
-              <strong className="text-lg text-app-text">{stats.unreadNotifications}</strong>
-            </div>
+          <div className="border-t border-app-border pt-4">
+            <SidebarStats programs={stats.totalPrograms} deadlines={activeDeadlineCount} unread={stats.unreadNotifications} />
           </div>
         </aside>
 

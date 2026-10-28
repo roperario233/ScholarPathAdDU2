@@ -107,22 +107,44 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, requir
   );
 }
 
-export function SettingToggle({ checked, onChange, title, description }) {
+// With an `icon` the toggle becomes a feature tile (icon, copy, switch on the
+// right) for the Settings page; without one it keeps the compact form-row look
+// My Profile uses.
+export function SettingToggle({ checked, onChange, title, description, icon: Icon = null }) {
+  const switchControl = (
+    <span className={clsx('relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors has-[:checked]:bg-ateneo', Icon ? 'bg-slate-400/30' : 'bg-slate-400/20')}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer sr-only"
+      />
+      <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+    </span>
+  );
+  const copy = (
+    <span className="min-w-0 flex-1">
+      <strong className="block text-sm font-semibold text-app-text">{title}</strong>
+      <span className="mt-1 block text-sm text-app-muted">{description}</span>
+    </span>
+  );
+
+  if (!Icon) {
+    return (
+      <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
+        {switchControl}
+        {copy}
+      </label>
+    );
+  }
+
   return (
-    <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
-      <span className="relative mt-0.5 h-7 w-12 shrink-0 rounded-full bg-slate-400/20 transition-colors has-[:checked]:bg-ateneo">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          className="peer sr-only"
-        />
-        <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+    <label className="group flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface p-4 transition hover:-translate-y-px hover:bg-app-card hover:shadow-card has-[:checked]:border-blue-500/40 has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20">
+      <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-app-muted-surface text-app-muted transition-colors group-has-[:checked]:bg-blue-500/15 group-has-[:checked]:text-blue-600 dark:group-has-[:checked]:text-blue-200" aria-hidden="true">
+        <Icon size={18} />
       </span>
-      <span className="min-w-0">
-        <strong className="block text-sm font-semibold text-app-text">{title}</strong>
-        <span className="mt-1 block text-sm text-app-muted">{description}</span>
-      </span>
+      {copy}
+      {switchControl}
     </label>
   );
 }

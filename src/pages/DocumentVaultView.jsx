@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Clock, Eye, FileImage, FileText, Layers, Lock, RotateCcw, Search, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
@@ -17,6 +18,26 @@ const outdatedProofMessage = ({ key, reason }) => {
     ? `This ${label} proof is from an earlier academic year. Upload a current one.`
     : `Your ${label} changed after this upload. Upload a new proof.`;
 };
+
+// Status drives the card's accent bar, file icon tile, and status icon.
+const DOCUMENT_STATUS_STYLES = {
+  Verified: { tone: 'success', bar: 'before:bg-emerald-500', tile: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300', icon: ShieldCheck },
+  Pending: { tone: 'warning', bar: 'before:bg-amber-500', tile: 'bg-amber-500/15 text-amber-700 dark:text-amber-300', icon: Clock },
+  Rejected: { tone: 'danger', bar: 'before:bg-rose-500', tile: 'bg-rose-500/15 text-rose-700 dark:text-rose-300', icon: RotateCcw },
+};
+
+const IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|gif|heic)$/i;
+
+function VaultMetric({ icon: Icon, label, value, note, tone }) {
+  return (
+    <article className="page-metric relative overflow-hidden rounded-app border bg-app-card p-4 shadow-app backdrop-blur">
+      <div className={`absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${tone}`} aria-hidden="true"><Icon size={18} /></div>
+      <span className="pr-12 text-xs font-semibold">{label}</span>
+      <strong className="!text-3xl">{value}</strong>
+      <p className="text-xs">{note}</p>
+    </article>
+  );
+}
 
 export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '' }) {
   const [query, setQuery] = useState('');
@@ -63,13 +84,24 @@ export default function DocumentVaultView({ documents, applications = [], profil
     return (!query.trim() || text.includes(query.trim().toLowerCase())) && matchesStatus;
   }), [documents, query, status, outdatedByDocument]);
 
+  const countByStatus = (value) => documents.filter((doc) => doc.verificationStatus === value).length;
+
   return (
     <div className="blue-action-view grid gap-4">
+      <section className="page-title-bar relative rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
+        <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-blue-500/10 blur-2xl" aria-hidden="true" />
+        <div className="page-title-copy relative">
+          <span className="page-section-label">Document Vault</span>
+          <h2>Upload once, reuse across applications</h2>
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Keep your proofs in one private place. Attach the same verified file to as many applications as you need.</p>
+        </div>
+      </section>
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Total documents</span><strong className="!text-2xl">{documents.length}</strong><p className="text-xs">Stored in your Document Vault</p></article>
-        <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Verified</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Verified').length}</strong><p className="text-xs">Ready to reuse</p></article>
-        <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Pending review</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Pending').length}</strong><p className="text-xs">Awaiting Admissions Office review</p></article>
-        <article className="page-metric rounded-app border bg-app-card p-4 shadow-app backdrop-blur"><span className="text-xs font-semibold">Needs resubmission</span><strong className="!text-2xl">{documents.filter((doc) => doc.verificationStatus === 'Rejected').length}</strong><p className="text-xs">Reverted for resubmission</p></article>
+        <VaultMetric icon={Layers} label="Total documents" value={documents.length} note="Stored in your Document Vault" tone="bg-blue-500/15 text-blue-700 dark:text-blue-300" />
+        <VaultMetric icon={ShieldCheck} label="Verified" value={countByStatus('Verified')} note="Ready to reuse" tone="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" />
+        <VaultMetric icon={Clock} label="Pending review" value={countByStatus('Pending')} note="Awaiting Admissions Office review" tone="bg-amber-500/15 text-amber-700 dark:text-amber-300" />
+        <VaultMetric icon={RotateCcw} label="Needs resubmission" value={countByStatus('Rejected')} note="Reverted for resubmission" tone="bg-rose-500/15 text-rose-700 dark:text-rose-300" />
       </section>
 
       <Card title="Upload a document">
@@ -83,7 +115,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
 
       <Card title="Your documents" className="document-list-card">
         <div className="document-filter-toolbar grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4">
-          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find a file</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents" aria-label="Search documents" /></label>
+          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find a file</span><span className="relative block"><Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-app-muted" aria-hidden="true" /><input className="!pl-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents" aria-label="Search documents" /></span></label>
           <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Verification status</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter documents"><option value="all">All statuses</option><option>Verified</option><option>Pending</option><option value="Rejected">Reverted for resubmission</option><option value="outdated">Outdated proof</option></select></label>
         </div>
         <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3">
@@ -97,28 +129,36 @@ export default function DocumentVaultView({ documents, applications = [], profil
             const replacementApplications = doc.verificationStatus === 'Rejected'
               ? replaceableApplicationsByDocument[doc.id] || []
               : [];
+            const statusStyle = DOCUMENT_STATUS_STYLES[doc.verificationStatus] || DOCUMENT_STATUS_STYLES.Pending;
+            const StatusIcon = statusStyle.icon;
+            const FileIcon = IMAGE_FILE_PATTERN.test(doc.fileName || '') ? FileImage : FileText;
+            const proofLabels = getDocumentLinkedAttributes(doc, profile).map((key) => getVerifiableAttributeOption(key)?.label || key);
             return (
-            <article key={doc.id} className="document-result-card group grid gap-4 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-app">
+            <article key={doc.id} className={`document-result-card group relative grid gap-4 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-5 pl-6 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 hover:-translate-y-0.5 hover:shadow-app ${statusStyle.bar}`}>
               <div className="flex min-w-0 items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <h3 className="m-0 text-lg font-bold text-app-text">{doc.title}</h3>
-                  <p className="mt-1 text-sm text-app-muted">{doc.fileName} <span className="mx-1 text-app-border">•</span> {getDocumentTypeLabel(doc.documentType)}</p>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${statusStyle.tile}`} aria-hidden="true"><FileIcon size={20} /></span>
+                  <div className="min-w-0">
+                    <h3 className="m-0 text-lg font-bold text-app-text [overflow-wrap:anywhere]">{doc.title}</h3>
+                    <p className="mt-1 text-sm text-app-muted [overflow-wrap:anywhere]">{doc.fileName} <span className="mx-1 text-app-border">•</span> {getDocumentTypeLabel(doc.documentType)}</p>
+                  </div>
                 </div>
-                <StatusBadge tone={doc.verificationStatus === 'Verified' ? 'success' : doc.verificationStatus === 'Rejected' ? 'danger' : 'warning'}>{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
+                <StatusBadge className="gap-1.5" tone={statusStyle.tone}><StatusIcon size={13} aria-hidden="true" />{getDocumentStatusLabel(doc.verificationStatus)}</StatusBadge>
               </div>
-              <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-app-border/60 pt-3 text-sm text-app-muted">
-                <span><strong>Uploaded</strong> {fmtDate(doc.uploadedAt)}</span>
-                <span><strong>Used in</strong> {usage.count} {usage.count === 1 ? 'application' : 'applications'}</span>
-                {getDocumentLinkedAttributes(doc, profile).length ? (
-                  <span><strong>Proof for</strong> {getDocumentLinkedAttributes(doc, profile).map((key) => getVerifiableAttributeOption(key)?.label || key).join(', ')}</span>
+              <div className="flex flex-wrap gap-2 border-t border-app-border/60 pt-3 text-xs text-app-muted">
+                <span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Uploaded</strong> {fmtDate(doc.uploadedAt)}</span>
+                <span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Used in</strong> {usage.count} {usage.count === 1 ? 'application' : 'applications'}</span>
+                {proofLabels.length ? (
+                  <span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Proof for</strong> {proofLabels.join(', ')}</span>
                 ) : null}
               </div>
               <DocumentRejectionReason doc={doc} />
               <DocumentDecisionRecord doc={doc} showReviewer={false} />
               {onResolveDocument && replacementApplications.length ? (
-                <div className="grid gap-2 rounded-xl border border-rose-400/40 p-3">
-                  <p className="m-0 text-sm text-app-text">
-                    This file was reverted for resubmission. Replace it so the review can continue.
+                <div className="grid gap-2 rounded-xl border border-rose-400/40 bg-rose-500/5 p-3">
+                  <p className="m-0 flex items-start gap-2 text-sm text-app-text">
+                    <TriangleAlert size={16} className="mt-0.5 shrink-0 text-rose-500" aria-hidden="true" />
+                    <span>This file was reverted for resubmission. Replace it so the review can continue.</span>
                   </p>
                   <div className="flex flex-wrap gap-2">
                     {replacementApplications.map((entry) => (
@@ -140,10 +180,10 @@ export default function DocumentVaultView({ documents, applications = [], profil
                 </div>
               ) : null}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/60 pt-3">
-                <Button variant="secondary" type="button" onClick={() => setPreview(doc)}>View</Button>
+                <Button variant="secondary" type="button" className="gap-2" onClick={() => setPreview(doc)}><Eye size={16} aria-hidden="true" />View</Button>
                 {usage.lockedBy
-                  ? <span className="text-xs text-app-muted">Locked: attached to your submitted {usage.lockedBy} application</span>
-                  : <button className="inline-flex min-h-9 items-center justify-center rounded-xl border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:-translate-y-px hover:bg-rose-500/15 focus:outline-none focus:ring-4 focus:ring-rose-500/20 dark:text-rose-300" type="button" onClick={() => onDelete(doc.id)}>Delete</button>}
+                  ? <span className="inline-flex items-center gap-1.5 text-xs text-app-muted"><Lock size={13} aria-hidden="true" />Locked: attached to your submitted {usage.lockedBy} application</span>
+                  : <Button variant="danger" type="button" className="gap-2" onClick={() => onDelete(doc.id)}><Trash2 size={16} aria-hidden="true" />Delete</Button>}
               </div>
             </article>
             );
