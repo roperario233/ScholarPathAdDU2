@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Camera } from 'lucide-react';
+import { Camera, FolderOpen } from 'lucide-react';
 import { Button, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
@@ -38,6 +38,8 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
   const [uploadType, setUploadType] = useState(requirement.documentTypes[0]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const reusable = getMatchingVaultDocuments(requirement, documents).filter((doc) => !attachedIds.includes(doc.id));
+  // Files the student can attach right now; a reverted file cannot be reused.
+  const readyFiles = reusable.filter((doc) => doc.verificationStatus !== 'Rejected');
   // A single-type photo requirement (the applicant photo and the residence
   // photos) can be satisfied with the camera; a mixed list offers it only for the
   // photo type currently selected.
@@ -89,6 +91,27 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {readyFiles.length && !['attached', 'verified'].includes(requirement.state) ? (
+        <div className="grid gap-1.5" role="group" aria-label={`Files in your Document Vault for ${requirement.label}`}>
+          <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-app-muted">
+            <FolderOpen size={14} aria-hidden="true" className="shrink-0" />
+            {readyFiles.length === 1 ? 'Already in your Document Vault' : `${readyFiles.length} files already in your Document Vault`}
+          </p>
+          <ul className="m-0 grid gap-1.5 p-0">
+            {readyFiles.slice(0, 3).map((doc) => (
+              <li key={doc.id} className="flex min-w-0 flex-col gap-1 rounded-lg border border-app-border/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="ml-2 text-xs text-app-muted [overflow-wrap:anywhere]">{getDocumentStatusLabel(doc.verificationStatus)} · {fmtDate(doc.uploadedAt)}</span></span>
+                <span className="flex shrink-0 gap-2">
+                  <Button type="button" variant="ghost" className="!min-h-8 !px-2.5 !py-0.5 !text-xs" onClick={() => onPreview(doc)}>View</Button>
+                  <Button type="button" className="!min-h-8 !px-2.5 !py-0.5 !text-xs" disabled={busy} onClick={() => onAttach(requirement, doc.id)}>Use</Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {readyFiles.length > 3 ? <p className="m-0 text-xs text-app-muted">{readyFiles.length - 3} more in the list below.</p> : null}
+        </div>
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -338,6 +361,11 @@ export default function ApplicationWorkspaceModal({
   };
 
   const current = STEPS[step].key;
+  // Requirements still open that a non-reverted vault file could satisfy.
+  const vaultReadyCount = readiness.requirements.filter((requirement) => (
+    !['attached', 'verified'].includes(requirement.state)
+    && getMatchingVaultDocuments(requirement, documents).some((doc) => !(application.attachedDocuments || []).includes(doc.id) && doc.verificationStatus !== 'Rejected')
+  )).length;
 
   return (
     <>
@@ -370,6 +398,12 @@ export default function ApplicationWorkspaceModal({
           {current === 'documents' && (
             <section className="grid gap-3" aria-label="Required documents">
               <p className="m-0 text-sm text-app-muted">Attach one file per requirement. Uploads go to your Document Vault and can be reused.</p>
+              {vaultReadyCount ? (
+                <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-app-muted" role="status">
+                  <FolderOpen size={14} aria-hidden="true" className="shrink-0" />
+                  {vaultReadyCount === 1 ? '1 requirement has' : `${vaultReadyCount} requirements have`} a matching file already in your Document Vault.
+                </p>
+              ) : null}
               {readiness.requirements.length ? (
                 <ul className="m-0 grid gap-3 p-0">
                   {readiness.requirements.map((requirement) => (
