@@ -2792,19 +2792,25 @@ function App() {
           errorMessage={profileSaveError}
         />
       )}
-      <header className="app-header mb-5 flex min-w-0 items-start justify-between gap-3 sm:gap-4">
+      {/* A solid bar that bleeds past the page padding to the screen edges. On a
+          phone the title stacks as a two-line lockup and the buttons compact so the
+          bigger logo and title still sit beside the avatar, bell, menu, and logout. */}
+      <header className="app-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
         <div className="min-w-0 flex-1">
-          <div className="inline-flex max-w-full items-center gap-2">
-            <img src={logoImage} alt="Ateneo de Davao University logo" className="h-11 w-11 shrink-0 rounded-full border border-white/20 bg-white/10 object-contain p-0.5 sm:h-14 sm:w-14" />
-            <div className="truncate text-lg font-extrabold tracking-wide sm:text-xl">ScholarPath AdDU</div>
+          <div className="flex max-w-full items-center gap-2 sm:gap-3">
+            <img src={logoImage} alt="Ateneo de Davao University logo" className="h-11 w-11 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-12 min-[400px]:w-12 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
+            <div className="min-w-0 font-display text-base/[0.95] font-bold tracking-wide text-app-text min-[375px]:text-lg/[0.95] min-[390px]:text-xl/[0.95] min-[400px]:text-2xl/[0.95] sm:text-3xl/none lg:text-4xl/none">
+              <span className="block truncate sm:inline">ScholarPath</span>{' '}
+              <span className="block truncate text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
+            </div>
           </div>
         </div>
 
-        <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 sm:gap-3">
+        <div className="flex min-w-0 shrink-0 items-center justify-end gap-1.5 sm:gap-3">
           {state.authUser && (
             <button
               type="button"
-              className="mr-1 inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:hidden"
+              className="inline-flex min-h-10 min-w-0 items-center gap-2 rounded-full focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:hidden"
               title={`${state.authUser.fullName} · ${roleLabels[state.viewerRole]}`}
               aria-label={`Open ${profilePageLabel}`}
               onClick={() => navigate('profile')}
@@ -2823,14 +2829,14 @@ function App() {
           />
           <button
             type="button"
-            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 lg:hidden"
+            className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 lg:hidden"
             onClick={() => setIsMobileNavOpen((open) => !open)}
             aria-label={isMobileNavOpen ? 'Close page navigation' : 'Open page navigation'}
             aria-expanded={isMobileNavOpen}
           >
             {isMobileNavOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
           </button>
-          <button className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-app-border bg-app-surface px-3 py-2 text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={logout} aria-label="Logout" title="Logout">
+          <button className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-2 py-2 text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 sm:px-3" onClick={logout} aria-label="Logout" title="Logout">
             <LogOut size={16} aria-hidden="true" />
           </button>
         </div>

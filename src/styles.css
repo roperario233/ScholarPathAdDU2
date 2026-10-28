@@ -14,10 +14,12 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* No body background: the page gradient lives on <html> and the campus photo on
+   the fixed body::before layer (src/tailwind.css), which a body background would
+   paint over. */
 body {
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--bg);
   color: var(--text);
 }
 
