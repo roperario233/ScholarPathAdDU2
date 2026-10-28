@@ -1245,20 +1245,22 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       </div>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField fieldKey="communityService" label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} required={need.has('communityService')} />
-        <SelectField
-          fieldKey="previousGrantsAnswered"
-          label="Did you enjoy financial aid in senior high school, or apply for or receive a grant?"
-          hint="Needed to apply. Answer Yes to list each grant below."
-          value={values.previousGrantsAnswered}
-          onChange={(value) => update(value === 'No' ? { previousGrantsAnswered: value, previousGrants: [] } : { previousGrantsAnswered: value })}
-          options={grantHistoryOptions}
-          error={errors.previousGrantsAnswered}
-          required={need.has('previousGrantsAnswered')}
-        />
       </div>
       <fieldset data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid" className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
-        <small className="field-hint block">The first three answers are exclusion rules the Smart Eligibility Checker reads, and any of them opens the grant list below. A sibling on AdDU financial aid is about your sibling, not about you.</small>
+        <small className="field-hint block">The three toggles are exclusion rules the Smart Eligibility Checker reads, and any of them (or a Yes above) opens the grant list below. A sibling on AdDU financial aid is about your sibling, not about you.</small>
+        <div className="grid gap-4 md:grid-cols-2">
+          <SelectField
+            fieldKey="previousGrantsAnswered"
+            label="Did you enjoy financial aid in senior high school, or apply for or receive a grant?"
+            hint="Needed to apply. Answer Yes to list each grant below."
+            value={values.previousGrantsAnswered}
+            onChange={(value) => update(value === 'No' ? { previousGrantsAnswered: value, previousGrants: [] } : { previousGrantsAnswered: value })}
+            options={grantHistoryOptions}
+            error={errors.previousGrantsAnswered}
+            required={need.has('previousGrantsAnswered')}
+          />
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
           <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
           <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
