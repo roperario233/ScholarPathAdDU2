@@ -6,7 +6,7 @@ import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
-import { buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments } from '../lib/applicationRequirements';
+import { buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
@@ -71,8 +71,8 @@ export default function ApplicationsView({
     snapshot: entry.profileSnapshot || buildProfileSnapshot(profile, getApplicationAttributeVerifications(entry, documents, profile)),
     financialSections: financialSectionsFor(entry),
     statement: entry.statement,
-    requirements: readiness.requirements,
     applicantPhoto: getApplicantPhotoDocument(entry, documents),
+    residencePhotos: getResidencePhotoDocuments(entry, documents),
   });
 
   // The Document Vault sends the student here with the application to fix

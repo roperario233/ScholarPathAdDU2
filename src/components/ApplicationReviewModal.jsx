@@ -11,7 +11,7 @@ import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
@@ -778,8 +778,8 @@ export default function ApplicationReviewModal({
                   snapshot: application.profileSnapshot,
                   financialSections: financialDetails.sections,
                   statement: application.statement,
-                  requirements,
                   applicantPhoto,
+                  residencePhotos: getResidencePhotoDocuments(application, documents),
                   audience: isAdmissionsReviewer ? 'office' : 'chair',
                 }}
               />

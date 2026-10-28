@@ -420,52 +420,67 @@ export const getDocumentTitle = ({ attributeKey, documentType } = {}) => {
   return attribute ? `${attribute.label} — ${typeLabel}` : typeLabel;
 };
 
-// The vault's single grouped picker encodes the chosen attribute and document
-// type together as one string (`"citizenship::Passport"`, or `"::Application
-// Form"` for a general document), so one selection sets both.
-export const documentSelectionSeparator = '::';
-export const encodeDocumentSelection = (attributeKey = '', documentType = '') =>
-  `${attributeKey}${documentSelectionSeparator}${documentType}`;
-export const decodeDocumentSelection = (value) => {
-  const [attributeKey = '', documentType = ''] = String(value ?? '').split(documentSelectionSeparator);
-  return { attributeKey, documentType };
+// How the upload picker groups document types: by what kind of paper it is, which
+// is how a student thinks about the file in hand, instead of by the profile
+// answer it happens to prove. Each type is listed once; a type missing from this
+// map (a future one) falls under "Other documents" so it is never unreachable.
+const DOCUMENT_TYPE_CATEGORIES = [
+  { key: 'photos', label: 'Photos', types: ['Applicant Photo', 'Photos of Residence'] },
+  { key: 'identity', label: 'Identity and citizenship', types: ['PSA Birth Certificate', 'Philippine National ID', 'Passport', "Driver's License", 'Government ID'] },
+  {
+    key: 'school',
+    label: 'Grades and school records',
+    types: ['Grade Report', 'Transcript', 'HS Report Card', 'Certificate of Award', 'Entrance Exam Result', 'Enrollment', 'Clearance', 'Good Moral Character'],
+  },
+  { key: 'income', label: 'Income and employment', types: ['Income Proof', 'Certificate of Indigency', 'Certificate of Employment', 'Payslip'] },
+  { key: 'home', label: 'Address and household', types: ['Proof of Billing', 'Certificate of Residency', 'Barangay Residence Certification'] },
+  { key: 'circumstances', label: 'Special circumstances', types: ['PWD ID', 'Medical Certificate', 'Certificate of Tribal Membership'] },
+  { key: 'forms', label: 'Application papers', types: ['Application Form', 'Signed Affidavit of Agreement', 'Recommendation Letter'] },
+];
+const OTHER_DOCUMENT_CATEGORY = { key: 'other', label: 'Other documents' };
+
+// "Annual QPI and Academic standing" for the answers a document type proves.
+export const formatProvenAnswers = (documentType, profile = null) => {
+  const labels = getProvenAttributes(documentType, profile).map((key) => getVerifiableAttributeOption(key)?.label || key);
+  return labels.length ? new Intl.ListFormat('en', { style: 'long', type: 'conjunction' }).format(labels) : '';
 };
 
-// The grouped option list for the vault upload picker, mirroring the
-// program/course picker in My Profile: each verifiable attribute is a group
-// header with the document types it accepts listed below it, preceded by a
-// "General documents" group for files that prove no profile answer. A type that
-// proves an answer for this standing is listed only under its attribute, so the
-// same type cannot be uploaded once as a proof and once as a plain file; when it
-// also proves another answer (a grade report proves the QPI and academic
-// standing) the item says so. Attributes with no type for the standing (a
-// senior high school average for an enrolled student) are left out.
+// The grouped option list for the upload picker. Every document type the student
+// can upload for their standing appears exactly once, under the kind of paper it
+// is, and carries a plain "Proves your …" line naming the profile answers the
+// vault will link it to (getProvenAttributes, the same map every upload path
+// uses). The attribute is never a second thing to choose: the type decides it.
+// A type that proves nothing for the standing (a grade report for an incoming
+// first-year) is offered only if it is a general document, so a type that cannot
+// be used is not listed. Values are the stored document type.
 export const buildDocumentPickerOptions = (profile = null) => {
-  const alsoProves = (documentType, key) => {
-    const others = getProvenAttributes(documentType, profile).filter((other) => other !== key);
-    return others.length ? ` · also proves ${others.map((other) => getVerifiableAttributeOption(other)?.label || other).join(', ')}` : '';
+  const offered = new Set([
+    ...generalDocumentTypeOptions.map((type) => type.value),
+    ...VERIFIABLE_ATTRIBUTE_OPTIONS.flatMap((option) => getAcceptedDocumentTypes(option.key, profile).map((type) => type.value)),
+  ]);
+  const describe = (documentType) => {
+    const proves = formatProvenAnswers(documentType, profile);
+    return proves ? `Proves your ${proves}` : undefined;
   };
-  return [
-    { value: 'group-general', label: 'General documents', isGroup: true },
-    ...generalDocumentTypeOptions
-      .filter((type) => !getProvenAttributes(type.value, profile).length)
-      .map((type) => ({ value: encodeDocumentSelection('', type.value), label: type.label })),
-    ...VERIFIABLE_ATTRIBUTE_OPTIONS.flatMap((option) => {
-      const types = getAcceptedDocumentTypes(option.key, profile);
-      if (!types.length) return [];
-      return [
-        { value: `group-${option.key}`, label: option.label, isGroup: true },
-        ...types.map((type) => ({ value: encodeDocumentSelection(option.key, type.value), label: `${type.label}${alsoProves(type.value, option.key)}` })),
-      ];
-    }),
-  ];
+  const listed = new Set();
+  const options = [];
+  const addGroup = (category, types) => {
+    const entries = types.filter((type) => offered.has(type) && !listed.has(type));
+    if (!entries.length) return;
+    options.push({ value: `group-${category.key}`, label: category.label, isGroup: true });
+    entries.forEach((type) => {
+      listed.add(type);
+      options.push({ value: type, label: getDocumentTypeLabel(type), description: describe(type) });
+    });
+  };
+  DOCUMENT_TYPE_CATEGORIES.forEach((category) => addGroup(category, category.types));
+  addGroup(OTHER_DOCUMENT_CATEGORY, [...offered]);
+  return options;
 };
 
-// The picker entry for a document type: under the first attribute it proves for
-// this standing, otherwise as a general document.
-export const getDocumentSelectionForType = (documentType, profile = null) => (
-  encodeDocumentSelection(getProvenAttributes(documentType, profile)[0] || '', documentType || '')
-);
+// The document type a profile attribute opens the upload picker on (My Profile's
+// "Attach proof"): the first type it accepts for the standing, or nothing.
+export const getPresetDocumentType = (attributeKey, profile = null) => getAcceptedDocumentTypes(attributeKey, profile)[0]?.value || '';
 
 export const ESSAY_MAX_LENGTH = 5000;
 export const FULL_NAME_MAX_LENGTH = 100;

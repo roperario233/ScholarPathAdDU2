@@ -1765,7 +1765,16 @@ a:focus-visible {
 .print-sheet-root { display: none; }
 
 @media print {
-  @page { size: A4; margin: 14mm; }
+  @page {
+    size: A4;
+    margin: 14mm 14mm 16mm;
+
+    @bottom-center {
+      content: "ScholarPath AdDU · Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #64748b;
+    }
+  }
 
   html,
   body { background: #fff !important; }
@@ -1778,7 +1787,9 @@ a:focus-visible {
     background: #fff;
     color-scheme: light;
     font-size: 11pt;
-    line-height: 1.35;
+    line-height: 1.4;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-sheet-root .print-page-break { break-before: page; }

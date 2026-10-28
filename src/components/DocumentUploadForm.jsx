@@ -9,43 +9,28 @@ import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, PHOTO_MIME_TYPES } from '../lib/photoGuide';
 import {
   buildDocumentPickerOptions,
-  decodeDocumentSelection,
-  encodeDocumentSelection,
-  getAcceptedDocumentTypes,
-  getDocumentSelectionForType,
   getDocumentTitle,
-  getProvenAttributes,
-  getVerifiableAttributeOption,
+  formatProvenAnswers,
+  getPresetDocumentType,
 } from '../lib/profile';
 
 // The Document Vault upload form, shared by the vault page and the upload dialog
 // My Profile opens from "Attach proof" and the document checklist, so a student
 // never leaves the Application Form to upload a proof.
 //
-// The form uses one grouped picker, mirroring the program/course picker in My
-// Profile: each profile attribute is a group header with the document types it
-// accepts listed below it, preceded by a "General documents" group for files that
-// prove no profile answer. Selecting an item chooses the attribute and the
-// document type together, and the vault derives the title from that pair, so
-// there is no free-text title and no attribute checklist. The list follows the
-// student's standing (buildDocumentPickerOptions).
+// The form asks one question: what kind of document is this file? The picker
+// lists each document type once, grouped by kind of paper (photos, identity,
+// grades, income, address, ...), and each entry says which profile answers it
+// proves. The vault links those answers from the type itself (getProvenAttributes),
+// so there is no second attribute choice, no free-text title, and no checklist.
+// The list follows the student's standing (buildDocumentPickerOptions).
 
-// The preselected picker value: a preset document type when one is given (My
-// Profile's document checklist), else the attribute's first accepted type for
-// the standing, or nothing when the form opens without a preset. A preset type
-// that proves an answer opens under its attribute, because a proving type is
-// listed only there.
-const initialSelection = (attributeKey = '', documentType = '', profile = null) => {
-  if (documentType) {
-    return attributeKey && getProvenAttributes(documentType, profile).includes(attributeKey)
-      ? encodeDocumentSelection(attributeKey, documentType)
-      : getDocumentSelectionForType(documentType, profile);
-  }
-  if (attributeKey) return encodeDocumentSelection(attributeKey, getAcceptedDocumentTypes(attributeKey, profile)[0]?.value || '');
-  // No default type: a silent first option labelled every file uploaded without
-  // touching the picker (and every upload after a reset) as that type.
-  return '';
-};
+// The preselected document type: a preset type when one is given (My Profile's
+// document checklist), else the first type the preset attribute accepts for the
+// standing, or nothing when the form opens without a preset.
+const initialSelection = (attributeKey = '', documentType = '', profile = null) => (
+  documentType || (attributeKey ? getPresetDocumentType(attributeKey, profile) : '')
+);
 
 export default function DocumentUploadForm({ profile = null, onUpload, onUploaded, presetAttribute = '', presetDocumentType = '' }) {
   const [selection, setSelection] = useState(() => initialSelection(presetAttribute, presetDocumentType, profile));
@@ -59,12 +44,12 @@ export default function DocumentUploadForm({ profile = null, onUpload, onUploade
   const [file, setFile] = useState(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   const fileInputRef = useRef(null);
-  const { attributeKey, documentType } = decodeDocumentSelection(selection);
+  const documentType = selection;
   const isPhoto = isPhotoDocumentType(documentType);
-  const derivedTitle = getDocumentTitle({ attributeKey, documentType });
-  // Every answer this upload will prove, the picked one and any other its type
-  // proves (a grade report proves the QPI and academic standing together).
-  const provesOnUpload = [...new Set([...(attributeKey ? [attributeKey] : []), ...getProvenAttributes(documentType, profile)])];
+  const derivedTitle = getDocumentTitle({ documentType });
+  // Every answer this upload will prove (a grade report proves the QPI and
+  // academic standing together).
+  const provesOnUpload = formatProvenAnswers(documentType, profile);
 
   // Opening the vault from My Profile's "Attach proof" or document checklist
   // link preselects the attribute and document type so the upload is one step.
@@ -117,7 +102,7 @@ export default function DocumentUploadForm({ profile = null, onUpload, onUploade
     setIsUploading(true);
     let result;
     try {
-      result = await onUpload({ file, documentType, attributeKey });
+      result = await onUpload({ file, documentType });
     } catch {
       setFormError('The document could not be uploaded.');
       return;
@@ -139,15 +124,15 @@ export default function DocumentUploadForm({ profile = null, onUpload, onUploade
           onChange={handleSelection}
           options={documentPickerOptions}
           idPrefix="vault-document-type"
-          placeholder="Choose a document type"
+          placeholder="What kind of document is it?"
           required
         />
         <small className="field-hint -mt-1">
           {!documentType
-            ? 'Choose what this file is before uploading it.'
-            : provesOnUpload.length
-              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in your Application Form now.`
-              : 'A general document proves no profile answer.'}
+            ? 'Choose what this file is before uploading it. Not sure? Look under the group that matches the paper, such as Identity or Income.'
+            : provesOnUpload
+              ? `Proves your ${provesOnUpload} as it reads in your Application Form now.`
+              : 'This file proves no Application Form answer. Attach it where an application asks for it.'}
         </small>
         {isPhoto ? (
           <div className="grid gap-3">

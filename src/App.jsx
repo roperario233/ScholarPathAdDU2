@@ -2284,7 +2284,7 @@ function App() {
     // all share the same identifier.
     const id = crypto.randomUUID();
     const uploadedAt = new Date().toISOString().slice(0, 10);
-    const baseTitle = getDocumentTitle({ attributeKey: attributeKey || linkedAttributes[0] || '', documentType });
+    const baseTitle = getDocumentTitle({ documentType });
     // Two general documents can share a type, so disambiguate with the date.
     const title = studentDocuments.some((doc) => doc.title === baseTitle) ? `${baseTitle} (${uploadedAt})` : baseTitle;
 

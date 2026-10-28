@@ -48,7 +48,19 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
   const [query, setQuery] = useState('');
   const selectableOptions = options.filter((option) => !option.isGroup);
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredOptions = options.filter((option) => option.isGroup || !normalizedQuery || option.label.toLowerCase().includes(normalizedQuery));
+  // A search matches the label or the description line (searching "income" finds
+  // the payslip), and a group header stays only while one of its options does.
+  const matchesQuery = (option) => !normalizedQuery
+    || option.label.toLowerCase().includes(normalizedQuery)
+    || String(option.description || '').toLowerCase().includes(normalizedQuery);
+  const filteredOptions = options.filter((option, index) => {
+    if (!option.isGroup) return matchesQuery(option);
+    if (!normalizedQuery) return true;
+    for (let next = index + 1; next < options.length && !options[next].isGroup; next += 1) {
+      if (matchesQuery(options[next])) return true;
+    }
+    return false;
+  });
 
   useEffect(() => {
     const handleKeyDown = (event) => {

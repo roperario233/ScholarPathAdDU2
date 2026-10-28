@@ -2,11 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   VERIFIABLE_ATTRIBUTE_OPTIONS,
   buildDocumentPickerOptions,
-  decodeDocumentSelection,
-  encodeDocumentSelection,
   getAcceptedDocumentTypes,
-  getDocumentSelectionForType,
   getDocumentTitle,
+  getPresetDocumentType,
   getProvenAttributes,
 } from '../src/lib/profile';
 import { documentTypeOptions, generalDocumentTypeOptions } from '../src/lib/constants';
@@ -78,22 +76,6 @@ describe('document type vocabulary', () => {
   });
 });
 
-describe('encodeDocumentSelection / decodeDocumentSelection', () => {
-  it('round-trips an attribute proof', () => {
-    expect(decodeDocumentSelection(encodeDocumentSelection('citizenship', 'Passport'))).toEqual({
-      attributeKey: 'citizenship',
-      documentType: 'Passport',
-    });
-  });
-
-  it('round-trips a general document with a blank attribute', () => {
-    expect(decodeDocumentSelection(encodeDocumentSelection('', 'Application Form'))).toEqual({
-      attributeKey: '',
-      documentType: 'Application Form',
-    });
-  });
-});
-
 describe('getProvenAttributes', () => {
   it('maps each document type to the profile answers it proves for the standing', () => {
     const continuing = { yearStanding: '2nd' };
@@ -125,69 +107,69 @@ describe('getProvenAttributes', () => {
 
 describe('buildDocumentPickerOptions', () => {
   const options = buildDocumentPickerOptions();
+  const types = options.filter((entry) => !entry.isGroup);
   const groupLabels = options.filter((entry) => entry.isGroup).map((entry) => entry.label);
 
-  it('starts with the General documents group', () => {
-    expect(options[0]).toEqual({ value: 'group-general', label: 'General documents', isGroup: true });
+  it('groups by kind of document, not by profile answer', () => {
+    expect(groupLabels).toEqual([
+      'Photos',
+      'Identity and citizenship',
+      'Grades and school records',
+      'Income and employment',
+      'Address and household',
+      'Special circumstances',
+      'Application papers',
+      'Other documents',
+    ]);
+    expect(options[0].isGroup).toBe(true);
   });
 
-  it('lists every verifiable attribute as a group header', () => {
-    VERIFIABLE_ATTRIBUTE_OPTIONS.forEach((option) => expect(groupLabels).toContain(option.label));
+  it('lists every document type exactly once, valued by the stored type', () => {
+    const values = types.map((entry) => entry.value);
+    expect(new Set(values).size).toBe(values.length);
+    documentTypeOptions.forEach((type) => expect(values).toContain(type.value));
+    expect(types.find((entry) => entry.value === 'Passport').label).toBe('Passport');
   });
 
-  it('places each attribute group header immediately before its accepted types', () => {
-    VERIFIABLE_ATTRIBUTE_OPTIONS.forEach((option) => {
-      const headerIndex = options.findIndex((entry) => entry.isGroup && entry.label === option.label);
-      expect(headerIndex).toBeGreaterThan(-1);
-      getAcceptedDocumentTypes(option.key).forEach((type, offset) => {
-        const entry = options[headerIndex + 1 + offset];
-        expect(entry.isGroup).toBeUndefined();
-        expect(entry.value).toBe(encodeDocumentSelection(option.key, type.value));
-        expect(entry.label.startsWith(type.label)).toBe(true);
-      });
+  it('never leaves a group header without a document under it', () => {
+    options.forEach((entry, index) => {
+      if (entry.isGroup) expect(options[index + 1]?.isGroup).toBeFalsy();
     });
   });
 
-  it('says when a type also proves another answer', () => {
-    const gradeReport = options.find((entry) => entry.value === encodeDocumentSelection('qpi', 'Grade Report'));
-    expect(gradeReport.label).toBe('Grade Report · also proves Academic standing');
-    const passport = options.find((entry) => entry.value === encodeDocumentSelection('citizenship', 'Passport'));
-    expect(passport.label).toBe('Passport');
+  it('says which answers a type proves, and nothing for a type that proves none', () => {
+    const find = (value, profile) => buildDocumentPickerOptions(profile).find((entry) => entry.value === value);
+    expect(find('Grade Report', { yearStanding: '2nd' }).description).toBe('Proves your Annual QPI and Academic standing');
+    expect(find('PSA Birth Certificate').description).toBe("Proves your Citizenship and Parents' names");
+    expect(find('Passport').description).toBe('Proves your Citizenship');
+    expect(find('Application Form').description).toBeUndefined();
   });
 
-  it('lists a proving type only under its attribute, never as a general document', () => {
-    generalDocumentTypeOptions.forEach((type) => {
-      const general = options.some((entry) => entry.value === encodeDocumentSelection('', type.value));
-      expect(general).toBe(getProvenAttributes(type.value).length === 0);
-    });
-    expect(options.some((entry) => entry.value === encodeDocumentSelection('', 'Transcript'))).toBe(false);
-    expect(options.some((entry) => entry.value === encodeDocumentSelection('', 'Application Form'))).toBe(true);
-  });
-
-  it('drops attribute groups that do not apply to the standing', () => {
-    const continuingLabels = buildDocumentPickerOptions({ yearStanding: '2nd' }).filter((entry) => entry.isGroup).map((entry) => entry.label);
-    expect(continuingLabels).not.toContain('Senior high school general average');
-    const incomingOptions = buildDocumentPickerOptions({ yearStanding: 'incoming-1st' });
-    expect(incomingOptions.filter((entry) => entry.isGroup).map((entry) => entry.label)).not.toContain('Annual QPI');
-    // A grade report proves nothing for an incoming first-year, and it is not a
+  it('follows the standing', () => {
+    const continuing = buildDocumentPickerOptions({ yearStanding: '2nd' });
+    expect(continuing.find((entry) => entry.value === 'HS Report Card').description).toBeUndefined();
+    const incoming = buildDocumentPickerOptions({ yearStanding: 'incoming-1st' });
+    // A grade report proves nothing for an incoming first-year and is not a
     // general document either, so it is not offered.
-    expect(incomingOptions.some((entry) => decodeDocumentSelection(entry.value).documentType === 'Grade Report')).toBe(false);
+    expect(incoming.some((entry) => entry.value === 'Grade Report')).toBe(false);
+    expect(incoming.find((entry) => entry.value === 'HS Report Card').description).toBe('Proves your Senior high school general average and Academic standing');
   });
 
-  it('resolves the picker entry for a type', () => {
-    expect(getDocumentSelectionForType('Grade Report', { yearStanding: '2nd' })).toBe(encodeDocumentSelection('qpi', 'Grade Report'));
-    expect(getDocumentSelectionForType('Application Form')).toBe(encodeDocumentSelection('', 'Application Form'));
-  });
-
-  it('offers the address and family proofs under their own groups', () => {
+  it('offers the address and family proofs', () => {
     expect(getAcceptedDocumentTypes('completeAddress').map((option) => option.value)).toEqual(['Proof of Billing', 'Certificate of Residency']);
-    expect(getAcceptedDocumentTypes('residingAddress').map((option) => option.value)).toEqual(['Proof of Billing', 'Certificate of Residency']);
     expect(getAcceptedDocumentTypes('parents').map((option) => option.value)).toEqual(['PSA Birth Certificate']);
     expect(getAcceptedDocumentTypes('householdMembers').map((option) => option.value)).toEqual(['Certificate of Residency']);
-    // The birth certificate still proves citizenship, and the picker says so.
-    const parentsEntry = options.find((entry) => entry.value === encodeDocumentSelection('parents', 'PSA Birth Certificate'));
-    expect(parentsEntry.label).toBe('PSA Birth Certificate · also proves Citizenship');
-    expect(options.some((entry) => entry.value === encodeDocumentSelection('householdMembers', 'Certificate of Residency'))).toBe(true);
+    expect(types.find((entry) => entry.value === 'Certificate of Residency').description)
+      .toBe("Proves your Complete address, Residing address, and Siblings and household members");
+  });
+});
+
+describe('getPresetDocumentType', () => {
+  it('opens an attribute on the first type it accepts for the standing', () => {
+    expect(getPresetDocumentType('citizenship')).toBe('PSA Birth Certificate');
+    expect(getPresetDocumentType('academicStanding', { yearStanding: 'incoming-1st' })).toBe('HS Report Card');
+    expect(getPresetDocumentType('qpi', { yearStanding: 'incoming-1st' })).toBe('');
+    expect(getPresetDocumentType('not-an-attribute')).toBe('');
   });
 });
 

@@ -641,6 +641,14 @@ export const getApplicantPhotoDocument = (application, documents = []) => {
   return photos.find((doc) => doc.verificationStatus !== 'Rejected') || photos[0] || null;
 };
 
+// The photos of the residence the application attaches, oldest first so the
+// printout reads in the order the student took them. Reverted files are left out.
+export const getResidencePhotoDocuments = (application, documents = []) => (
+  getLinkedDocuments(application, documents)
+    .filter((doc) => doc.documentType === 'Photos of Residence' && doc.verificationStatus !== 'Rejected')
+    .sort((left, right) => -byNewest(left, right))
+);
+
 // The single readiness check behind the document-verification gate: every
 // attached file must be Verified. The reviewer UI reads this to disable forward
 // actions, and `tests/applicationRequirements.test.js` pins the behavior; the
