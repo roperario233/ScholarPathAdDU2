@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import RequiredDocumentsEditor from '../../components/RequiredDocumentsEditor';
+import ApprovalLevelsCard from '../../components/ApprovalLevelsCard';
 import { Button, Card, FormField, StatusBadge } from '../../components/ui';
 import { getInternalCatalogEntries } from '../../lib/admissionsOffice';
 import { ADDU_INTERNAL_PROGRAM_TITLES, WORKING_SCHOLAR_ELIGIBLE_DEGREES, isAdduInternalProgram } from '../../lib/eligibility';
@@ -8,7 +9,7 @@ import { normalizeRequirements } from '../../lib/applicationRequirements';
 
 // Catalog management is its own route: publishing an AdDU internal scholarship
 // never shares a screen with the review queue or the announcement composer.
-export default function AdminScholarshipCatalog({ scholarships = [], onSaveScholarship, onDirtyChange }) {
+export default function AdminScholarshipCatalog({ scholarships = [], onSaveScholarship, onDirtyChange, approvalLevels = [], academicPrograms = [], onSaveApprovalLevel, onDeleteApprovalLevel }) {
   const [catalogError, setCatalogError] = useState('');
   const [editingScholarship, setEditingScholarship] = useState(null);
   const internalScholarships = useMemo(() => getInternalCatalogEntries(scholarships), [scholarships]);
@@ -165,6 +166,15 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
           </div>
         </Card>
       </section>
+
+      {onSaveApprovalLevel ? (
+        <ApprovalLevelsCard
+          approvalLevels={approvalLevels}
+          academicPrograms={academicPrograms}
+          onSave={onSaveApprovalLevel}
+          onDelete={onDeleteApprovalLevel}
+        />
+      ) : null}
     </div>
   );
 }

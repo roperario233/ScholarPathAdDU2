@@ -287,8 +287,9 @@ const assignmentNote = {
   dean: 'Every department in your school. Managed by the Admissions Office.',
   assistant_dean: 'Every department in your cluster. Managed by the Admissions Office.',
   department_chair: 'Your department and its degree programs. Managed by the Admissions Office.',
-  admissions_office: 'Application preparation, document verification, and the endorsement hand-off.',
-  admissions_head: 'All office authority, plus endorsement, approval, release, catalog, and announcements.',
+  interviewer: 'The applicants of your assigned school, cluster, or department reach you automatically. Managed by the Admissions Office.',
+  admissions_office: 'A read-only view of the office workspace.',
+  admissions_head: 'Document verification, forwarding to interview, the final check, release, catalog, and announcements.',
 };
 
 // Both Admissions Office lanes belong to the central office, so the read-only

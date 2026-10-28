@@ -42,7 +42,7 @@ export const INTERVIEW_RECOMMENDATION_LEVELS = [
   { value: 'recommended', label: 'Recommended' },
   { value: 'recommended_with_reservation', label: 'Recommended with reservation' },
   { value: 'not_recommended', label: 'Not recommended' },
-  { value: 'deferred', label: 'Deferred' },
+  { value: 'deferred', label: 'Deferred recommendation' },
 ];
 
 export const getInterviewRecommendationLevelLabel = (level) => (
@@ -202,6 +202,14 @@ export const getEligiblePanelists = (staffDirectory = [], application = {}, appl
     if (role === 'assistant_dean') {
       if (!target.school || reviewSchool !== target.school) return null;
       return reviewCluster && reviewCluster !== target.cluster ? null : 'cluster';
+    }
+    // An interviewer (Consultation 2) holds one level: a department, else a
+    // cluster inside its school, else the whole school. It never falls back to a
+    // legacy school, so an unscoped interviewer is suggested for nobody.
+    if (role === 'interviewer') {
+      if (reviewDepartment) return reviewDepartment === target.department ? 'department' : null;
+      if (reviewCluster) return target.school && reviewSchool === target.school && reviewCluster === target.cluster ? 'cluster' : null;
+      return reviewSchool && reviewSchool === target.school ? 'school' : null;
     }
     if (role !== 'department_chair') return null;
     // A Chairperson is scoped to a department. One an operator has not scoped yet

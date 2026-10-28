@@ -2,13 +2,15 @@
 // the vitest suite, and the notification Edge Functions (plain JavaScript so
 // Deno, Node, and the Vite bundle can all import it).
 //
-// Only `Endorsed` differs from its stored value: the database records the Office
-// of Admissions & Aid endorsement decision as `Endorsed`, while every surface
-// shows the Standard Procedure step-4 phase the application is in. Keep the
-// stored values untouched — the status check constraint, the RLS policies, and
-// the append-only status log all read `Endorsed`.
+// Only `Endorsed` and `For Endorsement` differ from their stored values. Since
+// Consultation 2 the Admissions Office Head forwards a verified case straight to
+// the interviewers of its scope, so `Endorsed` is the stage where the case waits
+// for its interview and is shown as "For Interview". `For Endorsement` only
+// remains on rows handed off before that change. Keep the stored values
+// untouched — the status check constraint, the RLS policies, and the
+// append-only status log all read them.
 export const APPLICATION_STATUS_LABELS = {
-  Endorsed: 'Endorsement',
+  Endorsed: 'For Interview',
   'For Endorsement': 'Awaiting Endorsement',
 };
 

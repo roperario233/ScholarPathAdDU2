@@ -1,5 +1,5 @@
 import {
-  Award, BadgeCheck, Bell, CalendarClock, CalendarDays, ClipboardCheck, ClipboardList, Compass, FolderOpen,
+  Award, Bell, CalendarClock, CalendarDays, ClipboardCheck, ClipboardList, Compass, FolderOpen,
   GraduationCap, Inbox, LayoutDashboard, LibraryBig, ListChecks, Megaphone, Settings, UserRound, Users, Vault,
 } from 'lucide-react';
 import ProfileAvatar from './ProfileAvatar';
@@ -15,7 +15,6 @@ const NAV_ICONS = {
   admin: LayoutDashboard,
   'admin-intake': Inbox,
   'admin-review': ListChecks,
-  'admin-endorsement': BadgeCheck,
   'admin-interviews': Users,
   'admin-calendar': CalendarDays,
   'admin-release': Award,

@@ -6,6 +6,9 @@
 //   Dean            -> a School    (every cluster and department in it)
 //   Assistant Dean  -> a Cluster   (every department in it)
 //   Chairperson     -> a Department (and the degree programs under it)
+//   Interviewer     -> whichever one level the account holds (Consultation 2:
+//                      e.g. the Computer Studies cluster of SAS); applications
+//                      reach it automatically through this same scope.
 //
 // A reviewer's scope is stored on their profile (`reviewSchool`, `reviewCluster`,
 // `reviewDepartment`; exactly one is set, enforced by a database check). The
@@ -18,24 +21,33 @@
 
 import { findAcademicProgram } from './academicPrograms';
 
-export const REVIEWER_ROLES = ['dean', 'assistant_dean', 'department_chair'];
+// The academic ladder: the levels that can approve for a school (SOP step 7).
+export const LADDER_ROLES = ['dean', 'assistant_dean', 'department_chair'];
+export const INTERVIEWER_ROLE = 'interviewer';
 
-// Either central Admissions Office lane reads every case, so it is never checked
-// against the academic hierarchy.
+// Every account scoped to the academic hierarchy: the ladder plus the
+// interviewer. Either central Admissions Office lane reads every case, so it is
+// never checked against the hierarchy.
+export const REVIEWER_ROLES = [...LADDER_ROLES, INTERVIEWER_ROLE];
+
 export const isReviewerRole = (role) => REVIEWER_ROLES.includes(role);
+export const isLadderRole = (role) => LADDER_ROLES.includes(role);
+export const isInterviewerRole = (role) => role === INTERVIEWER_ROLE;
 
 // How each level is named in the interface.
 export const REVIEW_ROLE_LABELS = {
   dean: 'Dean',
   assistant_dean: 'Assistant Dean',
   department_chair: 'Chairperson',
+  interviewer: 'Interviewer',
 };
 
 // The review route is one page for all three levels; only its title changes.
 export const getReviewPageLabel = (role) => (
   role === 'dean' ? 'School Review'
     : role === 'assistant_dean' ? 'Cluster Review'
-      : 'Department Review'
+      : role === INTERVIEWER_ROLE ? 'Interview Queue'
+        : 'Department Review'
 );
 
 // A reviewer's scope, normalised to the level they own. A Chairperson keeps the
@@ -49,6 +61,13 @@ export const getReviewerScope = (profile = {}) => {
   if (role === 'dean') return { level: 'school', role, school, cluster: '', department: '', legacySchool };
   if (role === 'assistant_dean') return { level: 'cluster', role, school, cluster, department: '', legacySchool };
   if (role === 'department_chair') return { level: 'department', role, school, cluster: '', department, legacySchool };
+  // An interviewer owns the narrowest level it holds. An account with no level
+  // yet reads nothing rather than a whole school.
+  if (role === INTERVIEWER_ROLE) {
+    if (department) return { level: 'department', role, school, cluster: '', department, legacySchool: '' };
+    if (cluster && school) return { level: 'cluster', role, school, cluster, department: '', legacySchool: '' };
+    if (school) return { level: 'school', role, school, cluster: '', department: '', legacySchool: '' };
+  }
   return { level: '', role, school: '', cluster: '', department: '', legacySchool };
 };
 
@@ -95,6 +114,7 @@ export const isApplicationInReviewerScope = (application, scope, programIndex) =
   if (scope.level === 'school') return scope.school === target.school;
   if (scope.level === 'cluster') {
     if (scope.school !== target.school) return false;
+    if (scope.role === INTERVIEWER_ROLE) return scope.cluster === target.cluster;
     return !scope.cluster || scope.cluster === target.cluster;
   }
   // department: an assigned department is the whole scope; otherwise fall back to
@@ -128,4 +148,33 @@ export const getPanelCandidateLevel = (staffEntry = {}, application = {}, progra
 
 // Narrowest first, then the Admissions Office lanes.
 export const PANEL_LEVEL_ORDER = ['department', 'cluster', 'school', 'office'];
+
+// SOP step 7: which ladder level approves for the applicant's school or cluster.
+// Mirrors `public.approver_role_for_student()`
+// (20261050000000_interviewer_role_and_approval_routing.sql): the cluster row,
+// then the school row, else the Chairperson.
+export const DEFAULT_APPROVER_ROLE = 'department_chair';
+
+export const getApproverRoleForApplication = (application = {}, approvalLevels = [], programIndex = new Map()) => {
+  const target = getApplicationScope(application, programIndex);
+  const levels = Array.isArray(approvalLevels) ? approvalLevels : [];
+  if (target.school) {
+    const clusterRow = target.cluster
+      ? levels.find((entry) => entry.school === target.school && entry.cluster && entry.cluster === target.cluster)
+      : null;
+    if (clusterRow) return clusterRow.approverRole;
+    const schoolRow = levels.find((entry) => entry.school === target.school && !entry.cluster);
+    if (schoolRow) return schoolRow.approverRole;
+  }
+  return DEFAULT_APPROVER_ROLE;
+};
+
+// Is this signed-in reviewer the approver for the application? Scope first, then
+// the configured level.
+export const isApproverForApplication = (application, profile = {}, approvalLevels = [], programIndex = new Map()) => {
+  const scope = getReviewerScope(profile);
+  if (!isLadderRole(scope.role)) return false;
+  if (!isApplicationInReviewerScope(application, scope, programIndex)) return false;
+  return getApproverRoleForApplication(application, approvalLevels, programIndex) === scope.role;
+};
 

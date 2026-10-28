@@ -9,33 +9,27 @@ import { fmtDate } from '../../lib/formatters';
 
 // The Admissions Office landing route. It carries only the metrics that steer the
 // day's work, the links into each functional workspace, and the cross-cutting
-// activity feed, so the queues and forms live on their own routes. Both lanes
-// share the dashboard; only the Head sees the approval, release, and policy
-// workspaces and metrics.
+// activity feed, so the queues and forms live on their own routes. Since
+// Consultation 2 the Head verifies, forwards, checks, and releases; Staff share a
+// read-only view of the same dashboard.
 const workspaces = [
   {
     view: 'admin-intake',
     label: 'Intake pool',
-    description: 'Pick up newly submitted applications and see every open case, taken or not.',
+    description: 'Every open application, where it is routed, and the interviewers covering each cluster.',
     action: 'Open intake pool',
   },
   {
     view: 'admin-review',
     label: 'Review queue',
-    description: 'The cases you opened: reviews, document checks, and interview scheduling.',
+    description: 'The cases you opened: document verification and the forward to interview.',
     action: 'Open review queue',
-  },
-  {
-    view: 'admin-endorsement',
-    label: 'Endorsement',
-    description: 'Record the office decision on the cases the Staff sent for endorsement.',
-    action: 'Open endorsement queue',
     headOnly: true,
   },
   {
     view: 'admin-interviews',
     label: 'Interview schedule',
-    description: 'Coordinate interviews, panels, and invitations.',
+    description: 'Interviews the interviewers of each school have scheduled.',
     action: 'Open interview schedule',
   },
   {
@@ -53,9 +47,9 @@ const workspaces = [
   },
   {
     view: 'admin-release',
-    label: 'Recommendation and results release',
-    description: 'Approve recommendations, release results, and export the accepted list.',
-    action: 'Open recommendation and release',
+    label: 'Final check and release',
+    description: 'Check approved cases, release each scholarship\'s results, and export the final list to Excel.',
+    action: 'Open final check and release',
     headOnly: true,
   },
   {
@@ -82,9 +76,13 @@ export default function AdminOverview({ applications = [], documents = [], caseO
   );
   const intakePool = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
   const approvalApplications = useMemo(() => getApprovalQueue(applications), [applications]);
-  // SOP step 4 cases the Head must endorse. Staff hand them off; the Head decides.
+  // Legacy cases handed off for endorsement before Consultation 2.
   const endorsementApplications = useMemo(
     () => getEndorsementQueue(applications),
+    [applications],
+  );
+  const verifiedAwaitingForward = useMemo(
+    () => applications.filter((entry) => entry.status === 'For Verification'),
     [applications],
   );
   const blockingDocuments = useMemo(
@@ -102,26 +100,29 @@ export default function AdminOverview({ applications = [], documents = [], caseO
       <AdminPageHeader
         title={isHead ? 'Admissions Office Head dashboard' : 'Admissions Office dashboard'}
         description={isHead
-          ? 'Every stage, plus approval, release, catalog, and announcements.'
-          : 'Prepare cases and verify documents for the Head to decide.'}
-        badge={isHead ? 'Approval authority' : 'Internal operations'}
+          ? 'Verify documents, forward cases to the interviewers, then check and release the results.'
+          : 'A read-only view of the office\'s open applications.'}
+        badge={isHead ? 'Final check and release' : 'Read-only'}
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Intake pool" value={intakePool.length} note="Open cases nobody has picked up" />
-        <StatCard label="In my review queue" value={myQueue.length} note="Cases you opened" />
         {isHead ? (
           <>
-            <StatCard label="Awaiting your endorsement" value={endorsementApplications.length} note="Verified cases ready for your decision" />
-            <StatCard label="Awaiting your approval" value={approvalApplications.length} note="Sub-committee recommendations" />
-            <StatCard label="Approved — awaiting release" value={approvedApplications.length} note="Ready for release" />
+            <StatCard label="In my review queue" value={myQueue.length} note="Cases you opened" />
+            <StatCard label="Under document verification" value={verifiedAwaitingForward.length} note="Verify, then forward to interview" />
+            {endorsementApplications.length
+              ? <StatCard label="Legacy endorsements" value={endorsementApplications.length} note="Handed off before the change" />
+              : null}
+            <StatCard label="With the schools for approval" value={approvalApplications.length} note="Interviewer recommendations" />
+            <StatCard label="Approved — final check" value={approvedApplications.length} note="Check, then release" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released to applicants" />
             <StatCard label="Open cases across the office" value={reviewApplications.length} note="Every application awaiting action" />
           </>
         ) : (
           <>
             <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files across the office" />
-            <StatCard label="Awaiting endorsement" value={endorsementApplications.length} note="With the Admissions Office Head" />
+            <StatCard label="With the schools for approval" value={approvalApplications.length} note="Interviewer recommendations" />
             <StatCard label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Head" />
           </>
         )}

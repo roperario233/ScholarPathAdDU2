@@ -14,7 +14,7 @@ import { fmtDate, toPercent } from '../lib/formatters';
 import { getFinancialDetailSections } from '../lib/financialDetails';
 import { summarizeInterview } from '../lib/interview';
 
-const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', 'For Endorsement': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', Released: 'success' };
+const statusTone = { Approved: 'success', Rejected: 'danger', Draft: 'neutral', Submitted: 'info', 'Under Review': 'info', 'For Verification': 'warning', 'For Endorsement': 'warning', Endorsed: 'warning', Interview: 'info', Recommended: 'info', 'Under deliberation': 'warning', Released: 'success' };
 
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
 

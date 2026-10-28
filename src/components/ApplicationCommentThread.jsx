@@ -5,7 +5,10 @@ import { fmtDate } from '../lib/formatters';
 const roleLabels = {
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
+  dean: 'Dean',
+  assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',
+  interviewer: 'Interviewer',
 };
 
 const fmtWhen = (value) => {

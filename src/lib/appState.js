@@ -144,6 +144,15 @@ const createDefaultState = () => ({
   // Office planning entries on the Admissions Office calendar. Staff-only, so a
   // student session always keeps this empty.
   officeCalendarEntries: [],
+  // SOP step 7 routing (which ladder level approves for a school or cluster),
+  // read by staff sessions only.
+  approvalLevels: [],
+  // The scholarship results the Head has released. A student's Approved or
+  // Rejected result reads "Under deliberation" until a release covers it;
+  // `resultsReleasesReady` is false while the release migration is pending, so
+  // nothing is held that the project could not release.
+  resultsReleases: [],
+  resultsReleasesReady: false,
   profileSkipped: false,
   theme: 'light',
   academicPrograms,
@@ -160,14 +169,19 @@ export const createInitialState = () => {
   // Session state key. `admissions_head` is the approval lane; the legacy
   // combined `admissions_office` value is the staff lane, so a saved session
   // keeps working after the split.
-  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'];
+  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'];
   const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
   // A retired or unknown view key would render an empty page, so the stored
   // value is validated against the routes the app can actually render.
+  // The Endorsement route was retired at Consultation 2 (the Head now forwards a
+  // verified case to interview), so a session saved on it lands on the office
+  // Dashboard instead.
   const activeView = stored.activeView === 'eligibility'
     ? 'explore'
+    : stored.activeView === 'admin-endorsement'
+      ? 'admin'
     : (pageViewKeys.includes(stored.activeView) ? stored.activeView : defaults.activeView);
   const authUser = stored.authUser
     ? { ...stored.authUser, role: migrateRole(stored.authUser.role) }
@@ -215,6 +229,9 @@ export const createInitialState = () => {
     interviewNotes: Array.isArray(stored.interviewNotes) ? stored.interviewNotes : defaults.interviewNotes,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
     officeCalendarEntries: Array.isArray(stored.officeCalendarEntries) ? stored.officeCalendarEntries : defaults.officeCalendarEntries,
+    approvalLevels: Array.isArray(stored.approvalLevels) ? stored.approvalLevels : defaults.approvalLevels,
+    resultsReleases: Array.isArray(stored.resultsReleases) ? stored.resultsReleases : defaults.resultsReleases,
+    resultsReleasesReady: stored.resultsReleasesReady === true,
     // A cached catalog written before the four-level hierarchy existed carries the
     // retired `College of …` school names and no department, so it is discarded
     // rather than used for the pre-load paint.

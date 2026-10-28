@@ -676,7 +676,10 @@ export const isApplicationVerifiedForEndorsement = (application, documents = [])
 const ACTOR_ROLE_LABELS = {
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
+  dean: 'Dean',
+  assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',
+  interviewer: 'Interviewer',
   student: 'Student',
   system: 'System',
 };

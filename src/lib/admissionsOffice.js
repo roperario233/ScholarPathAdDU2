@@ -2,6 +2,7 @@ import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from '.
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 import { isAdduInternalProgram } from './eligibility';
 import { findAcademicProgram } from './academicPrograms';
+import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole } from './reviewScope';
 
 // The Admissions Office workspace is split into one route per function
 // (dashboard, application review, catalog management, results release, and
@@ -334,4 +335,144 @@ export const buildAcceptedApplicantsReport = (applications = []) => {
     lines.push(`${entry.studentName} · ${entry.scholarshipTitle} · ${getApplicationStatusLabel(entry.status)} · Reference ${entry.release?.reference || 'Pending release'}`);
   });
   return lines.join('\n');
+};
+
+// The applicant summary the office and finance work in (Consultation 2, #2): one
+// row per application with the course, the year level, and the household income
+// the student certified. Exported as CSV with a UTF-8 byte-order mark, which
+// Excel opens directly, so no spreadsheet library is needed. Every value comes
+// from the frozen profile snapshot (falling back to the loaded profile), which
+// any role that can read the application already sees, so the export never
+// depends on the office-only household-finance tables.
+const APPLICANT_SUMMARY_COLUMNS = [
+  ['Applicant', (entry) => entry.profileSnapshot?.fullName || entry.studentName || ''],
+  ['Student number', (entry) => entry.profileSnapshot?.studentNumber || ''],
+  ['School', (entry, ctx) => ctx.scope(entry).school || entry.studentSchool || ''],
+  ['Cluster', (entry, ctx) => ctx.scope(entry).cluster || ''],
+  ['Department', (entry, ctx) => ctx.scope(entry).department || ''],
+  ['Program', (entry) => findAcademicProgram(entry.studentProgram)?.label || entry.studentProgram || ''],
+  ['Year level', (entry) => entry.profileSnapshot?.yearStandingLabel || ''],
+  ['Academic record', (entry) => {
+    const academic = entry.profileSnapshot?.academic;
+    if (academic?.value != null && academic.value !== '') return `${academic.label || 'Academic record'} ${academic.value}`;
+    return entry.studentQpi != null && entry.studentQpi !== '' ? `QPI ${entry.studentQpi}` : '';
+  }],
+  ['Annual household income (PHP)', (entry) => {
+    const value = entry.profileSnapshot?.householdIncome?.value ?? entry.studentHouseholdIncome;
+    return value == null || value === '' ? '' : String(Number(value));
+  }],
+  ['Scholarship', (entry) => entry.scholarshipTitle || ''],
+  ['Interview recommendation', (entry, ctx) => ctx.recommendation(entry)],
+  ['Status', (entry) => getApplicationStatusLabel(entry.status)],
+  ['Release reference', (entry) => entry.release?.reference || ''],
+];
+
+// Excel reads a UTF-8 CSV correctly only with a byte-order mark (U+FEFF).
+const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
+
+const csvCell = (value) => {
+  const text = String(value ?? '');
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+};
+
+export const buildApplicantSummaryCsv = (applications = [], { scopeOf, recommendationOf } = {}) => {
+  const ctx = {
+    scope: (entry) => (typeof scopeOf === 'function' ? scopeOf(entry) : null) || {},
+    recommendation: (entry) => (typeof recommendationOf === 'function' ? recommendationOf(entry) : '') || '',
+  };
+  const rows = [
+    APPLICANT_SUMMARY_COLUMNS.map(([label]) => label),
+    ...asList(applications).map((entry) => APPLICANT_SUMMARY_COLUMNS.map(([, read]) => read(entry, ctx))),
+  ];
+  return `${BYTE_ORDER_MARK}${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+};
+
+// Saves the summary in the browser. Kept beside the builder so every page that
+// offers the export names the file the same way.
+export const downloadApplicantSummaryCsv = (applications, options = {}, fileName = 'Applicant_summary.csv') => {
+  if (typeof document === 'undefined') return;
+  const url = URL.createObjectURL(new Blob([buildApplicantSummaryCsv(applications, options)], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+// The Head's final check before release (Consultation 2, #13): a sibling who is
+// already on a grant, and another application of the same student that is still
+// open. These are hints for the Head to read, not decisions.
+const normalizeName = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const parentNames = (entry) => {
+  const family = entry?.profileSnapshot?.family || {};
+  return [family.fatherName, family.motherName].map(normalizeName).filter(Boolean);
+};
+
+export const getFinalCheckHints = (application, applications = []) => {
+  const list = asList(applications).filter((entry) => entry.id !== application?.id);
+  const parents = new Set(parentNames(application));
+  const siblingsOnGrant = parents.size
+    ? list.filter((entry) => (
+      entry.studentId !== application.studentId
+      && ['Approved', 'Released'].includes(entry.status)
+      && parentNames(entry).some((name) => parents.has(name))
+    ))
+    : [];
+  const pendingCases = list.filter((entry) => (
+    entry.studentId === application?.studentId
+    && !['Draft', 'Released', 'Rejected'].includes(entry.status)
+  ));
+  return { siblingsOnGrant, pendingCases, selfDeclaredSibling: Boolean(application?.profileSnapshot?.eligibility?.hasSiblingOnAid) };
+};
+
+// Approved and released applications grouped by scholarship, for the batch
+// release: the Head releases one scholarship's results to every applicant at the
+// same time.
+export const getReleaseGroups = (applications = [], scholarships = [], resultsReleases = []) => {
+  const titleById = Object.fromEntries(asList(scholarships).map((entry) => [entry.id, entry.title]));
+  const released = new Set(asList(resultsReleases).flatMap((release) => asList(release.applicationIds)));
+  const groups = new Map();
+  asList(applications).forEach((entry) => {
+    const isPendingRelease = entry.status === 'Approved'
+      || (['Released', 'Rejected'].includes(entry.status) && !released.has(entry.id));
+    if (!isPendingRelease) return;
+    const key = entry.scholarshipId;
+    if (!groups.has(key)) {
+      groups.set(key, { scholarshipId: key, title: titleById[key] || entry.scholarshipTitle || 'Scholarship', approved: [], decided: [] });
+    }
+    const group = groups.get(key);
+    if (entry.status === 'Approved') group.approved.push(entry);
+    else group.decided.push(entry);
+  });
+  return [...groups.values()].sort((left, right) => left.title.localeCompare(right.title));
+};
+
+// Consultation 2, #12: an application goes straight to the interviewers of the
+// applicant's school and cluster when it is submitted, with no assignment step.
+// Routing is derived from each interviewer's scope through the same predicate
+// the row-level policies use, so the intake pool can show where a case went and
+// flag a cluster nobody covers yet.
+export const getRoutedInterviewers = (application, staffDirectory = [], programIndex = new Map()) => asList(staffDirectory)
+  .filter((entry) => isInterviewerRole(entry.role))
+  .filter((entry) => isApplicationInReviewerScope(application, getReviewerScope(entry), programIndex))
+  .sort((left, right) => String(left.fullName || '').localeCompare(String(right.fullName || '')));
+
+// Each interviewer's open interview work: the cases in scope that wait for, or
+// sit in, the interview stage. Read-only, like the officer workload.
+export const getInterviewerWorkload = (applications = [], staffDirectory = [], programIndex = new Map()) => {
+  const open = asList(applications).filter((entry) => ['Endorsed', 'Interview'].includes(entry.status));
+  return asList(staffDirectory)
+    .filter((entry) => isInterviewerRole(entry.role))
+    .map((entry) => {
+      const scope = getReviewerScope(entry);
+      return {
+        userId: entry.userId,
+        fullName: entry.fullName || 'Interviewer',
+        scopeLabel: getReviewScopeLabel(entry),
+        cases: open.filter((application) => isApplicationInReviewerScope(application, scope, programIndex)).length,
+      };
+    })
+    .sort((left, right) => right.cases - left.cases || left.fullName.localeCompare(right.fullName));
 };

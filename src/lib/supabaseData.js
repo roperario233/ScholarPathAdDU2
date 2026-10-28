@@ -110,6 +110,25 @@ const toOfficeCalendarEntry = (row) => ({
   createdBy: row.created_by ?? null,
   createdAt: row.created_at,
 });
+// SOP step 7 routing: which ladder level approves for a school or cluster
+// (20261050000000_interviewer_role_and_approval_routing.sql).
+const toApprovalLevel = (row) => ({
+  id: row.id,
+  school: row.school,
+  cluster: row.cluster || '',
+  approverRole: row.approver_role,
+  updatedAt: row.updated_at,
+});
+// One batch release of a scholarship's results (20261050000002_add_results_releases.sql).
+const toResultsRelease = (row) => ({
+  id: row.id,
+  scholarshipId: row.scholarship_id,
+  releasedAt: row.released_at,
+  releasedBy: row.released_by ?? null,
+  applicantCount: row.applicant_count ?? 0,
+  acceptedCount: row.accepted_count ?? 0,
+  applicationIds: Array.isArray(row.application_ids) ? row.application_ids : [],
+});
 const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at });
 const toDepartmentReview = (row) => ({
   ...row,
@@ -184,17 +203,17 @@ const toInterviewNote = (row, nameById = {}) => ({
   createdAt: row.created_at,
 });
 
-// Reviewer accounts read a department-scoped slice of the office workflow. All three
-// academic levels (Dean, Assistant Dean, Chairperson) sit on this ladder; the two
-// Admissions Office lanes read every case.
-const STAFF_ROLES = ['admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'];
+// Reviewer accounts read a scoped slice of the office workflow. The academic
+// ladder (Dean, Assistant Dean, Chairperson) and the interviewer are scoped to the
+// hierarchy; the two Admissions Office lanes read every case.
+const STAFF_ROLES = ['admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'];
 
 const ensureReady = () => hasSupabaseConfig && supabase;
 
 export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   if (!ensureReady()) return { success: false, fallback: true };
 
-  const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, deadlinesResult, profilesResult, officeEntriesResult] = await Promise.all([
+  const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, deadlinesResult, profilesResult, officeEntriesResult, approvalLevelsResult, resultsReleasesResult] = await Promise.all([
     supabase.from('scholarships').select('*').order('deadline', { ascending: true }),
     supabase.from('applications').select('*').order('updated_at', { ascending: false }),
     supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
@@ -212,6 +231,14 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     role === 'student'
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('office_calendar_entries').select('*').order('entry_date', { ascending: true }),
+    // SOP step 7 routing, read by every staff role so a page lists exactly the
+    // recommendations its account may approve.
+    role === 'student'
+      ? Promise.resolve({ data: [], error: null })
+      : supabase.from('approval_levels').select('*').order('school', { ascending: true }),
+    // Every role reads the releases: a student's held result is unmasked by the
+    // release that covers it, and the Head's release lane counts them.
+    supabase.from('results_releases').select('*').order('released_at', { ascending: true }),
   ]);
   const failed = [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, profilesResult].find((result) => result.error);
   if (failed) return { success: false, fallback: false, message: failed.error.message };
@@ -347,9 +374,11 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   let interviewNotes = [];
   if (role !== 'student') {
     const [locationsResult, panelistsResult, notesResult] = await Promise.all([
-      isReviewerRole(role)
-        ? Promise.resolve({ data: [], error: null })
-        : supabase.from('interview_locations').select('*').order('name', { ascending: true }),
+      // Interviewers and ladder accounts schedule their own interviews, so they
+      // read the saved venues too (Head-managed). Before the routing migration a
+      // reviewer read is refused and the list stays empty; the typed location
+      // field still works.
+      supabase.from('interview_locations').select('*').order('name', { ascending: true }),
       applicationIds.length
         ? supabase.from('application_interview_panelists').select('*').in('application_id', applicationIds).is('removed_at', null)
         : Promise.resolve({ data: [], error: null }),
@@ -382,6 +411,17 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     interviewPanelists,
     interviewNotes,
     customDeadlines: serverDeadlines,
+    // Pending-migration tolerance: without the routing migration the approval
+    // levels are empty (every school defaults to the Chairperson) and no release
+    // is recorded. `resultsReleasesReady` lets the student surfaces stop holding
+    // results the project cannot release yet.
+    approvalLevels: !approvalLevelsResult.error && Array.isArray(approvalLevelsResult.data)
+      ? approvalLevelsResult.data.map(toApprovalLevel)
+      : [],
+    resultsReleases: !resultsReleasesResult.error && Array.isArray(resultsReleasesResult.data)
+      ? resultsReleasesResult.data.map(toResultsRelease)
+      : [],
+    resultsReleasesReady: !resultsReleasesResult.error,
     // Pending-migration tolerance, like custom_deadlines: an unavailable table
     // yields an empty office calendar instead of failing the whole workspace.
     officeCalendarEntries: !officeEntriesResult.error && Array.isArray(officeEntriesResult.data)
@@ -815,6 +855,31 @@ export const deleteSupabaseOfficeCalendarEntry = (id) => (
   ensureReady() ? supabase.from('office_calendar_entries').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
 
+// The Head's approval-level settings (SOP step 7 routing). One row per school,
+// or per cluster inside a school; an unset scope defaults to the Chairperson.
+export const saveSupabaseApprovalLevel = async ({ id, school, cluster, approverRole }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const row = { school, cluster: cluster || null, approver_role: approverRole, updated_at: new Date().toISOString() };
+  const result = id
+    ? await supabase.from('approval_levels').update(row).eq('id', id).select('*').single()
+    : await supabase.from('approval_levels').insert(row).select('*').single();
+  return { ...result, data: result.data ? toApprovalLevel(result.data) : null };
+};
+
+export const deleteSupabaseApprovalLevel = (id) => (
+  ensureReady() ? supabase.from('approval_levels').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
+);
+
+// Records a scholarship's batch release (record_results_release, Head only). The
+// row's insert trigger sends the non-acceptance letters; the browser call below
+// is the retry for the in-app and email channels.
+export const recordSupabaseResultsRelease = async (scholarshipId) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.rpc('record_results_release', { p_scholarship_id: scholarshipId });
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  return { error: result.error, data: row ? toResultsRelease(row) : null };
+};
+
 // FORM 230-SCH financial details live in two office-only tables (see
 // 20261036000000_add_application_financial_details.sql). A project that has not
 // applied the migration answers with `missing: true` so the app says so instead
@@ -887,6 +952,24 @@ export const loadSupabaseApplicationFinancialDetails = async (applicationId) => 
   }));
 };
 
+// A non-2xx answer still carries the function's own explanation: every function
+// reports a refused caller, a missing channel, or a Google failure as
+// `{ error }` or `{ code, reason }`. supabase-js throws a `FunctionsHttpError`
+// whose message is only "Edge Function returned a non-2xx status code" and leaves
+// the untouched `Response` in `error.context`, so the body is read back here.
+// Without it a role-gate 403 and an expired Google token read identically to the
+// caller (the Interview tab could only say "non-2xx" and ask for a pasted link).
+const readFunctionErrorBody = async (error) => {
+  try {
+    const response = error?.context;
+    if (!response || typeof response.json !== 'function') return null;
+    const body = await response.json();
+    return body && typeof body === 'object' ? body : null;
+  } catch {
+    return null;
+  }
+};
+
 // Both email Edge Functions answer with a normalized shape so the UI can report
 // real delivery feedback instead of assuming success.
 const invokeEmailFunction = async (functionName, body = {}) => {
@@ -897,7 +980,14 @@ const invokeEmailFunction = async (functionName, body = {}) => {
   try {
     const { data, error } = await supabase.functions.invoke(functionName, { body });
     if (error) {
-      return { ok: false, sent: false, skipped: false, reason: error.message || 'Unable to reach the email service.' };
+      const detail = await readFunctionErrorBody(error);
+      return {
+        ok: false,
+        sent: false,
+        skipped: false,
+        code: detail?.code || '',
+        reason: detail?.reason || detail?.error || error.message || 'Unable to reach the email service.',
+      };
     }
     return data ?? { ok: false, sent: false, skipped: false, reason: 'The email service returned no response.' };
   } catch (error) {
@@ -912,6 +1002,10 @@ export const sendSupabaseTestEmail = () => invokeEmailFunction('send-test-email'
 export const sendSupabaseTestSms = () => invokeEmailFunction('send-test-sms');
 
 export const notifySupabaseApplicationStatus = (applicationId) => invokeEmailFunction('notify-application-status', { applicationId });
+
+// Browser retry for a batch results release; the results_releases insert trigger
+// is the primary sender and owns the SMS channel.
+export const notifySupabaseResultsRelease = (releaseId) => invokeEmailFunction('notify-application-status', { mode: 'results-release', releaseId });
 
 // Browser retry for the interview schedule notification; the database trigger
 // (20261029000001) is the primary sender and owns the SMS channel.

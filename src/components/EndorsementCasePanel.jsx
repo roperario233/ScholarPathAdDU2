@@ -1,7 +1,7 @@
 import ApplicationCommentThread from './ApplicationCommentThread';
 import { Panel } from './ui';
 import { getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { isAdmissionsHeadRole, isAdmissionsReviewerRole } from '../lib/constants';
+import { isAdmissionsHeadRole } from '../lib/constants';
 import {
   getApplicationComments,
   getEndorsementAgeDays,
@@ -37,12 +37,9 @@ export default function EndorsementCasePanel({
   // in the action bar; this only points the reviewer at it. Endorsement is the
   // Admissions Office Head's decision; Staff only hand the case off.
   const canDecide = Boolean(
-    (isAdmissionsReviewerRole(role) && application.status === 'For Verification')
-    || (isAdmissionsHeadRole(role) && application.status === 'For Endorsement'),
+    isAdmissionsHeadRole(role) && ['For Verification', 'For Endorsement'].includes(application.status),
   );
-  const decisionHint = application.status === 'For Endorsement'
-    ? 'Record the endorsement from the action bar below.'
-    : 'Send the application for endorsement from the action bar below.';
+  const decisionHint = 'Forward the application to interview from the action bar below.';
   const blockedReason = documentsReady
     ? ''
     : readiness.total === 0
@@ -52,7 +49,7 @@ export default function EndorsementCasePanel({
   return (
     <div className="grid gap-4">
       <section className="grid gap-2">
-        <h4 className={sectionHeading}>Endorsement record</h4>
+        <h4 className={sectionHeading}>Forwarding record</h4>
         <Panel className="grid gap-2">
           {handoff ? (
             <p className="m-0 text-sm text-app-text">
@@ -62,13 +59,13 @@ export default function EndorsementCasePanel({
           ) : (
             <p className="m-0 text-sm text-app-muted">
               {application.status === 'For Verification'
-                ? 'Not sent to endorsement yet.'
-                : 'No hand-off is recorded for this application.'}
+                ? 'Not forwarded to interview yet.'
+                : 'No separate hand-off: the Admissions Office Head forwarded the verified case.'}
             </p>
           )}
           {record ? (
             <p className="m-0 text-sm text-app-text">
-              <strong>Endorsed</strong> by {record.reviewedBy || 'the Office of Admissions & Aid'} · {fmtDate(record.decidedAt || decision?.at)}
+              <strong>Forwarded to interview</strong> by {record.reviewedBy || 'the Office of Admissions & Aid'} · {fmtDate(record.decidedAt || decision?.at)}
               {record.note ? <span className="text-app-muted"> — {record.note}</span> : null}
             </p>
           ) : null}

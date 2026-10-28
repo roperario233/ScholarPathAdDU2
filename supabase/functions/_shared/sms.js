@@ -167,6 +167,11 @@ export const renderApplicationStatusSms = ({ scholarshipTitle, status, interview
       : `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
 });
 
+/** Renders the general non-acceptance letter sent when a scholarship's results are released. */
+export const renderNonAcceptanceLetterSms = ({ scholarshipTitle, applicantCount = 0, acceptedCount = 0 }) => ({
+  message: `ScholarPath AdDU: ${scholarshipTitle || 'scholarship'} results are out. ${Number(acceptedCount) || 0} of ${Number(applicantCount) || 0} applicants were accepted; your application was not among them. Sign in for the letter.`,
+});
+
 /** Renders the day-before interview reminder text. */
 export const renderInterviewReminderSms = ({ interview, scholarshipTitle }) => ({
   message: `ScholarPath AdDU: reminder, your ${scholarshipTitle || 'scholarship'} interview is tomorrow, ${formatInterviewDateShort(interview?.startsAt)} (${interview?.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`,

@@ -22,9 +22,9 @@ const application = (overrides = {}) => ({
   ...overrides,
 });
 
-// The Admissions Office is one office with two accountability lanes: Staff
-// prepare a case, the Head decides it. These tests pin the boundary so a later
-// refactor cannot quietly let one account do both again.
+// The Admissions Office is one office with two lanes. Since Consultation 2 the
+// Head verifies, forwards, and releases, and Staff only read. These tests pin the
+// boundary so a later refactor cannot quietly hand Staff a stage move again.
 describe('Admissions Office lane predicates', () => {
   it('separates Staff from the Head', () => {
     expect(isAdmissionsStaffRole('admissions_office')).toBe(true);
@@ -39,21 +39,20 @@ describe('Admissions Office lane predicates', () => {
 });
 
 describe('Admissions Office lane authority', () => {
-  it('stops Staff at the sub-committee recommendation', () => {
-    expect(getNextApplicationStatuses('Recommended', 'admissions_office')).toEqual([]);
-    expect(getNextApplicationStatuses('Approved', 'admissions_office')).toEqual([]);
-    expect(getNextApplicationStatuses('Released', 'admissions_office')).toEqual([]);
+  it('gives Staff no stage move', () => {
+    ['Submitted', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']
+      .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_office')).toEqual([]));
   });
 
-  it('gives the Head every Staff stage as well', () => {
+  it('gives the Head every preparation stage', () => {
     ['Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview']
       .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_head').length).toBeGreaterThan(0));
   });
 
-  it('lets the Head approve and release on top of the Staff stages', () => {
+  it('keeps the Head approval override and gives the Head the final check', () => {
     expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
-    expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released']);
-    expect(ADMISSIONS_APPROVAL_STATUSES).toEqual(['Recommended', 'Approved']);
+    expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released', 'Rejected']);
+    expect(ADMISSIONS_APPROVAL_STATUSES).toEqual(['Approved']);
   });
 });
 

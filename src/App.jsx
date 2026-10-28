@@ -6,7 +6,7 @@ import { mergeNotifications } from './lib/notificationMerge';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
-import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole } from './lib/constants';
+import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
@@ -15,8 +15,8 @@ import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAt
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -32,7 +32,6 @@ import DocumentUploadModal from './components/DocumentUploadModal';
 import AdminOverviewPage from './pages/admin/AdminOverview';
 import AdminIntakePoolPage from './pages/admin/AdminIntakePool';
 import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
-import AdminEndorsementPage from './pages/admin/AdminEndorsement';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
@@ -46,17 +45,20 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
-import { getReviewPageLabel, getReviewerScope, getScopedQueue, isReviewerRole } from './lib/reviewScope';
+import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isReviewerRole } from './lib/reviewScope';
 
 const roleLabels = {
   student: 'Student',
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
   // The academic reviewer ladder: Dean (school), Assistant Dean (cluster), and
-  // Chairperson (department). None of them takes a stage action.
+  // Chairperson (department). The level configured for a school approves; any of
+  // them in scope may also run an interview.
   dean: 'Dean',
   assistant_dean: 'Assistant Dean',
   department_chair: 'Chairperson',
+  // A faculty interviewer scoped to one level; recommends only.
+  interviewer: 'Interviewer',
 };
 
 // The Google Calendar integration state the review surfaces read. `configured`
@@ -85,6 +87,14 @@ const interviewCalendarState = (result) => ({
   calendarId: result?.calendarId || '',
   calendar: result?.calendar || null,
 });
+
+// Every role that can coordinate an interview needs the Google state: the two
+// Admissions Office lanes, and (Consultation 2) any scoped reviewer — an
+// interviewer, a Chairperson, an Assistant Dean, or a Dean — who may schedule the
+// interview of an applicant in scope. Checking only the office lanes left a Dean's
+// panel reading the integration as unavailable, so it could never generate a Meet
+// link even though manage-interview-event accepts it.
+const canUseInterviewCalendar = (role) => isAdmissionsReviewerRole(role) || isReviewerRole(role);
 
 // The identity rows (sidebar panel and mobile header) should not repeat a staff
 // member's name as its own role label, or echo a department whose words are
@@ -116,13 +126,12 @@ const identitySubtitle = (name, ...parts) => {
 // unknown value resolve to the staff lane / student respectively.
 const normalizeRole = (role) => {
   if (role === 'osa_admin') return 'admissions_office';
-  return ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'].includes(role) ? role : 'student';
+  return ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'].includes(role) ? role : 'student';
 };
 
-// Both Admissions Office lanes land on the office Dashboard (the `admin` route),
-// and the review queue sits directly under it as the first work queue. A
-// Department Chair lands on the department review queue and a student on the
-// student dashboard. There is no separate role dashboard beside these pages.
+// Both Admissions Office lanes land on the office Dashboard (the `admin` route).
+// Every scoped reviewer (an interviewer, Chairperson, Assistant Dean, or Dean)
+// lands on its review queue and a student on the student dashboard. There is no separate role dashboard beside these pages.
 const landingViewForRole = (role) => (isAdmissionsReviewerRole(role)
   ? 'admin'
   : isReviewerRole(role) ? 'review' : 'dashboard');
@@ -505,7 +514,7 @@ function App() {
   // loading (or one whose first write failed) is still persisted and eligible for
   // email. The upsert is idempotent on the client-generated id.
   useEffect(() => {
-    if (!isSupabaseWorkspaceLoaded || !isAdmissionsReviewerRole(state.viewerRole) || interviewCalendar.checked) {
+    if (!isSupabaseWorkspaceLoaded || !canUseInterviewCalendar(state.viewerRole) || interviewCalendar.checked) {
       return undefined;
     }
     let active = true;
@@ -875,9 +884,17 @@ function App() {
     [scholarshipCatalog, state.searchQuery, state.filters],
   );
 
+  // A student's own applications. Results are released per scholarship in one
+  // batch, so an Approved or Rejected outcome reads "Under deliberation" until a
+  // release covers it (maskApplicationForStudent). Nothing is held while the
+  // release migration is pending, because no release could ever unmask it.
   const studentApplications = useMemo(
-    () => state.applications.filter((entry) => entry.studentId === currentProfile.id),
-    [state.applications, currentProfile.id],
+    () => state.applications
+      .filter((entry) => entry.studentId === currentProfile.id)
+      .map((entry) => (state.viewerRole === 'student' && state.resultsReleasesReady
+        ? maskApplicationForStudent(entry, state.resultsReleases)
+        : entry)),
+    [state.applications, currentProfile.id, state.viewerRole, state.resultsReleases, state.resultsReleasesReady],
   );
 
   const studentDocuments = useMemo(
@@ -1456,7 +1473,7 @@ function App() {
     // Stage authority lives once in getNextApplicationStatuses
     // (src/lib/constants.js), so this guard and the role maps cannot drift apart.
     if (state.viewerRole !== 'student') {
-      const allowedStatuses = getNextApplicationStatuses(application.status, state.viewerRole);
+      const allowedStatuses = getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application));
       if (!allowedStatuses.includes(status)) {
         return { error: 'Your role cannot move this application to that stage.' };
       }
@@ -1464,12 +1481,12 @@ function App() {
     const actor = roleLabels[state.viewerRole] || 'Admissions Office';
     const defaultNote = status === 'For Verification'
       ? 'Continued to document verification. Attached files are queued for Admissions Office review.'
-      : status === 'For Endorsement'
-        ? 'Sent to endorsement. The application is now with the Admissions Office Head for endorsement.'
+      : status === 'Endorsed'
+        ? "Documents verified. Forwarded to the interviewers of the applicant's school."
         : status === 'Under Review'
           ? `${actor} opened this application for review. Attached documents are reviewed at the verification stage.`
           : status === 'Approved'
-            ? 'Recommendation approved by the Admissions Office Head.'
+            ? `Recommendation approved by the ${actor}.`
             : `Application moved to ${status}.`;
     const stageEvent = {
       id: `ev-${crypto.randomUUID()}`,
@@ -1511,7 +1528,7 @@ function App() {
     if (status === 'Rejected'
       && application.status === 'Interview'
       && application.interview?.calendar?.eventId
-      && isAdmissionsReviewerRole(state.viewerRole)) {
+      && (isAdmissionsHeadRole(state.viewerRole) || isReviewerRole(state.viewerRole))) {
       invokeSupabaseInterviewEvent({
         action: 'cancel',
         applicationId,
@@ -1534,12 +1551,12 @@ function App() {
   // from it. The note is written first: a rejection must never land without a
   // recorded reason, and a failed note leaves the stage untouched.
   const rejectApplication = async (applicationId, reason = '') => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can reject an application.' };
+    if (state.viewerRole === 'student') {
+      return { error: 'Only a reviewer can reject an application.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application) return { error: 'The application could not be found.' };
-    if (!getNextApplicationStatuses(application.status, state.viewerRole).includes('Rejected')) {
+    if (!getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application)).includes('Rejected')) {
       return { error: 'Your role cannot reject this application at this stage.' };
     }
     const trimmed = String(reason || '').trim();
@@ -1559,8 +1576,10 @@ function App() {
   // expected, not a conflict. Joining is the one place the review starts
   // (Submitted -> Under Review), so the student notification fires from here.
   const joinCaseReview = async (applicationId) => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can open an application for review.' };
+    // Staff keep a read-only view: opening a case records nothing and starts no
+    // review. The Head opens a case into review.
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { ok: true, joined: false };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application) return { error: 'The application could not be found.' };
@@ -1649,15 +1668,16 @@ function App() {
   };
 
 
-  // SOP step 4: the Admissions Office Head records the endorsement of an
-  // application the Staff sent over. The Department Chair has no endorsement role.
+  // The Head forwards a verified case to the interviewers of the applicant's
+  // school (the former SOP step-4 endorsement, now part of verification). A legacy
+  // row still waiting at For Endorsement leaves that stage the same way.
   const endorseApplication = async (applicationId, note = '') => {
     if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office Head can endorse at this stage.' };
+      return { error: 'Only the Admissions Office Head can forward an application to interview.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
-    if (!application || application.status !== 'For Endorsement') {
-      return { error: 'This application is not awaiting endorsement.' };
+    if (!application || !['For Verification', 'For Endorsement'].includes(application.status)) {
+      return { error: 'This application is not awaiting the forward to interview.' };
     }
     // Manuscript 3.3.3: never record an endorsement for an application whose
     // attached documents are not all Verified. The status write refuses that
@@ -1668,7 +1688,7 @@ function App() {
     const record = {
       reviewedBy: currentProfile.fullName || 'Admissions Office Head',
       decision: 'Endorsed',
-      note: note || 'Endorsed based on academic standing and verified documents.',
+      note: note || "Documents verified. Forwarded to the interviewers of the applicant's school.",
       decidedAt: new Date().toISOString().slice(0, 10),
     };
     return changeApplicationStatus(applicationId, 'Endorsed', {
@@ -1725,6 +1745,25 @@ function App() {
   const isPanelistOn = (applicationId) => (state.interviewPanelists || []).some((row) => (
     row.applicationId === applicationId && !row.removedAt && row.profileId && row.profileId === currentProfile.id
   ));
+  // Consultation 2: an interviewer schedules its own interviews, and a ladder
+  // account in scope may run the interview itself in a small program. The Head
+  // keeps the office override; Staff only read.
+  const reviewerProfile = { ...currentProfile, role: state.viewerRole };
+  const isInViewerScope = (application) => (
+    isReviewerRole(state.viewerRole)
+    && getScopedQueue([application], reviewerProfile, activeAcademicPrograms).length > 0
+  );
+  const canCoordinateInterview = (application) => Boolean(application)
+    && (isAdmissionsHeadRole(state.viewerRole) || isInViewerScope(application));
+  // The case facts a scoped reviewer's stage moves depend on (constants.js
+  // getNextApplicationStatuses): only a panel member recommends, and only the
+  // level configured for the applicant's school approves.
+  const programScopeIndex = buildProgramScopeIndex(activeAcademicPrograms);
+  const stageContextFor = (application) => ({
+    isPanelist: Boolean(application) && isPanelistOn(application.id),
+    isApprover: Boolean(application)
+      && isApproverForApplication(application, reviewerProfile, state.approvalLevels || [], programScopeIndex),
+  });
   const activeLocationIds = (state.interviewLocations || []).filter((entry) => entry.isActive).map((entry) => entry.id);
 
   // Saves the panel first, so the calendar invitation and the database-triggered
@@ -1823,14 +1862,20 @@ function App() {
   };
 
   const scheduleInterview = async (applicationId, draft) => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can schedule an interview.' };
-    }
     const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!canCoordinateInterview(application)) {
+      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Head, can schedule this interview.' };
+    }
     if (!application || application.status !== 'Endorsed') {
       return { error: 'This application is not awaiting an interview.' };
     }
-    const prepared = await prepareInterviewSchedule(application, draft);
+    // The reviewer who schedules the interview sits on its panel, so they can
+    // record the recommendation afterwards. They lead it unless a lead is named.
+    const panel = Array.isArray(draft?.panel) ? draft.panel : [];
+    const scheduledDraft = isReviewerRole(state.viewerRole) && !panel.some((member) => member.profileId === currentProfile.id)
+      ? { ...draft, panel: [{ profileId: currentProfile.id, guestName: '', guestEmail: '', isLead: !panel.some((member) => member.isLead) }, ...panel] }
+      : draft;
+    const prepared = await prepareInterviewSchedule(application, scheduledDraft);
     if (prepared.error) return prepared;
     const result = await changeApplicationStatus(applicationId, 'Interview', {
       note: `Interview scheduled: ${summarizeInterview(prepared.record)}.`,
@@ -1847,10 +1892,10 @@ function App() {
   };
 
   const rescheduleInterview = async (applicationId, draft, reason = '') => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can reschedule an interview.' };
-    }
     const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!canCoordinateInterview(application)) {
+      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Head, can reschedule this interview.' };
+    }
     if (!application || application.status !== 'Interview' || !isStructuredInterview(application.interview)) {
       return { error: 'This interview cannot be rescheduled.' };
     }
@@ -1903,10 +1948,10 @@ function App() {
   };
 
   const cancelInterview = async (applicationId, reason = '') => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can cancel an interview.' };
-    }
     const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!canCoordinateInterview(application)) {
+      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Head, can cancel this interview.' };
+    }
     if (!application || application.status !== 'Interview' || !isStructuredInterview(application.interview)
       || !['scheduled', 'no_show'].includes(application.interview.state)) {
       return { error: 'This interview cannot be cancelled.' };
@@ -1924,10 +1969,10 @@ function App() {
   // writes the application row, so the repaired calendar link is saved here
   // through the normal stage write.
   const resyncInterviewCalendar = async (applicationId) => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can repair a calendar event.' };
-    }
     const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!canCoordinateInterview(application)) {
+      return { error: 'Only the interviewer of this applicant or the Admissions Office Head can repair a calendar event.' };
+    }
     if (!application || !isStructuredInterview(application.interview)) {
       return { error: 'This application has no interview schedule to repair.' };
     }
@@ -1978,9 +2023,9 @@ function App() {
   };
 
   const addInterviewNote = async (applicationId, { body, recommendationLevel = null, rating = null } = {}) => {
-    const allowed = isAdmissionsReviewerRole(state.viewerRole)
+    const allowed = isAdmissionsHeadRole(state.viewerRole)
       || (isReviewerRole(state.viewerRole) && isPanelistOn(applicationId));
-    if (!allowed) return { error: 'Only the interview panel or the Admissions Office can add an evaluation note.' };
+    if (!allowed) return { error: 'Only the interview panel or the Admissions Office Head can add an evaluation note.' };
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write the evaluation note first.' };
     if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
@@ -2060,6 +2105,11 @@ function App() {
     onCancel: cancelInterview,
     onAddNote: addInterviewNote,
     onSaveLocation: isAdmissionsHeadRole(state.viewerRole) ? saveInterviewLocation : undefined,
+    // Who may schedule this applicant's interview (an interviewer or ladder
+    // account in scope, or the Head), and the case facts the action bar reads.
+    canCoordinate: canCoordinateInterview,
+    stageContextFor,
+    approvalLevels: state.approvalLevels || [],
   };
 
   // SOP step 6 — evaluation and deliberation by the School Scholarship
@@ -2073,12 +2123,20 @@ function App() {
   // invitation can outlive the stage, which is what the database trigger
   // (enforce_interview_closed_before_recommendation) still refuses.
   const recordDeliberation = async (applicationId, decision, note = '') => {
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office can record a deliberation.' };
-    }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Interview') {
-      return { error: 'This application is not awaiting a deliberation.' };
+      return { error: 'This application is not awaiting a recommendation.' };
+    }
+    if (!getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application)).includes('Recommended')) {
+      return { error: 'Only a member of this interview panel, or the Admissions Office Head, can record the recommendation.' };
+    }
+    // An interviewer's recommendation carries one of the five recommendation
+    // levels (Consultation 2, #7), recorded with an evaluation note first.
+    const panelRecommendation = getLatestPanelRecommendation(
+      (state.interviewNotes || []).filter((entry) => entry.applicationId === applicationId),
+    );
+    if (!isAdmissionsHeadRole(state.viewerRole) && !panelRecommendation) {
+      return { error: 'Record a recommendation level with an evaluation note in the Interview tab first.' };
     }
     let base = application;
     let closeWarning = '';
@@ -2093,14 +2151,20 @@ function App() {
       closeWarning = closed.warning || '';
     }
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
+    const actorLabel = roleLabels[state.viewerRole] || 'Reviewer';
     const record = {
-      decidedBy: 'School Scholarship Sub-committee',
+      decidedBy: isAdmissionsHeadRole(state.viewerRole)
+        ? 'School Scholarship Sub-committee'
+        : `${currentProfile.fullName || actorLabel} (${actorLabel})`,
       decision: nextStatus === 'Recommended' ? 'Recommended' : nextStatus,
+      recommendationLevel: panelRecommendation?.level || null,
       note,
       decidedAt: new Date().toISOString().slice(0, 10),
     };
     const result = await changeApplicationStatus(applicationId, nextStatus, {
-      note: note || `Sub-committee deliberation recorded as ${nextStatus}.`,
+      note: note || (panelRecommendation
+        ? `Interview recommendation recorded: ${panelRecommendation.label}.`
+        : `Recommendation recorded as ${nextStatus}.`),
       deliberation: record,
       baseApplication: base,
     });
@@ -2108,18 +2172,20 @@ function App() {
     return closeWarning ? { ...result, warning: closeWarning } : result;
   };
 
-  // SOP step 7 — the Admissions Office Head approves the sub-committee's
-  // recommendation. Staff prepare the case but never sign it off.
+  // SOP step 7 — the school's approving level (approval_levels: a Dean, an
+  // Assistant Dean, or a Chairperson, defaulting to the Chairperson) approves the
+  // interviewer's recommendation. The Head keeps an override.
   const approveApplication = (applicationId, note = '') => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only the Admissions Office Head can approve a recommendation.' });
-    }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Recommended') {
       return Promise.resolve({ error: 'This application is not awaiting approval.' });
     }
+    if (!getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application)).includes('Approved')) {
+      return Promise.resolve({ error: "Only the approving level for the applicant's school can approve this recommendation." });
+    }
+    const actorLabel = roleLabels[state.viewerRole] || 'reviewer';
     return changeApplicationStatus(applicationId, 'Approved', {
-      note: note || 'Recommendation approved by the Admissions Office Head.',
+      note: note || `Recommendation approved by the ${actorLabel}.`,
     });
   };
 
@@ -2146,6 +2212,89 @@ function App() {
     });
   };
 
+  // Results reach every applicant of a scholarship at the same time (Consultation
+  // 2, #8 and #13). After the Head's final check, the remaining approved cases
+  // are released one by one (each Released notice goes out as usual), then the
+  // release is recorded with the number of applicants and the number accepted.
+  // Recording it unmasks the held Rejected results and sends their general
+  // letter: the results_releases insert trigger is the primary sender and this
+  // browser call the retry.
+  const releaseScholarshipResults = async (scholarshipId) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Head can release results.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the results could not be released.' };
+    }
+    const approved = state.applications.filter((entry) => entry.scholarshipId === scholarshipId && entry.status === 'Approved');
+    for (const entry of approved) {
+      const result = await releaseApplicationResults(entry.id);
+      if (result?.error) return { error: `${entry.studentName || 'An applicant'}: ${result.error}` };
+    }
+    const recorded = await recordSupabaseResultsRelease(scholarshipId);
+    if (recorded.error || !recorded.data) {
+      return { error: recorded.error?.message || 'The results release could not be recorded. Confirm the release migration is applied.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      resultsReleases: [...(previous.resultsReleases || []), recorded.data],
+    }));
+    notifySupabaseResultsRelease(recorded.data.id).catch(() => undefined);
+    return { ok: true, release: recorded.data };
+  };
+
+  // SOP step 7 routing: which ladder level approves for a school or cluster.
+  // Managed by the Head; an unset scope defaults to the Chairperson.
+  const saveApprovalLevel = async (level) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Head can change the approving levels.' };
+    }
+    const school = String(level?.school || '').trim();
+    const cluster = String(level?.cluster || '').trim();
+    if (!school) return { error: 'Choose the school.' };
+    if (!['dean', 'assistant_dean', 'department_chair'].includes(level?.approverRole)) {
+      return { error: 'Choose who approves: the Dean, the Assistant Dean, or the Chairperson.' };
+    }
+    if (level.approverRole === 'assistant_dean' && !cluster) {
+      return { error: 'An Assistant Dean owns a cluster, so choose the cluster too.' };
+    }
+    const duplicate = (state.approvalLevels || []).find((entry) => (
+      entry.id !== level.id && entry.school === school && (entry.cluster || '') === cluster
+    ));
+    if (duplicate) return { error: 'That school or cluster already has an approving level. Edit it instead.' };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the approving level could not be saved.' };
+    }
+    const result = await saveSupabaseApprovalLevel({ id: level.id, school, cluster, approverRole: level.approverRole });
+    if (result.error || !result.data) {
+      return { error: result.error?.message || 'The approving level could not be saved. Confirm the routing migration is applied.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      approvalLevels: [
+        ...(previous.approvalLevels || []).filter((entry) => entry.id !== result.data.id),
+        result.data,
+      ].sort((left, right) => `${left.school}${left.cluster}`.localeCompare(`${right.school}${right.cluster}`)),
+    }));
+    return { ok: true };
+  };
+
+  const deleteApprovalLevel = async (levelId) => {
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Head can change the approving levels.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the approving level could not be removed.' };
+    }
+    const result = await deleteSupabaseApprovalLevel(levelId);
+    if (result?.error) return { error: result.error.message || 'The approving level could not be removed.' };
+    setState((previous) => ({
+      ...previous,
+      approvalLevels: (previous.approvalLevels || []).filter((entry) => entry.id !== levelId),
+    }));
+    return { ok: true };
+  };
+
   // The Admissions Office verifies a vault document, or reverts it for
   // resubmission, here. Because an attribute's state is derived from its linked
   // proof documents (src/lib/verification.js), verifying the file also verifies
@@ -2158,10 +2307,10 @@ function App() {
   // notify-document-verification, which the database trigger calls; the browser
   // call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
-    // Reviewing a vault file belongs to the Admissions Office. Staff verify
-    // documents; the Head has the same authority as a superset.
-    if (!isAdmissionsReviewerRole(state.viewerRole)) {
-      const message = 'Only the Admissions Office can verify a document or revert it for resubmission.';
+    // Reviewing a vault file belongs to the Admissions Office Head (Consultation
+    // 2): Staff and the interviewers read the files but never decide them.
+    if (!isAdmissionsHeadRole(state.viewerRole)) {
+      const message = 'Only the Admissions Office Head can verify a document or revert it for resubmission.';
       window.alert(message);
       return { error: message };
     }
@@ -2689,11 +2838,12 @@ function App() {
     ? [
       { view: 'admin', label: 'Dashboard', visible: true },
       { view: 'admin-intake', label: 'Intake pool', visible: true },
-      { view: 'admin-review', label: 'Review queue', visible: true },
-      { view: 'admin-endorsement', label: 'Endorsement', visible: isAdmissionsHead },
+      // Staff keep a read-only office view; the personal review queue is the
+      // Head's, because only the Head opens a case into review.
+      { view: 'admin-review', label: 'Review queue', visible: isAdmissionsHead },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
-      { view: 'admin-release', label: 'Recommendation and release', visible: isAdmissionsHead },
+      { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
     ]
@@ -3006,31 +3156,6 @@ function App() {
             />
           )}
 
-          {isAdmissionsHead && state.activeView === 'admin-endorsement' && (
-            <AdminEndorsementPage
-              applications={state.applications}
-              caseOfficers={state.caseOfficers || []}
-              students={state.students}
-              documents={state.documents}
-              scholarships={state.scholarships || []}
-              role={state.viewerRole}
-              reviewerName={state.authUser?.fullName || ''}
-              currentUserId={currentProfile.id}
-              onOpenWorkspace={(view) => navigate(view)}
-              onChangeApplication={changeApplicationStatus}
-              onRejectApplication={rejectApplication}
-              onEndorseApplication={endorseApplication}
-              interviewWorkspace={interviewWorkspace}
-              onRecordDeliberation={recordDeliberation}
-              onReleaseResults={releaseApplicationResults}
-              onChangeDocument={changeDocumentStatus}
-              reviewComments={state.reviewComments || []}
-              onAddComment={addReviewComment}
-              onJoinCase={joinCaseReview}
-              onLeaveCase={leaveCaseReview}
-            />
-          )}
-
           {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-calendar' && (
             <AdminCalendarPage
               applications={state.applications}
@@ -3089,6 +3214,10 @@ function App() {
               scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
               onDirtyChange={setIsAdminCatalogDirty}
+              approvalLevels={state.approvalLevels || []}
+              academicPrograms={activeAcademicPrograms}
+              onSaveApprovalLevel={saveApprovalLevel}
+              onDeleteApprovalLevel={deleteApprovalLevel}
             />
           )}
 
@@ -3102,6 +3231,9 @@ function App() {
               onRejectApplication={rejectApplication}
               onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
+              onReleaseScholarshipResults={releaseScholarshipResults}
+              resultsReleases={state.resultsReleases || []}
+              academicPrograms={activeAcademicPrograms}
               interviewWorkspace={interviewWorkspace}
             />
           )}
@@ -3121,6 +3253,9 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
+              onApproveApplication={approveApplication}
+              onRecordDeliberation={recordDeliberation}
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
             />
@@ -3134,6 +3269,9 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
+              onApproveApplication={approveApplication}
+              onRecordDeliberation={recordDeliberation}
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
               officeCalendarEntries={state.officeCalendarEntries || []}
@@ -3148,6 +3286,9 @@ function App() {
               scholarships={state.scholarships || []}
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
+              onRejectApplication={rejectApplication}
+              onApproveApplication={approveApplication}
+              onRecordDeliberation={recordDeliberation}
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
             />

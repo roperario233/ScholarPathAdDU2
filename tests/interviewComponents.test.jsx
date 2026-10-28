@@ -103,8 +103,8 @@ describe('ApplicationReviewModal default tab', () => {
 });
 
 describe('ApplicationReviewModal Interview tab', () => {
-  it('opens the schedule form for the Admissions Office at Endorsed, with the panel limited to the applicant’s school', () => {
-    const html = render({ application: application(), role: 'admissions_office', interviewWorkspace: workspace() });
+  it('opens the schedule form for the Admissions Office Head at Endorsed, with the panel limited to the applicant’s school', () => {
+    const html = render({ application: application(), role: 'admissions_head', interviewWorkspace: workspace() });
     expect(html).toContain('id="review-tab-interview"');
     expect(html).toContain('Schedule due');
     expect(html).toContain('Schedule the interview');
@@ -124,7 +124,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       application: application({
         profileSnapshot: { version: 2, yearStanding: 'incoming-1st', yearStandingLabel: 'Incoming 1st year', department: SEA },
       }),
-      role: 'admissions_office',
+      role: 'admissions_head',
       interviewWorkspace: workspace(),
     });
     expect(html).toContain('a panel from the school that offers their first program choice');
@@ -144,10 +144,34 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(buttonLabels(html)).not.toContain('Schedule interview');
   });
 
+  // Consultation 2: an interviewer (or a ladder account) whose scope covers the
+  // applicant schedules the interview itself; App.jsx answers canCoordinate.
+  it('lets a reviewer in scope schedule the interview', () => {
+    const html = render({
+      application: application(),
+      role: 'interviewer',
+      initialTab: 'interview',
+      interviewWorkspace: workspace({ viewerId: 'interviewer-sea', canCoordinate: () => true }),
+    });
+    expect(html).toContain('Schedule the interview');
+    expect(buttonLabels(html)).toContain('Schedule interview');
+  });
+
+  it('keeps Admissions Office Staff read-only at Endorsed', () => {
+    const html = render({
+      application: application(),
+      role: 'admissions_office',
+      initialTab: 'interview',
+      interviewWorkspace: workspace(),
+    });
+    expect(html).not.toContain('Schedule the interview');
+    expect(buttonLabels(html)).not.toContain('Schedule interview');
+  });
+
   it('is not shown before endorsement or without interview data', () => {
-    expect(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_office', interviewWorkspace: workspace() }))
+    expect(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_head', interviewWorkspace: workspace() }))
       .not.toContain('id="review-tab-interview"');
-    expect(render({ application: application(), role: 'admissions_office' })).not.toContain('id="review-tab-interview"');
+    expect(render({ application: application(), role: 'admissions_head' })).not.toContain('id="review-tab-interview"');
   });
 
   it('lets a Chair on the panel read the schedule and add notes without attendance controls', () => {
@@ -189,7 +213,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     // and no waiver dialog: App.jsx closes a live schedule as part of the move.
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
-      role: 'admissions_office',
+      role: 'admissions_head',
       interviewWorkspace: workspace(),
     });
     expect(html).not.toContain('The panel must record the applicant as attended first.');
@@ -213,7 +237,7 @@ describe('ApplicationReviewModal Interview tab', () => {
           calendar: { provider: 'google', eventId: 'evt-1', htmlLink: '', removedAt: null },
         },
       }),
-      role: 'admissions_office',
+      role: 'admissions_head',
       initialTab: 'interview',
       interviewWorkspace: workspace({ calendarConfigured: true, onRepairCalendar: () => ({ ok: true }) }),
     });
@@ -228,7 +252,7 @@ describe('ApplicationReviewModal Interview tab', () => {
 describe('ApplicationReviewModal interview recommendation levels', () => {
   const atInterview = () => render({
     application: application({ status: 'Interview', interview: pastInterview }),
-    role: 'admissions_office',
+    role: 'admissions_head',
     initialTab: 'interview',
     interviewWorkspace: workspace(),
   });
@@ -247,7 +271,7 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
   it('states the panel’s latest recommendation beside the deliberation action', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
-      role: 'admissions_office',
+      role: 'admissions_head',
       interviewWorkspace: workspace({
         notes: [{
           id: 'n-1',
@@ -267,10 +291,31 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
     expect(atInterview()).toContain('No panel recommendation recorded yet.');
   });
 
+  it('holds an interviewer on the panel until a recommendation level is recorded', () => {
+    const panel = [{ id: 'p-1', applicationId: 'app-1', profileId: 'interviewer-sea', name: 'Ivy Uy', isLead: true, removedAt: null }];
+    const interviewer = (notes = []) => render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'interviewer',
+      interviewWorkspace: workspace({
+        viewerId: 'interviewer-sea',
+        panelists: panel,
+        notes,
+        canCoordinate: () => true,
+        stageContextFor: () => ({ isPanelist: true, isApprover: false }),
+      }),
+    });
+    expect(buttonMarkup(interviewer(), 'Recommend for approval')).toContain('disabled=""');
+    expect(interviewer()).toContain('Recommendation note');
+    const recorded = interviewer([{ id: 'n-1', applicationId: 'app-1', authorName: 'Ivy Uy', authorRole: 'interviewer', recommendationLevel: 'highly_recommended', body: 'Ready.', createdAt: '2026-01-05T02:00:00.000Z' }]);
+    expect(buttonMarkup(recorded, 'Recommend for approval')).not.toContain('disabled=""');
+    // An interviewer never rejects: "Not recommended" is a level, not a status.
+    expect(buttonLabels(recorded)).not.toContain('Reject…');
+  });
+
   it('keeps an earlier note’s rating visible as a legacy record', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
-      role: 'admissions_office',
+      role: 'admissions_head',
       initialTab: 'interview',
       interviewWorkspace: workspace({
         notes: [{ id: 'n-1', applicationId: 'app-1', authorName: 'Ana Reyes', authorRole: 'department_chair', rating: 4, body: 'Clear goals.', createdAt: '2026-01-05T02:00:00.000Z' }],

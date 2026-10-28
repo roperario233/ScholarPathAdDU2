@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAcceptedApplicantsReport,
+  buildApplicantSummaryCsv,
   filterIntakePool,
+  getFinalCheckHints,
+  getReleaseGroups,
+  getRoutedInterviewers,
   getApprovalQueue,
   getCaseOfficers,
   getCaseOpenedAt,
@@ -20,6 +24,8 @@ import {
   isCaseOfficer,
   DEFAULT_INTAKE_POOL_FILTERS,
 } from '../src/lib/admissionsOffice';
+import { academicPrograms } from '../src/lib/academicPrograms';
+import { buildProgramScopeIndex } from '../src/lib/reviewScope';
 
 const application = (overrides = {}) => ({
   id: 'app-1',
@@ -222,7 +228,7 @@ describe('getRecentApplicationActivity', () => {
 
     expect(activity[0]).toMatchObject({
       stage: 'Endorsed',
-      note: 'Application is currently Endorsement.',
+      note: 'Application is currently For Interview.',
     });
   });
 
@@ -471,3 +477,84 @@ describe('filterIntakePool', () => {
 });
 
 
+
+// Consultation 2, #2: the office and finance work in Excel.
+describe('buildApplicantSummaryCsv', () => {
+  it('writes a UTF-8 CSV with course, year level, and income, escaping names', () => {
+    const csv = buildApplicantSummaryCsv([
+      application({
+        id: 'csv-1',
+        studentName: 'Cruz, Ada "Ads"',
+        studentProgram: 'BS Computer Science',
+        scholarshipTitle: 'Grant-in-Aid (GIA)',
+        status: 'Approved',
+        profileSnapshot: {
+          fullName: 'Cruz, Ada "Ads"',
+          studentNumber: '2024-0001',
+          yearStandingLabel: 'Incoming 2nd year',
+          academic: { label: 'QPI', value: 3.4 },
+          householdIncome: { value: 180000 },
+        },
+      }),
+    ], {
+      scopeOf: () => ({ school: 'School of Arts and Sciences (SAS)', cluster: 'Computer Studies', department: 'Computer Science Department' }),
+      recommendationOf: () => 'Highly recommended',
+    });
+    expect(csv.startsWith('﻿')).toBe(true);
+    const [header, row] = csv.slice(1).trim().split('\r\n');
+    expect(header).toContain('Year level');
+    expect(header).toContain('Annual household income (PHP)');
+    expect(row).toContain('"Cruz, Ada ""Ads"""');
+    expect(row).toContain('Incoming 2nd year');
+    expect(row).toContain('180000');
+    expect(row).toContain('Highly recommended');
+    expect(row).toContain('Computer Studies');
+  });
+});
+
+// Consultation 2, #13: the Head's final check before release.
+describe('getFinalCheckHints', () => {
+  const withParents = (overrides) => application({
+    profileSnapshot: { family: { fatherName: 'Jose Cruz', motherName: 'Maria Cruz' } },
+    ...overrides,
+  });
+
+  it('flags a sibling already on a grant and another open case of the same student', () => {
+    const current = withParents({ id: 'current', studentId: 's-1', status: 'Approved' });
+    const sibling = withParents({ id: 'sibling', studentId: 's-2', status: 'Released', studentName: 'Ben Cruz' });
+    const pending = application({ id: 'pending', studentId: 's-1', status: 'Interview' });
+    const unrelated = application({ id: 'unrelated', studentId: 's-3', status: 'Released', profileSnapshot: { family: { fatherName: 'Other Parent' } } });
+    const hints = getFinalCheckHints(current, [current, sibling, pending, unrelated]);
+    expect(hints.siblingsOnGrant.map((entry) => entry.id)).toEqual(['sibling']);
+    expect(hints.pendingCases.map((entry) => entry.id)).toEqual(['pending']);
+  });
+});
+
+describe('getReleaseGroups', () => {
+  it('groups the approved and the unreleased decided cases by scholarship', () => {
+    const groups = getReleaseGroups([
+      application({ id: 'g-approved', scholarshipId: 'gia', status: 'Approved' }),
+      application({ id: 'g-rejected', scholarshipId: 'gia', status: 'Rejected' }),
+      application({ id: 'g-released-before', scholarshipId: 'gia', status: 'Rejected' }),
+      application({ id: 'g-interview', scholarshipId: 'gia', status: 'Interview' }),
+    ], [{ id: 'gia', title: 'Grant-in-Aid (GIA)' }], [{ id: 'r-1', applicationIds: ['g-released-before'] }]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].title).toBe('Grant-in-Aid (GIA)');
+    expect(groups[0].approved.map((entry) => entry.id)).toEqual(['g-approved']);
+    expect(groups[0].decided.map((entry) => entry.id)).toEqual(['g-rejected']);
+  });
+});
+
+// Consultation 2, #12: applications reach the interviewers of their scope.
+describe('getRoutedInterviewers', () => {
+  it('routes a case to the interviewers whose scope covers it', () => {
+    const index = buildProgramScopeIndex(academicPrograms);
+    const staff = [
+      { userId: 'ogs', fullName: 'Sir Ogs', role: 'interviewer', reviewSchool: 'School of Arts and Sciences (SAS)', reviewCluster: 'Computer Studies' },
+      { userId: 'bio', fullName: 'Bio Interviewer', role: 'interviewer', reviewSchool: 'School of Arts and Sciences (SAS)', reviewCluster: 'Natural Sciences and Mathematics' },
+      { userId: 'chair', fullName: 'A Chair', role: 'department_chair', reviewDepartment: 'Computer Science Department' },
+    ];
+    const routed = getRoutedInterviewers(application({ studentProgram: 'BS Computer Science' }), staff, index);
+    expect(routed.map((entry) => entry.userId)).toEqual(['ogs']);
+  });
+});

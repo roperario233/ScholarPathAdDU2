@@ -15,8 +15,10 @@ export default function EndorsementDecisionModal({
 }) {
   const [note, setNote] = useState('');
   const isHandoff = mode === 'handoff';
-  const title = isHandoff ? 'Send for endorsement' : 'Record endorsement';
-  const confirmLabel = isHandoff ? 'Send for endorsement' : 'Endorse';
+  // Since Consultation 2 the Head's decision is the forward to interview: the
+  // verified case goes straight to the interviewers of the applicant's school.
+  const title = isHandoff ? 'Send for endorsement' : 'Forward to interview';
+  const confirmLabel = isHandoff ? 'Send for endorsement' : 'Forward to interview';
 
   return (
     <ModalShell title={title} onClose={busy ? undefined : onClose}>
@@ -40,7 +42,7 @@ export default function EndorsementDecisionModal({
         </div>
 
         <label className="grid gap-1 text-sm text-app-text">
-          <span className="font-semibold">{isHandoff ? 'Note (optional)' : 'Endorsement note'}</span>
+          <span className="font-semibold">{isHandoff ? 'Note (optional)' : 'Note for the interviewer (optional)'}</span>
           <textarea
             rows="4"
             value={note}
@@ -48,7 +50,7 @@ export default function EndorsementDecisionModal({
             onChange={(event) => setNote(event.target.value)}
             placeholder={isHandoff
               ? 'Tell the Head what was verified.'
-              : 'Record the Office of Admissions & Aid decision.'}
+              : 'What the interviewer should know about the verified case.'}
           />
         </label>
 

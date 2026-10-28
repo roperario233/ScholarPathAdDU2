@@ -252,6 +252,16 @@ export const describeApplicationStatusUpdate = (status, actorLabel = 'the review
   return `Your application status was updated to ${getApplicationStatusLabel(status)} through ${actorLabel}. Sign in to review the next steps.`;
 };
 
+// Consultation 2 (#8): applicants who were not accepted receive one general
+// letter when the scholarship's results are released, with no reason (the
+// deliberations stay confidential, FORM 230-SCH affidavit clause 6) and only the
+// number of applicants and the number accepted.
+export const describeNonAcceptanceLetter = ({ scholarshipTitle = '', applicantCount = 0, acceptedCount = 0 } = {}) => {
+  const applicants = Number(applicantCount) || 0;
+  const accepted = Number(acceptedCount) || 0;
+  return `Thank you for applying for the ${scholarshipTitle || 'scholarship'}. This application period, the Office of Admission and Aid received ${applicants} application${applicants === 1 ? '' : 's'} and was able to accept ${accepted}. We regret that your application was not among those accepted. No further action is needed for this application period.`;
+};
+
 // The interview schedule as email detail rows. The panel is described by
 // school only; panel member names never reach the applicant.
 const interviewRows = (interview) => {

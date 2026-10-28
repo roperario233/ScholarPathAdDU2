@@ -3,6 +3,7 @@ import {
   DEFAULT_FROM,
   REMINDER_OFFSET_KEYS,
   describeApplicationStatusUpdate,
+  describeNonAcceptanceLetter,
   isEmailEnabledForUser,
   isInAppEnabledForUser,
   isReminderEnabledForUser,
@@ -179,9 +180,9 @@ describe('renderApplicationStatusEmail', () => {
       status: 'Endorsed',
       siteUrl: 'https://example.org/',
     });
-    expect(subject).toBe('Application update: Endorsement');
-    expect(html).toContain('Endorsement');
-    expect(text).toContain('New status: Endorsement');
+    expect(subject).toBe('Application update: For Interview');
+    expect(html).toContain('For Interview');
+    expect(text).toContain('New status: For Interview');
   });
 
   it('names the hand-off stage as awaiting endorsement', () => {
@@ -254,5 +255,16 @@ describe('renderTestEmail', () => {
     const disabled = renderTestEmail({ fullName: 'Juan Cruz', emailEnabled: false, siteUrl: 'https://example.org/' });
     expect(disabled.html).toContain('Disabled');
     expect(disabled.text).toContain('Email notifications: Disabled');
+  });
+});
+
+// Consultation 2, #8: a general letter with the counts and no reason.
+describe('describeNonAcceptanceLetter', () => {
+  it('states the number of applicants and accepted without a reason', () => {
+    const letter = describeNonAcceptanceLetter({ scholarshipTitle: 'Grant-in-Aid (GIA)', applicantCount: 120, acceptedCount: 35 });
+    expect(letter).toContain('received 120 applications');
+    expect(letter).toContain('accept 35');
+    expect(letter).toContain('not among those accepted');
+    expect(letter.toLowerCase()).not.toContain('reason');
   });
 });

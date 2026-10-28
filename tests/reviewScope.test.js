@@ -4,13 +4,16 @@ import {
   PANEL_LEVEL_ORDER,
   REVIEWER_ROLES,
   buildProgramScopeIndex,
+  DEFAULT_APPROVER_ROLE,
   getApplicationScope,
+  getApproverRoleForApplication,
   getPanelCandidateLevel,
   getReviewPageLabel,
   getReviewScopeLabel,
   getReviewerScope,
   getScopedQueue,
   isApplicationInReviewerScope,
+  isApproverForApplication,
   isReviewerRole,
 } from '../src/lib/reviewScope';
 
@@ -31,8 +34,9 @@ const application = (overrides = {}) => ({
 });
 
 describe('reviewer scope ladder', () => {
-  it('names the three academic levels and no others', () => {
-    expect(REVIEWER_ROLES).toEqual(['dean', 'assistant_dean', 'department_chair']);
+  it('names the three academic levels plus the interviewer and no others', () => {
+    expect(REVIEWER_ROLES).toEqual(['dean', 'assistant_dean', 'department_chair', 'interviewer']);
+    expect(isReviewerRole('interviewer')).toBe(true);
     expect(isReviewerRole('dean')).toBe(true);
     expect(isReviewerRole('assistant_dean')).toBe(true);
     expect(isReviewerRole('department_chair')).toBe(true);
@@ -146,5 +150,66 @@ describe('panel candidate levels (SOP 5a)', () => {
   it('returns null for a reviewer outside the applicant’s scope', () => {
     // A Chairperson of another department in the same cluster.
     expect(getPanelCandidateLevel({ role: 'department_chair', reviewDepartment: 'Physics Department' }, application(), index)).toBe(null);
+  });
+});
+
+// Consultation 2: an interviewer holds one level and receives the applicants of
+// that level automatically, mirroring public.reviewer_scopes_to_student().
+describe('interviewer scope', () => {
+  const index = buildProgramScopeIndex(academicPrograms);
+
+  it('scopes an interviewer to the one level it holds', () => {
+    const clusterInterviewer = { role: 'interviewer', reviewSchool: SAS, reviewCluster: 'Computer Studies' };
+    expect(getReviewerScope(clusterInterviewer).level).toBe('cluster');
+    expect(isApplicationInReviewerScope(application(), getReviewerScope(clusterInterviewer), index)).toBe(true);
+    expect(isApplicationInReviewerScope(application({ studentProgram: 'BS Biology Major in General Biology' }), getReviewerScope(clusterInterviewer), index)).toBe(false);
+
+    const departmentInterviewer = { role: 'interviewer', reviewDepartment: 'Computer Science Department' };
+    expect(getReviewerScope(departmentInterviewer).level).toBe('department');
+    expect(isApplicationInReviewerScope(application({ studentProgram: 'BS Information Technology' }), getReviewerScope(departmentInterviewer), index)).toBe(false);
+
+    const schoolInterviewer = { role: 'interviewer', reviewSchool: SAS };
+    expect(getReviewerScope(schoolInterviewer).level).toBe('school');
+    expect(getReviewPageLabel('interviewer')).toBe('Interview Queue');
+  });
+
+  it('reads nothing for an interviewer with no scope yet', () => {
+    const unscoped = { role: 'interviewer', department: SAS };
+    expect(getReviewerScope(unscoped).level).toBe('');
+    expect(getScopedQueue([application()], unscoped, academicPrograms)).toEqual([]);
+  });
+
+  it('suggests an in-scope interviewer for the panel', () => {
+    expect(getPanelCandidateLevel({ role: 'interviewer', reviewSchool: SAS, reviewCluster: 'Computer Studies' }, application(), index)).toBe('cluster');
+    expect(getPanelCandidateLevel({ role: 'interviewer', reviewSchool: SBG }, application(), index)).toBe(null);
+  });
+});
+
+// SOP step 7 routing, mirroring public.approver_role_for_student().
+describe('approving level by school', () => {
+  const index = buildProgramScopeIndex(academicPrograms);
+  const levels = [
+    { school: 'School of Education (SOE)', cluster: '', approverRole: 'dean' },
+    { school: SEA, cluster: '', approverRole: 'department_chair' },
+    { school: SAS, cluster: 'Computer Studies', approverRole: 'assistant_dean' },
+  ];
+
+  it('prefers the cluster row, then the school row, else the Chairperson', () => {
+    expect(getApproverRoleForApplication(application(), levels, index)).toBe('assistant_dean');
+    expect(getApproverRoleForApplication(application({ studentProgram: 'BS Biology Major in General Biology' }), levels, index)).toBe(DEFAULT_APPROVER_ROLE);
+    expect(getApproverRoleForApplication(application({ studentProgram: 'BS Civil Engineering', studentSchool: SEA }), levels, index)).toBe('department_chair');
+    expect(getApproverRoleForApplication(application(), [], index)).toBe('department_chair');
+  });
+
+  it('names the in-scope reviewer at that level as the approver, and nobody else', () => {
+    expect(isApproverForApplication(application(), assistantDean, levels, index)).toBe(true);
+    // The Computer Science Chairperson is in scope but not the configured level.
+    expect(isApproverForApplication(application(), chair, levels, index)).toBe(false);
+    // Without a cluster row the Chairperson approves.
+    expect(isApproverForApplication(application(), chair, [], index)).toBe(true);
+    // An interviewer never approves.
+    expect(isApproverForApplication(application(), { role: 'interviewer', reviewSchool: SAS, reviewCluster: 'Computer Studies' }, levels, index)).toBe(false);
+    // A Dean of another school is out of scope.
+    expect(isApproverForApplication(application(), dean, [{ school: SAS, cluster: '', approverRole: 'dean' }], index)).toBe(false);
   });
 });

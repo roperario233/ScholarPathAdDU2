@@ -29,7 +29,10 @@ const fieldError = 'text-xs text-rose-700 dark:text-rose-200';
 const roleLabels = {
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
+  dean: 'Dean',
+  assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',
+  interviewer: 'Interviewer',
 };
 
 const stateTone = (state) => ({ scheduled: 'info', completed: 'success', no_show: 'warning', cancelled: 'danger' }[state] || 'neutral');
@@ -212,22 +215,50 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
         <div className="grid gap-2">
           <fieldset className="grid gap-1">
             <legend className="text-sm font-semibold text-app-text">Meeting</legend>
-            <div role="radiogroup" aria-label="Meeting link source" className="inline-flex w-fit rounded-xl border border-app-border bg-app-surface p-1">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={effectiveMeetingChoice === 'auto'}
-                disabled={!autoMeetingAvailable}
-                onClick={() => chooseMeeting('auto')}
-                className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 ${effectiveMeetingChoice === 'auto' ? 'bg-ateneo text-white shadow-sm' : 'text-app-muted hover:text-app-text'}`}
-              >Generate a Google Meet link</button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={effectiveMeetingChoice === 'paste'}
-                onClick={() => chooseMeeting('paste')}
-                className={`min-h-10 rounded-lg px-4 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${effectiveMeetingChoice === 'paste' ? 'bg-ateneo text-white shadow-sm' : 'text-app-muted hover:text-app-text'}`}
-              >Use an existing link</button>
+            <div role="radiogroup" aria-label="Meeting link source" className="grid gap-2 sm:grid-cols-2">
+              {[
+                {
+                  value: 'auto',
+                  title: 'Generate a Google Meet link',
+                  hint: 'Created with the calendar invitation',
+                  disabled: !autoMeetingAvailable,
+                  icon: <path d="M15 10l4.55-2.28A1 1 0 0121 8.62v6.76a1 1 0 01-1.45.9L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />,
+                },
+                {
+                  value: 'paste',
+                  title: 'Use an existing link',
+                  hint: 'Paste a Meet, Zoom, or Teams link',
+                  disabled: false,
+                  icon: <path d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.5 1.5M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.5-1.5" />,
+                },
+              ].map((option) => {
+                const selected = effectiveMeetingChoice === option.value;
+                return (
+                  <label
+                    key={option.value}
+                    className={`relative flex items-start gap-3 rounded-xl border p-3 transition focus-within:ring-4 focus-within:ring-blue-500/20 ${option.disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${selected ? 'border-ateneo bg-blue-500/10 shadow-sm' : 'border-app-border bg-app-surface hover:border-ateneo/50'}`}
+                  >
+                    <input
+                      type="radio"
+                      name="interview-meeting-source"
+                      className="sr-only"
+                      checked={selected}
+                      disabled={option.disabled}
+                      onChange={() => chooseMeeting(option.value)}
+                    />
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${selected ? 'bg-ateneo text-white' : 'bg-app-card text-app-muted'}`}>
+                      <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{option.icon}</svg>
+                    </span>
+                    <span className="grid min-w-0 flex-1 gap-0.5">
+                      <span className="text-sm font-semibold text-app-text">{option.title}</span>
+                      <span className="text-xs text-app-muted">{option.hint}</span>
+                    </span>
+                    <span aria-hidden="true" className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 ${selected ? 'border-ateneo bg-ateneo' : 'border-app-border'}`}>
+                      {selected ? <span className="h-2 w-2 rounded-full bg-white" /> : null}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
             <span className="text-xs text-app-muted">
               {autoMeetingAvailable
@@ -430,7 +461,7 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, role
           </dd>
         </div>
         <div className="grid gap-0.5 sm:col-span-2">
-          <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Panel · {interview.school || applicantSchool || 'Applicant school'}</dt>
+          <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Panel · {interview.school || application?.studentSchool || 'Applicant school'}</dt>
           <dd className="m-0"><PanelList panel={panel} roleById={roleById} /></dd>
         </div>
         {interview.instructions ? (
@@ -573,6 +604,11 @@ export default function InterviewPanel({
   const [locationsOpen, setLocationsOpen] = useState(false);
 
   const isOffice = role === 'admissions_office' || role === 'admissions_head';
+  // Consultation 2: the interviewer schedules its own interviews, and a
+  // Chairperson, Assistant Dean, or Dean whose scope covers the applicant may run
+  // the interview itself. The Head keeps the office override; Staff only read.
+  const isHead = role === 'admissions_head';
+  const mayCoordinate = workspace.canCoordinate ? Boolean(workspace.canCoordinate(application)) : isHead;
   const interview = application.interview || null;
   const structured = isStructuredInterview(interview);
   const panel = (workspace.panelists || []).filter((row) => row.applicationId === application.id && !row.removedAt);
@@ -580,8 +616,8 @@ export default function InterviewPanel({
   const isPanelist = isReviewerRole(role) && panel.some((row) => row.profileId && row.profileId === workspace.viewerId);
   const nameById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
   const roleById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']));
-  const canCoordinate = isOffice && ['Endorsed', 'Interview'].includes(application.status);
-  const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isOffice || isPanelist);
+  const canCoordinate = mayCoordinate && ['Endorsed', 'Interview'].includes(application.status);
+  const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isHead || isPanelist);
   // Repair is a recovery action, so it only appears when Google and the record
   // actually disagree: a cancelled interview whose event survived, a scheduled
   // interview with no event, or an online interview whose event has no link. The
@@ -590,7 +626,7 @@ export default function InterviewPanel({
   // Repair is not a scheduling action: a cancelled interview whose Google event
   // survived the waiver must still be cleanable after the application moved on to
   // the recommendation, where scheduling itself is no longer offered.
-  const canRepairCalendar = isOffice && needsCalendarRepair
+  const canRepairCalendar = mayCoordinate && needsCalendarRepair
     && Boolean(workspace.calendarConfigured) && Boolean(workspace.onRepairCalendar);
   const showForm = canCoordinate && (application.status === 'Endorsed' || editing);
 
@@ -678,7 +714,7 @@ export default function InterviewPanel({
         <Panel>
           <p className="m-0 text-sm text-app-muted">
             {application.status === 'Endorsed'
-              ? 'Not scheduled yet. The panel comes from the applicant\'s school.'
+              ? 'Not scheduled yet. An interviewer from the applicant\'s school schedules it.'
               : 'No interview was recorded for this application.'}
           </p>
         </Panel>

@@ -55,7 +55,7 @@ describe('EndorsementCasePanel', () => {
       />,
     );
 
-    expect(html).toContain('Endorsement record');
+    expect(html).toContain('Forwarding record');
     expect(html).toContain('Sent to endorsement');
     expect(html).toContain('Internal comments');
     // Endorsement belongs to the Office of Admissions & Aid, so the Chair is
@@ -66,7 +66,21 @@ describe('EndorsementCasePanel', () => {
     expect(html).not.toContain('Endorsement checklist');
   });
 
-  it('points the Admissions Office at the action bar instead of rendering the hand-off button', () => {
+  it('points the Head at the action bar instead of rendering the forward button', () => {
+    const html = renderToStaticMarkup(
+      <EndorsementCasePanel
+        application={application({ status: 'For Verification', statusLog: [] })}
+        documents={documents}
+        role="admissions_head"
+      />,
+    );
+
+    expect(html).toContain('Forward the application to interview from the action bar below.');
+    expect(html).toContain('1 of 1 attached documents verified');
+    expect(buttonLabels(html)).not.toContain('Forward to interview');
+  });
+
+  it('gives Admissions Office Staff no forwarding hint', () => {
     const html = renderToStaticMarkup(
       <EndorsementCasePanel
         application={application({ status: 'For Verification', statusLog: [] })}
@@ -75,9 +89,7 @@ describe('EndorsementCasePanel', () => {
       />,
     );
 
-    expect(html).toContain('Send the application for endorsement from the action bar below.');
-    expect(html).toContain('1 of 1 attached documents verified');
-    expect(buttonLabels(html)).not.toContain('Send to endorsement');
+    expect(html).not.toContain('from the action bar below.');
   });
 
   it('shows the recorded decision after endorsement', () => {
@@ -97,7 +109,7 @@ describe('EndorsementCasePanel', () => {
       />,
     );
 
-    expect(html).toContain('Endorsed');
+    expect(html).toContain('Forwarded to interview');
     expect(html).toContain('Meets the criteria.');
   });
 });
@@ -127,11 +139,11 @@ describe('ApplicationReviewModal endorsement tab', () => {
     );
 
     expect(html).toContain('id="review-tab-endorsement"');
-    expect(html).toContain('Endorsement record');
+    expect(html).toContain('Forwarding record');
     expect(html).toContain('All attached files are verified.');
     expect(html).not.toContain('Endorsement checklist');
-    // One action surface only: the Head's Endorse button renders once.
-    expect(buttonLabels(html).filter((label) => label === 'Endorse')).toHaveLength(1);
+    // One action surface only: the Head's forward button renders once.
+    expect(buttonLabels(html).filter((label) => label === 'Forward to interview')).toHaveLength(1);
   });
 
   it('gives the Department Chair no endorsement action', () => {
@@ -149,10 +161,10 @@ describe('ApplicationReviewModal endorsement tab', () => {
     );
 
     expect(html).toContain('id="review-tab-endorsement"');
-    expect(buttonLabels(html).filter((label) => label === 'Endorse')).toHaveLength(0);
-    // The endorsement decision is the Office of Admissions & Aid's, so the Chair
-    // is told who holds it rather than offered a button.
-    expect(html).toContain('Awaiting the Office of Admissions &amp; Aid endorsement decision.');
+    expect(buttonLabels(html).filter((label) => label === 'Forward to interview')).toHaveLength(0);
+    // The forward to interview is the Head's, so the Chair is told who holds it
+    // rather than offered a button.
+    expect(html).toContain('The Admissions Office Head verifies the documents before the interview.');
   });
 
   it('keeps the Endorsement tab hidden until the case reaches endorsement', () => {
@@ -188,7 +200,7 @@ describe('ApplicationReviewModal endorsement tab', () => {
     );
 
     expect(html).toContain('id="review-tab-endorsement"');
-    expect(html).toContain('Endorsement record');
+    expect(html).toContain('Forwarding record');
     expect(html).toContain('Sent to endorsement');
     // The hand-off is done, so the office has no hand-off button to show twice.
     expect(buttonLabels(html).filter((label) => label === 'Send to endorsement')).toHaveLength(0);

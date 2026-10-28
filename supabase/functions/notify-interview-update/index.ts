@@ -39,6 +39,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+
+// Consultation 2: an interviewer, or a Chairperson / Assistant Dean / Dean whose
+// scope covers the applicant, schedules and runs the interview. Scope is decided
+// by public.reviewer_scopes_to_student() evaluated as the caller (its JWT), the
+// same predicate behind every reviewer row-level policy.
+const SCOPED_REVIEWER_ROLES = ['dean', 'assistant_dean', 'department_chair', 'interviewer'];
+const callerScopesToStudent = async (token: string, studentId: string) => {
+  const callerClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } },
+  );
+  const { data, error } = await callerClient.rpc('reviewer_scopes_to_student', { p_student_id: studentId });
+  return !error && data === true;
+};
+
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -66,6 +82,7 @@ Deno.serve(async (req) => {
     { auth: { persistSession: false } },
   );
 
+  let callerRole: string | null = null;
   if (!isTrustedDatabaseCaller) {
     const { data: jwtUser, error: jwtError } = await supabaseAdmin.auth.getUser(token);
     if (jwtError || !jwtUser?.user) {
@@ -76,8 +93,9 @@ Deno.serve(async (req) => {
       .select('role')
       .eq('user_id', jwtUser.user.id)
       .maybeSingle();
-    if (!['admissions_office', 'admissions_head'].includes(callerProfile?.role)) {
-      return json({ error: 'Only the Admissions Office can send interview notifications' }, 403);
+    callerRole = callerProfile?.role ?? null;
+    if (!['admissions_office', 'admissions_head', ...SCOPED_REVIEWER_ROLES].includes(callerRole ?? '')) {
+      return json({ error: 'Only the Admissions Office or an interviewer of this applicant can send interview notifications' }, 403);
     }
   }
 
@@ -102,6 +120,9 @@ Deno.serve(async (req) => {
   }
   if (!application) {
     return json({ error: 'Application not found' }, 404);
+  }
+  if (callerRole && SCOPED_REVIEWER_ROLES.includes(callerRole) && !(await callerScopesToStudent(token, application.student_id))) {
+    return json({ error: 'This applicant is outside your review scope' }, 403);
   }
 
   const interview = application.interview;

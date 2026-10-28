@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  renderNonAcceptanceLetterSms,
   formatPhilippineMobile,
   getSmsConfig,
   isSmsEnabledForUser,
@@ -114,7 +115,7 @@ describe('renderApplicationStatusSms', () => {
 
   it('shows the endorsement phase label for the stored Endorsed status', () => {
     expect(renderApplicationStatusSms({ scholarshipTitle: 'GIA Grant', status: 'Endorsed' }).message)
-      .toBe('ScholarPath AdDU: your application for GIA Grant is now Endorsement. Sign in to view details.');
+      .toBe('ScholarPath AdDU: your application for GIA Grant is now For Interview. Sign in to view details.');
   });
 });
 
@@ -142,5 +143,13 @@ describe('renderTestSms', () => {
   it('reports the current SMS toggle state', () => {
     expect(renderTestSms({ fullName: 'Juan Cruz', smsEnabled: true }).message).toContain('toggle is ON');
     expect(renderTestSms({ fullName: 'Juan Cruz', smsEnabled: false }).message).toContain('toggle is currently OFF');
+  });
+});
+
+describe('renderNonAcceptanceLetterSms', () => {
+  it('carries the counts and no reason', () => {
+    const { message } = renderNonAcceptanceLetterSms({ scholarshipTitle: 'GIA Grant', applicantCount: 40, acceptedCount: 12 });
+    expect(message).toContain('12 of 40 applicants were accepted');
+    expect(message.toLowerCase()).not.toContain('reason');
   });
 });
