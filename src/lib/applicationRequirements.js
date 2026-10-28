@@ -723,7 +723,7 @@ const asNumberOrNull = (value) => (value == null || value === '' || !Number.isFi
 // The self-reported profile values sent with a submission, frozen on the
 // application so the student and the reviewers see what was declared at submit
 // time. Values are self-reported; the badges reflect Document Vault proof only.
-// The default scholarship statement (`essay`) is left out because the
+// The default statement/essay (`essay`) is left out because the
 // application stores its own statement.
 export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, capturedAt = new Date().toISOString()) => {
   const academic = getAcademicRequirement(profile);

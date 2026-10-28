@@ -1,4 +1,4 @@
-// Fixed text the application shows: the scholarship essay topic, the data
+// Fixed text the application shows: the statement/essay topic, the data
 // privacy notice, and the affidavit of agreement. The notice and the seven
 // clauses are plain-language wording written for the prototype in the spirit of
 // FORM 230-SCH; they are not a verbatim copy of the printed form.

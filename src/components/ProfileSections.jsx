@@ -20,7 +20,6 @@ import {
 import {
   ADDRESS_MAX_LENGTH,
   AWARDS_MAX_LENGTH,
-  BIO_MAX_LENGTH,
   COUNTRY_MAX_LENGTH,
   ESSAY_MAX_LENGTH,
   MAX_GRANT_ROWS,
@@ -354,8 +353,8 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
       )}
       <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
         <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
-          <span className="text-sm font-semibold text-app-text">Default statement</span>
-          <span className="text-xs text-app-muted">Optional. Prefills each application statement.</span>
+          <span className="text-sm font-semibold text-app-text">Default statement/essay</span>
+          <span className="text-xs text-app-muted">Optional. Prefills each application's statement/essay.</span>
         </span>
         <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <StatusBadge tone={hasDefaultStatement ? 'success' : 'neutral'}>{hasDefaultStatement ? 'Saved' : 'Not set'}</StatusBadge>
@@ -556,7 +555,6 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       lastName: asText(profile.lastName) || legacyParts.lastName,
       fullName: asText(profile.fullName),
       phone: asText(profile.phone),
-      bio: asText(profile.bio),
       religion: asText(profile.religion),
       civilStatus: asText(profile.civilStatus),
       birthdate: asText(profile.birthdate),
@@ -616,11 +614,8 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         {isStudent && <SelectField label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} />}
         {isStudent && <FormField label="Preferred pronouns" hint="Optional." error={errors.pronouns}><input className={controlClass} value={values.pronouns} onChange={(event) => update({ pronouns: event.target.value.slice(0, PRONOUNS_MAX_LENGTH) })} placeholder="e.g. she/her" aria-invalid={Boolean(errors.pronouns)} /></FormField>}
       </div>
-      <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
-        <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
-      </FormField>
       {isStudent && (
-        <FormField label="Default scholarship statement" hint={`Optional. Prefills each new application. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
+        <FormField label="Default statement/essay" hint={`Optional. Prefills each new application. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
           <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances." aria-invalid={Boolean(errors.essay)} />
         </FormField>
       )}

@@ -306,12 +306,12 @@ export default function ApplicationWorkspaceModal({
     setStatementMessage(result?.error || 'Draft saved.');
   };
 
-  // The profile's default statement is a reusable template: it can replace this
+  // The profile's default statement/essay is a reusable template: it can replace this
   // draft's text, or this text can become the default for future applications.
   const defaultStatement = String(profile?.essay || '');
 
   const applyDefaultStatement = () => {
-    if (statement.trim() && !window.confirm('Replace this statement with your default scholarship statement from My Profile?')) return;
+    if (statement.trim() && !window.confirm('Replace this statement with your default statement/essay from My Profile?')) return;
     setStatement(defaultStatement);
     setStatementMessage('');
   };
@@ -319,7 +319,7 @@ export default function ApplicationWorkspaceModal({
   const saveAsDefault = async () => {
     setStatementMessage('');
     const result = await onSaveProfile({ essay: statement.trim() });
-    setStatementMessage(result?.success ? 'Saved as your default scholarship statement.' : result?.message || 'Unable to save your default statement.');
+    setStatementMessage(result?.success ? 'Saved as your default statement/essay.' : result?.message || 'Unable to save your default statement/essay.');
   };
 
   const handleClose = () => {
@@ -426,7 +426,7 @@ export default function ApplicationWorkspaceModal({
           {current === 'statement' && (
             <section className="grid gap-3" aria-label="Application statement">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Scholarship essay</span>
+                <span className="text-sm font-semibold text-app-text">Statement/essay</span>
                 <span className="text-sm text-app-muted">{ESSAY_TOPIC}</span>
                 <small className="field-hint">{ESSAY_INSTRUCTION}</small>
                 <textarea
@@ -436,11 +436,11 @@ export default function ApplicationWorkspaceModal({
                   onChange={(event) => { setStatement(event.target.value); setStatementMessage(''); }}
               placeholder="Describe your circumstances, goals, and how this scholarship helps."
                 />
-                <small className="field-hint">Starts from your default statement. Changes apply to this application unless you save them as your default. {wordCount} of about {ESSAY_TARGET_WORDS} words · {statement.length}/{ESSAY_MAX_LENGTH} characters</small>
+                <small className="field-hint">Starts from your default statement/essay. Changes apply to this application unless you save them as your default. {wordCount} of about {ESSAY_TARGET_WORDS} words · {statement.length}/{ESSAY_MAX_LENGTH} characters</small>
               </label>
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="button" onClick={saveStatement} disabled={statement === (application.statement || '')}>Save draft</Button>
-                <Button type="button" variant="ghost" onClick={applyDefaultStatement} disabled={!defaultStatement || statement === defaultStatement}>Use my default statement</Button>
+                <Button type="button" variant="ghost" onClick={applyDefaultStatement} disabled={!defaultStatement || statement === defaultStatement}>Use my default statement/essay</Button>
                 <Button type="button" variant="ghost" onClick={saveAsDefault} disabled={!statement.trim() || statement.trim() === defaultStatement.trim()}>Save as my default</Button>
                 {statementMessage ? <span className="text-sm text-app-muted" role="status">{statementMessage}</span> : null}
               </div>

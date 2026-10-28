@@ -1241,7 +1241,7 @@ function App() {
       notes: isInternal
         ? 'Created from the scholarship explorer.'
         : 'Tracked from the scholarship explorer. Apply through the provider.',
-      // The default scholarship statement from My Profile is the starting statement.
+      // The default statement/essay from My Profile is the starting statement.
       statement: isInternal ? String(state.profileDraft?.essay || '') : '',
       profileSnapshot: null,
       certifiedAt: null,

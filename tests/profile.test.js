@@ -166,20 +166,19 @@ describe('FORM 230-SCH applicant status and name parts', () => {
 });
 
 describe('section validators', () => {
-  it('normalizes personal information and limits the bio length', () => {
-    const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ', religion: 'Roman Catholic', civilStatus: 'Single' });
+  it('normalizes personal information and requires a full name', () => {
+    const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
+    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
 
-    expect(validatePersonalSection({ fullName: 'A', bio: 'x'.repeat(281) }).errors).toMatchObject({
+    expect(validatePersonalSection({ fullName: 'A' }).errors).toMatchObject({
       fullName: expect.any(String),
-      bio: expect.any(String),
     });
     // An unknown religion or civil status is rejected.
     expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Jedi', civilStatus: 'Single' }).errors.religion).toBeTruthy();
   });
 
-  it('keeps paragraph breaks in the scholarship essay and enforces the cap', () => {
+  it('keeps paragraph breaks in the statement/essay and enforces the cap', () => {
     const kept = validatePersonalSection({ fullName: 'Ana Cruz', essay: '  First paragraph.\n\nSecond paragraph.  ' });
     expect(kept.errors).toEqual({});
     expect(kept.values.essay).toBe('First paragraph.\n\nSecond paragraph.');
@@ -567,7 +566,7 @@ describe('getProfileCompleteness', () => {
     ...studentProfile,
     academicStanding: 'good',
     civilStatus: 'Single',
-    essay: 'My scholarship essay.',
+    essay: 'My statement/essay.',
     studentNumber: '2023001',
     completeAddress: '123 Rizal St, Davao City',
     ipCommunity: 'No',
@@ -581,7 +580,7 @@ describe('getProfileCompleteness', () => {
     const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
-    // The default scholarship statement is an optional template, not a tracked item.
+    // The default statement/essay is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
     expect(completeness.percent).toBe(Math.round((20 / 21) * 100));
   });

@@ -73,8 +73,8 @@ export const PROFILE_DETAIL_KEYS = [
   'ipGroupName',
   'previousGrants',
   'communityService',
-  // A longer free-text scholarship essay the student writes once and can reuse
-  // across applications. Unlike the short bio it keeps its paragraph breaks.
+  // The longer free-text statement/essay the student writes once and can reuse
+  // across applications. It keeps its paragraph breaks.
   'essay',
 ];
 
@@ -457,7 +457,6 @@ export const getDocumentSelectionForType = (documentType, profile = null) => (
   encodeDocumentSelection(getProvenAttributes(documentType, profile)[0] || '', documentType || '')
 );
 
-export const BIO_MAX_LENGTH = 280;
 export const ESSAY_MAX_LENGTH = 5000;
 export const FULL_NAME_MAX_LENGTH = 100;
 export const NAME_PART_MAX_LENGTH = 60;
@@ -1037,9 +1036,8 @@ const validateRows = (raw, { max, label, columns, required = [] }) => {
 };
 
 export const validatePersonalSection = (form = {}) => {
-  const bio = String(form.bio ?? '').trim();
-  // The essay is longer than the bio and keeps its paragraph breaks, so it is
-  // only trimmed at the edges and capped, never whitespace-collapsed.
+  // The statement/essay keeps its paragraph breaks, so it is only trimmed at the
+  // edges and capped, never whitespace-collapsed.
   const essay = String(form.essay ?? '').trim();
   const result = collect({
     firstName: validateText(form.firstName, { max: NAME_PART_MAX_LENGTH, message: `Keep your first name within ${NAME_PART_MAX_LENGTH} characters.` }),
@@ -1047,16 +1045,13 @@ export const validatePersonalSection = (form = {}) => {
     lastName: validateText(form.lastName, { max: NAME_PART_MAX_LENGTH, message: `Keep your last name within ${NAME_PART_MAX_LENGTH} characters.` }),
     fullName: validateFullName(form.fullName),
     phone: validateMobileNumber(form.phone),
-    bio: bio.length > BIO_MAX_LENGTH
-      ? { value: bio, error: `Keep your bio within ${BIO_MAX_LENGTH} characters.` }
-      : ok(bio),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
     birthdate: validateOptionalDate(form.birthdate, { label: 'your birthdate' }),
     sexAtBirth: oneOf(form.sexAtBirth || '', sexAtBirthOptions, 'Choose an option.'),
     pronouns: validateText(form.pronouns, { max: PRONOUNS_MAX_LENGTH, message: `Keep the pronouns within ${PRONOUNS_MAX_LENGTH} characters.` }),
     essay: essay.length > ESSAY_MAX_LENGTH
-      ? { value: essay, error: `Keep your default statement within ${ESSAY_MAX_LENGTH} characters.` }
+      ? { value: essay, error: `Keep your default statement/essay within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
   // The name parts are what FORM 230-SCH prints (Last, First, Middle), so once
