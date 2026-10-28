@@ -184,7 +184,7 @@ const buildOutdatedProofNotification = ({ key, reason, sourceKey }, ownerId = nu
     // alert concerns future applications only and says so.
     body: `${reason === 'year'
       ? `A new academic year has started, so your ${label} proof from the previous year no longer verifies this attribute. Upload a current proof in the Document Vault before your next application.`
-      : `Your ${label} in My Profile changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault before your next application.`} Applications you already submitted keep the values you declared when you submitted them.`,
+      : `Your ${label} in your Application Form changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault before your next application.`} Applications you already submitted keep the values you declared when you submitted them.`,
     status: 'Unread',
     createdAt: new Date().toISOString().slice(0, 10),
   };
@@ -2704,10 +2704,16 @@ function App() {
     ]
     : [];
 
+  // A student's My Profile is their scholarship application form (FORM 230-SCH),
+  // so it is named and placed as the first thing to complete, right after the
+  // Dashboard. Staff keep "My Profile" at the end of their list.
+  const profilePageLabel = state.viewerRole === 'student' ? 'Application Form' : 'My Profile';
+
   // Dashboard belongs to the student only: each staff, head, and Chair role has
   // its own landing workspace (the office Dashboard, or Department Review).
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: state.viewerRole === 'student' },
+    { view: 'profile', label: profilePageLabel, visible: state.viewerRole === 'student' },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
@@ -2716,7 +2722,7 @@ function App() {
     { view: 'review', label: getReviewPageLabel(state.viewerRole), visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-interviews', label: 'Interviews', visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-calendar', label: 'Calendar', visible: isReviewerRole(state.viewerRole) },
-    { view: 'profile', label: 'My Profile', visible: true },
+    { view: 'profile', label: profilePageLabel, visible: state.viewerRole !== 'student' },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
@@ -2820,7 +2826,7 @@ function App() {
               type="button"
               className="mr-1 inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:hidden"
               title={`${state.authUser.fullName} · ${roleLabels[state.viewerRole]}`}
-              aria-label="Open My Profile"
+              aria-label={`Open ${profilePageLabel}`}
               onClick={() => navigate('profile')}
             >
               <ProfileAvatar src={avatarPreview.url} name={state.authUser.fullName} size="sm" />
@@ -3215,6 +3221,7 @@ function App() {
               documents={studentDocuments}
               onAttachProof={(attributeKey) => navigate('vault', { attribute: attributeKey })}
               onUploadDocument={(preset) => navigate('vault', preset)}
+              onFindScholarship={() => navigate('explore')}
               previewProofImpact={state.viewerRole === 'student'
                 ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
                 : undefined}
@@ -3223,6 +3230,7 @@ function App() {
 
           {state.activeView === 'settings' && (
             <SettingsViewPage
+              profilePageLabel={profilePageLabel}
               notificationPreferences={state.notificationPreferences}
               sessionTimeoutConfig={sessionTimeoutConfig}
               isEmailDeliveryAvailable={isSupabaseWorkspaceLoaded}

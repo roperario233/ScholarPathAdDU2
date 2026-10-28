@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyApplicantStatus,
   applyYearStanding,
+  getApplicationFormProgress,
+  getNextApplicationFormSection,
+  isParentNameAnswered,
   composeFullName,
   deriveYearStanding,
   getApplicantStatus,
@@ -76,6 +79,8 @@ const formCore = {
   sexAtBirth: 'Female',
   communityService: 'Yes',
   schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' },
+  // Each parent's name (or an unknown parent) is needed to apply.
+  familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes' },
   financialProfile: {
     economicStatus: 'lower',
     father: { employmentStatus: 'employed', annualIncome: 120000 },
@@ -204,11 +209,13 @@ describe('section validators', () => {
     });
     expect(result.errors).toEqual({});
     expect(result.values.familyDetails).toEqual({
+      fatherUnknown: false,
       fatherName: 'Roberto Espinosa',
       fatherOccupation: 'Fisherman',
       fatherDeceased: false,
       fatherAge: '',
       fatherDateOfDeath: '',
+      motherUnknown: false,
       motherName: 'Liza Espinosa',
       motherOccupation: '',
       motherDeceased: true,
@@ -582,14 +589,14 @@ describe('getProfileCompleteness', () => {
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
     // The default statement/essay is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
-    expect(completeness.percent).toBe(Math.round((20 / 21) * 100));
+    expect(completeness.percent).toBe(Math.round((22 / 23) * 100));
   });
 
   it('separates what an application needs from the descriptive details', () => {
     const completeness = getProfileCompleteness(completeStudent, 'student');
-    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
+    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'fatherName', 'motherName', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
     expect(keysOf(completeness, 'details')).toEqual([]);
-    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 21, 21]]);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 23, 23]]);
     expect(completeness.percent).toBe(100);
   });
 
@@ -797,7 +804,7 @@ describe('getApplicationProfileGate', () => {
     const gate = getApplicationProfileGate({ ...complete, citizenship: '', qpi: '' });
     expect(gate.allowed).toBe(false);
     expect(gate.missing.map((item) => [item.key, item.section])).toEqual([['qpi', 'academic'], ['citizenship', 'background']]);
-    expect(gate.reasons[0]).toBe('Complete your profile before applying: Annual QPI, Citizenship.');
+    expect(gate.reasons[0]).toBe('Complete your Application Form before applying: Annual QPI, Citizenship.');
   });
 
   it('asks an incoming first-year for the senior high school average instead of a QPI', () => {
@@ -874,5 +881,77 @@ describe('FORM 230-SCH core answers', () => {
     expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'unemployed', annualIncome: '' } } }, 'mother')).toBe(false);
     expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'retired', annualIncome: 10 } } }, 'mother')).toBe(false);
     expect(isParentFinancesAnswered({}, 'father')).toBe(false);
+  });
+});
+
+describe("parents' names and the unknown-parent answer", () => {
+  const complete = {
+    ...studentProfile,
+    academicStanding: 'good',
+    studentNumber: '2023001',
+    ...formCore,
+  };
+
+  it("requires each parent's name unless the parent is marked unknown", () => {
+    const blank = { ...complete, familyDetails: { fatherName: '  ', motherName: 'Maria Reyes' } };
+    expect(getApplicationProfileGate(blank).missing.map((item) => [item.key, item.section])).toEqual([['fatherName', 'family']]);
+    expect(isParentNameAnswered({ familyDetails: { fatherUnknown: true } }, 'father')).toBe(true);
+    expect(getApplicationProfileGate({ ...complete, familyDetails: { fatherUnknown: true, motherName: 'Maria Reyes' } }).allowed).toBe(true);
+  });
+
+  it("waives an unknown parent's finances like a deceased parent's", () => {
+    expect(isParentFinancesAnswered({ familyDetails: { motherUnknown: true } }, 'mother')).toBe(true);
+  });
+
+  it("clears an unknown parent's other answers on save", () => {
+    const { values } = validateFamilySection({
+      familyDetails: { fatherUnknown: true, fatherName: 'Old Name', fatherOccupation: 'Driver', fatherDeceased: true, fatherAge: '50', motherName: 'Maria Reyes' },
+    });
+    expect(values.familyDetails).toMatchObject({ fatherUnknown: true, fatherName: '', fatherOccupation: '', fatherDeceased: false, fatherAge: '', motherUnknown: false, motherName: 'Maria Reyes' });
+  });
+});
+
+describe('getApplicationFormProgress', () => {
+  const complete = {
+    ...studentProfile,
+    academicStanding: 'good',
+    studentNumber: '2023001',
+    ...formCore,
+  };
+  const stateOf = (progress) => Object.fromEntries(progress.sections.map((section) => [section.key, section.state]));
+
+  it('marks every numbered section complete and the form ready', () => {
+    const progress = getApplicationFormProgress(complete, {});
+    expect(progress.sections.map((section) => `${section.number}. ${section.key}`)).toEqual(['1. personal', '2. address', '3. family', '4. academic', '5. finances', '6. background']);
+    expect(Object.values(stateOf(progress)).every((state) => state === 'complete')).toBe(true);
+    expect(progress.ready).toBe(true);
+    expect(progress.next).toBeNull();
+  });
+
+  it('counts missing answers per section and points to the first unfinished one', () => {
+    const progress = getApplicationFormProgress({ ...complete, civilStatus: '', birthdate: '', familyDetails: {} }, {});
+    const personal = progress.sections.find((section) => section.key === 'personal');
+    expect(personal).toMatchObject({ state: 'incomplete', label: 'Personal information', statusLabel: '2 left', description: '2 answers missing' });
+    expect(stateOf(progress).family).toBe('incomplete');
+    expect(progress.next.key).toBe('personal');
+    expect(progress.ready).toBe(false);
+    expect(getNextApplicationFormSection(progress, 'personal').key).toBe('family');
+    expect(getNextApplicationFormSection(progress, 'family').key).toBe('personal');
+  });
+
+  it('asks for the proof of a claim, but not for a proof awaiting verification', () => {
+    const claim = { ...complete, pwd: 'Yes' };
+    expect(getApplicationFormProgress(claim, { pwd: 'Unverified' }).sections.find((section) => section.key === 'background'))
+      .toMatchObject({ state: 'incomplete', statusLabel: '1 left', description: '1 proof to attach' });
+    expect(stateOf(getApplicationFormProgress(claim, { pwd: 'Pending' })).background).toBe('complete');
+  });
+
+  it('raises an alert for a reverted or outdated proof', () => {
+    const progress = getApplicationFormProgress(complete, { parents: 'Rejected', qpi: 'Outdated', householdIncome: 'Outdated', citizenship: 'Rejected' });
+    const byKey = Object.fromEntries(progress.sections.map((section) => [section.key, section]));
+    expect(byKey.family).toMatchObject({ state: 'alert', statusLabel: 'Reverted' });
+    expect(byKey.academic).toMatchObject({ state: 'alert', statusLabel: 'Outdated' });
+    expect(byKey.background).toMatchObject({ state: 'alert', statusLabel: '2 to fix' });
+    expect(progress.ready).toBe(false);
   });
 });

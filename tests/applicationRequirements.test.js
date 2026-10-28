@@ -65,6 +65,8 @@ const continuingProfile = {
   sexAtBirth: 'Female',
   communityService: 'Yes',
   schoolLastAttended: { name: 'Davao Senior High School' },
+  // Each parent's name (or an unknown parent) is needed to apply.
+  familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes' },
   financialProfile: {
     economicStatus: 'lower',
     father: { employmentStatus: 'employed', annualIncome: 120000 },
@@ -371,7 +373,7 @@ describe('profile snapshot sections', () => {
     const { legacy, sections } = getProfileSnapshotSections(buildProfileSnapshot({
       ...continuingProfile,
       employed: 'Part-time',
-      familyDetails: { motherName: 'Maria Reyes', motherOccupation: 'Vendor', motherDeceased: true },
+      familyDetails: { fatherUnknown: true, motherName: 'Maria Reyes', motherOccupation: 'Vendor', motherDeceased: true },
     }, { qpi: 'Verified' }));
     expect(legacy).toBe(false);
     expect(sections.map((section) => section.key)).toEqual(['application', 'eligibility', 'background', 'personal', 'education', 'family', 'aid']);
@@ -382,6 +384,7 @@ describe('profile snapshot sections', () => {
     expect(rows['Employment status'].value).toBe('Part-time employed');
     expect(rows['Sibling on AdDU financial aid'].value).toBe('No');
     expect(rows.Mother.value).toBe('Maria Reyes · Vendor · Deceased');
+    expect(rows.Father.value).toBe('Unknown / not listed');
     expect(rows['Sex assigned at birth'].value).toBe('Female');
     expect(rows['School last attended'].value).toBe('Davao Senior High School');
     expect(rows['Willing to render community service'].value).toBe('Yes');
@@ -871,7 +874,7 @@ describe('profile answers behind the requirements', () => {
     const changed = readinessOf({ application: draft(documents), scholarship: gia, documents, profile: { ...continuingProfile, qpi: 3.5 }, certified: true, today });
     expect(changed.requirements.find((item) => item.id === 'college-grades').state).toBe('outdated');
     expect(changed.ready).toBe(false);
-    expect(changed.blockers).toContain('Upload a current proof for Latest grade report or transcript: your Annual QPI in My Profile is now 3.50, which the attached file was not uploaded to prove.');
+    expect(changed.blockers).toContain('Upload a current proof for Latest grade report or transcript: your Annual QPI in your Application Form is now 3.50, which the attached file was not uploaded to prove.');
   });
 
   it('attaches a current proof by default over a newer outdated one', () => {
@@ -912,7 +915,7 @@ describe('profile answers behind the requirements', () => {
     expect(ids).not.toContain('college-grades');
     expect(ids).not.toContain('hs-report-card');
     const result = readinessOf({ application: draft([]), scholarship: gia, documents: [], profile: unset, certified: true, today });
-    expect(result.blockers[0]).toBe('Set your year standing in My Profile so the documents for your standing can be listed.');
+    expect(result.blockers[0]).toBe('Set your year standing in your Application Form so the documents for your standing can be listed.');
   });
 
   it('judges a submitted application against its frozen snapshot, not the live profile', () => {

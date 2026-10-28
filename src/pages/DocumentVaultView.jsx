@@ -200,7 +200,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
           />
           <small className="field-hint -mt-1">
             {provesOnUpload.length
-              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in My Profile now.`
+              ? `Proves your ${provesOnUpload.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as it reads in your Application Form now.`
               : 'A general document proves no profile answer.'}
           </small>
           {isPhoto ? (

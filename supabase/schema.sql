@@ -924,7 +924,8 @@ as $$
   where p.user_id = p_user_id;
 $$;
 
--- A parent counts as answered when deceased, or when the employment status and
+-- A parent counts as answered when deceased or unknown
+-- (20261044000000_require_parent_names.sql), or when the employment status and
 -- the annual income are recorded (0 is a valid income).
 create or replace function public.parent_finances_answered(p_profile jsonb, p_parent text)
 returns boolean
@@ -933,6 +934,7 @@ immutable
 as $$
   select
     coalesce(p_profile #>> array['familyDetails', p_parent || 'Deceased'], 'false') = 'true'
+    or coalesce(p_profile #>> array['familyDetails', p_parent || 'Unknown'], 'false') = 'true'
     or (
       coalesce(p_profile #>> array['financialProfile', p_parent, 'employmentStatus'], '')
         in ('employed', 'self-employed', 'unemployed')
@@ -940,14 +942,27 @@ as $$
     );
 $$;
 
+-- A parent's name is answered when it is filled in or the parent is marked
+-- unknown / not listed (20261044000000_require_parent_names.sql).
+create or replace function public.parent_name_answered(p_profile jsonb, p_parent text)
+returns boolean
+language sql
+immutable
+as $$
+  select
+    coalesce(p_profile #>> array['familyDetails', p_parent || 'Unknown'], 'false') = 'true'
+    or char_length(btrim(coalesce(p_profile #>> array['familyDetails', p_parent || 'Name'], ''))) > 0;
+$$;
+
 -- Same checks as 20261028000000 plus the FORM 230-SCH core items, Applicant
 -- Status, and the current-student AdDU student number. Mirrors
 -- getProfileCompleteness() (group `application`) in src/lib/profile.js; the
 -- Applicant Status branch comes from
 -- 20261037000000_add_applicant_status_to_profile_gate.sql, the student-number
--- branch from 20261038000000_require_student_number_for_current_students.sql, and
+-- branch from 20261038000000_require_student_number_for_current_students.sql,
 -- the backslash-free phone class from
--- 20261039000000_align_profile_gate_phone_pattern.sql.
+-- 20261039000000_align_profile_gate_phone_pattern.sql, and the parents' names
+-- from 20261044000000_require_parent_names.sql.
 create or replace function public.missing_application_profile_item(p_profile jsonb)
 returns text
 language plpgsql
@@ -980,6 +995,8 @@ begin
     return 'Senior high school strand';
   end if;
   if coalesce(btrim(p_profile ->> 'completeAddress'), '') = '' then return 'Complete address'; end if;
+  if not public.parent_name_answered(p_profile, 'father') then return 'Father''s name'; end if;
+  if not public.parent_name_answered(p_profile, 'mother') then return 'Mother''s name'; end if;
   if coalesce(p_profile ->> 'ipCommunity', '') not in ('Yes', 'No') then return 'IP community'; end if;
   if coalesce(p_profile ->> 'pwd', '') not in ('Yes', 'No') then return 'Person with Disability (PWD)'; end if;
   if coalesce(p_profile ->> 'employed', '') not in ('Not employed', 'Part-time', 'Full-time', 'Self-employed') then
@@ -2428,4 +2445,5 @@ revoke execute on function public.financial_multi_select_answered(jsonb) from pu
 -- The profile gate is evaluated in the trigger path only
 -- (see 20261040000000_restrict_profile_gate_function_access.sql).
 revoke execute on function public.missing_application_profile_item(jsonb) from public, anon, authenticated;
+revoke execute on function public.parent_name_answered(jsonb, text) from public, anon, authenticated;
 revoke execute on function public.enforce_student_application_update() from public, anon, authenticated;

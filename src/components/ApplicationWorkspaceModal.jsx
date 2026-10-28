@@ -13,12 +13,13 @@ import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_INSTRUCTION, ESSAY_TARGET
 import { getFinancialAnswersMissing, getFinancialDetailSections, normalizeFinancialAnswers } from '../lib/financialDetails';
 import { DOCUMENT_ACCEPT, DOCUMENT_MAX_BYTES } from '../lib/documentStorage';
 import { PHOTO_ACCEPT, photoRequirementNeedsCamera } from '../lib/photoGuide';
-import { ESSAY_MAX_LENGTH, getVerifiableAttributeOption } from '../lib/profile';
+import { APPLICATION_FORM_BLOCKER_PREFIX, ESSAY_MAX_LENGTH, getVerifiableAttributeOption } from '../lib/profile';
 import { fmtDate } from '../lib/formatters';
 
 const STEPS = [
   { key: 'documents', label: 'Required documents' },
-  { key: 'profile', label: 'Profile snapshot' },
+  // The application form is My Profile, frozen into the profile snapshot at submit.
+  { key: 'profile', label: 'Application form' },
   { key: 'financial', label: 'Financial situation' },
   { key: 'statement', label: 'Statement' },
   { key: 'review', label: 'Review and submit' },
@@ -66,7 +67,7 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
           <p className="m-0 mt-1 text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)} · any one is enough</p>
           {requirement.proves?.length ? (
             <p className="m-0 mt-1 text-xs text-app-muted">
-              Proves your {requirement.proves.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as declared in My Profile
+              Proves your {requirement.proves.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as declared in your Application Form
             </p>
           ) : null}
           {requirement.note ? <p className="m-0 mt-1 text-xs text-app-muted">{requirement.note}</p> : null}
@@ -261,7 +262,7 @@ export default function ApplicationWorkspaceModal({
   const wordCount = countWords(statement);
   const eligibilityBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Eligibility:'));
   const documentsDone = readiness.requirements.every((item) => item.state === 'attached' || item.state === 'verified');
-  const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Complete your profile') || blocker.startsWith('Set your year standing'));
+  const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith(APPLICATION_FORM_BLOCKER_PREFIX) || blocker.startsWith('Set your year standing'));
   const supportingCount = readiness.supportingDocuments.length;
 
   const stepDone = {
@@ -311,7 +312,7 @@ export default function ApplicationWorkspaceModal({
   const defaultStatement = String(profile?.essay || '');
 
   const applyDefaultStatement = () => {
-    if (statement.trim() && !window.confirm('Replace this statement with your default statement/essay from My Profile?')) return;
+    if (statement.trim() && !window.confirm('Replace this statement with your default statement/essay from your Application Form?')) return;
     setStatement(defaultStatement);
     setStatementMessage('');
   };
@@ -401,15 +402,15 @@ export default function ApplicationWorkspaceModal({
           )}
 
           {current === 'profile' && (
-            <section className="grid gap-3" aria-label="Profile snapshot">
-              <p className="m-0 text-sm text-app-muted">Frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
+            <section className="grid gap-3" aria-label="Application form">
+              <p className="m-0 text-sm text-app-muted">Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
               <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections} /></Panel>
               {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
                   {[...profileBlockers, ...eligibilityBlockers].map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
                 </ul>
               ) : null}
-              <div><Button type="button" onClick={() => { if (!isStatementDirty || window.confirm('Leave without saving your statement?')) onOpenProfile(); }}>Edit in My Profile</Button></div>
+              <div><Button type="button" onClick={() => { if (!isStatementDirty || window.confirm('Leave without saving your statement?')) onOpenProfile(); }}>Edit your Application Form</Button></div>
             </section>
           )}
 
@@ -467,9 +468,9 @@ export default function ApplicationWorkspaceModal({
               <div className="grid gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3" role="note" aria-label="What you are sharing">
                 <strong className="text-sm text-app-text">What you are sharing</strong>
                 <p className="m-0 text-sm text-app-muted">
-                  Your required documents, {supportingCount} supporting {supportingCount === 1 ? 'document' : 'documents'}, your statement, and your full profile snapshot, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
+                  Your required documents, {supportingCount} supporting {supportingCount === 1 ? 'document' : 'documents'}, your statement, and your full Application Form, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
                 </p>
-                <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your profile snapshot</Button></div>
+                <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your application form</Button></div>
               </div>
               <Panel className="grid gap-2 text-sm text-app-muted">
                 <strong className="text-app-text">Two pages stay on paper</strong>

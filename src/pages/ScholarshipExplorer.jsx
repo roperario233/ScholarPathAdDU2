@@ -6,16 +6,14 @@ import { coverageTypes } from '../lib/constants';
 import { DENIAL_MESSAGE, evaluateApplicationGate, evaluateScholarship, getDeadlineStatus, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { SelectPicker } from './LoginScreen';
 import { getScholarshipRequirements } from '../lib/applicationRequirements';
-import { getApplicationProfileGate, getProfileSectionForField } from '../lib/profile';
+import { APPLICATION_FORM_SECTIONS, getApplicationProfileGate, getProfileSectionForField } from '../lib/profile';
 
 // The My Profile sections the "Needed to apply" items live in, keyed like the
 // section menu in src/pages/ProfileView.jsx.
-const PROFILE_SECTION_LABELS = {
-  personal: 'Personal information',
-  academic: 'Academic profile',
-  finances: 'Household finances',
-  background: 'Eligibility background',
-};
+// "3. Family details": the numbered part of the application form in My Profile.
+const PROFILE_SECTION_LABELS = Object.fromEntries(
+  APPLICATION_FORM_SECTIONS.map((section, index) => [section.key, `${index + 1}. ${section.label}`]),
+);
 
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply, onOpenProfileSection }) {
   const [expandedEligibilityId, setExpandedEligibilityId] = useState(null);
@@ -94,11 +92,11 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
       </section>
 
       {!profileGate.allowed ? (
-        <section className="grid gap-3 rounded-app border border-amber-400/40 bg-amber-500/10 p-4" aria-label="Complete your profile to apply">
+        <section className="grid gap-3 rounded-app border border-amber-400/40 bg-amber-500/10 p-4" aria-label="Complete your Application Form to apply">
           <div className="grid gap-1">
-            <strong className="text-sm text-app-text">Complete your profile to apply</strong>
+            <strong className="text-sm text-app-text">Complete your Application Form to apply</strong>
             <p className="m-0 text-sm text-app-muted">
-              You can browse and check eligibility now. To start an AdDU application, add: {profileGate.missing.map((item) => item.label).join(', ')}.
+              Every AdDU application copies your Application Form. You can browse and check eligibility now. To start an application, add: {profileGate.missing.map((item) => item.label).join(', ')}.
             </p>
           </div>
           {onOpenProfileSection ? (
@@ -110,7 +108,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                   className="inline-flex min-h-10 items-center gap-1.5 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm font-semibold text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
                   onClick={() => onOpenProfileSection(section)}
                 >
-                  {PROFILE_SECTION_LABELS[section] || 'My Profile'}
+                  {PROFILE_SECTION_LABELS[section] || 'Application Form'}
                   <ArrowRight size={15} className="shrink-0" aria-hidden="true" />
                 </button>
               ))}
@@ -209,7 +207,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                       )}
                       {profileFixSections.length > 0 && (
                         <div className="grid gap-2">
-                          <span className="text-xs text-app-muted">Update in My Profile:</span>
+                          <span className="text-xs text-app-muted">Update in your Application Form:</span>
                           <div className="flex flex-wrap gap-2">
                             {profileFixSections.map((section) => (
                               <button
@@ -245,7 +243,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
                   )}
 
                   {isInternal && gateResult.allowed && !profileGate.allowed && (
-                    <p className="m-0 text-sm text-app-muted">Complete the profile items listed above to start this application.</p>
+                    <p className="m-0 text-sm text-app-muted">Complete the Application Form items listed above to start this application.</p>
                   )}
                   {isInternal && gateResult.allowed && profileGate.allowed && (
                     <button

@@ -3,7 +3,7 @@ import { Button, SettingToggle } from '../components/ui';
 import { maskPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
 import { formatSessionDuration } from '../lib/sessionTimeout';
 
-export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '', sessionTimeoutConfig }) {
+export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '', sessionTimeoutConfig, profilePageLabel = 'My Profile' }) {
   const [testEmail, setTestEmail] = useState({ status: 'idle', message: '' });
   const [testSms, setTestSms] = useState({ status: 'idle', message: '' });
   const preferences = notificationPreferences || {
@@ -126,7 +126,7 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
                   <span className="mt-1 block text-sm text-app-muted">
                     {maskedMobileNumber
                       ? `Delivery number: ${maskedMobileNumber}`
-                      : 'No mobile number on file — add one in My Profile → Personal information.'}
+                      : `No mobile number on file — add one in ${profilePageLabel} → Personal information.`}
                   </span>
                 </div>
                 <Button type="button" variant="primary" onClick={handleSendTestSms} disabled={testSms.status === 'sending'}>

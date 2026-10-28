@@ -1098,9 +1098,16 @@ export const validateAddressSection = (form = {}) => {
 };
 
 // Family details: parent names, occupations, and deceased status, plus family
-// position and the number of siblings. All optional.
+// position and the number of siblings. The section saves partially like every
+// other; each parent's name is needed to apply (getProfileCompleteness) unless
+// that parent is marked unknown, which clears the parent's other answers so a
+// hidden value is never sent with an application.
 export const validateFamilySection = (form = {}) => {
-  const family = form.familyDetails && typeof form.familyDetails === 'object' ? form.familyDetails : {};
+  const source = form.familyDetails && typeof form.familyDetails === 'object' ? form.familyDetails : {};
+  const clearParent = (parent) => (source[`${parent}Unknown`]
+    ? { [`${parent}Name`]: '', [`${parent}Occupation`]: '', [`${parent}Deceased`]: false, [`${parent}Age`]: '', [`${parent}DateOfDeath`]: '' }
+    : {});
+  const family = { ...source, ...clearParent('father'), ...clearParent('mother') };
   const result = collect({
     fatherName: validateText(family.fatherName, { max: FAMILY_NAME_MAX_LENGTH, message: `Keep the name within ${FAMILY_NAME_MAX_LENGTH} characters.` }),
     fatherOccupation: validateText(family.fatherOccupation, { max: FAMILY_OCCUPATION_MAX_LENGTH, message: `Keep the occupation within ${FAMILY_OCCUPATION_MAX_LENGTH} characters.` }),
@@ -1137,11 +1144,13 @@ export const validateFamilySection = (form = {}) => {
   return {
     values: {
       familyDetails: {
+        fatherUnknown: Boolean(family.fatherUnknown),
         fatherName: result.values.fatherName,
         fatherOccupation: result.values.fatherOccupation,
         fatherDeceased: Boolean(family.fatherDeceased),
         fatherAge: result.values.fatherAge,
         fatherDateOfDeath: result.values.fatherDateOfDeath,
+        motherUnknown: Boolean(family.motherUnknown),
         motherName: result.values.motherName,
         motherOccupation: result.values.motherOccupation,
         motherDeceased: Boolean(family.motherDeceased),
@@ -1389,14 +1398,25 @@ const hasNumber = (value) => !isBlank(value) && Number.isFinite(Number(value)) &
 export const PARENT_EMPLOYMENT_VALUES = ['employed', 'self-employed', 'unemployed'];
 export const ECONOMIC_STATUS_VALUES = ['lower', 'middle', 'upper'];
 
-// A parent counts as answered when marked deceased in Family details, or when
-// the Household finances section records an employment status and an annual
-// income (0 is valid). Mirrors parent_finances_answered() in the database.
+// A parent counts as answered when marked deceased or unknown in Family details,
+// or when the Household finances section records an employment status and an
+// annual income (0 is valid). Mirrors parent_finances_answered() in the database.
 export const isParentFinancesAnswered = (profile = {}, parent = 'father') => {
   if (profile.familyDetails?.[`${parent}Deceased`] === true) return true;
+  if (profile.familyDetails?.[`${parent}Unknown`] === true) return true;
   const details = profile.financialProfile?.[parent] || {};
   return PARENT_EMPLOYMENT_VALUES.includes(details.employmentStatus) && hasNumber(details.annualIncome);
 };
+
+// A parent's name is answered when it is filled in or the parent is marked
+// unknown / not listed. Mirrors missing_application_profile_item() in the database.
+export const isParentNameAnswered = (profile = {}, parent = 'father') => (
+  profile.familyDetails?.[`${parent}Unknown`] === true || !isBlank(profile.familyDetails?.[`${parent}Name`])
+);
+
+// The gate's message prefix. The application workspace sorts its blockers by it,
+// so the two read one constant instead of matching a copy of the sentence.
+export const APPLICATION_FORM_BLOCKER_PREFIX = 'Complete your Application Form';
 
 export const getApplicationProfileGate = (profile = {}) => {
   const missing = getProfileCompleteness(profile, 'student').items
@@ -1405,7 +1425,7 @@ export const getApplicationProfileGate = (profile = {}) => {
     allowed: missing.length === 0,
     missing,
     reasons: missing.length
-      ? [`Complete your profile before applying: ${missing.map((item) => item.label).join(', ')}.`]
+      ? [`${APPLICATION_FORM_BLOCKER_PREFIX} before applying: ${missing.map((item) => item.label).join(', ')}.`]
       : [],
   };
 };
@@ -1432,6 +1452,8 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
     if (standing.requiresHsStanding) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
     add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    add('application', 'fatherName', 'Father\'s name', 'family', isParentNameAnswered(profile, 'father'));
+    add('application', 'motherName', 'Mother\'s name', 'family', isParentNameAnswered(profile, 'mother'));
     add('application', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
     add('application', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
     add('application', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
@@ -1454,8 +1476,6 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   // The application form asks every applicant for a contact number, so it is
   // needed to apply; staff keep it as a plain detail.
   add(isStudent ? 'application' : 'details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
-  if (isStudent) {
-  }
 
   const groups = PROFILE_COMPLETENESS_GROUPS
     .map((group) => {
@@ -1472,4 +1492,93 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     total: items.length,
     percent: Math.round((completed / items.length) * 100),
   };
+};
+
+// My Profile is the student's application form (FORM 230-SCH): every AdDU
+// application copies these answers at submit. The six editable sections are its
+// numbered parts, in the order the section menu lists them.
+export const APPLICATION_FORM_SECTIONS = [
+  { key: 'personal', label: 'Personal information' },
+  { key: 'address', label: 'Address' },
+  { key: 'family', label: 'Family details' },
+  { key: 'academic', label: 'Academic profile' },
+  { key: 'finances', label: 'Household finances' },
+  { key: 'background', label: 'Eligibility background' },
+];
+
+// Proof states the student has to act on before the next submission. A proof
+// that is only waiting for the Admissions Office (Pending) is not one of them.
+const PROOF_ALERT_STATUSES = ['Rejected', 'Outdated'];
+
+const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+// The status of each application-form section, for the section menu, the
+// progress strip, and the Overview checklist:
+// - `alert`: a proof of an answer in the section was reverted for resubmission
+//   (stored `Rejected`) or is Outdated, so the next submission would be refused;
+// - `incomplete`: a "Needed to apply" answer is missing, or a claim (IP community
+//   or PWD "Yes", employed, honors) has no proof in the Document Vault yet;
+// - `complete`: nothing left to do.
+// `attributeVerifications` is the derived map from src/lib/verification.js. The
+// answers alone decide the application gate (getApplicationProfileGate); the
+// proof states only add the alerts that would otherwise surface at submit.
+export const getApplicationFormProgress = (profile = {}, attributeVerifications = {}) => {
+  const completeness = getProfileCompleteness(profile, 'student');
+  const claimed = getClaimedAttributes(profile);
+  const sections = APPLICATION_FORM_SECTIONS.map((section, index) => {
+    const items = completeness.items.filter((item) => item.section === section.key);
+    const missing = items.filter((item) => !item.done);
+    const options = VERIFIABLE_ATTRIBUTE_OPTIONS.filter((option) => option.section === section.key);
+    const alerts = options
+      .filter((option) => PROOF_ALERT_STATUSES.includes(attributeVerifications[option.key]))
+      .map((option) => ({ key: option.key, label: option.label, status: attributeVerifications[option.key] }));
+    const unprovenClaims = options
+      .filter((option) => claimed.includes(option.key) && (attributeVerifications[option.key] || 'Unverified') === 'Unverified')
+      .map((option) => ({ key: option.key, label: option.claimLabel }));
+    const remaining = missing.length + unprovenClaims.length;
+    const state = alerts.length ? 'alert' : remaining ? 'incomplete' : 'complete';
+    let statusLabel = 'Done';
+    if (state === 'alert') {
+      statusLabel = alerts.length > 1 ? `${alerts.length} to fix` : alerts[0].status === 'Rejected' ? 'Reverted' : 'Outdated';
+    } else if (state === 'incomplete') {
+      statusLabel = `${remaining} left`;
+    }
+    const details = [
+      alerts.length ? plural(alerts.length, 'proof to replace', 'proofs to replace') : '',
+      missing.length ? plural(missing.length, 'answer missing', 'answers missing') : '',
+      unprovenClaims.length ? plural(unprovenClaims.length, 'proof to attach', 'proofs to attach') : '',
+    ].filter(Boolean);
+    return {
+      ...section,
+      number: index + 1,
+      items,
+      missing,
+      alerts,
+      unprovenClaims,
+      state,
+      statusLabel,
+      description: details.length ? details.join(', ') : 'Complete',
+      completed: items.length - missing.length,
+      total: items.length,
+    };
+  });
+  const ready = sections.every((section) => section.state === 'complete');
+  return {
+    sections,
+    answered: completeness.completed,
+    total: completeness.total,
+    percent: completeness.percent,
+    ready,
+    next: sections.find((section) => section.state !== 'complete') || null,
+  };
+};
+
+// The section "Save and continue" opens: the next unfinished section after
+// `currentKey`, then any earlier one still unfinished; null once every section
+// is complete (the caller returns to the Overview).
+export const getNextApplicationFormSection = (progress, currentKey) => {
+  const sections = progress?.sections || [];
+  const index = sections.findIndex((section) => section.key === currentKey);
+  const ordered = [...sections.slice(index + 1), ...sections.slice(0, Math.max(index, 0))];
+  return ordered.find((section) => section.state !== 'complete') || null;
 };

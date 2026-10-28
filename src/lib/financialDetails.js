@@ -301,7 +301,8 @@ const flagList = (flags, options) => [
   ...(flags?.others ? [flags.others] : []),
 ].join(', ');
 
-const describeParent = (parent = {}, deceased) => {
+const describeParent = (parent = {}, deceased, unknown = false) => {
+  if (unknown) return 'Unknown / not listed';
   if (deceased) return 'Deceased';
   return [
     optionLabel(parentEmploymentOptions, parent.employmentStatus),
@@ -325,8 +326,8 @@ export const getFinancialDetailSections = ({ financialProfile, answers, family =
       title: 'Household finances',
       rows: [
         { label: 'Perceived economic status', value: optionLabel(economicStatusOptions, financialProfile.economicStatus) },
-        { label: 'Father', value: describeParent(financialProfile.father, family.fatherDeceased) },
-        { label: 'Mother', value: describeParent(financialProfile.mother, family.motherDeceased) },
+        { label: 'Father', value: describeParent(financialProfile.father, family.fatherDeceased, family.fatherUnknown) },
+        { label: 'Mother', value: describeParent(financialProfile.mother, family.motherDeceased, family.motherUnknown) },
         { label: 'Assets', value: flagList(financialProfile.assets, ASSET_OPTIONS) || 'None listed' },
         { label: 'Appliances and services', value: flagList(financialProfile.appliances, APPLIANCE_OPTIONS) || 'None listed' },
         ...(siblings.length || householdCount ? [{

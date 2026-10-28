@@ -51,7 +51,7 @@ export default function DashboardView({ profile, isFirstLogin, applications, sch
             <div className="dashboard-summary-card rounded-[18px] border border-app-border bg-app-surface p-4">
               <span>Best match</span>
               <strong>{eligibleScholarships[0]?.title ?? 'No matches yet'}</strong>
-              <p>{eligibleScholarships[0] ? `Deadline ${fmtDate(eligibleScholarships[0].deadline)}` : 'Adjust your profile inputs.'}</p>
+              <p>{eligibleScholarships[0] ? `Deadline ${fmtDate(eligibleScholarships[0].deadline)}` : 'Adjust your Application Form answers.'}</p>
             </div>
           </div>
         </section>

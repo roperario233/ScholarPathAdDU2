@@ -191,7 +191,7 @@ export const getClaimProofRequirements = (profile = {}, covered = []) => (
         documentTypes: [...option.acceptedDocumentTypes],
         standing: 'all',
         claim: true,
-        note: `Required because of your ${option.label} answer in My Profile. Change the answer there if it does not apply.`,
+        note: `Required because of your ${option.label} answer in your Application Form. Change the answer there if it does not apply.`,
         proves: [key],
       };
     })
@@ -516,7 +516,7 @@ const describeOutdatedRequirement = (requirement, { profile, now }) => {
   const label = getVerifiableAttributeOption(stale.key)?.label || stale.key;
   return stale.reason === 'year'
     ? `Upload a current proof for ${requirement.label}: the attached file is from an earlier academic year.`
-    : `Upload a current proof for ${requirement.label}: your ${label} in My Profile is now ${shortProofValue(formatProofValue(stale.key, getAttributeValue(stale.key, profile)))}, which the attached file was not uploaded to prove.`;
+    : `Upload a current proof for ${requirement.label}: your ${label} in your Application Form is now ${shortProofValue(formatProofValue(stale.key, getAttributeValue(stale.key, profile)))}, which the attached file was not uploaded to prove.`;
 };
 
 // Everything the workspace, the submit handler, and the reviewers need to know
@@ -550,7 +550,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 
   const blockers = [];
   if (!getStandingRequirements(requirementProfile).yearStanding) {
-    blockers.push('Set your year standing in My Profile so the documents for your standing can be listed.');
+    blockers.push('Set your year standing in your Application Form so the documents for your standing can be listed.');
   }
   const profileGate = getApplicationProfileGate(profile);
   if (!proofContext.frozen && !profileGate.allowed) blockers.push(...profileGate.reasons);
@@ -808,11 +808,13 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       awards: asText(profile.awards),
     },
     family: {
+      fatherUnknown: Boolean(family.fatherUnknown),
       fatherName: asText(family.fatherName),
       fatherOccupation: asText(family.fatherOccupation),
       fatherDeceased: Boolean(family.fatherDeceased),
       fatherAge: asNumberOrNull(family.fatherAge),
       fatherDateOfDeath: asText(family.fatherDateOfDeath),
+      motherUnknown: Boolean(family.motherUnknown),
       motherName: asText(family.motherName),
       motherOccupation: asText(family.motherOccupation),
       motherDeceased: Boolean(family.motherDeceased),
@@ -847,7 +849,11 @@ export const describeApplicantAcademic = (application = {}) => {
 const optionLabel = (options, value) => options.find((option) => option.value === (value || ''))?.label || value || '';
 const yesNo = (value) => (value ? 'Yes' : 'No');
 const attributeLabel = (key) => getVerifiableAttributeOption(key)?.label || key;
-const formatParent = (name, occupation, deceased) => [name, occupation, deceased ? 'Deceased' : ''].filter(Boolean).join(' · ');
+// A parent marked unknown / not listed (an additive snapshot flag) reads as such
+// instead of a blank row; snapshots frozen before the flag never carry it.
+const formatParent = (name, occupation, deceased, unknown = false) => (unknown
+  ? 'Unknown / not listed'
+  : [name, occupation, deceased ? 'Deceased' : ''].filter(Boolean).join(' · '));
 const formatParentAge = (age, deceased, dateOfDeath) => (deceased
   ? (dateOfDeath ? `Died ${fmtDate(dateOfDeath)}` : '')
   : (age == null || age === '' ? '' : `${age} years old`));
@@ -964,9 +970,9 @@ export const getProfileSnapshotSections = (snapshot) => {
       key: 'family',
       title: 'Family',
       rows: [
-        row('Father', formatParent(family.fatherName, family.fatherOccupation, family.fatherDeceased), family.verification?.parents),
+        row('Father', formatParent(family.fatherName, family.fatherOccupation, family.fatherDeceased, family.fatherUnknown), family.verification?.parents),
         ...(snapshot.version >= 3 ? [row('Father (age or date of death)', formatParentAge(family.fatherAge, family.fatherDeceased, family.fatherDateOfDeath))] : []),
-        row('Mother', formatParent(family.motherName, family.motherOccupation, family.motherDeceased), family.verification?.parents),
+        row('Mother', formatParent(family.motherName, family.motherOccupation, family.motherDeceased, family.motherUnknown), family.verification?.parents),
         ...(snapshot.version >= 3 ? [row('Mother (age or date of death)', formatParentAge(family.motherAge, family.motherDeceased, family.motherDateOfDeath))] : []),
         row('Family position', optionLabel(familyPositionOptions, family.familyPosition)),
         row('Number of siblings', family.numberOfSiblings, family.verification?.householdMembers),

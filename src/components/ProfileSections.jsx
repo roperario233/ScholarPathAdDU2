@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Camera, Circle, CircleCheck, Paperclip, TriangleAlert } from 'lucide-react';
+import { Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Camera, Circle, CircleAlert, CircleCheck, OctagonAlert, Paperclip, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
@@ -62,11 +62,14 @@ import {
   validateFamilySection,
   validatePasswordChange,
   validatePersonalSection,
+  APPLICATION_FORM_SECTIONS,
   religionOptions,
   requiresStudentNumber,
 } from '../lib/profile';
 
 const controlClass = 'h-12 py-0';
+// "Part 3 of your application form." — the section's place in the numbered menu.
+const formPart = (key) => `Part ${APPLICATION_FORM_SECTIONS.findIndex((section) => section.key === key) + 1} of your Application Form.`;
 const asText = (value) => (value === undefined || value === null ? '' : String(value));
 
 // Shared draft/validate/save lifecycle for one My Profile section. The draft
@@ -114,8 +117,10 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previe
     setStatus({ tone: '', message: '' });
   };
 
-  const submit = async (event) => {
-    event.preventDefault();
+  // `onSuccess` runs after a successful save; "Save and continue" uses it to open
+  // the next application-form section.
+  const submit = async (event, { onSuccess } = {}) => {
+    event?.preventDefault();
     const result = validate(values);
     if (Object.keys(result.errors).length) {
       setErrors(result.errors);
@@ -135,6 +140,7 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previe
     // through the saved profile, so re-sync to it rather than keep the draft.
     setSyncedKey(null);
     setStatus({ tone: 'success', message: saved.message || 'Changes saved.' });
+    onSuccess?.();
   };
 
   return { values, errors, status, isSaving, isDirty, proofWarnings, update, reset, submit };
@@ -151,7 +157,13 @@ function FormStatus({ status }) {
   );
 }
 
+// Set by My Profile around a student's application-form section: the next
+// unfinished section and how to open it. Absent for staff and Account security,
+// so their forms keep the single save button.
+export const SectionContinueContext = createContext(null);
+
 function SectionForm({ title, description, form, submitLabel = 'Save changes', children }) {
+  const proceed = useContext(SectionContinueContext);
   return (
     <Card title={title}>
       {description && <p className="-mt-1 mb-5 text-sm text-app-muted">{description}</p>}
@@ -162,6 +174,18 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
           <Button variant="primary" type="submit" disabled={!form.isDirty || form.isSaving}>
             {form.isSaving ? 'Saving…' : submitLabel}
           </Button>
+          {/* Unsaved input is saved first; a clean form simply steps to the next part. */}
+          {proceed && (form.isDirty || proceed.next) && (
+            <Button
+              type="button"
+              className="gap-2"
+              disabled={form.isSaving}
+              onClick={() => (form.isDirty ? form.submit(null, { onSuccess: proceed.onContinue }) : proceed.onContinue())}
+            >
+              {form.isDirty ? 'Save and continue' : `Next: ${proceed.next.label}`}
+              <ArrowRight size={16} aria-hidden="true" />
+            </Button>
+          )}
           {form.isDirty && (
             <Button type="button" onClick={form.reset} disabled={form.isSaving}>Discard changes</Button>
           )}
@@ -268,6 +292,83 @@ const completenessGroupNotes = {
   details: 'Included in every application you submit. A mobile number enables SMS reminders.',
 };
 
+// The application-form section states from getApplicationFormProgress(): a check
+// when complete, an amber mark while answers or claim proofs are missing, and a
+// red mark when a proof was reverted for resubmission or is outdated.
+const FORM_SECTION_STATUS = {
+  complete: { Icon: CircleCheck, className: 'text-emerald-500', text: 'Complete' },
+  incomplete: { Icon: CircleAlert, className: 'text-amber-500', text: 'Not finished' },
+  alert: { Icon: OctagonAlert, className: 'text-rose-500', text: 'Needs attention' },
+};
+
+export function FormSectionStatusIcon({ state, size = 16, className = '' }) {
+  const { Icon, className: tone } = FORM_SECTION_STATUS[state] || FORM_SECTION_STATUS.incomplete;
+  return <Icon size={size} className={`shrink-0 ${tone} ${className}`} aria-hidden="true" />;
+}
+
+export const getFormSectionStatusText = (state) => (FORM_SECTION_STATUS[state] || FORM_SECTION_STATUS.incomplete).text;
+
+// The proof rows a section needs beyond its answers: a reverted or outdated proof
+// of an answer the checklist does not list on its own row (the parents' names,
+// the residing address, honors), and a claim with no proof yet.
+const getSectionProofRows = (section) => {
+  const answered = new Set(section.items.map((item) => item.key));
+  return [
+    ...section.alerts.map((alert) => ({ key: alert.key, label: `${alert.label} (proof)` })),
+    ...section.unprovenClaims.map((claim) => ({ key: claim.key, label: claim.label })),
+  ]
+    .filter((row, index, rows) => !answered.has(row.key) && rows.findIndex((entry) => entry.key === row.key) === index)
+    .map((row) => ({ ...row, section: section.key, done: true, proof: true }));
+};
+
+function ApplicationFormChecklist({ formProgress, standing, onEditSection, attributeVerifications, onAttachProof }) {
+  return (
+    <Card
+      title="Your application form"
+      action={<span className="text-sm text-app-muted"><strong className="text-app-text">{formProgress.answered}</strong> of {formProgress.total} answered</span>}
+    >
+      <p className="-mt-1 mb-4 text-sm text-app-muted">
+        Every AdDU scholarship application copies these answers when you submit it, so complete each part once. {standingNote(standing)}
+      </p>
+      <div
+        className="h-3 overflow-hidden rounded-full bg-app-surface"
+        role="progressbar"
+        aria-label="Application form answered"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={formProgress.percent}
+      >
+        <div className="h-full rounded-full bg-gradient-to-r from-ateneo to-sky-400 transition-[width]" style={{ width: `${formProgress.percent}%` }} />
+      </div>
+      <div className="mt-5 grid gap-5">
+        {formProgress.sections.map((section) => {
+          const proofRows = getSectionProofRows(section);
+          return (
+            <section key={section.key} className="grid gap-2" aria-labelledby={`form-section-${section.key}`}>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <h4 id={`form-section-${section.key}`} className="m-0 flex min-w-0 items-center gap-2 text-sm font-bold text-app-text">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-app-surface text-xs text-app-muted" aria-hidden="true">{section.number}</span>
+                  <span className="min-w-0">{section.label}</span>
+                </h4>
+                <span className="flex items-center gap-2 text-xs font-semibold text-app-muted">
+                  <FormSectionStatusIcon state={section.state} />
+                  {section.state === 'complete' ? `${section.completed} of ${section.total} answered` : section.description}
+                  <button type="button" className="proof-action" onClick={() => onEditSection(section.key)}>Open</button>
+                </span>
+              </div>
+              <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
+                {[...section.items, ...proofRows].map((item) => (
+                  <CompletenessItem key={item.key} item={item} status={attributeVerifications[item.key]} onEditSection={onEditSection} onAttachProof={onAttachProof} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
   // A verification badge only means something once the answer is filled in.
   const showStatus = item.done && status !== undefined;
@@ -279,10 +380,12 @@ function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
           right-aligned. As flex items the badge and the chip could split, and a wrapped
           chip landed alone at the row's left edge. */}
       <span className="flex min-w-0 items-center gap-2 text-sm text-app-text">
-        {item.done
-          ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
-          : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
-        <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
+        {item.proof
+          ? <Paperclip size={18} className="shrink-0 text-app-muted" aria-hidden="true" />
+          : item.done
+            ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
+            : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
+        <span className="min-w-0">{item.label}{!item.proof && <span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span>}</span>
       </span>
       <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
         {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>}
@@ -369,11 +472,20 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
   );
 }
 
-export function ProfileOverview({ profile = {}, completeness, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
+export function ProfileOverview({ profile = {}, completeness, formProgress = null, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
   // Staff have a single group of personal details, so headings would only add noise.
   const showGroups = completeness.groups.length > 1;
   return (
     <div className="grid gap-4">
+      {formProgress ? (
+        <ApplicationFormChecklist
+          formProgress={formProgress}
+          standing={completeness.standing}
+          onEditSection={onEditSection}
+          attributeVerifications={attributeVerifications}
+          onAttachProof={onAttachProof}
+        />
+      ) : (
       <Card title="Profile completeness">
         <div className="flex items-center gap-3">
           <div
@@ -410,6 +522,7 @@ export function ProfileOverview({ profile = {}, completeness, documentChecklist 
           ))}
         </div>
       </Card>
+      )}
       {documentChecklist && (
         <DocumentChecklistCard
           checklist={documentChecklist}
@@ -466,7 +579,7 @@ function ProfilePhotoCard({ fullName = '', avatar = {}, isSaving = false, onChan
           <div className="grid gap-1">
             <strong className="text-sm font-bold text-app-text">Profile photo</strong>
             <p className="m-0 text-sm text-app-muted">
-              This photo appears in your header and on My Profile. It is not sent with applications.
+              This photo appears in the header and sidebar. It is not sent with applications.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -573,7 +686,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   const { values, errors, update } = form;
 
   return (
-    <SectionForm title="Personal information" description={isStudent ? 'Your name, birthdate, religion, and civil status are included in each application.' : 'Your name and contact details across ScholarPath.'} form={form}>
+    <SectionForm title="Personal information" description={isStudent ? `${formPart('personal')} Your name, birthdate, religion, civil status, and mobile number are copied into each application.` : 'Your name and contact details across ScholarPath.'} form={form}>
       <ProfilePhotoCard
         fullName={values.fullName || profile.fullName}
         avatar={avatar}
@@ -659,7 +772,7 @@ export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifi
   });
   const { values, errors, update } = form;
   return (
-    <SectionForm title="Address" description="Included in each application you submit. Every application asks for a proof of address." form={form}>
+    <SectionForm title="Address" description={`${formPart('address')} Copied into each application you submit. Every application asks for a proof of address.`} form={form}>
       <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}
         labelAdornment={<AttributeVerification attributeKey="completeAddress" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
@@ -707,8 +820,8 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
   const stored = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
   const form = useSectionForm({
     initialValues: { familyDetails: {
-      fatherName: asText(stored.fatherName), fatherOccupation: asText(stored.fatherOccupation), fatherDeceased: Boolean(stored.fatherDeceased),
-      motherName: asText(stored.motherName), motherOccupation: asText(stored.motherOccupation), motherDeceased: Boolean(stored.motherDeceased),
+      fatherUnknown: Boolean(stored.fatherUnknown), fatherName: asText(stored.fatherName), fatherOccupation: asText(stored.fatherOccupation), fatherDeceased: Boolean(stored.fatherDeceased),
+      motherUnknown: Boolean(stored.motherUnknown), motherName: asText(stored.motherName), motherOccupation: asText(stored.motherOccupation), motherDeceased: Boolean(stored.motherDeceased),
       familyPosition: asText(stored.familyPosition), numberOfSiblings: asText(stored.numberOfSiblings),
       fatherAge: asText(stored.fatherAge), fatherDateOfDeath: asText(stored.fatherDateOfDeath),
       motherAge: asText(stored.motherAge), motherDateOfDeath: asText(stored.motherDateOfDeath),
@@ -724,21 +837,38 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
   const family = values.familyDetails;
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } }, ['siblings', 'householdAdults']);
   return (
-    <SectionForm title="Family details" description="Supports household-income and dependent-based review. Included in each application, with a proof of family details." form={form}>
+    <SectionForm title="Family details" description={`${formPart('family')} Each parent's name is needed to apply. Copied into each application, with a proof of family details.`} form={form}>
       <FamilyProofRow attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Father's name" error={errors.fatherName}><input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} /></FormField>
-        <FormField label="Father's occupation" error={errors.fatherOccupation}><input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} /></FormField>
-        <SettingToggle checked={family.fatherDeceased} onChange={(checked) => updateFamily({ fatherDeceased: checked })} title="Father is deceased" description="Mark this if your father has passed away." />
-        {family.fatherDeceased
-          ? <FormField label="Father's date of death" error={errors.fatherDateOfDeath}><input className={controlClass} type="date" max={todayInputValue()} value={family.fatherDateOfDeath} onChange={(event) => updateFamily({ fatherDateOfDeath: event.target.value })} /></FormField>
-          : <FormField label="Father's current age" error={errors.fatherAge}><input className={controlClass} value={family.fatherAge} onChange={(event) => updateFamily({ fatherAge: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
-        <FormField label="Mother's name" error={errors.motherName}><input className={controlClass} value={family.motherName} onChange={(event) => updateFamily({ motherName: event.target.value })} /></FormField>
-        <FormField label="Mother's occupation" error={errors.motherOccupation}><input className={controlClass} value={family.motherOccupation} onChange={(event) => updateFamily({ motherOccupation: event.target.value })} /></FormField>
-        <SettingToggle checked={family.motherDeceased} onChange={(checked) => updateFamily({ motherDeceased: checked })} title="Mother is deceased" description="Mark this if your mother has passed away." />
-        {family.motherDeceased
-          ? <FormField label="Mother's date of death" error={errors.motherDateOfDeath}><input className={controlClass} type="date" max={todayInputValue()} value={family.motherDateOfDeath} onChange={(event) => updateFamily({ motherDateOfDeath: event.target.value })} /></FormField>
-          : <FormField label="Mother's current age" error={errors.motherAge}><input className={controlClass} value={family.motherAge} onChange={(event) => updateFamily({ motherAge: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
+        {['father', 'mother'].map((parent) => {
+          const noun = parent === 'father' ? 'Father' : 'Mother';
+          const lower = parent === 'father' ? 'father' : 'mother';
+          const unknown = family[`${parent}Unknown`];
+          const deceased = family[`${parent}Deceased`];
+          return (
+            <Fragment key={parent}>
+              {/* Unknown and deceased cannot both describe the same parent. */}
+              <div className="md:col-span-2">
+                <SettingToggle
+                  checked={unknown}
+                  onChange={(checked) => updateFamily({ [`${parent}Unknown`]: checked, ...(checked ? { [`${parent}Deceased`]: false } : {}) })}
+                  title={`${noun} is unknown or not listed`}
+                  description={`Mark this if your ${lower}'s name is unknown or not on your birth certificate. No employment or income is then asked for.`}
+                />
+              </div>
+              {!unknown && (
+                <>
+                  <FormField label={`${noun}'s name`} hint="Needed to apply." error={errors[`${parent}Name`]}><input className={controlClass} value={family[`${parent}Name`]} onChange={(event) => updateFamily({ [`${parent}Name`]: event.target.value })} aria-invalid={Boolean(errors[`${parent}Name`])} /></FormField>
+                  <FormField label={`${noun}'s occupation`} error={errors[`${parent}Occupation`]}><input className={controlClass} value={family[`${parent}Occupation`]} onChange={(event) => updateFamily({ [`${parent}Occupation`]: event.target.value })} /></FormField>
+                  <SettingToggle checked={deceased} onChange={(checked) => updateFamily({ [`${parent}Deceased`]: checked })} title={`${noun} is deceased`} description={`Mark this if your ${lower} has passed away.`} />
+                  {deceased
+                    ? <FormField label={`${noun}'s date of death`} error={errors[`${parent}DateOfDeath`]}><input className={controlClass} type="date" max={todayInputValue()} value={family[`${parent}DateOfDeath`]} onChange={(event) => updateFamily({ [`${parent}DateOfDeath`]: event.target.value })} /></FormField>
+                    : <FormField label={`${noun}'s current age`} error={errors[`${parent}Age`]}><input className={controlClass} value={family[`${parent}Age`]} onChange={(event) => updateFamily({ [`${parent}Age`]: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
+                </>
+              )}
+            </Fragment>
+          );
+        })}
         <SelectField label="Family position" value={family.familyPosition} onChange={(value) => updateFamily({ familyPosition: value })} options={familyPositionOptions} error={errors.familyPosition} />
         <FormField label="Number of siblings" error={errors.numberOfSiblings}><input className={controlClass} value={family.numberOfSiblings} onChange={(event) => updateFamily({ numberOfSiblings: event.target.value.replace(/\D/g, '').slice(0, 2) })} inputMode="numeric" aria-invalid={Boolean(errors.numberOfSiblings)} /></FormField>
       </div>
@@ -853,7 +983,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
   };
 
   return (
-    <SectionForm title="Academic profile" description="Drives degree-specific matching in the Smart Eligibility Checker." form={form}>
+    <SectionForm title="Academic profile" description={`${formPart('academic')} Also drives degree-specific matching in the Smart Eligibility Checker.`} form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Applicant status" value={applicantStatus} onChange={setApplicantStatus} options={applicantStatusOptions} placeholder="Choose applicant status" error={errors.isTransferee} />
         {standingOptions.length ? (
@@ -956,7 +1086,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   const receivesAid = Boolean(values.hasActiveGovernmentGrant || values.hasOtherActiveScholarship || values.isOnPrepaidPlan);
 
   return (
-    <SectionForm title="Eligibility background" description="Citizenship, disability, employment, household income, existing aid, honors, and sponsor ties." form={form}>
+    <SectionForm title="Eligibility background" description={`${formPart('background')} Citizenship, disability, employment, household income, existing aid, honors, and sponsor ties.`} form={form}>
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Annual household income" hint="Combined yearly income in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
           <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
@@ -1032,12 +1162,12 @@ const parentFinanceInitial = (parent = {}) => ({
   unemploymentReason: asText(parent.unemploymentReason),
 });
 
-function ParentFinanceFields({ legend, deceased, value, errors, prefix, onChange }) {
-  if (deceased) {
+function ParentFinanceFields({ legend, deceased, unknown = false, value, errors, prefix, onChange }) {
+  if (deceased || unknown) {
     return (
       <fieldset className="m-0 grid gap-2 rounded-2xl border border-app-border bg-app-surface/60 p-4">
         <legend className="px-1 text-sm font-semibold text-app-text">{legend}</legend>
-        <p className="m-0 text-sm text-app-muted">Marked as deceased in Family details, so no employment or income is needed.</p>
+        <p className="m-0 text-sm text-app-muted">Marked as {unknown ? 'unknown or not listed' : 'deceased'} in Family details, so no employment or income is needed.</p>
       </fieldset>
     );
   }
@@ -1099,11 +1229,11 @@ export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissi
   };
 
   return (
-    <SectionForm title="Household finances" description="Part of the financial aid application. Shared with the Admissions Office only; your Department Chair cannot see these answers." form={form}>
+    <SectionForm title="Household finances" description={`${formPart('finances')} Shared with the Admissions Office only; your Department Chair cannot see these answers.`} form={form}>
       {migrationMissing ? <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="status">Household finances need the latest database migration before they can be saved.</p> : null}
       <SelectField label="How would you describe your family's economic status?" hint="Needed to apply." value={values.economicStatus} onChange={(value) => update({ economicStatus: value })} options={economicStatusOptions} error={errors.economicStatus} />
-      <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} />
-      <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} />
+      <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} unknown={Boolean(family.fatherUnknown)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} />
+      <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} unknown={Boolean(family.motherUnknown)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} />
       {[['assets', 'Assets owned by the family', ASSET_OPTIONS], ['appliances', 'Appliances and services', APPLIANCE_OPTIONS]].map(([group, legend, options]) => (
         <fieldset key={group} className="m-0 grid gap-3 border-0 p-0">
           <legend className="mb-3 text-sm font-semibold text-app-text">{legend}</legend>
