@@ -27,6 +27,7 @@ import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
 import DocumentVaultViewPage from './pages/DocumentVaultView';
+import DocumentUploadModal from './components/DocumentUploadModal';
 import AdminOverviewPage from './pages/admin/AdminOverview';
 import AdminIntakePoolPage from './pages/admin/AdminIntakePool';
 import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
@@ -294,6 +295,9 @@ function App() {
   // vault it carries the profile attribute and/or document type so the upload
   // form opens on them.
   const [vaultPreset, setVaultPreset] = useState({ attribute: '', documentType: '' });
+  // The upload dialog My Profile opens from "Attach proof" and the document
+  // checklist, so a proof is uploaded without leaving the Application Form.
+  const [proofUpload, setProofUpload] = useState(null);
   // The My Profile section to open on, set when the Smart Eligibility Checker
   // links a failed reason to the section that edits it.
   const [profilePresetSection, setProfilePresetSection] = useState('');
@@ -3190,8 +3194,12 @@ function App() {
               attributeVerifications={attributeVerifications}
               scholarships={scholarshipCatalog}
               documents={studentDocuments}
-              onAttachProof={(attributeKey) => navigate('vault', { attribute: attributeKey })}
-              onUploadDocument={(preset) => navigate('vault', preset)}
+              // A Pending proof is already uploaded, so "View proof" opens the vault
+              // to see it; every other state uploads a file in the dialog.
+              onAttachProof={(attributeKey) => (attributeVerifications[attributeKey] === 'Pending'
+                ? navigate('vault', { attribute: attributeKey })
+                : setProofUpload({ attribute: attributeKey, documentType: '' }))}
+              onUploadDocument={(preset) => setProofUpload({ attribute: preset?.attribute || '', documentType: preset?.documentType || '' })}
               onFindScholarship={() => navigate('explore')}
               previewProofImpact={state.viewerRole === 'student'
                 ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
@@ -3199,6 +3207,16 @@ function App() {
               previewVerifications={state.viewerRole === 'student'
                 ? (patch) => deriveAttributeVerifications(studentDocuments, VERIFIABLE_ATTRIBUTE_KEYS, { profile: { ...studentMatchProfile, ...patch } })
                 : undefined}
+            />
+          )}
+
+          {state.activeView === 'profile' && proofUpload && state.viewerRole === 'student' && (
+            <DocumentUploadModal
+              profile={studentMatchProfile}
+              presetAttribute={proofUpload.attribute}
+              presetDocumentType={proofUpload.documentType}
+              onUpload={addDocument}
+              onClose={() => setProofUpload(null)}
             />
           )}
 
