@@ -189,11 +189,15 @@ function ProofImpactWarning({ warnings = [] }) {
   );
 }
 
+// A stored value shown where an input would be. It repeats FormField's label and
+// hint layout around a .readonly-control box (the same border, radius, surface,
+// and height as the profile inputs), so a read-only row lines up with the
+// editable fields beside it instead of reading as a separate card.
 function ReadOnlyField({ label, value, note, className = '' }) {
   return (
-    <div className={`grid min-w-0 content-start gap-1 rounded-xl border border-app-border bg-app-surface px-4 py-3 ${className}`}>
-      <span className="text-xs uppercase tracking-[0.08em] text-app-muted">{label}</span>
-      <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{value || 'Not set'}</strong>
+    <div className={`grid min-w-0 content-start gap-2 ${className}`}>
+      <span className="min-w-0 text-sm font-semibold text-app-text">{label}</span>
+      <div className="readonly-control">{value || 'Not set'}</div>
       {note && <small className="field-hint">{note}</small>}
     </div>
   );
@@ -588,13 +592,9 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
               <input className={controlClass} value={values.middleName} onChange={(event) => update({ middleName: event.target.value.slice(0, NAME_PART_MAX_LENGTH) })} autoComplete="additional-name" maxLength={NAME_PART_MAX_LENGTH} aria-invalid={Boolean(errors.middleName)} />
             </FormField>
             {values.lastName || values.firstName ? (
-              // A derived preview, not an input: self-start keeps the bordered box
-              // hugging its two lines instead of stretching to the neighbouring form
-              // field's height, which painted a tall empty panel beside it.
               <ReadOnlyField
                 label="Full name"
                 value={composeFullName(values)}
-                className="self-start"
               />
             ) : (
               <FormField label="Full name" hint="Needed to apply until you add your last and first name." error={errors.fullName}>

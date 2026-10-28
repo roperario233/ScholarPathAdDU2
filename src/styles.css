@@ -248,6 +248,23 @@ textarea {
   outline: none;
 }
 
+/* A stored value rendered where an input would be: the same box metrics as the
+   text controls above, with no editing affordance. */
+.readonly-control {
+  display: flex;
+  min-height: 3rem;
+  width: 100%;
+  align-items: center;
+  padding: 0.55rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  cursor: default;
+}
+
 /* Text controls fill their form column; native controls must keep intrinsic sizing. */
 input:not([type='checkbox']):not([type='radio']),
 select,
