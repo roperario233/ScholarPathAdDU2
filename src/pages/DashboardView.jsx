@@ -80,7 +80,10 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
     <article className="row-span-6 grid min-w-0 grid-rows-subgrid rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur">
       <header className="flex items-start gap-3">
         <ScholarshipTrackIcon ruleFamily={card.ruleFamily} />
-        <div className="min-w-0">
+        {/* flex-1: a global rule stops the last child of an article's flex row from
+            shrinking, so without it a long title ("Working Scholar Program (WSP)")
+            overflows the card instead of wrapping. */}
+        <div className="min-w-0 flex-1">
           <span className="eyebrow">{card.kind}</span>
           <h3 className="mt-2 text-lg font-bold text-app-text">{card.name}</h3>
         </div>
