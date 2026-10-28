@@ -48,6 +48,7 @@ describe('getDocumentTitle', () => {
   it('prefixes the attribute label for an attribute proof', () => {
     expect(getDocumentTitle({ attributeKey: 'citizenship', documentType: 'Passport' })).toBe('Citizenship — Passport');
     expect(getDocumentTitle({ attributeKey: 'academicStanding', documentType: 'Transcript' })).toBe('Academic standing — Transcript');
+    expect(getDocumentTitle({ attributeKey: 'completeAddress', documentType: 'Proof of Billing' })).toBe('Complete address — Proof of Billing');
   });
 
   it('uses the document type label alone for a general document', () => {
@@ -105,6 +106,11 @@ describe('getProvenAttributes', () => {
     expect(getProvenAttributes('Income Proof', continuing)).toEqual(['householdIncome']);
     expect(getProvenAttributes('Passport', incoming)).toEqual(['citizenship']);
     expect(getProvenAttributes('Certificate of Award')).toEqual(['honorsRank']);
+    // A PSA birth certificate proves citizenship and the parents' names.
+    expect(getProvenAttributes('PSA Birth Certificate')).toEqual(['citizenship', 'parents']);
+    expect(getProvenAttributes('Proof of Billing')).toEqual(['completeAddress', 'residingAddress']);
+    // The barangay certificate answers the address and the household list.
+    expect(getProvenAttributes('Certificate of Residency')).toEqual(['completeAddress', 'residingAddress', 'householdMembers']);
     // Good Moral certifies conduct, not academic standing.
     expect(getProvenAttributes('Good Moral Character', continuing)).toEqual([]);
     expect(getProvenAttributes('Application Form', continuing)).toEqual([]);
@@ -171,6 +177,17 @@ describe('buildDocumentPickerOptions', () => {
   it('resolves the picker entry for a type', () => {
     expect(getDocumentSelectionForType('Grade Report', { yearStanding: '2nd' })).toBe(encodeDocumentSelection('qpi', 'Grade Report'));
     expect(getDocumentSelectionForType('Application Form')).toBe(encodeDocumentSelection('', 'Application Form'));
+  });
+
+  it('offers the address and family proofs under their own groups', () => {
+    expect(getAcceptedDocumentTypes('completeAddress').map((option) => option.value)).toEqual(['Proof of Billing', 'Certificate of Residency']);
+    expect(getAcceptedDocumentTypes('residingAddress').map((option) => option.value)).toEqual(['Proof of Billing', 'Certificate of Residency']);
+    expect(getAcceptedDocumentTypes('parents').map((option) => option.value)).toEqual(['PSA Birth Certificate']);
+    expect(getAcceptedDocumentTypes('householdMembers').map((option) => option.value)).toEqual(['Certificate of Residency']);
+    // The birth certificate still proves citizenship, and the picker says so.
+    const parentsEntry = options.find((entry) => entry.value === encodeDocumentSelection('parents', 'PSA Birth Certificate'));
+    expect(parentsEntry.label).toBe('PSA Birth Certificate · also proves Citizenship');
+    expect(options.some((entry) => entry.value === encodeDocumentSelection('householdMembers', 'Certificate of Residency'))).toBe(true);
   });
 });
 

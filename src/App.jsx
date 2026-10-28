@@ -10,7 +10,7 @@ import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCU
 import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getAttestedValue, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, isComparableAttribute, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
@@ -184,7 +184,7 @@ const buildOutdatedProofNotification = ({ key, reason, sourceKey }, ownerId = nu
     // alert concerns future applications only and says so.
     body: `${reason === 'year'
       ? `A new academic year has started, so your ${label} proof from the previous year no longer verifies this attribute. Upload a current proof in the Document Vault before your next application.`
-      : `Your ${label} in My Profile changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault before your next application.`} Applications you already submitted keep the values you declared when you submitted them.`,
+      : `Your ${label} in your Application Form changed after its proof was uploaded, so the proof no longer verifies this attribute. Upload a new proof in the Document Vault before your next application.`} Applications you already submitted keep the values you declared when you submitted them.`,
     status: 'Unread',
     createdAt: new Date().toISOString().slice(0, 10),
   };
@@ -297,6 +297,8 @@ function App() {
   // The My Profile section to open on, set when the Smart Eligibility Checker
   // links a failed reason to the section that edits it.
   const [profilePresetSection, setProfilePresetSection] = useState('');
+  // The answer inside that section to highlight (a `data-field` key).
+  const [profilePresetField, setProfilePresetField] = useState('');
   const [deadlineSync, setDeadlineSync] = useState(null);
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
@@ -952,6 +954,7 @@ function App() {
       ? { attribute: options.attribute || '', documentType: options.documentType || '' }
       : { attribute: '', documentType: '' });
     setProfilePresetSection(view === 'profile' ? (options.section || '') : '');
+    setProfilePresetField(view === 'profile' ? (options.field || '') : '');
     setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
     updateState({ activeView: view });
     setIsMobileNavOpen(false);
@@ -1241,7 +1244,7 @@ function App() {
       notes: isInternal
         ? 'Created from the scholarship explorer.'
         : 'Tracked from the scholarship explorer. Apply through the provider.',
-      // The default scholarship statement from My Profile is the starting statement.
+      // The default statement/essay from My Profile is the starting statement.
       statement: isInternal ? String(state.profileDraft?.essay || '') : '',
       profileSnapshot: null,
       certifiedAt: null,
@@ -2268,7 +2271,11 @@ function App() {
     ])];
     // The declared value each linked attribute had at upload, so the proof reads
     // as Outdated once the student changes that value (src/lib/verification.js).
-    const attestedValues = Object.fromEntries(linkedAttributes.map((key) => [key, normalizeAttestedValue(key, studentMatchProfile[key])]));
+    // An answer a proof cannot be compared against (the family lists) records no
+    // attested value, so the file stays current until a decision reverts it.
+    const attestedValues = Object.fromEntries(linkedAttributes
+      .filter((key) => isComparableAttribute(key))
+      .map((key) => [key, getAttestedValue(key, studentMatchProfile)]));
     // A real uuid so the row, the storage path, and application_documents links
     // all share the same identifier.
     const id = crypto.randomUUID();
@@ -2659,7 +2666,6 @@ function App() {
   const changeAccountPassword = (password) => updateAccountPassword({ password });
   const requestOwnPasswordReset = () => requestPasswordReset({ email: currentIdentity.email || '' });
 
-  const eligiblePreview = eligibleScholarships.slice(0, 6);
   // Department queue is derived from applications joined to the student's
   // school-level department, so it stays consistent with profiles.department
   // from the academic program taxonomy rather than a separately seeded table.
@@ -2668,19 +2674,6 @@ function App() {
   // Chairperson an operator has not scoped yet keeps the old school-wide read.
   const departmentQueue = getScopedQueue(state.applications, { ...currentProfile, role: state.viewerRole }, activeAcademicPrograms)
     .filter((entry) => entry.status !== 'Draft');
-  const studentStanding = getStandingRequirements(studentMatchProfile);
-  const hasIncompleteStudentProfile = state.viewerRole === 'student' && (
-    !currentIdentity.degreeProgram
-    || !studentStanding.yearStanding
-    // The AdDU student number belongs to a current Ateneo student only.
-    || (requiresStudentNumber(studentMatchProfile) && !currentIdentity.studentNumber)
-    || currentIdentity.householdIncome == null
-    || currentIdentity.householdIncome === ''
-    // An incoming first-year is matched on senior high school standing, not QPI.
-    || (studentStanding.requiresQpi && (currentIdentity.qpi == null || currentIdentity.qpi === ''))
-    || !studentMatchProfile.academicStanding
-    || !studentMatchProfile.citizenship
-  );
 
   // The Admissions Office workspace is split into one route per function. Both
   // lanes read the Dashboard and the review queue; only the Head manages the
@@ -2700,10 +2693,16 @@ function App() {
     ]
     : [];
 
+  // A student's My Profile is their scholarship application form (FORM 230-SCH),
+  // so it is named and placed as the first thing to complete, right after the
+  // Dashboard. Staff keep "My Profile" at the end of their list.
+  const profilePageLabel = state.viewerRole === 'student' ? 'Application Form' : 'My Profile';
+
   // Dashboard belongs to the student only: each staff, head, and Chair role has
   // its own landing workspace (the office Dashboard, or Department Review).
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: state.viewerRole === 'student' },
+    { view: 'profile', label: profilePageLabel, visible: state.viewerRole === 'student' },
     { view: 'explore', label: 'Scholarships', visible: state.viewerRole === 'student' },
     { view: 'applications', label: 'Applications', visible: state.viewerRole === 'student' },
     { view: 'vault', label: 'Document Vault', visible: state.viewerRole === 'student' },
@@ -2712,7 +2711,7 @@ function App() {
     { view: 'review', label: getReviewPageLabel(state.viewerRole), visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-interviews', label: 'Interviews', visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-calendar', label: 'Calendar', visible: isReviewerRole(state.viewerRole) },
-    { view: 'profile', label: 'My Profile', visible: true },
+    { view: 'profile', label: profilePageLabel, visible: state.viewerRole !== 'student' },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
@@ -2765,7 +2764,7 @@ function App() {
   }
 
   return (
-    <div className={`min-h-screen max-w-[100vw] overflow-x-hidden bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
+    <div className={`min-h-screen max-w-[100vw] overflow-x-clip bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
       {sessionTimeoutState && (
         <SessionTimeoutModal
           reason={sessionTimeoutState.reason}
@@ -2816,7 +2815,7 @@ function App() {
               type="button"
               className="mr-1 inline-flex min-h-11 min-w-0 items-center gap-2 rounded-full focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:hidden"
               title={`${state.authUser.fullName} · ${roleLabels[state.viewerRole]}`}
-              aria-label="Open My Profile"
+              aria-label={`Open ${profilePageLabel}`}
               onClick={() => navigate('profile')}
             >
               <ProfileAvatar src={avatarPreview.url} name={state.authUser.fullName} size="sm" />
@@ -2876,6 +2875,9 @@ function App() {
       </button>
 
       <main className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+        {/* Floats beside long pages from `lg`. It never scrolls on its own: when it is
+            taller than the window its top (the page links) stays in view and the
+            summary boxes below come into view at the bottom of the page. */}
         <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
           <div className="flex items-center gap-4 border-b border-app-border pb-4">
             <ProfileAvatar src={avatarPreview.url} name={currentIdentity.fullName} size="lg" rounded="rounded-[18px]" className="!h-[50px] !w-[50px]" />
@@ -2908,27 +2910,8 @@ function App() {
             <DashboardViewPage
               profile={currentIdentity}
               isFirstLogin={state.showFirstLoginWelcome}
-              applications={studentApplications}
               scholarships={scholarshipCatalog}
-              customDeadlines={state.customDeadlines}
-              eligibleScholarships={eligiblePreview}
-              notifications={visibleNotifications}
-              announcements={state.announcements}
               onOpenExplorer={() => navigate('explore')}
-              onOpenEligibility={() => navigate('explore')}
-              onTrackScholarship={async (scholarship) => {
-                // The dashboard row has no error slot, so an incomplete profile
-                // opens the My Profile section that holds the first missing answer.
-                const result = await applyToScholarship(scholarship);
-                if (result?.profileItems?.length) navigate('profile', { section: result.profileItems[0].section });
-                return result;
-              }}
-              onMarkRead={markNotificationRead}
-              onShowApplications={() => navigate('applications')}
-              onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
-              onOpenCalendar={() => navigate('calendar')}
-              hasIncompleteProfile={hasIncompleteStudentProfile}
-              onCompleteProfile={() => navigate('profile')}
             />
           )}
 
@@ -2941,7 +2924,7 @@ function App() {
               onSearchChange={(value) => updateState({ searchQuery: value })}
               onFilterChange={(patch) => updateState((previous) => ({ filters: { ...previous.filters, ...patch } }))}
               onApply={applyToScholarship}
-              onOpenProfileSection={(section) => navigate('profile', { section })}
+              onOpenProfileSection={(section, field) => navigate('profile', { section, field })}
             />
           )}
 
@@ -3198,6 +3181,7 @@ function App() {
               academicPrograms={activeAcademicPrograms}
               academicProgramGroups={activeAcademicProgramGroups}
               initialSection={profilePresetSection}
+              initialField={profilePresetField}
               onSaveProfile={saveProfile}
               onSaveFinancialProfile={saveFinancialProfile}
               financialMissing={financial.missing}
@@ -3211,14 +3195,19 @@ function App() {
               documents={studentDocuments}
               onAttachProof={(attributeKey) => navigate('vault', { attribute: attributeKey })}
               onUploadDocument={(preset) => navigate('vault', preset)}
+              onFindScholarship={() => navigate('explore')}
               previewProofImpact={state.viewerRole === 'student'
                 ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
+                : undefined}
+              previewVerifications={state.viewerRole === 'student'
+                ? (patch) => deriveAttributeVerifications(studentDocuments, VERIFIABLE_ATTRIBUTE_KEYS, { profile: { ...studentMatchProfile, ...patch } })
                 : undefined}
             />
           )}
 
           {state.activeView === 'settings' && (
             <SettingsViewPage
+              profilePageLabel={profilePageLabel}
               notificationPreferences={state.notificationPreferences}
               sessionTimeoutConfig={sessionTimeoutConfig}
               isEmailDeliveryAvailable={isSupabaseWorkspaceLoaded}

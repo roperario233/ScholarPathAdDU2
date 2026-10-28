@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyApplicantStatus,
   applyYearStanding,
+  getApplicationFormProgress,
+  getNextApplicationFormSection,
+  isParentNameAnswered,
   composeFullName,
   deriveYearStanding,
   getApplicantStatus,
@@ -15,6 +18,7 @@ import {
   getYearStandingLabel,
   getYearStandingOptions,
   isParentFinancesAnswered,
+  isGrantListActive,
   isProofRequired,
   isTransfereeProfile,
   getProfileCompleteness,
@@ -75,6 +79,8 @@ const formCore = {
   sexAtBirth: 'Female',
   communityService: 'Yes',
   schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' },
+  // Each parent's name (or an unknown parent) is needed to apply.
+  familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes' },
   financialProfile: {
     economicStatus: 'lower',
     father: { employmentStatus: 'employed', annualIncome: 120000 },
@@ -165,20 +171,19 @@ describe('FORM 230-SCH applicant status and name parts', () => {
 });
 
 describe('section validators', () => {
-  it('normalizes personal information and limits the bio length', () => {
-    const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', bio: ' Hello ', religion: 'Roman Catholic', civilStatus: 'Single' });
+  it('normalizes personal information and requires a full name', () => {
+    const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', bio: 'Hello', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
+    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
 
-    expect(validatePersonalSection({ fullName: 'A', bio: 'x'.repeat(281) }).errors).toMatchObject({
+    expect(validatePersonalSection({ fullName: 'A' }).errors).toMatchObject({
       fullName: expect.any(String),
-      bio: expect.any(String),
     });
     // An unknown religion or civil status is rejected.
     expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Jedi', civilStatus: 'Single' }).errors.religion).toBeTruthy();
   });
 
-  it('keeps paragraph breaks in the scholarship essay and enforces the cap', () => {
+  it('keeps paragraph breaks in the statement/essay and enforces the cap', () => {
     const kept = validatePersonalSection({ fullName: 'Ana Cruz', essay: '  First paragraph.\n\nSecond paragraph.  ' });
     expect(kept.errors).toEqual({});
     expect(kept.values.essay).toBe('First paragraph.\n\nSecond paragraph.');
@@ -204,11 +209,13 @@ describe('section validators', () => {
     });
     expect(result.errors).toEqual({});
     expect(result.values.familyDetails).toEqual({
+      fatherUnknown: false,
       fatherName: 'Roberto Espinosa',
       fatherOccupation: 'Fisherman',
       fatherDeceased: false,
       fatherAge: '',
       fatherDateOfDeath: '',
+      motherUnknown: false,
       motherName: 'Liza Espinosa',
       motherOccupation: '',
       motherDeceased: true,
@@ -279,7 +286,7 @@ describe('section validators', () => {
     expect(academic.values.awards).toBe('With honors');
 
     const background = validateBackgroundSection({
-      citizenship: 'Filipino', ipCommunity: 'Yes', ipGroupName: ' Bagobo ', communityService: 'Yes',
+      citizenship: 'Filipino', householdIncome: '240000', ipCommunity: 'Yes', ipGroupName: ' Bagobo ', communityService: 'Yes',
       previousGrants: [{ type: 'Government', name: 'CHED', status: 'applied', institution: '' }, { type: '', name: '', status: '', institution: '' }],
     });
     expect(background.errors).toEqual({});
@@ -387,7 +394,7 @@ describe('section validators', () => {
     const honors = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Valedictorian', graduatingClassSize: '' });
     expect(honors.errors.graduatingClassSize).toBeTruthy();
 
-    const valid = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Salutatorian', graduatingClassSize: '120', sponsorTies: { afpDependent: true } });
+    const valid = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', honorsRank: 'Salutatorian', graduatingClassSize: '120', sponsorTies: { afpDependent: true } });
     expect(valid.errors).toEqual({});
     expect(valid.values).toMatchObject({
       isHonorsGraduate: true,
@@ -396,6 +403,46 @@ describe('section validators', () => {
     });
     // Senior high school standing now lives with the academic profile.
     expect(valid.values).not.toHaveProperty('hsAverage');
+  });
+
+  it('edits the household income and the exclusion answers in Eligibility background', () => {
+    const background = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasActiveGovernmentGrant: true });
+    expect(background.errors.householdIncome).toBeUndefined();
+    expect(background.values).toMatchObject({ householdIncome: 240000, hasActiveGovernmentGrant: true });
+    // Income is still needed to apply, and it is now a background answer.
+    expect(validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '' }).errors.householdIncome).toBeTruthy();
+    expect(getProfileCompleteness({ householdIncome: 240000 }).items.find((item) => item.key === 'householdIncome').section).toBe('background');
+  });
+
+  it('opens the grant list only for the answers that say the student receives aid', () => {
+    expect(isGrantListActive({})).toBe(false);
+    expect(isGrantListActive({ hasActiveGovernmentGrant: true })).toBe(true);
+    expect(isGrantListActive({ hasOtherActiveScholarship: true })).toBe(true);
+    expect(isGrantListActive({ isOnPrepaidPlan: true })).toBe(true);
+    // A sibling on AdDU financial aid is about the sibling, not the applicant.
+    expect(isGrantListActive({ hasSiblingOnAid: true })).toBe(false);
+    // A saved row keeps the list open, so a recorded grant never becomes unreachable.
+    expect(isGrantListActive({ previousGrants: [{ name: 'CHED' }] })).toBe(true);
+  });
+
+  it('requires at least one grant while the list is open', () => {
+    const open = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasOtherActiveScholarship: true });
+    expect(open.errors.previousGrants).toMatch(/at least one grant/);
+
+    const completed = validateBackgroundSection({
+      citizenship: 'Filipino',
+      householdIncome: '240000',
+      isOnPrepaidPlan: true,
+      previousGrants: [{ type: 'Government', name: 'CHED', status: 'accepted', institution: 'CHED', amount: '12000' }],
+    });
+    expect(completed.errors).toEqual({});
+    expect(completed.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', level: '', status: 'accepted', institution: 'CHED', amount: 12000 }]);
+  });
+
+  it('never asks for a grant when no aid answer is on', () => {
+    const closed = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasSiblingOnAid: true });
+    expect(closed.errors.previousGrants).toBeUndefined();
+    expect(closed.values.previousGrants).toEqual([]);
   });
 
   it('requires a matching password with letters and numbers', () => {
@@ -526,7 +573,7 @@ describe('getProfileCompleteness', () => {
     ...studentProfile,
     academicStanding: 'good',
     civilStatus: 'Single',
-    essay: 'My scholarship essay.',
+    essay: 'My statement/essay.',
     studentNumber: '2023001',
     completeAddress: '123 Rizal St, Davao City',
     ipCommunity: 'No',
@@ -540,16 +587,16 @@ describe('getProfileCompleteness', () => {
     const completeness = getProfileCompleteness({ ...completeStudent, studentNumber: '' }, 'student');
     const missing = completeness.items.filter((item) => !item.done);
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
-    // The default scholarship statement is an optional template, not a tracked item.
+    // The default statement/essay is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
-    expect(completeness.percent).toBe(Math.round((20 / 21) * 100));
+    expect(completeness.percent).toBe(Math.round((22 / 23) * 100));
   });
 
   it('separates what an application needs from the descriptive details', () => {
     const completeness = getProfileCompleteness(completeStudent, 'student');
-    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
+    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'fatherName', 'motherName', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
     expect(keysOf(completeness, 'details')).toEqual([]);
-    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 21, 21]]);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 23, 23]]);
     expect(completeness.percent).toBe(100);
   });
 
@@ -757,7 +804,7 @@ describe('getApplicationProfileGate', () => {
     const gate = getApplicationProfileGate({ ...complete, citizenship: '', qpi: '' });
     expect(gate.allowed).toBe(false);
     expect(gate.missing.map((item) => [item.key, item.section])).toEqual([['qpi', 'academic'], ['citizenship', 'background']]);
-    expect(gate.reasons[0]).toBe('Complete your profile before applying: Annual QPI, Citizenship.');
+    expect(gate.reasons[0]).toBe('Complete your Application Form before applying: Annual QPI, Citizenship.');
   });
 
   it('asks an incoming first-year for the senior high school average instead of a QPI', () => {
@@ -834,5 +881,77 @@ describe('FORM 230-SCH core answers', () => {
     expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'unemployed', annualIncome: '' } } }, 'mother')).toBe(false);
     expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'retired', annualIncome: 10 } } }, 'mother')).toBe(false);
     expect(isParentFinancesAnswered({}, 'father')).toBe(false);
+  });
+});
+
+describe("parents' names and the unknown-parent answer", () => {
+  const complete = {
+    ...studentProfile,
+    academicStanding: 'good',
+    studentNumber: '2023001',
+    ...formCore,
+  };
+
+  it("requires each parent's name unless the parent is marked unknown", () => {
+    const blank = { ...complete, familyDetails: { fatherName: '  ', motherName: 'Maria Reyes' } };
+    expect(getApplicationProfileGate(blank).missing.map((item) => [item.key, item.section])).toEqual([['fatherName', 'family']]);
+    expect(isParentNameAnswered({ familyDetails: { fatherUnknown: true } }, 'father')).toBe(true);
+    expect(getApplicationProfileGate({ ...complete, familyDetails: { fatherUnknown: true, motherName: 'Maria Reyes' } }).allowed).toBe(true);
+  });
+
+  it("waives an unknown parent's finances like a deceased parent's", () => {
+    expect(isParentFinancesAnswered({ familyDetails: { motherUnknown: true } }, 'mother')).toBe(true);
+  });
+
+  it("clears an unknown parent's other answers on save", () => {
+    const { values } = validateFamilySection({
+      familyDetails: { fatherUnknown: true, fatherName: 'Old Name', fatherOccupation: 'Driver', fatherDeceased: true, fatherAge: '50', motherName: 'Maria Reyes' },
+    });
+    expect(values.familyDetails).toMatchObject({ fatherUnknown: true, fatherName: '', fatherOccupation: '', fatherDeceased: false, fatherAge: '', motherUnknown: false, motherName: 'Maria Reyes' });
+  });
+});
+
+describe('getApplicationFormProgress', () => {
+  const complete = {
+    ...studentProfile,
+    academicStanding: 'good',
+    studentNumber: '2023001',
+    ...formCore,
+  };
+  const stateOf = (progress) => Object.fromEntries(progress.sections.map((section) => [section.key, section.state]));
+
+  it('marks every numbered section complete and the form ready', () => {
+    const progress = getApplicationFormProgress(complete, {});
+    expect(progress.sections.map((section) => `${section.number}. ${section.key}`)).toEqual(['1. personal', '2. address', '3. family', '4. academic', '5. finances', '6. background']);
+    expect(Object.values(stateOf(progress)).every((state) => state === 'complete')).toBe(true);
+    expect(progress.ready).toBe(true);
+    expect(progress.next).toBeNull();
+  });
+
+  it('counts missing answers per section and points to the first unfinished one', () => {
+    const progress = getApplicationFormProgress({ ...complete, civilStatus: '', birthdate: '', familyDetails: {} }, {});
+    const personal = progress.sections.find((section) => section.key === 'personal');
+    expect(personal).toMatchObject({ state: 'incomplete', label: 'Personal information', statusLabel: '2 left', description: '2 answers missing' });
+    expect(stateOf(progress).family).toBe('incomplete');
+    expect(progress.next.key).toBe('personal');
+    expect(progress.ready).toBe(false);
+    expect(getNextApplicationFormSection(progress, 'personal').key).toBe('family');
+    expect(getNextApplicationFormSection(progress, 'family').key).toBe('personal');
+  });
+
+  it('asks for the proof of a claim, but not for a proof awaiting verification', () => {
+    const claim = { ...complete, pwd: 'Yes' };
+    expect(getApplicationFormProgress(claim, { pwd: 'Unverified' }).sections.find((section) => section.key === 'background'))
+      .toMatchObject({ state: 'incomplete', statusLabel: '1 left', description: '1 proof to attach' });
+    expect(stateOf(getApplicationFormProgress(claim, { pwd: 'Pending' })).background).toBe('complete');
+  });
+
+  it('raises an alert for a reverted or outdated proof', () => {
+    const progress = getApplicationFormProgress(complete, { parents: 'Rejected', qpi: 'Outdated', householdIncome: 'Outdated', citizenship: 'Rejected' });
+    const byKey = Object.fromEntries(progress.sections.map((section) => [section.key, section]));
+    expect(byKey.family).toMatchObject({ state: 'alert', statusLabel: 'Reverted' });
+    expect(byKey.academic).toMatchObject({ state: 'alert', statusLabel: 'Outdated' });
+    expect(byKey.background).toMatchObject({ state: 'alert', statusLabel: '2 to fix' });
+    expect(progress.ready).toBe(false);
   });
 });

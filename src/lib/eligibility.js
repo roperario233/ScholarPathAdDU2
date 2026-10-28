@@ -118,7 +118,7 @@ export const isInternalScholarship = (scholarship = {}) => {
 
 export const getInternalScholarships = (scholarships = []) => scholarships.filter(isInternalScholarship);
 
-const getInternalRuleFamily = (scholarship) => {
+export const getInternalRuleFamily = (scholarship) => {
   if (ADDU_INTERNAL_RULE_FAMILIES.includes(scholarship.ruleFamily)) return scholarship.ruleFamily;
   const title = String(scholarship.title || '').toLowerCase();
   if (/jubilee/.test(title)) return 'honors';

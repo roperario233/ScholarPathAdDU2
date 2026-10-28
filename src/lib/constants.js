@@ -362,6 +362,12 @@ export const attributeProofDocumentTypeOptions = [
   { value: 'Payslip', label: 'Payslip' },
   { value: 'Certificate of Indigency', label: 'Certificate of Indigency' },
   { value: 'Certificate of Tribal Membership', label: 'Certificate of Tribal Membership' },
+  // Proof of the address and family answers. Both are asked for by every
+  // in-scope track (DEFAULT_REQUIRED_DOCUMENTS in src/lib/applicationRequirements.js);
+  // the barangay certificate answers both groups at once, which is why it is
+  // listed under each of them in the vault's picker.
+  { value: 'Proof of Billing', label: 'Proof of Billing' },
+  { value: 'Certificate of Residency', label: 'Certificate of Residency (Barangay)' },
 ];
 
 // Every document type the vault can store, so `getDocumentTypeLabel` can resolve

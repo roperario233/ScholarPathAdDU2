@@ -1,5 +1,6 @@
 import { attributeVerificationStatuses } from './constants';
 import {
+  getAttributeValue,
   getCurrentAcademicYear,
   getProofSkipReason,
   getProvenAttributes,
@@ -68,15 +69,23 @@ const parseUploadDate = (value) => {
 // A document without a recorded value (uploaded before `attestedValues`
 // existed) or without an upload date is treated as current, and the value check
 // only runs when the owner's profile is supplied and carries that answer (a
-// frozen snapshot from before an answer was recorded leaves it out).
+// frozen snapshot from before an answer was recorded leaves it out). The declared
+// value is read through getAttributeValue(), so the residing address and the
+// family answers resolve exactly as they were attested, and an answer a proof
+// cannot be compared against (compareValue: false) is never attested or compared.
 export const getProofStaleReason = (doc, key, { profile = null, now = new Date() } = {}) => {
   const attested = doc?.attestedValues && typeof doc.attestedValues === 'object' ? doc.attestedValues : {};
-  if (profile && Object.prototype.hasOwnProperty.call(profile, key)
+  const option = getVerifiableAttributeOption(key);
+  const declared = getAttributeValue(key, profile);
+  const carriesAnswer = option?.value
+    ? declared !== undefined && declared !== null
+    : Boolean(profile) && typeof profile === 'object' && Object.prototype.hasOwnProperty.call(profile, key);
+  if (profile && option?.compareValue !== false && carriesAnswer
     && Object.prototype.hasOwnProperty.call(attested, key)
-    && normalizeAttestedValue(key, profile[key]) !== attested[key]) {
+    && normalizeAttestedValue(key, declared) !== attested[key]) {
     return 'value';
   }
-  if (getVerifiableAttributeOption(key)?.annual) {
+  if (option?.annual) {
     const uploaded = parseUploadDate(doc?.uploadedAt);
     if (uploaded && getCurrentAcademicYear(uploaded) !== getCurrentAcademicYear(now)) return 'year';
   }

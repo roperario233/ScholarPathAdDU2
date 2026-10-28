@@ -44,7 +44,7 @@ const sheet = (props = {}) => renderToStaticMarkup(
 describe('ApplicationPrintSheet', () => {
   it('prints the application in FORM 230-SCH order with the financial groups', () => {
     const html = sheet();
-    const order = ['Needed to apply', 'Personal and address', 'Family', 'Household finances', 'Financial situation', 'Financial aid and service', 'Scholarship essay'];
+    const order = ['Needed to apply', 'Personal and address', 'Family', 'Household finances', 'Financial situation', 'Financial aid and service', 'Statement/essay'];
     const positions = order.map((title) => html.indexOf(title));
     expect(positions.every((index) => index >= 0)).toBe(true);
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);

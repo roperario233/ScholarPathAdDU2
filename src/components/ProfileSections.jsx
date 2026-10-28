@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Camera, Circle, CircleCheck, TriangleAlert } from 'lucide-react';
+import { Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { ArrowRight, Camera, Circle, CircleAlert, CircleCheck, OctagonAlert, Paperclip, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
@@ -20,7 +20,6 @@ import {
 import {
   ADDRESS_MAX_LENGTH,
   AWARDS_MAX_LENGTH,
-  BIO_MAX_LENGTH,
   COUNTRY_MAX_LENGTH,
   ESSAY_MAX_LENGTH,
   MAX_GRANT_ROWS,
@@ -55,26 +54,29 @@ import {
   honorsRankOptions,
   hsStrandOptions,
   ipCommunityOptions,
+  isGrantListActive,
   pwdOptions,
   validateAcademicSection,
   validateAddressSection,
   validateBackgroundSection,
   validateFamilySection,
-  validateFinancialSection,
   validatePasswordChange,
   validatePersonalSection,
+  APPLICATION_FORM_SECTIONS,
   religionOptions,
   requiresStudentNumber,
 } from '../lib/profile';
 
 const controlClass = 'h-12 py-0';
+// "Part 3 of your application form." — the section's place in the numbered menu.
+const formPart = (key) => `Part ${APPLICATION_FORM_SECTIONS.findIndex((section) => section.key === key) + 1} of your Application Form.`;
 const asText = (value) => (value === undefined || value === null ? '' : String(value));
 
 // Shared draft/validate/save lifecycle for one My Profile section. The draft
 // re-syncs whenever the saved profile changes, so a successful save (or a
 // change made elsewhere, such as the Smart Eligibility Checker) never leaves a
 // stale form behind.
-function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previewProofImpact }) {
+function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previewProofImpact, attributeVerifications, previewVerifications }) {
   const initialKey = JSON.stringify(initialValues);
   // The saved values the draft was last synced to; null forces a re-sync.
   const [syncedKey, setSyncedKey] = useState(initialKey);
@@ -93,6 +95,12 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previe
   // Attributes whose Document Vault proof this draft would make Outdated, so the
   // form can warn before the student saves.
   const proofWarnings = isDirty && previewProofImpact ? previewProofImpact(values) : [];
+  // The badges follow the draft, not only the saved profile: picking "Yes" on a
+  // claim reads Unverified right away instead of "No proof needed" until Save, so
+  // the student sees the proof the answer asks for while they are still on it.
+  const verifications = isDirty && previewVerifications
+    ? { ...attributeVerifications, ...previewVerifications(values) }
+    : attributeVerifications;
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -115,8 +123,10 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previe
     setStatus({ tone: '', message: '' });
   };
 
-  const submit = async (event) => {
-    event.preventDefault();
+  // `onSuccess` runs after a successful save; "Save and continue" uses it to open
+  // the next application-form section.
+  const submit = async (event, { onSuccess } = {}) => {
+    event?.preventDefault();
     const result = validate(values);
     if (Object.keys(result.errors).length) {
       setErrors(result.errors);
@@ -136,9 +146,10 @@ function useSectionForm({ initialValues, validate, onSave, onDirtyChange, previe
     // through the saved profile, so re-sync to it rather than keep the draft.
     setSyncedKey(null);
     setStatus({ tone: 'success', message: saved.message || 'Changes saved.' });
+    onSuccess?.();
   };
 
-  return { values, errors, status, isSaving, isDirty, proofWarnings, update, reset, submit };
+  return { values, errors, status, isSaving, isDirty, proofWarnings, verifications, update, reset, submit };
 }
 
 function FormStatus({ status }) {
@@ -152,7 +163,13 @@ function FormStatus({ status }) {
   );
 }
 
+// Set by My Profile around a student's application-form section: the next
+// unfinished section and how to open it. Absent for staff and Account security,
+// so their forms keep the single save button.
+export const SectionContinueContext = createContext(null);
+
 function SectionForm({ title, description, form, submitLabel = 'Save changes', children }) {
+  const proceed = useContext(SectionContinueContext);
   return (
     <Card title={title}>
       {description && <p className="-mt-1 mb-5 text-sm text-app-muted">{description}</p>}
@@ -163,6 +180,18 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
           <Button variant="primary" type="submit" disabled={!form.isDirty || form.isSaving}>
             {form.isSaving ? 'Saving…' : submitLabel}
           </Button>
+          {/* Unsaved input is saved first; a clean form simply steps to the next part. */}
+          {proceed && (form.isDirty || proceed.next) && (
+            <Button
+              type="button"
+              className="gap-2"
+              disabled={form.isSaving}
+              onClick={() => (form.isDirty ? form.submit(null, { onSuccess: proceed.onContinue }) : proceed.onContinue())}
+            >
+              {form.isDirty ? 'Save and continue' : `Next: ${proceed.next.label}`}
+              <ArrowRight size={16} aria-hidden="true" />
+            </Button>
+          )}
           {form.isDirty && (
             <Button type="button" onClick={form.reset} disabled={form.isSaving}>Discard changes</Button>
           )}
@@ -189,11 +218,15 @@ function ProofImpactWarning({ warnings = [] }) {
   );
 }
 
+// A stored value shown where an input would be. It repeats FormField's label and
+// hint layout around a .readonly-control box (the same border, radius, surface,
+// and height as the profile inputs), so a read-only row lines up with the
+// editable fields beside it instead of reading as a separate card.
 function ReadOnlyField({ label, value, note, className = '' }) {
   return (
-    <div className={`grid min-w-0 content-start gap-1 rounded-xl border border-app-border bg-app-surface px-4 py-3 ${className}`}>
-      <span className="text-xs uppercase tracking-[0.08em] text-app-muted">{label}</span>
-      <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{value || 'Not set'}</strong>
+    <div className={`grid min-w-0 content-start gap-2 ${className}`}>
+      <span className="min-w-0 text-sm font-semibold text-app-text">{label}</span>
+      <div className="readonly-control">{value || 'Not set'}</div>
       {note && <small className="field-hint">{note}</small>}
     </div>
   );
@@ -207,21 +240,35 @@ function ReadOnlyField({ label, value, note, className = '' }) {
 // reason instead of a request for a document: `Not applicable` when it is not
 // read for the student's year standing, `No proof needed` when the answer claims
 // nothing, or `Not answered` while the optional answer is still "Not specified".
-function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
+// The action is a quiet chip beside the badge, deliberately not `link-btn`: inside
+// the authenticated shell that class is a page action (40px tall, painted border and
+// background), which dwarfed the status pill and wrapped the field's label line.
+function AttributeVerification({ attributeKey, attributeVerifications = {}, savedVerifications = null, onAttachProof }) {
   const status = attributeVerifications[attributeKey] || 'Unverified';
+  // `attributeVerifications` follows the unsaved draft; `savedVerifications` is
+  // what the profile holds. While they disagree the proof cannot be attached yet:
+  // a file uploaded now would attest the saved answer, not the one on screen, and
+  // would read Outdated the moment the student saves.
+  const awaitsSave = Boolean(savedVerifications) && (savedVerifications[attributeKey] || 'Unverified') !== status;
   return (
-    <span className="inline-flex flex-wrap items-center gap-2">
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
       <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>
-      {!isAttributeProofSettled(status) && onAttachProof && (
-        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>{status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+      {!isAttributeProofSettled(status) && onAttachProof && awaitsSave && (
+        <span className="text-xs font-semibold text-amber-600 dark:text-amber-300">Save, then attach proof</span>
+      )}
+      {!isAttributeProofSettled(status) && onAttachProof && !awaitsSave && (
+        <button type="button" className="proof-action" onClick={() => onAttachProof(attributeKey)}>
+          <Paperclip size={13} aria-hidden="true" />
+          {status === 'Outdated' ? 'Upload new proof' : status === 'Pending' ? 'View proof' : 'Attach proof'}
+        </button>
       )}
     </span>
   );
 }
 
-function SelectField({ label, hint, error, value, onChange, options, placeholder, labelAdornment }) {
+function SelectField({ label, hint, error, value, onChange, options, placeholder, labelAdornment, fieldKey }) {
   return (
-    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment}>
+    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment} fieldKey={fieldKey}>
       <select className={controlClass} value={value} onChange={(event) => onChange(event.target.value)} aria-invalid={Boolean(error)}>
         {placeholder && <option value="" disabled>{placeholder}</option>}
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -259,25 +306,111 @@ const completenessGroupNotes = {
   details: 'Included in every application you submit. A mobile number enables SMS reminders.',
 };
 
+// The application-form section states from getApplicationFormProgress(): a check
+// when complete, an amber mark while answers or claim proofs are missing, and a
+// red mark when a proof was reverted for resubmission or is outdated.
+const FORM_SECTION_STATUS = {
+  complete: { Icon: CircleCheck, className: 'text-emerald-500', text: 'Complete' },
+  incomplete: { Icon: CircleAlert, className: 'text-amber-500', text: 'Not finished' },
+  alert: { Icon: OctagonAlert, className: 'text-rose-500', text: 'Needs attention' },
+};
+
+export function FormSectionStatusIcon({ state, size = 16, className = '' }) {
+  const { Icon, className: tone } = FORM_SECTION_STATUS[state] || FORM_SECTION_STATUS.incomplete;
+  return <Icon size={size} className={`shrink-0 ${tone} ${className}`} aria-hidden="true" />;
+}
+
+export const getFormSectionStatusText = (state) => (FORM_SECTION_STATUS[state] || FORM_SECTION_STATUS.incomplete).text;
+
+// The proof rows a section needs beyond its answers: a reverted or outdated proof
+// of an answer the checklist does not list on its own row (the parents' names,
+// the residing address, honors), and a claim with no proof yet.
+const getSectionProofRows = (section) => {
+  const answered = new Set(section.items.map((item) => item.key));
+  return [
+    ...section.alerts.map((alert) => ({ key: alert.key, label: `${alert.label} (proof)` })),
+    ...section.unprovenClaims.map((claim) => ({ key: claim.key, label: claim.label })),
+  ]
+    .filter((row, index, rows) => !answered.has(row.key) && rows.findIndex((entry) => entry.key === row.key) === index)
+    .map((row) => ({ ...row, section: section.key, done: true, proof: true }));
+};
+
+function ApplicationFormChecklist({ formProgress, standing, onEditSection, attributeVerifications, onAttachProof }) {
+  return (
+    <Card
+      title="Your application form"
+      action={<span className="text-sm text-app-muted"><strong className="text-app-text">{formProgress.answered}</strong> of {formProgress.total} answered</span>}
+    >
+      <p className="-mt-1 mb-4 text-sm text-app-muted">
+        Every AdDU scholarship application copies these answers when you submit it, so complete each part once. {standingNote(standing)}
+      </p>
+      <div
+        className="h-3 overflow-hidden rounded-full bg-app-surface"
+        role="progressbar"
+        aria-label="Application form answered"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={formProgress.percent}
+      >
+        <div className="h-full rounded-full bg-gradient-to-r from-ateneo to-sky-400 transition-[width]" style={{ width: `${formProgress.percent}%` }} />
+      </div>
+      <div className="mt-5 grid gap-5">
+        {formProgress.sections.map((section) => {
+          const proofRows = getSectionProofRows(section);
+          return (
+            <section key={section.key} className="grid gap-2" aria-labelledby={`form-section-${section.key}`}>
+              <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                <h4 id={`form-section-${section.key}`} className="m-0 flex min-w-0 items-center gap-2 text-sm font-bold text-app-text">
+                  <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-app-surface text-xs text-app-muted" aria-hidden="true">{section.number}</span>
+                  <span className="min-w-0">{section.label}</span>
+                </h4>
+                <span className="flex items-center gap-2 text-xs font-semibold text-app-muted">
+                  <FormSectionStatusIcon state={section.state} />
+                  {section.state === 'complete' ? `${section.completed} of ${section.total} answered` : section.description}
+                  <button type="button" className="proof-action" onClick={() => onEditSection(section.key)}>Open</button>
+                </span>
+              </div>
+              <ul className="m-0 grid list-none gap-2 p-0 md:grid-cols-2">
+                {[...section.items, ...proofRows].map((item) => (
+                  <CompletenessItem key={item.key} item={item} status={attributeVerifications[item.key]} onEditSection={onEditSection} onAttachProof={onAttachProof} />
+                ))}
+              </ul>
+            </section>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
 function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
   // A verification badge only means something once the answer is filled in.
   const showStatus = item.done && status !== undefined;
   const showAttachProof = showStatus && !isAttributeProofSettled(status) && onAttachProof;
   return (
-    <li className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
-      <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm text-app-text">
-        {item.done
-          ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
-          : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
-        <span className="min-w-0">{item.label}<span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span></span>
-        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>}
+    <li className="grid min-h-11 grid-cols-1 items-center gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+      {/* A fixed two-column row: the answer keeps the free space and wraps its own
+          text, while the verification state sits with the action that resolves it,
+          right-aligned. As flex items the badge and the chip could split, and a wrapped
+          chip landed alone at the row's left edge. */}
+      <span className="flex min-w-0 items-center gap-2 text-sm text-app-text">
+        {item.proof
+          ? <Paperclip size={18} className="shrink-0 text-app-muted" aria-hidden="true" />
+          : item.done
+            ? <CircleCheck size={18} className="shrink-0 text-emerald-500" aria-hidden="true" />
+            : <Circle size={18} className="shrink-0 text-app-muted" aria-hidden="true" />}
+        <span className="min-w-0">{item.label}{!item.proof && <span className="sr-only">{item.done ? ' (complete)' : ' (missing)'}</span>}</span>
       </span>
-      <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+      <span className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+        {showStatus && <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>}
         {showAttachProof && (
-          <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+          <button type="button" className="proof-action shrink-0" onClick={() => onAttachProof(item.key)}>
+            <Paperclip size={13} className="shrink-0" aria-hidden="true" />
+            {status === 'Pending' ? 'View proof' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}
+          </button>
         )}
         {!item.done && (
-          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
+          <button type="button" className="proof-action" onClick={() => onEditSection(item.section)}>Add</button>
         )}
       </span>
     </li>
@@ -320,15 +453,16 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
             const state = VAULT_REQUIREMENT_STATE_LABELS[item.state] || VAULT_REQUIREMENT_STATE_LABELS.missing;
             const scope = describeDocumentScope(item, scholarships.length);
             return (
-              <li key={item.key} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2">
-                <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
+              <li key={item.key} className="grid min-h-11 grid-cols-1 items-center gap-x-3 gap-y-2 rounded-xl bg-app-surface px-3 py-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <span className="grid min-w-0 gap-0.5">
                   <span className="text-sm font-semibold text-app-text">{item.label}</span>
                   {scope && <span className="text-xs text-app-muted">{scope}</span>}
                 </span>
                 <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
                   {onUploadDocument && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item, standing))}>
+                    <button type="button" className="proof-action shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item, standing))}>
+                      {item.state !== 'attached' && item.state !== 'verified' && <Paperclip size={13} className="shrink-0" aria-hidden="true" />}
                       {item.state === 'missing' ? 'Upload' : item.state === 'rejected' ? 'Upload again' : item.state === 'outdated' ? 'Upload new proof' : 'View'}
                     </button>
                   )}
@@ -338,25 +472,34 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
           })}
         </ul>
       )}
-      <div className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-2 ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
-        <span className="grid min-w-0 flex-1 basis-56 gap-0.5">
-          <span className="text-sm font-semibold text-app-text">Default statement</span>
-          <span className="text-xs text-app-muted">Optional. Prefills each application statement.</span>
+      <div className={`grid grid-cols-1 items-center gap-x-3 gap-y-2 sm:grid-cols-[minmax(0,1fr)_auto] ${total > 0 ? 'mt-4 border-t border-app-border pt-4' : ''}`}>
+        <span className="grid min-w-0 gap-0.5">
+          <span className="text-sm font-semibold text-app-text">Default statement/essay</span>
+          <span className="text-xs text-app-muted">Optional. Prefills each application's statement/essay.</span>
         </span>
         <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <StatusBadge tone={hasDefaultStatement ? 'success' : 'neutral'}>{hasDefaultStatement ? 'Saved' : 'Not set'}</StatusBadge>
-          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection('personal')}>{hasDefaultStatement ? 'Edit' : 'Write'}</button>
+          <button type="button" className="proof-action shrink-0" onClick={() => onEditSection('personal')}>{hasDefaultStatement ? 'Edit' : 'Write'}</button>
         </span>
       </div>
     </Card>
   );
 }
 
-export function ProfileOverview({ profile = {}, completeness, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
+export function ProfileOverview({ profile = {}, completeness, formProgress = null, documentChecklist = null, onEditSection, attributeVerifications = {}, onAttachProof, onUploadDocument }) {
   // Staff have a single group of personal details, so headings would only add noise.
   const showGroups = completeness.groups.length > 1;
   return (
     <div className="grid gap-4">
+      {formProgress ? (
+        <ApplicationFormChecklist
+          formProgress={formProgress}
+          standing={completeness.standing}
+          onEditSection={onEditSection}
+          attributeVerifications={attributeVerifications}
+          onAttachProof={onAttachProof}
+        />
+      ) : (
       <Card title="Profile completeness">
         <div className="flex items-center gap-3">
           <div
@@ -393,6 +536,7 @@ export function ProfileOverview({ profile = {}, completeness, documentChecklist 
           ))}
         </div>
       </Card>
+      )}
       {documentChecklist && (
         <DocumentChecklistCard
           checklist={documentChecklist}
@@ -449,7 +593,7 @@ function ProfilePhotoCard({ fullName = '', avatar = {}, isSaving = false, onChan
           <div className="grid gap-1">
             <strong className="text-sm font-bold text-app-text">Profile photo</strong>
             <p className="m-0 text-sm text-app-muted">
-              This photo appears in your header and on My Profile. It is not sent with applications.
+              This photo appears in the header and sidebar. It is not sent with applications.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -542,7 +686,6 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       lastName: asText(profile.lastName) || legacyParts.lastName,
       fullName: asText(profile.fullName),
       phone: asText(profile.phone),
-      bio: asText(profile.bio),
       religion: asText(profile.religion),
       civilStatus: asText(profile.civilStatus),
       birthdate: asText(profile.birthdate),
@@ -557,7 +700,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   const { values, errors, update } = form;
 
   return (
-    <SectionForm title="Personal information" description={isStudent ? 'Your name, birthdate, religion, and civil status are included in each application.' : 'Your name and contact details across ScholarPath.'} form={form}>
+    <SectionForm title="Personal information" description={isStudent ? `${formPart('personal')} Your name, birthdate, religion, civil status, and mobile number are copied into each application.` : 'Your name and contact details across ScholarPath.'} form={form}>
       <ProfilePhotoCard
         fullName={values.fullName || profile.fullName}
         avatar={avatar}
@@ -568,7 +711,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       <div className="grid gap-4 md:grid-cols-2">
         {isStudent ? (
           <>
-            <FormField label="Last name" hint="Printed as the surname on your application." error={errors.lastName}>
+            <FormField fieldKey="fullName lastName" label="Last name" hint="Printed as the surname on your application." error={errors.lastName}>
               <input className={controlClass} value={values.lastName} onChange={(event) => update({ lastName: event.target.value.slice(0, NAME_PART_MAX_LENGTH) })} autoComplete="family-name" maxLength={NAME_PART_MAX_LENGTH} aria-invalid={Boolean(errors.lastName)} />
             </FormField>
             <FormField label="First name" error={errors.firstName}>
@@ -581,10 +724,9 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
               <ReadOnlyField
                 label="Full name"
                 value={composeFullName(values)}
-                note="Composed from your name parts and printed on the application as Last, First, Middle."
               />
             ) : (
-              <FormField label="Full name" hint="Needed to apply until you add your last and first name." error={errors.fullName}>
+              <FormField fieldKey="fullName" label="Full name" hint="Needed to apply until you add your last and first name." error={errors.fullName}>
                 <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
               </FormField>
             )}
@@ -594,20 +736,17 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
             <input className={controlClass} value={values.fullName} onChange={(event) => update({ fullName: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={Boolean(errors.fullName)} required />
           </FormField>
         )}
-        <FormField label="Mobile number" hint={isStudent ? 'Needed to apply. Also used for SMS reminders.' : 'Optional. Used for SMS reminders.'} error={errors.phone}>
+        <FormField fieldKey="phone" label="Mobile number" hint={isStudent ? 'Needed to apply. Also used for SMS reminders.' : 'Optional. Used for SMS reminders.'} error={errors.phone}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
         {isStudent && <SelectField label="Religion" hint="Optional. Included in each application." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} />}
-        {isStudent && <SelectField label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} />}
-        {isStudent && <FormField label="Birthdate" hint="Needed to apply." error={errors.birthdate}><input className={controlClass} type="date" max={todayInputValue()} value={values.birthdate} onChange={(event) => update({ birthdate: event.target.value })} autoComplete="bday" aria-invalid={Boolean(errors.birthdate)} /></FormField>}
-        {isStudent && <SelectField label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} />}
+        {isStudent && <SelectField fieldKey="civilStatus" label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} />}
+        {isStudent && <FormField fieldKey="birthdate" label="Birthdate" hint="Needed to apply." error={errors.birthdate}><input className={controlClass} type="date" max={todayInputValue()} value={values.birthdate} onChange={(event) => update({ birthdate: event.target.value })} autoComplete="bday" aria-invalid={Boolean(errors.birthdate)} /></FormField>}
+        {isStudent && <SelectField fieldKey="sexAtBirth" label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} />}
         {isStudent && <FormField label="Preferred pronouns" hint="Optional." error={errors.pronouns}><input className={controlClass} value={values.pronouns} onChange={(event) => update({ pronouns: event.target.value.slice(0, PRONOUNS_MAX_LENGTH) })} placeholder="e.g. she/her" aria-invalid={Boolean(errors.pronouns)} /></FormField>}
       </div>
-      <FormField label="Short bio" hint={`${values.bio.length}/${BIO_MAX_LENGTH} characters`} error={errors.bio}>
-        <textarea className="min-h-28" value={values.bio} onChange={(event) => update({ bio: event.target.value.slice(0, BIO_MAX_LENGTH) })} rows={4} placeholder="A sentence about your studies or scholarship goals." aria-invalid={Boolean(errors.bio)} />
-      </FormField>
       {isStudent && (
-        <FormField label="Default scholarship statement" hint={`Optional. Prefills each new application. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
+        <FormField label="Default statement/essay" hint={`Optional. Prefills each new application. ${values.essay.length}/${ESSAY_MAX_LENGTH} characters.`} error={errors.essay}>
           <textarea className="min-h-40" value={values.essay} onChange={(event) => update({ essay: event.target.value.slice(0, ESSAY_MAX_LENGTH) })} rows={8} placeholder="Share your motivation, goals, or circumstances." aria-invalid={Boolean(errors.essay)} />
         </FormField>
       )}
@@ -630,7 +769,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   );
 }
 
-export function AddressSection({ profile, onSave, onDirtyChange }) {
+export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact, previewVerifications }) {
   const form = useSectionForm({
     initialValues: {
       completeAddress: asText(profile.completeAddress),
@@ -643,11 +782,15 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
     validate: validateAddressSection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
+    attributeVerifications,
+    previewVerifications,
   });
   const { values, errors, update } = form;
   return (
-    <SectionForm title="Address" description="Included in each application you submit." form={form}>
-      <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}>
+    <SectionForm title="Address" description={`${formPart('address')} Copied into each application you submit. Every application asks for a proof of address.`} form={form}>
+      <FormField fieldKey="completeAddress" label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}
+        labelAdornment={<AttributeVerification attributeKey="completeAddress" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
       </FormField>
       <FormField label="Country" hint={`Up to ${COUNTRY_MAX_LENGTH} characters.`} error={errors.country}>
@@ -655,7 +798,8 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
       </FormField>
       <SettingToggle checked={values.sameAsCompleteAddress} onChange={(checked) => update({ sameAsCompleteAddress: checked })} title="Residing address is the same as my complete address" description="Turn off to enter a different address." />
       {!values.sameAsCompleteAddress && (
-        <FormField label="Residing address" error={errors.residingAddress}>
+        <FormField label="Residing address" error={errors.residingAddress}
+          labelAdornment={<AttributeVerification attributeKey="residingAddress" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
           <textarea className="min-h-24" value={values.residingAddress} onChange={(event) => update({ residingAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.residingAddress)} />
         </FormField>
       )}
@@ -667,12 +811,33 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function FamilySection({ profile, onSave, onDirtyChange }) {
+// The two family proofs in one block: a PSA birth certificate proves the parents'
+// names and a barangay certificate of residency the household. Each badge links to
+// the Document Vault with that attribute preselected (onAttachProof).
+function FamilyProofRow({ attributeVerifications = {}, savedVerifications = null, onAttachProof }) {
+  const rows = [
+    { key: 'parents', label: "Parents' names" },
+    { key: 'householdMembers', label: 'Siblings and household members' },
+  ];
+  return (
+    <div className="grid gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-3">
+      <p className="m-0 text-xs uppercase tracking-[0.08em] text-app-muted">Proof of family details</p>
+      {rows.map(({ key, label }) => (
+        <div key={key} className="grid grid-cols-1 items-center gap-x-3 gap-y-2 text-sm text-app-text sm:grid-cols-[minmax(0,1fr)_auto]">
+          <span className="min-w-0">{label}</span>
+          <AttributeVerification attributeKey={key} attributeVerifications={attributeVerifications} savedVerifications={savedVerifications} onAttachProof={onAttachProof} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function FamilySection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact, previewVerifications }) {
   const stored = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
   const form = useSectionForm({
     initialValues: { familyDetails: {
-      fatherName: asText(stored.fatherName), fatherOccupation: asText(stored.fatherOccupation), fatherDeceased: Boolean(stored.fatherDeceased),
-      motherName: asText(stored.motherName), motherOccupation: asText(stored.motherOccupation), motherDeceased: Boolean(stored.motherDeceased),
+      fatherUnknown: Boolean(stored.fatherUnknown), fatherName: asText(stored.fatherName), fatherOccupation: asText(stored.fatherOccupation), fatherDeceased: Boolean(stored.fatherDeceased),
+      motherUnknown: Boolean(stored.motherUnknown), motherName: asText(stored.motherName), motherOccupation: asText(stored.motherOccupation), motherDeceased: Boolean(stored.motherDeceased),
       familyPosition: asText(stored.familyPosition), numberOfSiblings: asText(stored.numberOfSiblings),
       fatherAge: asText(stored.fatherAge), fatherDateOfDeath: asText(stored.fatherDateOfDeath),
       motherAge: asText(stored.motherAge), motherDateOfDeath: asText(stored.motherDateOfDeath),
@@ -682,25 +847,46 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
     validate: validateFamilySection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
+    attributeVerifications,
+    previewVerifications,
   });
   const { values, errors, update } = form;
   const family = values.familyDetails;
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } }, ['siblings', 'householdAdults']);
   return (
-    <SectionForm title="Family details" description="Supports household-income and dependent-based review. Included in each application." form={form}>
+    <SectionForm title="Family details" description={`${formPart('family')} Each parent's name is needed to apply. Copied into each application, with a proof of family details.`} form={form}>
+      <FamilyProofRow attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />
       <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Father's name" error={errors.fatherName}><input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} /></FormField>
-        <FormField label="Father's occupation" error={errors.fatherOccupation}><input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} /></FormField>
-        <SettingToggle checked={family.fatherDeceased} onChange={(checked) => updateFamily({ fatherDeceased: checked })} title="Father is deceased" description="Mark this if your father has passed away." />
-        {family.fatherDeceased
-          ? <FormField label="Father's date of death" error={errors.fatherDateOfDeath}><input className={controlClass} type="date" max={todayInputValue()} value={family.fatherDateOfDeath} onChange={(event) => updateFamily({ fatherDateOfDeath: event.target.value })} /></FormField>
-          : <FormField label="Father's current age" error={errors.fatherAge}><input className={controlClass} value={family.fatherAge} onChange={(event) => updateFamily({ fatherAge: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
-        <FormField label="Mother's name" error={errors.motherName}><input className={controlClass} value={family.motherName} onChange={(event) => updateFamily({ motherName: event.target.value })} /></FormField>
-        <FormField label="Mother's occupation" error={errors.motherOccupation}><input className={controlClass} value={family.motherOccupation} onChange={(event) => updateFamily({ motherOccupation: event.target.value })} /></FormField>
-        <SettingToggle checked={family.motherDeceased} onChange={(checked) => updateFamily({ motherDeceased: checked })} title="Mother is deceased" description="Mark this if your mother has passed away." />
-        {family.motherDeceased
-          ? <FormField label="Mother's date of death" error={errors.motherDateOfDeath}><input className={controlClass} type="date" max={todayInputValue()} value={family.motherDateOfDeath} onChange={(event) => updateFamily({ motherDateOfDeath: event.target.value })} /></FormField>
-          : <FormField label="Mother's current age" error={errors.motherAge}><input className={controlClass} value={family.motherAge} onChange={(event) => updateFamily({ motherAge: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
+        {['father', 'mother'].map((parent) => {
+          const noun = parent === 'father' ? 'Father' : 'Mother';
+          const lower = parent === 'father' ? 'father' : 'mother';
+          const unknown = family[`${parent}Unknown`];
+          const deceased = family[`${parent}Deceased`];
+          return (
+            <Fragment key={parent}>
+              {/* Unknown and deceased cannot both describe the same parent. */}
+              <div className="md:col-span-2">
+                <SettingToggle
+                  checked={unknown}
+                  onChange={(checked) => updateFamily({ [`${parent}Unknown`]: checked, ...(checked ? { [`${parent}Deceased`]: false } : {}) })}
+                  title={`${noun} is unknown or not listed`}
+                  description={`Mark this if your ${lower}'s name is unknown or not on your birth certificate. No employment or income is then asked for.`}
+                />
+              </div>
+              {!unknown && (
+                <>
+                  <FormField fieldKey={`${parent}Name`} label={`${noun}'s name`} hint="Needed to apply." error={errors[`${parent}Name`]}><input className={controlClass} value={family[`${parent}Name`]} onChange={(event) => updateFamily({ [`${parent}Name`]: event.target.value })} aria-invalid={Boolean(errors[`${parent}Name`])} /></FormField>
+                  <FormField label={`${noun}'s occupation`} error={errors[`${parent}Occupation`]}><input className={controlClass} value={family[`${parent}Occupation`]} onChange={(event) => updateFamily({ [`${parent}Occupation`]: event.target.value })} /></FormField>
+                  <SettingToggle checked={deceased} onChange={(checked) => updateFamily({ [`${parent}Deceased`]: checked })} title={`${noun} is deceased`} description={`Mark this if your ${lower} has passed away.`} />
+                  {deceased
+                    ? <FormField label={`${noun}'s date of death`} error={errors[`${parent}DateOfDeath`]}><input className={controlClass} type="date" max={todayInputValue()} value={family[`${parent}DateOfDeath`]} onChange={(event) => updateFamily({ [`${parent}DateOfDeath`]: event.target.value })} /></FormField>
+                    : <FormField label={`${noun}'s current age`} error={errors[`${parent}Age`]}><input className={controlClass} value={family[`${parent}Age`]} onChange={(event) => updateFamily({ [`${parent}Age`]: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" /></FormField>}
+                </>
+              )}
+            </Fragment>
+          );
+        })}
         <SelectField label="Family position" value={family.familyPosition} onChange={(value) => updateFamily({ familyPosition: value })} options={familyPositionOptions} error={errors.familyPosition} />
         <FormField label="Number of siblings" error={errors.numberOfSiblings}><input className={controlClass} value={family.numberOfSiblings} onChange={(event) => updateFamily({ numberOfSiblings: event.target.value.replace(/\D/g, '').slice(0, 2) })} inputMode="numeric" aria-invalid={Boolean(errors.numberOfSiblings)} /></FormField>
       </div>
@@ -735,7 +921,7 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function AcademicSection({ profile, academicPrograms, academicProgramGroups, documents = [], onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
+export function AcademicSection({ profile, academicPrograms, academicProgramGroups, documents = [], onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact, previewVerifications }) {
   const form = useSectionForm({
     initialValues: {
       studentNumber: asText(profile.studentNumber),
@@ -762,6 +948,8 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
     onSave,
     onDirtyChange,
     previewProofImpact,
+    attributeVerifications,
+    previewVerifications,
   });
   const { values, errors, update } = form;
   const standing = getStandingRequirements(values.yearStanding);
@@ -800,7 +988,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
     () => deriveAttributeVerifications(documents, ['qpi', 'hsAverage'], { profile: { ...profile, yearStanding: values.yearStanding } }),
     [documents, profile, values.yearStanding],
   );
-  const verifications = { ...attributeVerifications, ...standingVerifications };
+  const verifications = { ...form.verifications, ...standingVerifications };
   const selectedProgram = academicPrograms.find((program) => program.value === values.degreeProgram);
   // One group header per "School — Cluster" pair, in taxonomy order, with the
   // academic department as each program's description, so a single picker walks
@@ -815,15 +1003,15 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
   };
 
   return (
-    <SectionForm title="Academic profile" description="Drives degree-specific matching in the Smart Eligibility Checker." form={form}>
+    <SectionForm title="Academic profile" description={`${formPart('academic')} Also drives degree-specific matching in the Smart Eligibility Checker.`} form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Applicant status" value={applicantStatus} onChange={setApplicantStatus} options={applicantStatusOptions} placeholder="Choose applicant status" error={errors.isTransferee} />
+        <SelectField fieldKey="applicantStatus isTransferee" label="Applicant status" value={applicantStatus} onChange={setApplicantStatus} options={applicantStatusOptions} placeholder="Choose applicant status" error={errors.isTransferee} />
         {standingOptions.length ? (
-          <SelectField label="Year standing" hint={!values.yearStanding || standingOffered ? 'Choose the year you are going into.' : 'Your saved 1st year standing is no longer offered — choose the year you are going into.'} value={values.yearStanding} onChange={setYearStanding} options={standingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
+          <SelectField fieldKey="yearStanding" label="Year standing" hint={!values.yearStanding || standingOffered ? 'Choose the year you are going into.' : 'Your saved 1st year standing is no longer offered — choose the year you are going into.'} value={values.yearStanding} onChange={setYearStanding} options={standingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
         ) : null}
-        {needsStudentNumber && <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
+        {needsStudentNumber && <FormField fieldKey="studentNumber" label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
-      <div className="grid gap-2">
+      <div className="grid gap-2" data-field="degreeProgram">
         <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" />
       </div>
       {selectedProgram && (
@@ -843,17 +1031,17 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>
       )}
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} onAttachProof={onAttachProof} />} />
-        {standing.requiresQpi && <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
+        <SelectField fieldKey="academicStanding" label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        {standing.requiresQpi && <FormField fieldKey="qpi" label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
       {standing.requiresHsStanding && (
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />
-          <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>
+          <SelectField fieldKey="hsStrand" label="Senior high school strand" value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />
+          <FormField fieldKey="hsAverage" label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>
         </div>
       )}
       {(standing.requiresHsStanding || isTransferee) && (
-        <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
+        <div data-field="schoolLastAttended" className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
           <div>
             <p className="m-0 text-sm font-semibold text-app-text">{isTransferee ? 'College last attended' : 'Senior high school last attended'}</p>
             <small className="field-hint mt-1 block">The school name is needed to apply.</small>
@@ -872,40 +1060,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
   );
 }
 
-export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
-  const form = useSectionForm({
-    initialValues: {
-      householdIncome: asText(profile.householdIncome),
-      hasActiveGovernmentGrant: Boolean(profile.hasActiveGovernmentGrant),
-      hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
-      hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
-      isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
-    },
-    validate: validateFinancialSection,
-    onSave,
-    onDirtyChange,
-    previewProofImpact,
-  });
-  const { values, errors, update } = form;
-
-  return (
-    <SectionForm title="Household and financial aid" description="Income ceilings and exclusion rules read these answers." form={form}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Annual household income" hint="Combined yearly income in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
-          <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
-        </FormField>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
-        <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
-        <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
-        <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
-      </div>
-    </SectionForm>
-  );
-}
-
-export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
+export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact, previewVerifications }) {
   const form = useSectionForm({
     initialValues: {
       citizenship: asText(profile.citizenship),
@@ -923,6 +1078,13 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       },
       ipGroupName: asText(profile.ipGroupName),
       communityService: asText(profile.communityService),
+      // Household income and the Exclusion Flag Hierarchy answers moved here from
+      // the retired "Household and financial aid" section.
+      householdIncome: asText(profile.householdIncome),
+      hasActiveGovernmentGrant: Boolean(profile.hasActiveGovernmentGrant),
+      hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
+      hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
+      isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
       previousGrants: Array.isArray(profile.previousGrants)
         ? profile.previousGrants.map((row) => ({ type: asText(row?.type), name: asText(row?.name), level: asText(row?.level), status: asText(row?.status), institution: asText(row?.institution), amount: asText(row?.amount) }))
         : [],
@@ -931,42 +1093,77 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
     onSave,
     onDirtyChange,
     previewProofImpact,
+    attributeVerifications,
+    previewVerifications,
   });
   const { values, errors, update } = form;
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });
+  // The grant list is only active while the student says they already receive aid.
+  // `isGrantListActive` is the single rule behind both the rendering and the
+  // validator, so a hidden row can never block the save.
+  const grantListActive = isGrantListActive(values);
+  // With every aid answer off, the list can only be open because grants were
+  // recorded earlier; the note then asks the student to keep or remove them
+  // instead of demanding a new row.
+  const receivesAid = Boolean(values.hasActiveGovernmentGrant || values.hasOtherActiveScholarship || values.isOnPrepaidPlan);
 
   return (
-    <SectionForm title="Eligibility background" description="Citizenship, disability, employment, honors, and sponsor ties." form={form}>
+    <SectionForm title="Eligibility background" description={`${formPart('background')} Citizenship, disability, employment, household income, existing aid, honors, and sponsor ties.`} form={form}>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <SelectField label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <FormField fieldKey="householdIncome" label="Annual household income" hint="Combined yearly income in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
+          <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
+        </FormField>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <SelectField fieldKey="citizenship" label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <SelectField fieldKey="ipCommunity" label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {values.ipCommunity === 'Yes' && <FormField label="Indigenous group" hint="Name of your community." error={errors.ipGroupName}><input className={controlClass} value={values.ipGroupName} onChange={(event) => update({ ipGroupName: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) })} aria-invalid={Boolean(errors.ipGroupName)} /></FormField>}
-        <SelectField label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <SelectField label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <SelectField label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update(value ? { honorsRank: value } : { honorsRank: value, graduatingClassSize: '' })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <FormField label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Required to support your honors standing.' : undefined} error={errors.graduatingClassSize}>
+        <SelectField fieldKey="pwd" label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <SelectField fieldKey="employed" label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <SelectField fieldKey="honorsRank" label="Graduating honors standing" hint="Jubilee Scholarship requires official Valedictorian or Salutatorian standing." value={values.honorsRank} onChange={(value) => update(value ? { honorsRank: value } : { honorsRank: value, graduatingClassSize: '' })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <FormField fieldKey="graduatingClassSize" label="Number of graduates of your senior high school" hint={values.honorsRank ? 'Required to support your honors standing.' : undefined} error={errors.graduatingClassSize}>
           <input className={controlClass} value={values.graduatingClassSize} onChange={(event) => update({ graduatingClassSize: event.target.value.replace(/\D/g, '').slice(0, 5) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 120" aria-invalid={Boolean(errors.graduatingClassSize)} />
         </FormField>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} />
+        <SelectField fieldKey="communityService" label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} />
       </div>
-      <RepeatableRows
-        legend="Grant"
-        rows={values.previousGrants}
-        max={MAX_GRANT_ROWS}
-        addLabel="Add a grant applied for or received"
-        error={errors.previousGrants}
-        onChange={(rows) => update({ previousGrants: rows })}
-        columns={[
-          { key: 'type', label: 'Type', type: 'select', options: [{ value: '', label: 'Type' }, ...grantTypeOptions] },
-          { key: 'name', label: 'Grant (CHED, DOST, STEP, GSIS, ...)' },
-          { key: 'level', label: 'Level', type: 'select', options: [{ value: '', label: 'Level' }, ...grantLevelOptions] },
-          { key: 'status', label: 'Status', type: 'select', options: [{ value: '', label: 'Status' }, ...grantStatusOptions] },
-          { key: 'institution', label: 'Institution' },
-          { key: 'amount', label: 'Amount a year (PHP)' },
-        ]}
-      />
+      <fieldset data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid" className="m-0 grid gap-3 border-0 p-0">
+        <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
+        <small className="field-hint block">The first three answers are exclusion rules the Smart Eligibility Checker reads, and any of them opens the grant list below. A sibling on AdDU financial aid is about your sibling, not about you.</small>
+        <div className="grid gap-3 md:grid-cols-2">
+          <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
+          <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
+          <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
+          <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
+        </div>
+      </fieldset>
+      {grantListActive && (
+        <>
+          <p className="m-0 rounded-xl border border-app-border bg-app-surface/60 px-3 py-2 text-sm text-app-muted" role="note">
+            {receivesAid
+              ? 'List every grant you applied for or received, in senior high school or in college. At least one grant is required while you already receive aid.'
+              : 'You recorded these grants earlier. Keep them, or remove the ones that no longer apply.'}
+            {' '}These answers are taken as declared; no document is verified for them.
+          </p>
+          <RepeatableRows
+            legend="Grant"
+            rows={values.previousGrants}
+            max={MAX_GRANT_ROWS}
+            addLabel="Add a grant applied for or received"
+            error={errors.previousGrants}
+            onChange={(rows) => update({ previousGrants: rows })}
+            columns={[
+              { key: 'type', label: 'Type', type: 'select', options: [{ value: '', label: 'Type' }, ...grantTypeOptions] },
+              { key: 'name', label: 'Grant (CHED, DOST, STEP, GSIS, ...)' },
+              { key: 'level', label: 'Level', type: 'select', options: [{ value: '', label: 'Level' }, ...grantLevelOptions] },
+              { key: 'status', label: 'Status', type: 'select', options: [{ value: '', label: 'Status' }, ...grantStatusOptions] },
+              { key: 'institution', label: 'Institution' },
+              { key: 'amount', label: 'Amount a year (PHP)' },
+            ]}
+          />
+        </>
+      )}
       <fieldset className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-3 text-sm font-semibold text-app-text">Sponsor ties</legend>
         <div className="grid gap-3 md:grid-cols-3">
@@ -987,17 +1184,17 @@ const parentFinanceInitial = (parent = {}) => ({
   unemploymentReason: asText(parent.unemploymentReason),
 });
 
-function ParentFinanceFields({ legend, deceased, value, errors, prefix, onChange }) {
-  if (deceased) {
+function ParentFinanceFields({ legend, deceased, unknown = false, value, errors, prefix, onChange }) {
+  if (deceased || unknown) {
     return (
       <fieldset className="m-0 grid gap-2 rounded-2xl border border-app-border bg-app-surface/60 p-4">
         <legend className="px-1 text-sm font-semibold text-app-text">{legend}</legend>
-        <p className="m-0 text-sm text-app-muted">Marked as deceased in Family details, so no employment or income is needed.</p>
+        <p className="m-0 text-sm text-app-muted">Marked as {unknown ? 'unknown or not listed' : 'deceased'} in Family details, so no employment or income is needed.</p>
       </fieldset>
     );
   }
   return (
-    <fieldset className="m-0 grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
+    <fieldset data-field={`${prefix}Finances`} className="m-0 grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
       <legend className="px-1 text-sm font-semibold text-app-text">{legend}</legend>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Employment status" hint="Needed to apply." value={value.employmentStatus} onChange={(next) => onChange({ employmentStatus: next })} options={parentEmploymentOptions} />
@@ -1054,11 +1251,11 @@ export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissi
   };
 
   return (
-    <SectionForm title="Household finances" description="Part of the financial aid application. Shared with the Admissions Office only; your Department Chair cannot see these answers." form={form}>
+    <SectionForm title="Household finances" description={`${formPart('finances')} Shared with the Admissions Office only; your Department Chair cannot see these answers.`} form={form}>
       {migrationMissing ? <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="status">Household finances need the latest database migration before they can be saved.</p> : null}
-      <SelectField label="How would you describe your family's economic status?" hint="Needed to apply." value={values.economicStatus} onChange={(value) => update({ economicStatus: value })} options={economicStatusOptions} error={errors.economicStatus} />
-      <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} />
-      <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} />
+      <SelectField fieldKey="economicStatus" label="How would you describe your family's economic status?" hint="Needed to apply." value={values.economicStatus} onChange={(value) => update({ economicStatus: value })} options={economicStatusOptions} error={errors.economicStatus} />
+      <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} unknown={Boolean(family.fatherUnknown)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} />
+      <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} unknown={Boolean(family.motherUnknown)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} />
       {[['assets', 'Assets owned by the family', ASSET_OPTIONS], ['appliances', 'Appliances and services', APPLIANCE_OPTIONS]].map(([group, legend, options]) => (
         <fieldset key={group} className="m-0 grid gap-3 border-0 p-0">
           <legend className="mb-3 text-sm font-semibold text-app-text">{legend}</legend>

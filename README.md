@@ -71,12 +71,12 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Section | Who sees it | What it covers |
 | --- | --- | --- |
 | Overview | Everyone | Identity card and a profile completeness checklist that also surfaces each verifiable attribute's Document Vault verification state |
-| Personal information | Everyone | Profile photo (take one with the camera or choose an existing image), full name, Philippine mobile number, and short bio (students also set religion, civil status, and an optional default scholarship statement that prefills each new application); sign-in email, role, and department are read-only |
+| Personal information | Everyone | Profile photo (take one with the camera or choose an existing image), full name, Philippine mobile number (students also set religion, civil status, and an optional default statement/essay that prefills each new application); sign-in email, role, and department are read-only |
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
 | Academic profile | Students | Degree program (sets the school, cluster, and academic department the profile is filed under), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
-| Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
-| Eligibility background | Students | Citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
+| Household finances | Students | Office-only FORM 230-SCH household finances: perceived economic status, each parent's employment and income, assets, and appliances (readable by the student and the Admissions Office, never by a Department Chair) |
+| Eligibility background | Students | Household income, the exclusion answers (active government grant, another active scholarship, prepaid tuition plan, sibling on AdDU aid), citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran). The grant list activates when one of the first three exclusion answers is on — or when a grant was already recorded — and requires at least one grant, and it is taken as declared (no document is verified for it) |
 | Account security | Everyone | Change password or email a reset link |
 
 The Smart Eligibility Checker uses the saved values right away. QPI and income
@@ -85,8 +85,8 @@ optionally upload proof documents for these attributes in the Document Vault,
 and the Admissions Office verifies the file and the linked attribute together;
 verification is informational and never blocks eligibility matching or applying.
 
-Department Chairs and both Admissions Office lanes can edit only their name,
-mobile number, and bio. Department assignment is never self-editable, because it
+Department Chairs and both Admissions Office lanes can edit only their name and
+mobile number. Department assignment is never self-editable, because it
 scopes the Department Review queue.
 
 Supabase is required: without the environment variables the app cannot load
@@ -99,7 +99,7 @@ existing Supabase project. It adds `profiles.bio` (up to 280 characters) and
 `profiles.eligibility_attributes` (JSON). Until it is applied, the fields that
 already have `profiles` columns still save (name, mobile number, student number,
 degree program, QPI, household income, and the government grant answer). The
-bio and the other eligibility answers (year standing, academic standing, the
+eligibility answers (year standing, academic standing, the
 remaining household exclusion answers, and the whole Eligibility
 background section) do not reach the server. Fresh projects get both columns
 from `supabase/schema.sql`.

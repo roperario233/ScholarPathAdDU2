@@ -99,8 +99,12 @@ button.bg-app-card:hover {
 }
 
 /* Keep actions distinct in dark mode: quiet surface controls should not look
-   like primary submit buttons, and picker internals must stay untouched. */
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]) {
+   like primary submit buttons, and picker internals, the compact proof chip
+   (`.proof-action`, a badge companion rather than a page action), the My
+   Profile section menu (`.profile-menu-item`, a flat stepper list), and the
+   Dashboard call to action (`.hero-action`, a white button on its own navy
+   banner) stay untouched. */
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]) {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
@@ -113,8 +117,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, [class*="from-rose"], [class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
@@ -126,7 +130,11 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):disabled {
+/* Each exclusion list is one :not() so its specificity stays a single class:
+   a longer :not() chain outranked the gradient rule above and turned every
+   primary action into a surface button. :where() keeps this disabled rule as
+   weak as it has always been, so it never repaints a disabled surface button. */
+.blue-action-view button:where(:not(.profile-menu-item, .calendar-cell, .hero-action, [class*="from-rose"], [class*="from-amber"]):disabled) {
   background: #6683bd !important;
   border-color: #6683bd !important;
   color: #eaf1ff !important;
@@ -183,9 +191,35 @@ button.bg-app-card:hover {
   max-width: 100%;
 }
 
+/* The companion action of a verification badge inside a form field. It is a small
+   secondary link, not a page action, so it carries no fill of its own and is
+   excluded from the shell button palette above. */
+.proof-action {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.proof-action:hover,
+.proof-action:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--accent);
+}
+
 /* Light mode can carry the brighter Ateneo blue; dark mode keeps controls
    lower-contrast so they do not glow against the navy application surface. */
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]) {
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]) {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
@@ -197,8 +231,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: #4d8dff !important;
   background: color-mix(in srgb, var(--primary) 10%, var(--surface)) !important;
 }
@@ -219,6 +253,23 @@ textarea {
   color: var(--text);
   padding: 0.85rem 1rem;
   outline: none;
+}
+
+/* A stored value rendered where an input would be: the same box metrics as the
+   text controls above, with no editing affordance. */
+.readonly-control {
+  display: flex;
+  min-height: 3rem;
+  width: 100%;
+  align-items: center;
+  padding: 0.55rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  cursor: default;
 }
 
 /* Text controls fill their form column; native controls must keep intrinsic sizing. */
@@ -312,22 +363,6 @@ select {
   overflow-wrap: anywhere;
 }
 
-/* Summary metadata is intentionally stacked. Keeping the label and value as
-   inline elements makes long degree and scholarship names run together. */
-.dashboard-summary-card > span,
-.dashboard-summary-card > strong {
-  display: block;
-}
-
-.dashboard-summary-card > strong {
-  margin-top: 0.3rem;
-}
-
-.dashboard-summary-card > p {
-  margin-bottom: 0;
-  margin-top: 0.35rem;
-}
-
 .page-metric > span,
 .page-metric > strong {
   display: block;
@@ -371,37 +406,6 @@ select {
   letter-spacing: 0.12em;
   line-height: 1.2;
   text-transform: uppercase;
-}
-
-.dashboard-hero-copy {
-  min-width: 0;
-}
-
-.dashboard-welcome {
-  margin: 0 0 0.7rem;
-  color: var(--muted);
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.dashboard-hero-copy h1 {
-  max-width: 38rem;
-  margin-top: 0.4rem;
-  margin-bottom: 0;
-  font-size: clamp(2rem, 3vw, 3rem);
-}
-
-.dashboard-hero-copy > p {
-  max-width: 38rem;
-  margin-top: 0.75rem;
-}
-
-.dashboard-hero-summary {
-  align-self: start;
-}
-
-.dashboard-hero-summary .dashboard-summary-card {
-  min-height: 7.5rem;
 }
 
 @media (max-width: 767px) {
@@ -485,8 +489,13 @@ main .deadline-item > .deadline-actions {
   background-position: center;
   background-repeat: no-repeat;
   position: relative;
+  /* `clip`, not `hidden`: it still stops sideways scrolling, but it does not make
+     the body a scroll container. A `hidden`/`auto` body is a scroller that never
+     scrolls (the page scrolls the viewport), and `position: sticky` anchors to the
+     nearest scroller, so the sidebar and the My Profile section menu never stuck.
+     `hidden` stays first as the fallback for browsers without `clip`. */
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-x: clip;
 }
 
 .login-overlay {
@@ -1195,12 +1204,6 @@ main .deadline-item > .deadline-actions {
 }
 .wrap { flex-wrap: wrap; }
 
-.scholarship-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-
 /* Scholarship Explorer bar: the section label, a full-width search field,
    facet filters, and a one-line result caption share one surface instead of a
    separate hero card plus a filter card. */
@@ -1298,16 +1301,6 @@ main .deadline-item > .deadline-actions {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
-}
-
-.scholarship-card-title {
-  margin-top: 0.65rem;
-  line-height: 1.25;
-}
-
-.scholarship-card-coverage {
-  min-height: 3.2rem;
-  margin: 0;
 }
 
 .calendar-cell:focus-visible,
@@ -1791,4 +1784,52 @@ a:focus-visible {
   .print-sheet-root section { break-inside: avoid-page; }
   .print-sheet-root table { break-inside: auto; }
   .print-sheet-root tr { break-inside: avoid; }
+}
+
+/* My Profile: an opened section eases in rather than snapping into place. */
+.profile-section-enter {
+  animation: profile-section-in 180ms ease-out;
+}
+
+@keyframes profile-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* My Profile: the answer a Scholarship Explorer link points at glows for a
+   moment (ProfileView adds the class, then removes it after 1.8s). The ring is a
+   box-shadow so it sits outside the field without shifting the layout. */
+.field-spotlight {
+  border-radius: 14px;
+  animation: field-spotlight 1.8s ease-out;
+}
+
+@keyframes field-spotlight {
+  0%, 45% {
+    background-color: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1), 0 0 0 8px rgba(59, 130, 246, 0.55);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0), 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-section-enter {
+    animation: none;
+  }
+
+  /* No fade: a steady ring for as long as the class stays on. */
+  .field-spotlight {
+    animation: none;
+    background-color: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1), 0 0 0 8px rgba(59, 130, 246, 0.55);
+  }
 }

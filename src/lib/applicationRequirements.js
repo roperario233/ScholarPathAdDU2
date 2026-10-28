@@ -18,6 +18,7 @@ import {
   siblingStatusOptions,
   getApplicantStatusLabel,
   getApplicationProfileGate,
+  getAttributeValue,
   getClaimedAttributes,
   getProvenAttributes,
   getShsFinancialAid,
@@ -76,6 +77,13 @@ const COLLEGE_GRADES = { id: 'college-grades', label: 'Latest grade report or tr
 // Every program's eligibility checks Filipino citizenship (the universal gate in
 // src/lib/eligibility.js), so every in-scope track asks for proof of it.
 const CITIZENSHIP_PROOF = { id: 'citizenship-proof', label: 'Proof of Filipino citizenship', documentTypes: ['PSA Birth Certificate', 'Philippine National ID', "Driver's License", 'Passport'], standing: 'all' };
+// The address and family answers are verified like the academic and background
+// ones (VERIFIABLE_ATTRIBUTE_OPTIONS in src/lib/profile.js), so every in-scope
+// track asks for their proof. One barangay certificate of residency answers both
+// rows, and a PSA birth certificate answers the family row and the citizenship
+// row at once, so a student uploads at most two files for the four answers.
+const ADDRESS_PROOF = { id: 'address-proof', label: 'Proof of address (utility bill or barangay certificate of residency)', documentTypes: ['Proof of Billing', 'Certificate of Residency'], standing: 'all' };
+const FAMILY_PROOF = { id: 'family-proof', label: 'Proof of family details (PSA birth certificate or barangay certificate of residency)', documentTypes: ['PSA Birth Certificate', 'Certificate of Residency'], standing: 'all' };
 
 // Every in-scope track asks for a recent photo of the applicant and photos of
 // their residence. Both are ordinary Document Vault files, so the Admissions
@@ -87,6 +95,8 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
   'general-pool': [
     APPLICANT_PHOTO,
     CITIZENSHIP_PROOF,
+    ADDRESS_PROOF,
+    FAMILY_PROOF,
     { id: 'entrance-exam', label: 'Entrance exam result with ACCEPTED remark', documentTypes: ['Entrance Exam Result'], standing: 'incoming' },
     { ...HS_REPORT_CARD, label: 'Senior high school report card with at least 85% average' },
     COLLEGE_GRADES,
@@ -100,6 +110,8 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
   honors: [
     APPLICANT_PHOTO,
     CITIZENSHIP_PROOF,
+    ADDRESS_PROOF,
+    FAMILY_PROOF,
     { id: 'certificate-of-award', label: 'Certificate of Award as Rank 1 or 2', documentTypes: ['Certificate of Award'], standing: 'all' },
     HS_REPORT_CARD,
     COLLEGE_GRADES,
@@ -111,6 +123,8 @@ export const DEFAULT_REQUIRED_DOCUMENTS = {
   'work-study': [
     APPLICANT_PHOTO,
     CITIZENSHIP_PROOF,
+    ADDRESS_PROOF,
+    FAMILY_PROOF,
     INCOME_PROOF,
     HS_REPORT_CARD,
     COLLEGE_GRADES,
@@ -177,7 +191,7 @@ export const getClaimProofRequirements = (profile = {}, covered = []) => (
         documentTypes: [...option.acceptedDocumentTypes],
         standing: 'all',
         claim: true,
-        note: `Required because of your ${option.label} answer in My Profile. Change the answer there if it does not apply.`,
+        note: `Required because of your ${option.label} answer in your Application Form. Change the answer there if it does not apply.`,
         proves: [key],
       };
     })
@@ -357,6 +371,17 @@ export const snapshotToProfile = (snapshot) => {
   if (academic.credential) profile[academic.credential] = academic.value ?? '';
   if (snapshot.householdIncome) profile.householdIncome = snapshot.householdIncome.value ?? '';
   if (snapshot.citizenship) profile.citizenship = snapshot.citizenship.value || '';
+  // The frozen address and family answers, so the address and family proofs are
+  // judged against what the application declared. The snapshot stores the residing
+  // address already resolved (the same-as toggle applied), so it is restored with
+  // the toggle off to keep getAttributeValue() reading that stored value.
+  const address = snapshot.address || {};
+  if (address.completeAddress != null) profile.completeAddress = address.completeAddress;
+  if (address.residingAddress != null) {
+    profile.residingAddress = address.residingAddress;
+    profile.sameAsCompleteAddress = false;
+  }
+  if (snapshot.family) profile.familyDetails = snapshot.family;
   const proven = { ...(snapshot.eligibility || {}), ...(snapshot.background || {}) };
   ['academicStanding', 'honorsRank', 'ipCommunity', 'pwd', 'employed'].forEach((key) => {
     if (proven[key] && typeof proven[key] === 'object') profile[key] = proven[key].value || '';
@@ -428,6 +453,20 @@ export const formatProofValue = (key, value) => {
 
 const hasOwnKey = (source, key) => Boolean(source) && typeof source === 'object' && Object.prototype.hasOwnProperty.call(source, key);
 
+// The declared value of one answer in a reference profile, read the way the
+// attribute is resolved (a nested family answer, or the toggle-driven residing
+// address). `has` separates "not recorded" from "recorded as blank", so a frozen
+// snapshot from before an answer was captured is never reported as a mismatch.
+const readDeclaredValue = (key, reference) => {
+  const option = getVerifiableAttributeOption(key);
+  if (option?.value) {
+    const value = getAttributeValue(key, reference);
+    return { has: value !== undefined && value !== null, value: value ?? null };
+  }
+  const has = hasOwnKey(reference, key);
+  return { has, value: has ? reference[key] : null };
+};
+
 // What one attached file proves, for the reviewer pane and the verification
 // dialog: each answer with the value the file was uploaded to prove and the
 // value the application declared (the frozen snapshot, or the owner's current
@@ -445,18 +484,26 @@ export const getDocumentProofReview = (doc, application = {}, { owner = null, to
   const reference = { ...fallback, ...(frozen || {}) };
   return getDocumentLinkedAttributes(doc, frozen).map((key) => {
     const hasAttested = hasOwnKey(doc?.attestedValues, key);
-    const hasDeclared = hasOwnKey(reference, key);
+    const declared = readDeclaredValue(key, reference);
+    const fromSnapshot = Boolean(frozen) && (hasOwnKey(frozen, key) || Boolean(getVerifiableAttributeOption(key)?.value));
     return {
       key,
       label: getVerifiableAttributeOption(key)?.label || key,
       hasAttested,
       attested: hasAttested ? doc.attestedValues[key] : null,
-      hasDeclared,
-      declared: hasDeclared ? reference[key] : null,
-      source: hasOwnKey(frozen, key) ? 'snapshot' : hasDeclared ? 'profile' : null,
+      hasDeclared: declared.has,
+      declared: declared.value,
+      source: fromSnapshot ? 'snapshot' : declared.has ? 'profile' : null,
       staleReason: getProofStaleReason(doc, key, { profile: reference, now: context.now }),
     };
   });
+};
+
+// A declared value inside one sentence: an address can run to hundreds of
+// characters, so the blocker keeps to one readable line.
+const shortProofValue = (text) => {
+  const value = String(text ?? '');
+  return value.length > 80 ? `${value.slice(0, 77)}…` : value;
 };
 
 // Why an outdated requirement's attached file no longer counts, phrased for the
@@ -469,7 +516,7 @@ const describeOutdatedRequirement = (requirement, { profile, now }) => {
   const label = getVerifiableAttributeOption(stale.key)?.label || stale.key;
   return stale.reason === 'year'
     ? `Upload a current proof for ${requirement.label}: the attached file is from an earlier academic year.`
-    : `Upload a current proof for ${requirement.label}: your ${label} in My Profile is now ${formatProofValue(stale.key, profile?.[stale.key])}, which the attached file was not uploaded to prove.`;
+    : `Upload a current proof for ${requirement.label}: your ${label} in your Application Form is now ${shortProofValue(formatProofValue(stale.key, getAttributeValue(stale.key, profile)))}, which the attached file was not uploaded to prove.`;
 };
 
 // Everything the workspace, the submit handler, and the reviewers need to know
@@ -503,7 +550,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 
   const blockers = [];
   if (!getStandingRequirements(requirementProfile).yearStanding) {
-    blockers.push('Set your year standing in My Profile so the documents for your standing can be listed.');
+    blockers.push('Set your year standing in your Application Form so the documents for your standing can be listed.');
   }
   const profileGate = getApplicationProfileGate(profile);
   if (!proofContext.frozen && !profileGate.allowed) blockers.push(...profileGate.reasons);
@@ -676,7 +723,7 @@ const asNumberOrNull = (value) => (value == null || value === '' || !Number.isFi
 // The self-reported profile values sent with a submission, frozen on the
 // application so the student and the reviewers see what was declared at submit
 // time. Values are self-reported; the badges reflect Document Vault proof only.
-// The default scholarship statement (`essay`) is left out because the
+// The default statement/essay (`essay`) is left out because the
 // application stores its own statement.
 export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, capturedAt = new Date().toISOString()) => {
   const academic = getAcademicRequirement(profile);
@@ -745,6 +792,12 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       country: asText(profile.country),
       housingType: asText(profile.housingType),
       housingOther: profile.housingType === 'Other' ? asText(profile.housingOther) : '',
+      // Additive sibling of the values above, so an older reader that expects a
+      // plain string keeps working while the reviewers see the address badges.
+      verification: {
+        completeAddress: status('completeAddress'),
+        residingAddress: status('residingAddress'),
+      },
     },
     education: {
       schoolLastAttended: {
@@ -755,11 +808,13 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       awards: asText(profile.awards),
     },
     family: {
+      fatherUnknown: Boolean(family.fatherUnknown),
       fatherName: asText(family.fatherName),
       fatherOccupation: asText(family.fatherOccupation),
       fatherDeceased: Boolean(family.fatherDeceased),
       fatherAge: asNumberOrNull(family.fatherAge),
       fatherDateOfDeath: asText(family.fatherDateOfDeath),
+      motherUnknown: Boolean(family.motherUnknown),
       motherName: asText(family.motherName),
       motherOccupation: asText(family.motherOccupation),
       motherDeceased: Boolean(family.motherDeceased),
@@ -769,6 +824,11 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       numberOfSiblings: asNumberOrNull(family.numberOfSiblings),
       siblings: Array.isArray(family.siblings) ? family.siblings.map((entry) => ({ ...entry })) : [],
       householdAdults: Array.isArray(family.householdAdults) ? family.householdAdults.map((entry) => ({ ...entry })) : [],
+      // Additive badges for the two family proofs (see the address group above).
+      verification: {
+        parents: status('parents'),
+        householdMembers: status('householdMembers'),
+      },
     },
     aid: {
       communityService: asText(profile.communityService),
@@ -789,7 +849,11 @@ export const describeApplicantAcademic = (application = {}) => {
 const optionLabel = (options, value) => options.find((option) => option.value === (value || ''))?.label || value || '';
 const yesNo = (value) => (value ? 'Yes' : 'No');
 const attributeLabel = (key) => getVerifiableAttributeOption(key)?.label || key;
-const formatParent = (name, occupation, deceased) => [name, occupation, deceased ? 'Deceased' : ''].filter(Boolean).join(' · ');
+// A parent marked unknown / not listed (an additive snapshot flag) reads as such
+// instead of a blank row; snapshots frozen before the flag never carry it.
+const formatParent = (name, occupation, deceased, unknown = false) => (unknown
+  ? 'Unknown / not listed'
+  : [name, occupation, deceased ? 'Deceased' : ''].filter(Boolean).join(' · '));
 const formatParentAge = (age, deceased, dateOfDeath) => (deceased
   ? (dateOfDeath ? `Died ${fmtDate(dateOfDeath)}` : '')
   : (age == null || age === '' ? '' : `${age} years old`));
@@ -886,8 +950,8 @@ export const getProfileSnapshotSections = (snapshot) => {
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
         row('Religion', optionLabel(religionOptions, personal.religion)),
-        row('Complete address', address.completeAddress),
-        row('Residing address', address.residingAddress),
+        row('Complete address', address.completeAddress, address.verification?.completeAddress),
+        row('Residing address', address.residingAddress, address.verification?.residingAddress),
         ...(snapshot.version >= 3 && address.housingType
           ? [row('Where the student stays while studying', [optionLabel(housingTypeOptions, address.housingType), address.housingOther].filter(Boolean).join(' · '))]
           : []),
@@ -906,12 +970,12 @@ export const getProfileSnapshotSections = (snapshot) => {
       key: 'family',
       title: 'Family',
       rows: [
-        row('Father', formatParent(family.fatherName, family.fatherOccupation, family.fatherDeceased)),
+        row('Father', formatParent(family.fatherName, family.fatherOccupation, family.fatherDeceased, family.fatherUnknown), family.verification?.parents),
         ...(snapshot.version >= 3 ? [row('Father (age or date of death)', formatParentAge(family.fatherAge, family.fatherDeceased, family.fatherDateOfDeath))] : []),
-        row('Mother', formatParent(family.motherName, family.motherOccupation, family.motherDeceased)),
+        row('Mother', formatParent(family.motherName, family.motherOccupation, family.motherDeceased, family.motherUnknown), family.verification?.parents),
         ...(snapshot.version >= 3 ? [row('Mother (age or date of death)', formatParentAge(family.motherAge, family.motherDeceased, family.motherDateOfDeath))] : []),
         row('Family position', optionLabel(familyPositionOptions, family.familyPosition)),
-        row('Number of siblings', family.numberOfSiblings),
+        row('Number of siblings', family.numberOfSiblings, family.verification?.householdMembers),
         ...(snapshot.version >= 3 ? [
           ...(Array.isArray(family.siblings) ? family.siblings : []).map((entry, index) => row(`Sibling ${index + 1}`, formatPerson(entry, siblingStatusOptions))),
           ...(Array.isArray(family.householdAdults) ? family.householdAdults : []).map((entry, index) => row(`Other household member ${index + 1}`, formatPerson(entry))),

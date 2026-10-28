@@ -73,8 +73,8 @@ export const PROFILE_DETAIL_KEYS = [
   'ipGroupName',
   'previousGrants',
   'communityService',
-  // A longer free-text scholarship essay the student writes once and can reuse
-  // across applications. Unlike the short bio it keeps its paragraph breaks.
+  // The longer free-text statement/essay the student writes once and can reuse
+  // across applications. It keeps its paragraph breaks.
   'essay',
 ];
 
@@ -90,8 +90,10 @@ export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'h
 // The keys match the `issues[].field` tags in src/lib/eligibility.js and the
 // section keys in src/pages/ProfileView.jsx.
 const ACADEMIC_PROFILE_SECTION = { key: 'academic', label: 'Academic profile' };
-const FINANCIAL_PROFILE_SECTION = { key: 'financial', label: 'Household and financial aid' };
 const BACKGROUND_PROFILE_SECTION = { key: 'background', label: 'Eligibility background' };
+// Household income and the Exclusion Flag Hierarchy answers live in Eligibility
+// background beside the other answers the Smart Eligibility Checker reads; there
+// is no separate "Household and financial aid" section.
 export const ELIGIBILITY_FIELD_PROFILE_SECTIONS = {
   yearStanding: ACADEMIC_PROFILE_SECTION,
   degreeProgram: ACADEMIC_PROFILE_SECTION,
@@ -99,10 +101,11 @@ export const ELIGIBILITY_FIELD_PROFILE_SECTIONS = {
   qpi: ACADEMIC_PROFILE_SECTION,
   hsAverage: ACADEMIC_PROFILE_SECTION,
   hsStrand: ACADEMIC_PROFILE_SECTION,
-  householdIncome: FINANCIAL_PROFILE_SECTION,
-  hasOtherActiveScholarship: FINANCIAL_PROFILE_SECTION,
-  hasSiblingOnAid: FINANCIAL_PROFILE_SECTION,
-  isOnPrepaidPlan: FINANCIAL_PROFILE_SECTION,
+  householdIncome: BACKGROUND_PROFILE_SECTION,
+  hasActiveGovernmentGrant: BACKGROUND_PROFILE_SECTION,
+  hasOtherActiveScholarship: BACKGROUND_PROFILE_SECTION,
+  hasSiblingOnAid: BACKGROUND_PROFILE_SECTION,
+  isOnPrepaidPlan: BACKGROUND_PROFILE_SECTION,
   citizenship: BACKGROUND_PROFILE_SECTION,
   honorsRank: BACKGROUND_PROFILE_SECTION,
   graduatingClassSize: BACKGROUND_PROFILE_SECTION,
@@ -150,6 +153,23 @@ export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_
 // An option without `skipReason` falls back to `claim`.
 // `claimLabel` names the extra requirement row an application gains when the
 // answer is a claim (getClaimProofRequirements in applicationRequirements.js).
+//
+// `value(profile)` reads the declared answer when it is not a top-level profile
+// key: the residing address resolves the "same as my complete address" toggle,
+// and the parents' names come from the nested family details. getAttributeValue()
+// is the single accessor every attestation and staleness check reads.
+//
+// `compareValue: false` marks an answer a proof cannot be compared against: the
+// family details are lists of names, not one recorded value. Such an answer is
+// never attested, so its proof stays current until the Admissions Office reverts
+// the file. The client and the database agree because document_proof_is_current()
+// only compares the keys present in `attested_values`.
+//
+// The address and family answers are verified like the academic, financial, and
+// background ones (Consultation 2): a proof of billing or a barangay certificate
+// of residency proves the address, and a PSA birth certificate or the same
+// certificate proves the family details. Every in-scope track asks for both
+// (DEFAULT_REQUIRED_DOCUMENTS in applicationRequirements.js).
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
   {
     key: 'qpi', label: 'Annual QPI', section: 'academic', annual: true,
@@ -175,9 +195,9 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     typeStanding: { 'Grade Report': 'continuing', Transcript: 'continuing', 'HS Report Card': 'incoming' },
     hint: 'Upload your latest grade report or transcript (or your senior high school report card if you are an incoming first-year).',
   },
-  { key: 'householdIncome', label: 'Annual household income', section: 'financial', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
+  { key: 'householdIncome', label: 'Annual household income', section: 'background', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
   {
-    key: 'employed', label: 'Employment status', section: 'financial',
+    key: 'employed', label: 'Employment status', section: 'background',
     acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'],
     proofRequired: (profile) => !isBlank(profile.employed) && profile.employed !== 'Not employed',
     skipReason: (profile) => (isBlank(profile.employed) ? 'unanswered' : 'claim'),
@@ -211,6 +231,37 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     claimLabel: 'Proof of PWD status',
     hint: 'Upload your PWD ID or medical certificate of disability.',
   },
+  {
+    key: 'completeAddress', label: 'Complete address', section: 'address',
+    acceptedDocumentTypes: ['Proof of Billing', 'Certificate of Residency'],
+    hint: 'Upload a proof of billing or a barangay certificate of residency showing the address you declared.',
+  },
+  {
+    key: 'residingAddress', label: 'Residing address', section: 'address',
+    acceptedDocumentTypes: ['Proof of Billing', 'Certificate of Residency'],
+    // While the "same as my complete address" toggle is on there is only one
+    // address to prove, so one file answers both attributes.
+    value: (profile) => (profile.sameAsCompleteAddress === false ? profile.residingAddress : profile.completeAddress),
+    hint: 'Upload a proof of billing for the address you stay at while studying.',
+  },
+  {
+    key: 'parents', label: "Parents' names", section: 'family',
+    acceptedDocumentTypes: ['PSA Birth Certificate'],
+    // The names are shown to the reviewer but never compared: a birth
+    // certificate is not invalidated by a corrected profile entry, and the file
+    // already carries the citizenship requirement of every in-scope track.
+    compareValue: false,
+    value: (profile) => familyNames(profile).parents,
+    hint: 'Upload your PSA birth certificate showing your parents’ names.',
+  },
+  {
+    key: 'householdMembers', label: 'Siblings and household members', section: 'family',
+    acceptedDocumentTypes: ['Certificate of Residency'],
+    // A list of names, not one declared value, so it is shown but not compared.
+    compareValue: false,
+    value: (profile) => familyNames(profile).household,
+    hint: 'Upload a barangay certificate of residency that lists the members of your household.',
+  },
 ];
 
 export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
@@ -239,6 +290,38 @@ export const getProvenAttributes = (documentType, profile = null) => (
       .map((option) => option.key)
     : []
 );
+
+// The names the family details answer with: the parents for the birth
+// certificate and the siblings plus other household adults for the barangay
+// certificate. Exported so the snapshot and the reviewer pane read them the same
+// way, including from a frozen application snapshot.
+export const familyNames = (profile = {}) => {
+  const family = profile && typeof profile === 'object' && profile.familyDetails && typeof profile.familyDetails === 'object'
+    ? profile.familyDetails
+    : {};
+  const clean = (value) => String(value ?? '').trim();
+  const joinPeople = (rows) => (Array.isArray(rows) ? rows.map((row) => clean(row?.name)).filter(Boolean).join(', ') : '');
+  return {
+    parents: [clean(family.fatherName), clean(family.motherName)].filter(Boolean).join(' · '),
+    household: [joinPeople(family.siblings), joinPeople(family.householdAdults)].filter(Boolean).join(', '),
+  };
+};
+
+// The declared answer of a verifiable attribute. Most answers are a top-level
+// profile key; the residing address resolves from the address toggle and the
+// family answers from the nested family details through the option's `value()`.
+// Every attestation, staleness check, and reviewer value reads this accessor, so
+// the client and student_profile_answers() in the database stay in step.
+export const getAttributeValue = (key, profile = {}) => {
+  const source = profile && typeof profile === 'object' ? profile : {};
+  const option = getVerifiableAttributeOption(key);
+  return option?.value ? option.value(source) : source[key];
+};
+
+// Whether a proof records the value it was uploaded to prove. An answer marked
+// `compareValue: false` (the family lists) is never attested, so its proof cannot
+// read Outdated: it stays a current proof until the Admissions Office reverts it.
+export const isComparableAttribute = (key) => getVerifiableAttributeOption(key)?.compareValue !== false;
 
 // Whether the student's current answer needs proof. An answer that claims
 // nothing (for example IP community "No") needs no document, and an attribute
@@ -299,6 +382,13 @@ export const normalizeAttestedValue = (key, value) => {
   }
   return text;
 };
+
+// The value a proof records at upload: the declared answer in comparable form,
+// or null for an answer a proof cannot be compared against (isComparableAttribute
+// is false, so nothing is attested and the database never compares it).
+export const getAttestedValue = (key, profile = {}) => (
+  isComparableAttribute(key) ? normalizeAttestedValue(key, getAttributeValue(key, profile)) : null
+);
 
 // The document types a profile attribute accepts as proof, shaped as picker
 // options (`{ value, label }`). An unknown attribute yields an empty list. With a
@@ -367,7 +457,6 @@ export const getDocumentSelectionForType = (documentType, profile = null) => (
   encodeDocumentSelection(getProvenAttributes(documentType, profile)[0] || '', documentType || '')
 );
 
-export const BIO_MAX_LENGTH = 280;
 export const ESSAY_MAX_LENGTH = 5000;
 export const FULL_NAME_MAX_LENGTH = 100;
 export const NAME_PART_MAX_LENGTH = 60;
@@ -947,9 +1036,8 @@ const validateRows = (raw, { max, label, columns, required = [] }) => {
 };
 
 export const validatePersonalSection = (form = {}) => {
-  const bio = String(form.bio ?? '').trim();
-  // The essay is longer than the bio and keeps its paragraph breaks, so it is
-  // only trimmed at the edges and capped, never whitespace-collapsed.
+  // The statement/essay keeps its paragraph breaks, so it is only trimmed at the
+  // edges and capped, never whitespace-collapsed.
   const essay = String(form.essay ?? '').trim();
   const result = collect({
     firstName: validateText(form.firstName, { max: NAME_PART_MAX_LENGTH, message: `Keep your first name within ${NAME_PART_MAX_LENGTH} characters.` }),
@@ -957,16 +1045,13 @@ export const validatePersonalSection = (form = {}) => {
     lastName: validateText(form.lastName, { max: NAME_PART_MAX_LENGTH, message: `Keep your last name within ${NAME_PART_MAX_LENGTH} characters.` }),
     fullName: validateFullName(form.fullName),
     phone: validateMobileNumber(form.phone),
-    bio: bio.length > BIO_MAX_LENGTH
-      ? { value: bio, error: `Keep your bio within ${BIO_MAX_LENGTH} characters.` }
-      : ok(bio),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
     birthdate: validateOptionalDate(form.birthdate, { label: 'your birthdate' }),
     sexAtBirth: oneOf(form.sexAtBirth || '', sexAtBirthOptions, 'Choose an option.'),
     pronouns: validateText(form.pronouns, { max: PRONOUNS_MAX_LENGTH, message: `Keep the pronouns within ${PRONOUNS_MAX_LENGTH} characters.` }),
     essay: essay.length > ESSAY_MAX_LENGTH
-      ? { value: essay, error: `Keep your default statement within ${ESSAY_MAX_LENGTH} characters.` }
+      ? { value: essay, error: `Keep your default statement/essay within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
   // The name parts are what FORM 230-SCH prints (Last, First, Middle), so once
@@ -1013,9 +1098,16 @@ export const validateAddressSection = (form = {}) => {
 };
 
 // Family details: parent names, occupations, and deceased status, plus family
-// position and the number of siblings. All optional.
+// position and the number of siblings. The section saves partially like every
+// other; each parent's name is needed to apply (getProfileCompleteness) unless
+// that parent is marked unknown, which clears the parent's other answers so a
+// hidden value is never sent with an application.
 export const validateFamilySection = (form = {}) => {
-  const family = form.familyDetails && typeof form.familyDetails === 'object' ? form.familyDetails : {};
+  const source = form.familyDetails && typeof form.familyDetails === 'object' ? form.familyDetails : {};
+  const clearParent = (parent) => (source[`${parent}Unknown`]
+    ? { [`${parent}Name`]: '', [`${parent}Occupation`]: '', [`${parent}Deceased`]: false, [`${parent}Age`]: '', [`${parent}DateOfDeath`]: '' }
+    : {});
+  const family = { ...source, ...clearParent('father'), ...clearParent('mother') };
   const result = collect({
     fatherName: validateText(family.fatherName, { max: FAMILY_NAME_MAX_LENGTH, message: `Keep the name within ${FAMILY_NAME_MAX_LENGTH} characters.` }),
     fatherOccupation: validateText(family.fatherOccupation, { max: FAMILY_OCCUPATION_MAX_LENGTH, message: `Keep the occupation within ${FAMILY_OCCUPATION_MAX_LENGTH} characters.` }),
@@ -1052,11 +1144,13 @@ export const validateFamilySection = (form = {}) => {
   return {
     values: {
       familyDetails: {
+        fatherUnknown: Boolean(family.fatherUnknown),
         fatherName: result.values.fatherName,
         fatherOccupation: result.values.fatherOccupation,
         fatherDeceased: Boolean(family.fatherDeceased),
         fatherAge: result.values.fatherAge,
         fatherDateOfDeath: result.values.fatherDateOfDeath,
+        motherUnknown: Boolean(family.motherUnknown),
         motherName: result.values.motherName,
         motherOccupation: result.values.motherOccupation,
         motherDeceased: Boolean(family.motherDeceased),
@@ -1168,13 +1262,47 @@ export const validateFinancialSection = (form = {}) => collect({
   isOnPrepaidPlan: ok(Boolean(form.isOnPrepaidPlan)),
 });
 
+// The grant list ("grants applied for or received") sits under the Exclusion Flag
+// Hierarchy answers in Eligibility background, and it is only active when the
+// student says they already receive aid: a government grant, another active
+// scholarship, or a prepaid tuition plan. A sibling on AdDU financial aid is about
+// the sibling, not the applicant, so it does not open the list. The list also stays
+// open while a saved row exists, so a grant recorded earlier can never become
+// unreachable (and the submitted snapshot keeps listing it). Shared by the My
+// Profile section and its validator so the two cannot disagree.
+export const isGrantListActive = (form = {}) => (
+  Boolean(form.hasActiveGovernmentGrant)
+  || Boolean(form.hasOtherActiveScholarship)
+  || Boolean(form.isOnPrepaidPlan)
+  || (Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
+);
+
 export const validateBackgroundSection = (form = {}) => {
   const honorsRank = form.honorsRank || '';
+  const grants = validateRows(form.previousGrants, {
+    max: MAX_GRANT_ROWS,
+    label: 'Grant',
+    columns: {
+      type: { options: grantTypeOptions },
+      name: { text: SCHOOL_FIELD_MAX_LENGTH },
+      level: { options: grantLevelOptions },
+      status: { options: grantStatusOptions },
+      institution: { text: SCHOOL_FIELD_MAX_LENGTH },
+      amount: { amount: true },
+    },
+    required: ['name', 'type', 'status'],
+  });
+  const grantListActive = isGrantListActive(form);
   const result = collect({
+    householdIncome: validateHouseholdIncome(form.householdIncome),
     citizenship: oneOf(form.citizenship, citizenshipOptions, 'Choose your citizenship.'),
     ipCommunity: oneOf(form.ipCommunity || '', ipCommunityOptions, 'Choose an IP community option.'),
     pwd: oneOf(form.pwd || '', pwdOptions, 'Choose a PWD option.'),
     employed: oneOf(form.employed || '', employmentOptions, 'Choose an employment status.'),
+    hasActiveGovernmentGrant: ok(Boolean(form.hasActiveGovernmentGrant)),
+    hasOtherActiveScholarship: ok(Boolean(form.hasOtherActiveScholarship)),
+    hasSiblingOnAid: ok(Boolean(form.hasSiblingOnAid)),
+    isOnPrepaidPlan: ok(Boolean(form.isOnPrepaidPlan)),
     honorsRank: oneOf(honorsRank, honorsRankOptions, 'Choose an honors standing.'),
     isHonorsGraduate: ok(Boolean(honorsRank)),
     graduatingClassSize: validateOptionalInteger(form.graduatingClassSize, { min: 1, max: 10000, message: 'Enter the graduating class size as a whole number.' }),
@@ -1183,23 +1311,16 @@ export const validateBackgroundSection = (form = {}) => {
       ? validateText(form.ipGroupName, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep the group name within ${SCHOOL_FIELD_MAX_LENGTH} characters.` })
       : ok(''),
     communityService: oneOf(form.communityService || '', communityServiceOptions, 'Choose an option.'),
-    previousGrants: validateRows(form.previousGrants, {
-      max: MAX_GRANT_ROWS,
-      label: 'Grant',
-      columns: {
-        type: { options: grantTypeOptions },
-        name: { text: SCHOOL_FIELD_MAX_LENGTH },
-        level: { options: grantLevelOptions },
-        status: { options: grantStatusOptions },
-        institution: { text: SCHOOL_FIELD_MAX_LENGTH },
-        amount: { amount: true },
-      },
-      required: ['name', 'type', 'status'],
-    }),
+    // A saved row activates the list itself, so a grant the student can no longer
+    // see is never validated (and never blocks the save).
+    previousGrants: grants,
   });
 
   if (honorsRank && result.values.graduatingClassSize === '' && !result.errors.graduatingClassSize) {
     result.errors.graduatingClassSize = 'Add your graduating class size to support your honors standing.';
+  }
+  if (grantListActive && !result.values.previousGrants.length && !result.errors.previousGrants) {
+    result.errors.previousGrants = 'Add at least one grant, or turn off the answers that say you already receive aid.';
   }
   return result;
 };
@@ -1277,14 +1398,25 @@ const hasNumber = (value) => !isBlank(value) && Number.isFinite(Number(value)) &
 export const PARENT_EMPLOYMENT_VALUES = ['employed', 'self-employed', 'unemployed'];
 export const ECONOMIC_STATUS_VALUES = ['lower', 'middle', 'upper'];
 
-// A parent counts as answered when marked deceased in Family details, or when
-// the Household finances section records an employment status and an annual
-// income (0 is valid). Mirrors parent_finances_answered() in the database.
+// A parent counts as answered when marked deceased or unknown in Family details,
+// or when the Household finances section records an employment status and an
+// annual income (0 is valid). Mirrors parent_finances_answered() in the database.
 export const isParentFinancesAnswered = (profile = {}, parent = 'father') => {
   if (profile.familyDetails?.[`${parent}Deceased`] === true) return true;
+  if (profile.familyDetails?.[`${parent}Unknown`] === true) return true;
   const details = profile.financialProfile?.[parent] || {};
   return PARENT_EMPLOYMENT_VALUES.includes(details.employmentStatus) && hasNumber(details.annualIncome);
 };
+
+// A parent's name is answered when it is filled in or the parent is marked
+// unknown / not listed. Mirrors missing_application_profile_item() in the database.
+export const isParentNameAnswered = (profile = {}, parent = 'father') => (
+  profile.familyDetails?.[`${parent}Unknown`] === true || !isBlank(profile.familyDetails?.[`${parent}Name`])
+);
+
+// The gate's message prefix. The application workspace sorts its blockers by it,
+// so the two read one constant instead of matching a copy of the sentence.
+export const APPLICATION_FORM_BLOCKER_PREFIX = 'Complete your Application Form';
 
 export const getApplicationProfileGate = (profile = {}) => {
   const missing = getProfileCompleteness(profile, 'student').items
@@ -1293,7 +1425,7 @@ export const getApplicationProfileGate = (profile = {}) => {
     allowed: missing.length === 0,
     missing,
     reasons: missing.length
-      ? [`Complete your profile before applying: ${missing.map((item) => item.label).join(', ')}.`]
+      ? [`${APPLICATION_FORM_BLOCKER_PREFIX} before applying: ${missing.map((item) => item.label).join(', ')}.`]
       : [],
   };
 };
@@ -1315,11 +1447,13 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
     if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);
     if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);
-    add('application', 'householdIncome', 'Annual household income', 'financial', !validateHouseholdIncome(profile.householdIncome).error);
+    add('application', 'householdIncome', 'Annual household income', 'background', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
     add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
     if (standing.requiresHsStanding) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
     add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    add('application', 'fatherName', 'Father\'s name', 'family', isParentNameAnswered(profile, 'father'));
+    add('application', 'motherName', 'Mother\'s name', 'family', isParentNameAnswered(profile, 'mother'));
     add('application', 'ipCommunity', 'IP community', 'background', !isBlank(profile.ipCommunity));
     add('application', 'pwd', 'Person with Disability (PWD)', 'background', !isBlank(profile.pwd));
     add('application', 'employed', 'Employment status', 'background', !isBlank(profile.employed));
@@ -1342,8 +1476,6 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   // The application form asks every applicant for a contact number, so it is
   // needed to apply; staff keep it as a plain detail.
   add(isStudent ? 'application' : 'details', 'phone', 'Philippine mobile number', 'personal', formatPhilippineMobile(profile.phone || ''));
-  if (isStudent) {
-  }
 
   const groups = PROFILE_COMPLETENESS_GROUPS
     .map((group) => {
@@ -1360,4 +1492,93 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     total: items.length,
     percent: Math.round((completed / items.length) * 100),
   };
+};
+
+// My Profile is the student's application form (FORM 230-SCH): every AdDU
+// application copies these answers at submit. The six editable sections are its
+// numbered parts, in the order the section menu lists them.
+export const APPLICATION_FORM_SECTIONS = [
+  { key: 'personal', label: 'Personal information' },
+  { key: 'address', label: 'Address' },
+  { key: 'family', label: 'Family details' },
+  { key: 'academic', label: 'Academic profile' },
+  { key: 'finances', label: 'Household finances' },
+  { key: 'background', label: 'Eligibility background' },
+];
+
+// Proof states the student has to act on before the next submission. A proof
+// that is only waiting for the Admissions Office (Pending) is not one of them.
+const PROOF_ALERT_STATUSES = ['Rejected', 'Outdated'];
+
+const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
+
+// The status of each application-form section, for the section menu, the
+// progress strip, and the Overview checklist:
+// - `alert`: a proof of an answer in the section was reverted for resubmission
+//   (stored `Rejected`) or is Outdated, so the next submission would be refused;
+// - `incomplete`: a "Needed to apply" answer is missing, or a claim (IP community
+//   or PWD "Yes", employed, honors) has no proof in the Document Vault yet;
+// - `complete`: nothing left to do.
+// `attributeVerifications` is the derived map from src/lib/verification.js. The
+// answers alone decide the application gate (getApplicationProfileGate); the
+// proof states only add the alerts that would otherwise surface at submit.
+export const getApplicationFormProgress = (profile = {}, attributeVerifications = {}) => {
+  const completeness = getProfileCompleteness(profile, 'student');
+  const claimed = getClaimedAttributes(profile);
+  const sections = APPLICATION_FORM_SECTIONS.map((section, index) => {
+    const items = completeness.items.filter((item) => item.section === section.key);
+    const missing = items.filter((item) => !item.done);
+    const options = VERIFIABLE_ATTRIBUTE_OPTIONS.filter((option) => option.section === section.key);
+    const alerts = options
+      .filter((option) => PROOF_ALERT_STATUSES.includes(attributeVerifications[option.key]))
+      .map((option) => ({ key: option.key, label: option.label, status: attributeVerifications[option.key] }));
+    const unprovenClaims = options
+      .filter((option) => claimed.includes(option.key) && (attributeVerifications[option.key] || 'Unverified') === 'Unverified')
+      .map((option) => ({ key: option.key, label: option.claimLabel }));
+    const remaining = missing.length + unprovenClaims.length;
+    const state = alerts.length ? 'alert' : remaining ? 'incomplete' : 'complete';
+    let statusLabel = 'Done';
+    if (state === 'alert') {
+      statusLabel = alerts.length > 1 ? `${alerts.length} to fix` : alerts[0].status === 'Rejected' ? 'Reverted' : 'Outdated';
+    } else if (state === 'incomplete') {
+      statusLabel = `${remaining} left`;
+    }
+    const details = [
+      alerts.length ? plural(alerts.length, 'proof to replace', 'proofs to replace') : '',
+      missing.length ? plural(missing.length, 'answer missing', 'answers missing') : '',
+      unprovenClaims.length ? plural(unprovenClaims.length, 'proof to attach', 'proofs to attach') : '',
+    ].filter(Boolean);
+    return {
+      ...section,
+      number: index + 1,
+      items,
+      missing,
+      alerts,
+      unprovenClaims,
+      state,
+      statusLabel,
+      description: details.length ? details.join(', ') : 'Complete',
+      completed: items.length - missing.length,
+      total: items.length,
+    };
+  });
+  const ready = sections.every((section) => section.state === 'complete');
+  return {
+    sections,
+    answered: completeness.completed,
+    total: completeness.total,
+    percent: completeness.percent,
+    ready,
+    next: sections.find((section) => section.state !== 'complete') || null,
+  };
+};
+
+// The section "Save and continue" opens: the next unfinished section after
+// `currentKey`, then any earlier one still unfinished; null once every section
+// is complete (the caller returns to the Overview).
+export const getNextApplicationFormSection = (progress, currentKey) => {
+  const sections = progress?.sections || [];
+  const index = sections.findIndex((section) => section.key === currentKey);
+  const ordered = [...sections.slice(index + 1), ...sections.slice(0, Math.max(index, 0))];
+  return ordered.find((section) => section.state !== 'complete') || null;
 };
