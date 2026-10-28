@@ -46,6 +46,13 @@ export const SCHOLARSHIP_GUIDES = [
   },
 ];
 
+// The leaflet guide for a catalog entry, or null when it is not one of the
+// three tracks.
+export const getScholarshipGuide = (scholarship = {}) => {
+  const ruleFamily = isAdduInternalProgram(scholarship) ? getInternalRuleFamily(scholarship) : null;
+  return SCHOLARSHIP_GUIDES.find((guide) => guide.ruleFamily === ruleFamily) || null;
+};
+
 // Every applicant to any of the three tracks must meet these first.
 export const PRELIMINARY_REQUIREMENTS = [
   'Take and pass the QEAC examination.',

@@ -104,7 +104,7 @@ button.bg-app-card:hover {
    Profile section menu (`.profile-menu-item`, a flat stepper list), and the
    Dashboard call to action (`.hero-action`, a white button on its own navy
    banner) stay untouched. */
-.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]) {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
@@ -117,8 +117,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, [class*="from-rose"], [class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
@@ -130,7 +130,11 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.profile-menu-item):not(.calendar-cell):not(.hero-action):not([class*="from-rose"]):not([class*="from-amber"]):disabled {
+/* Each exclusion list is one :not() so its specificity stays a single class:
+   a longer :not() chain outranked the gradient rule above and turned every
+   primary action into a surface button. :where() keeps this disabled rule as
+   weak as it has always been, so it never repaints a disabled surface button. */
+.blue-action-view button:where(:not(.profile-menu-item, .calendar-cell, .hero-action, [class*="from-rose"], [class*="from-amber"]):disabled) {
   background: #6683bd !important;
   border-color: #6683bd !important;
   color: #eaf1ff !important;
@@ -215,7 +219,7 @@ button.bg-app-card:hover {
 
 /* Light mode can carry the brighter Ateneo blue; dark mode keeps controls
    lower-contrast so they do not glow against the navy application surface. */
-.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]) {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
@@ -227,8 +231,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: #4d8dff !important;
   background: color-mix(in srgb, var(--primary) 10%, var(--surface)) !important;
 }
@@ -1200,12 +1204,6 @@ main .deadline-item > .deadline-actions {
 }
 .wrap { flex-wrap: wrap; }
 
-.scholarship-card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.9rem;
-}
-
 /* Scholarship Explorer bar: the section label, a full-width search field,
    facet filters, and a one-line result caption share one surface instead of a
    separate hero card plus a filter card. */
@@ -1303,16 +1301,6 @@ main .deadline-item > .deadline-actions {
   color: var(--muted);
   font-size: 0.72rem;
   font-weight: 700;
-}
-
-.scholarship-card-title {
-  margin-top: 0.65rem;
-  line-height: 1.25;
-}
-
-.scholarship-card-coverage {
-  min-height: 3.2rem;
-  margin: 0;
 }
 
 .calendar-cell:focus-visible,

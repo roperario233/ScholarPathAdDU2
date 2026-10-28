@@ -1,14 +1,9 @@
-import { ArrowRight, BookOpenCheck, BriefcaseBusiness, CalendarClock, CheckCircle2, FileText, HandCoins, ListChecks } from 'lucide-react';
+import { ArrowRight, CalendarClock, CheckCircle2, FileText, ListChecks } from 'lucide-react';
+import ScholarshipTrackIcon from '../components/ScholarshipTrackIcon';
 import { getDeadlineStatus, getScholarshipAcademicDisplay } from '../lib/eligibility';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { getStandingRequirements } from '../lib/profile';
 import { APPLICATION_PERIODS, PRELIMINARY_REQUIREMENTS, getScholarshipGuideCards } from '../lib/scholarshipGuide';
-
-const GUIDE_ICONS = {
-  'general-pool': HandCoins,
-  'work-study': BriefcaseBusiness,
-  honors: BookOpenCheck,
-};
 
 // The live eligibility the catalog entry declares, shown after the leaflet
 // criteria so the card never disagrees with the Smart Eligibility Checker.
@@ -31,14 +26,15 @@ function SectionHeading({ icon: Icon, children }) {
 }
 
 function ScholarshipGuideCard({ card, profile, standingNote }) {
-  const Icon = GUIDE_ICONS[card.ruleFamily] || HandCoins;
   const criteria = [...card.criteria, ...getCatalogCriteria(card.scholarship, profile)];
   const deadline = card.scholarship?.deadline;
   const deadlineStatus = deadline ? getDeadlineStatus(deadline) : null;
+  // Six sections (header, summary, coverage, who can apply, documents, deadline)
+  // on a subgrid of the page grid, so each section lines up across the cards.
   return (
-    <article className="flex min-w-0 flex-col gap-4 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur">
+    <article className="row-span-6 grid min-w-0 grid-rows-subgrid rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur">
       <header className="flex items-start gap-3">
-        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-blue-500/15 text-blue-600 dark:text-blue-200"><Icon size={21} aria-hidden="true" /></span>
+        <ScholarshipTrackIcon ruleFamily={card.ruleFamily} />
         <div className="min-w-0">
           <span className="eyebrow">{card.kind}</span>
           <h3 className="mt-2 text-lg font-bold text-app-text">{card.name}</h3>
@@ -67,7 +63,7 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
         </ul>
       </div>
 
-      <p className="mb-0 mt-auto border-t border-app-border pt-3 text-xs text-app-muted">
+      <p className="mb-0 self-end border-t border-app-border pt-3 text-xs text-app-muted">
         {deadline
           ? <>Deadline <strong className="text-app-text">{fmtDate(deadline)}</strong> · {deadlineStatus.label}</>
           : 'Deadline to be announced by the Office of Admission and Aid'}
