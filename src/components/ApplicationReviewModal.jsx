@@ -419,16 +419,6 @@ export default function ApplicationReviewModal({
       badge: isAdmissionsHead && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
       alert: isAdmissionsHead && blockedByDocuments,
     }] : []),
-    // SOP step 4 in one place: the hand-off/decision record, the internal
-    // thread, and the decision action. It appears once the application has
-    // reached the endorsement stage and stays readable afterwards.
-    ...(endorsementUnlocked ? [{
-      key: 'endorsement',
-      // The forwarding record and the internal thread.
-      label: 'Case notes',
-      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
-      alert: application.status === 'For Endorsement',
-    }] : []),
     // SOP step 5: the schedule, the panel from the applicant's school, and the
     // private evaluation notes.
     ...(interviewUnlocked ? [{
@@ -436,6 +426,15 @@ export default function ApplicationReviewModal({
       label: 'Interview',
       badge: canCoordinateInterview && application.status === 'Endorsed' ? 'Schedule due' : null,
       alert: canCoordinateInterview && application.status === 'Endorsed',
+    }] : []),
+    // The forwarding record and the internal thread. It sits beside History
+    // because both are the case's record rather than a stage's work; it appears
+    // once the case is forwarded and stays readable afterwards.
+    ...(endorsementUnlocked ? [{
+      key: 'endorsement',
+      label: 'Case notes',
+      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
+      alert: application.status === 'For Endorsement',
     }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];

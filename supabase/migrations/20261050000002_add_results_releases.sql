@@ -138,7 +138,8 @@ begin
     join pg_namespace n on n.oid = p.pronamespace
     where n.nspname = 'public' and p.proname = 'notify_application_status_change';
   v_url := substring(v_source from 'url := ''([^'']*/functions/v1/)notify-application-status''');
-  v_secret := substring(v_source from 'Bearer ([^'']+)''');
+  -- Accepts both 'Bearer <secret>' and 'Bearer ' || '<secret>'.
+  v_secret := substring(v_source from 'Bearer (?:'' \|\| '')?([^'']+)''');
   if v_url is null or v_secret is null or v_url like '%<%' or v_secret like '<%' then
     raise exception 'notify_application_status_change() has no deployed URL and secret to copy. Apply 20261014000003 with its real values first.';
   end if;
