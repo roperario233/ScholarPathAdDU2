@@ -287,6 +287,11 @@ export default function ApplicationWorkspaceModal({
   const documentsDone = readiness.requirements.every((item) => item.state === 'attached' || item.state === 'verified');
   const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith(APPLICATION_FORM_BLOCKER_PREFIX) || blocker.startsWith('Set your year standing'));
   const supportingCount = readiness.supportingDocuments.length;
+  // Distinct files being sent: one file can satisfy two requirements, so count ids.
+  const sharedDocumentCount = new Set([
+    ...readiness.requirements.flatMap((requirement) => requirement.attached.map((doc) => doc.id)),
+    ...readiness.supportingDocuments.map((doc) => doc.id),
+  ]).size;
 
   const stepDone = {
     documents: documentsDone,
@@ -505,7 +510,7 @@ export default function ApplicationWorkspaceModal({
               <div className="grid gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3" role="note" aria-label="What you are sharing">
                 <strong className="text-sm text-app-text">What you are sharing</strong>
                 <p className="m-0 text-sm text-app-muted">
-                  Your required documents, {supportingCount} supporting {supportingCount === 1 ? 'document' : 'documents'}, your statement, and your full Application Form, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
+                  {sharedDocumentCount} attached {sharedDocumentCount === 1 ? 'document' : 'documents'}, your statement, and your full Application Form, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
                 </p>
                 <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your application form</Button></div>
               </div>
