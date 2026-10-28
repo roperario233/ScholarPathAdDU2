@@ -588,10 +588,13 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
               <input className={controlClass} value={values.middleName} onChange={(event) => update({ middleName: event.target.value.slice(0, NAME_PART_MAX_LENGTH) })} autoComplete="additional-name" maxLength={NAME_PART_MAX_LENGTH} aria-invalid={Boolean(errors.middleName)} />
             </FormField>
             {values.lastName || values.firstName ? (
+              // A derived preview, not an input: self-start keeps the bordered box
+              // hugging its two lines instead of stretching to the neighbouring form
+              // field's height, which painted a tall empty panel beside it.
               <ReadOnlyField
                 label="Full name"
                 value={composeFullName(values)}
-                note="Composed from your name parts and printed on the application as Last, First, Middle."
+                className="self-start"
               />
             ) : (
               <FormField label="Full name" hint="Needed to apply until you add your last and first name." error={errors.fullName}>
