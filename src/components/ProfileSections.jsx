@@ -1,5 +1,5 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Camera, Circle, CircleAlert, CircleCheck, OctagonAlert, Paperclip, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Camera, Circle, CircleAlert, CircleCheck, OctagonAlert, Paperclip, Plus, Trash2, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, RequiredMark, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
@@ -642,6 +642,7 @@ function ProfilePhotoCard({ fullName = '', avatar = {}, isSaving = false, onChan
 function RepeatableRows({ legend, rows, columns, max, addLabel, error, onChange, required = false }) {
   const setCell = (index, key, value) => onChange(rows.map((row, rowIndex) => (rowIndex === index ? { ...row, [key]: value } : row)));
   const blankRow = () => Object.fromEntries(columns.map((column) => [column.key, '']));
+  const atMax = rows.length >= max;
   return (
     <fieldset className="m-0 grid gap-3 border-0 p-0">
       <legend className="mb-1 text-sm font-semibold text-app-text">
@@ -649,29 +650,50 @@ function RepeatableRows({ legend, rows, columns, max, addLabel, error, onChange,
         {required && <RequiredMark />}
       </legend>
       {rows.map((row, index) => (
-        <div key={index} className="grid gap-2 rounded-xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[repeat(auto-fit,minmax(9rem,1fr))_auto] md:items-end">
-          {columns.map((column) => (
-            column.type === 'select' ? (
-              <select key={column.key} className={controlClass} aria-label={`${legend} ${index + 1} ${column.label}`} value={row[column.key] ?? ''} onChange={(event) => setCell(index, column.key, event.target.value)}>
-                {column.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-            ) : (
-              <input
-                key={column.key}
-                className={controlClass}
-                aria-label={`${legend} ${index + 1} ${column.label}`}
-                placeholder={column.label}
-                value={row[column.key] ?? ''}
-                inputMode={column.type === 'age' ? 'numeric' : undefined}
-                onChange={(event) => setCell(index, column.key, column.type === 'age' ? event.target.value.replace(/\D/g, '').slice(0, 3) : event.target.value)}
-              />
-            )
-          ))}
-          <Button type="button" variant="ghost" className="!min-h-12" onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))} aria-label={`Remove ${legend.toLowerCase()} ${index + 1}`}>Remove</Button>
+        <div key={index} className="grid gap-3 rounded-xl border border-app-border bg-app-surface/60 p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2">
+            <strong className="text-sm font-bold text-app-text">{legend} {index + 1}</strong>
+            <button
+              type="button"
+              className="proof-action !text-rose-600 dark:!text-rose-300"
+              onClick={() => onChange(rows.filter((_, rowIndex) => rowIndex !== index))}
+              aria-label={`Remove ${legend.toLowerCase()} ${index + 1}`}
+            >
+              <Trash2 size={14} aria-hidden="true" /> Remove
+            </button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {columns.map((column, columnIndex) => {
+              // A lone last field takes the full row so a two-column grid never leaves a gap.
+              const spanClass = columns.length % 2 === 1 && columnIndex === columns.length - 1 ? 'sm:col-span-2' : '';
+              return (
+                <label key={column.key} className={`grid min-w-0 content-start gap-1 ${spanClass}`}>
+                  <span className="text-xs font-semibold text-app-muted">{column.label}</span>
+                  {column.type === 'select' ? (
+                    <select className={controlClass} value={row[column.key] ?? ''} onChange={(event) => setCell(index, column.key, event.target.value)}>
+                      {column.options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      className={controlClass}
+                      value={row[column.key] ?? ''}
+                      inputMode={column.type === 'age' ? 'numeric' : undefined}
+                      onChange={(event) => setCell(index, column.key, column.type === 'age' ? event.target.value.replace(/\D/g, '').slice(0, 3) : event.target.value)}
+                    />
+                  )}
+                </label>
+              );
+            })}
+          </div>
         </div>
       ))}
       {error ? <span className="text-sm text-rose-300" role="alert">{error}</span> : null}
-      <div><Button type="button" onClick={() => onChange([...rows, blankRow()])} disabled={rows.length >= max}>{addLabel}</Button></div>
+      <div className="grid gap-1">
+        <Button type="button" className="w-full justify-center border-dashed sm:w-auto sm:justify-self-start" onClick={() => onChange([...rows, blankRow()])} disabled={atMax}>
+          <Plus size={16} aria-hidden="true" /> {addLabel}
+        </Button>
+        {atMax ? <small className="field-hint">You can list up to {max}.</small> : null}
+      </div>
     </fieldset>
   );
 }

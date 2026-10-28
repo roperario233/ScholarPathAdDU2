@@ -118,8 +118,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, [class*="from-rose"], [class*="from-amber"]):hover,
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
