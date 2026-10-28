@@ -12,13 +12,6 @@ import { describeRequirementTypes, getScholarshipRequirements } from '../lib/app
 import { getScholarshipGuide } from '../lib/scholarshipGuide';
 import { APPLICATION_FORM_SECTIONS, getApplicationProfileGate, getStandingRequirements } from '../lib/profile';
 
-// The My Profile sections the "Needed to apply" items live in, keyed like the
-// section menu in src/pages/ProfileView.jsx.
-// "3. Family details": the numbered part of the application form in My Profile.
-const PROFILE_SECTION_LABELS = Object.fromEntries(
-  APPLICATION_FORM_SECTIONS.map((section, index) => [section.key, `${index + 1}. ${section.label}`]),
-);
-
 const DEADLINE_TONES = {
   success: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
   info: 'bg-blue-500/15 text-blue-700 dark:text-blue-200',
@@ -225,8 +218,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
   // "Needed to apply" answer is complete. Browsing and the Smart Eligibility
   // Checker stay open.
   const profileGate = getApplicationProfileGate(profile);
-  const missingSections = [...new Set(profileGate.missing.map((item) => item.section))];
-  const internal = scholarships.filter(isAdduInternalProgram);
+  const missingSections = [...new Set(profileGate.missing.map((item) => item.section))];  const internal = scholarships.filter(isAdduInternalProgram);
   const checklists = internal.map((scholarship) => getEligibilityChecklist(profile, scholarship));
   const qualifiedCount = checklists.filter((checklist) => checklist.verdict === 'eligible').length;
   // Every card reserves as many checklist rows as the longest checklist.
@@ -302,22 +294,31 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
         </p>
       </section>
 
+      {/* One general prompt with the Dashboard call to action's structure (text
+          left, one pill button right) in the warning amber: the button opens the
+          Application Form's Overview, whose checklist and section menu lead the
+          student through the rest, without highlighting a field. The button
+          carries `hero-action` so the blue-action-view palette leaves it alone. */}
       {!profileGate.allowed ? (
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-app border border-amber-400/40 bg-amber-500/10 p-4" aria-label="Complete your Application Form to apply">
-          <div className="grid gap-0.5">
-            <strong className="text-sm text-app-text">Complete your Application Form to apply</strong>
-            <span className="text-xs text-app-muted">{profileGate.missing.length} answer{profileGate.missing.length === 1 ? '' : 's'} missing</span>
-          </div>
-          {onOpenProfileSection ? (
-            <div className="flex flex-wrap gap-2">
-              {missingSections.map((section) => (
-                <button key={section} type="button" className={secondaryButton} onClick={() => onOpenProfileSection(section, profileGate.missing.find((item) => item.section === section)?.key)}>
-                  {PROFILE_SECTION_LABELS[section] || 'Application Form'}
-                  <ArrowRight size={15} className="shrink-0" aria-hidden="true" />
-                </button>
-              ))}
+        <section className="rounded-app border border-amber-400/40 bg-amber-500/10 px-4 py-3" aria-label="Complete your Application Form to apply">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+            <div className="grid min-w-0 gap-0.5">
+              <strong className="text-sm text-app-text">Complete your Application Form to apply</strong>
+              <span className="text-xs text-app-muted">
+                {profileGate.missing.length} answer{profileGate.missing.length === 1 ? '' : 's'} missing across {missingSections.length} of {APPLICATION_FORM_SECTIONS.length} parts. You can keep checking your eligibility meanwhile.
+              </span>
             </div>
-          ) : null}
+            {onOpenProfileSection ? (
+              <button
+                type="button"
+                className="hero-action group inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-full bg-amber-500 px-5 py-2 text-center text-sm font-bold text-amber-950 shadow-sm transition hover:-translate-y-px hover:bg-amber-400 focus:outline-none focus:ring-4 focus:ring-amber-500/30 sm:w-auto"
+                onClick={() => onOpenProfileSection('overview')}
+              >
+                Continue your Application Form
+                <ArrowRight className="shrink-0 transition group-hover:translate-x-1" size={16} aria-hidden="true" />
+              </button>
+            ) : null}
+          </div>
         </section>
       ) : null}
 
