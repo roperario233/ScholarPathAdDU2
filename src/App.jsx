@@ -3199,6 +3199,9 @@ function App() {
               previewProofImpact={state.viewerRole === 'student'
                 ? (patch) => getNewlyOutdatedAttributes(studentDocuments, studentMatchProfile, patch)
                 : undefined}
+              previewVerifications={state.viewerRole === 'student'
+                ? (patch) => deriveAttributeVerifications(studentDocuments, VERIFIABLE_ATTRIBUTE_KEYS, { profile: { ...studentMatchProfile, ...patch } })
+                : undefined}
             />
           )}
 

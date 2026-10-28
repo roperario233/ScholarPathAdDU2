@@ -63,6 +63,7 @@ export default function ProfileView({
   onUploadDocument,
   onFindScholarship,
   previewProofImpact,
+  previewVerifications,
 }) {
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
@@ -120,7 +121,7 @@ export default function ProfileView({
   // What the open AdDU internal scholarships ask this student to keep in the
   // Document Vault; staff have no applications, so they get no checklist.
   const documentChecklist = isStudent ? getDocumentChecklist({ scholarships, profile, documents }) : null;
-  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof, previewProofImpact };
+  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof, previewProofImpact, previewVerifications };
 
   const showSectionContent = () => {
     const target = sectionContentRef.current;

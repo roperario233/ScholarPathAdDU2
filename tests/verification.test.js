@@ -304,4 +304,25 @@ describe('address and family proofs', () => {
   });
 });
 
+  // My Profile badges follow the unsaved draft: App.jsx derives them with the
+  // section's values laid over the saved profile.
+  describe('draft preview', () => {
+    const saved = { ipCommunity: 'No', pwd: 'No', yearStanding: '2nd' };
+
+    it('asks for proof as soon as a claim is picked, before it is saved', () => {
+      expect(deriveAttributeStatus([], 'ipCommunity', { profile: saved })).toBe('No proof needed');
+      expect(deriveAttributeStatus([], 'ipCommunity', { profile: { ...saved, ...{ ipCommunity: 'Yes', ipGroupName: 'Manobo' } } })).toBe('Unverified');
+    });
+
+    it('goes back to needing no proof when the claim is withdrawn in the draft', () => {
+      const claimed = { ...saved, ipCommunity: 'Yes' };
+      expect(deriveAttributeStatus([], 'ipCommunity', { profile: claimed })).toBe('Unverified');
+      expect(deriveAttributeStatus([], 'ipCommunity', { profile: { ...claimed, ipCommunity: 'No' } })).toBe('No proof needed');
+    });
+
+    it('leaves untouched attributes as they were', () => {
+      const draft = { ...saved, ipCommunity: 'Yes' };
+      expect(deriveAttributeVerifications([], ['pwd'], { profile: draft }).pwd).toBe('No proof needed');
+    });
+  });
 });
