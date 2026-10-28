@@ -2663,7 +2663,6 @@ function App() {
   const changeAccountPassword = (password) => updateAccountPassword({ password });
   const requestOwnPasswordReset = () => requestPasswordReset({ email: currentIdentity.email || '' });
 
-  const eligiblePreview = eligibleScholarships.slice(0, 6);
   // Department queue is derived from applications joined to the student's
   // school-level department, so it stays consistent with profiles.department
   // from the academic program taxonomy rather than a separately seeded table.
@@ -2672,19 +2671,6 @@ function App() {
   // Chairperson an operator has not scoped yet keeps the old school-wide read.
   const departmentQueue = getScopedQueue(state.applications, { ...currentProfile, role: state.viewerRole }, activeAcademicPrograms)
     .filter((entry) => entry.status !== 'Draft');
-  const studentStanding = getStandingRequirements(studentMatchProfile);
-  const hasIncompleteStudentProfile = state.viewerRole === 'student' && (
-    !currentIdentity.degreeProgram
-    || !studentStanding.yearStanding
-    // The AdDU student number belongs to a current Ateneo student only.
-    || (requiresStudentNumber(studentMatchProfile) && !currentIdentity.studentNumber)
-    || currentIdentity.householdIncome == null
-    || currentIdentity.householdIncome === ''
-    // An incoming first-year is matched on senior high school standing, not QPI.
-    || (studentStanding.requiresQpi && (currentIdentity.qpi == null || currentIdentity.qpi === ''))
-    || !studentMatchProfile.academicStanding
-    || !studentMatchProfile.citizenship
-  );
 
   // The Admissions Office workspace is split into one route per function. Both
   // lanes read the Dashboard and the review queue; only the Head manages the
@@ -2921,27 +2907,8 @@ function App() {
             <DashboardViewPage
               profile={currentIdentity}
               isFirstLogin={state.showFirstLoginWelcome}
-              applications={studentApplications}
               scholarships={scholarshipCatalog}
-              customDeadlines={state.customDeadlines}
-              eligibleScholarships={eligiblePreview}
-              notifications={visibleNotifications}
-              announcements={state.announcements}
               onOpenExplorer={() => navigate('explore')}
-              onOpenEligibility={() => navigate('explore')}
-              onTrackScholarship={async (scholarship) => {
-                // The dashboard row has no error slot, so an incomplete profile
-                // opens the My Profile section that holds the first missing answer.
-                const result = await applyToScholarship(scholarship);
-                if (result?.profileItems?.length) navigate('profile', { section: result.profileItems[0].section });
-                return result;
-              }}
-              onMarkRead={markNotificationRead}
-              onShowApplications={() => navigate('applications')}
-              onContinueApplication={(applicationId) => navigate('applications', { applicationId })}
-              onOpenCalendar={() => navigate('calendar')}
-              hasIncompleteProfile={hasIncompleteStudentProfile}
-              onCompleteProfile={() => navigate('profile')}
             />
           )}
 

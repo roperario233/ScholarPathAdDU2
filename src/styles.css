@@ -100,9 +100,11 @@ button.bg-app-card:hover {
 
 /* Keep actions distinct in dark mode: quiet surface controls should not look
    like primary submit buttons, and picker internals, the compact proof chip
-   (`.proof-action`, a badge companion rather than a page action), and the My
-   Profile section menu (`.profile-menu-item`, a flat stepper list) stay untouched. */
-.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
+   (`.proof-action`, a badge companion rather than a page action), the My
+   Profile section menu (`.profile-menu-item`, a flat stepper list), and the
+   Dashboard call to action (`.hero-action`, a white button on its own navy
+   banner) stay untouched. */
+.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
@@ -115,8 +117,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
@@ -128,7 +130,7 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.profile-menu-item):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):disabled {
+.blue-action-view button:not(.profile-menu-item):not(.calendar-cell):not(.hero-action):not([class*="from-rose"]):not([class*="from-amber"]):disabled {
   background: #6683bd !important;
   border-color: #6683bd !important;
   color: #eaf1ff !important;
@@ -213,7 +215,7 @@ button.bg-app-card:hover {
 
 /* Light mode can carry the brighter Ateneo blue; dark mode keeps controls
    lower-contrast so they do not glow against the navy application surface. */
-.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
+.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
@@ -225,8 +227,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
+.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.hero-action):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
   border-color: #4d8dff !important;
   background: color-mix(in srgb, var(--primary) 10%, var(--surface)) !important;
 }
@@ -357,22 +359,6 @@ select {
   overflow-wrap: anywhere;
 }
 
-/* Summary metadata is intentionally stacked. Keeping the label and value as
-   inline elements makes long degree and scholarship names run together. */
-.dashboard-summary-card > span,
-.dashboard-summary-card > strong {
-  display: block;
-}
-
-.dashboard-summary-card > strong {
-  margin-top: 0.3rem;
-}
-
-.dashboard-summary-card > p {
-  margin-bottom: 0;
-  margin-top: 0.35rem;
-}
-
 .page-metric > span,
 .page-metric > strong {
   display: block;
@@ -416,37 +402,6 @@ select {
   letter-spacing: 0.12em;
   line-height: 1.2;
   text-transform: uppercase;
-}
-
-.dashboard-hero-copy {
-  min-width: 0;
-}
-
-.dashboard-welcome {
-  margin: 0 0 0.7rem;
-  color: var(--muted);
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.dashboard-hero-copy h1 {
-  max-width: 38rem;
-  margin-top: 0.4rem;
-  margin-bottom: 0;
-  font-size: clamp(2rem, 3vw, 3rem);
-}
-
-.dashboard-hero-copy > p {
-  max-width: 38rem;
-  margin-top: 0.75rem;
-}
-
-.dashboard-hero-summary {
-  align-self: start;
-}
-
-.dashboard-hero-summary .dashboard-summary-card {
-  min-height: 7.5rem;
 }
 
 @media (max-width: 767px) {
