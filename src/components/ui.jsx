@@ -69,17 +69,24 @@ export function StatusBadge({ tone = 'neutral', title, children, className = '' 
 
 export function FormField({ label, hint, error, labelAdornment, children, className = '' }) {
   return (
+    // The root is a plain container, not a <label>: a label adornment can carry an
+    // action (the proof chip), and interactive content nested in a <label> is invalid
+    // markup that also forwards its click to the field control. The label text and
+    // control stay inside the inner <label>, so click-to-focus still works.
     // content-start keeps label, control, and hint packed at the top, so a field
     // beside a taller neighbour (longer hint or error) is not stretched out of line.
-    <label className={clsx('grid content-start gap-2', className)}>
-      <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-semibold text-app-text">
-        <span className="min-w-0">{label}</span>
-        {labelAdornment}
-      </span>
-      {children}
+    <div className={clsx('grid min-w-0 content-start gap-2', className)}>
+      <label className="grid min-w-0 content-start gap-2">
+        <span className="min-w-0 text-sm font-semibold text-app-text">{label}</span>
+        {children}
+      </label>
+      {/* The adornment gets a row of its own under the control. Sharing the label
+          line let a badge plus its action wrap the header onto a second line, which
+          pushed this field's control out of line with the field beside it. */}
+      {labelAdornment && <div className="flex min-w-0 flex-wrap items-center gap-2">{labelAdornment}</div>}
       {hint && <small className="field-hint">{hint}</small>}
       {error && <span className="text-sm text-rose-300" role="alert">{error}</span>}
-    </label>
+    </div>
   );
 }
 

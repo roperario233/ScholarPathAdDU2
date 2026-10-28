@@ -99,8 +99,9 @@ button.bg-app-card:hover {
 }
 
 /* Keep actions distinct in dark mode: quiet surface controls should not look
-   like primary submit buttons, and picker internals must stay untouched. */
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]) {
+   like primary submit buttons, and picker internals and the compact proof chip
+   (`.proof-action`, a badge companion rather than a page action) stay untouched. */
+.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
@@ -183,9 +184,35 @@ button.bg-app-card:hover {
   max-width: 100%;
 }
 
+/* The companion action of a verification badge inside a form field. It is a small
+   secondary link, not a page action, so it carries no fill of its own and is
+   excluded from the shell button palette above. */
+.proof-action {
+  display: inline-flex;
+  min-height: 1.75rem;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.proof-action:hover,
+.proof-action:focus-visible {
+  border-color: color-mix(in srgb, var(--primary) 30%, transparent);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--accent);
+}
+
 /* Light mode can carry the brighter Ateneo blue; dark mode keeps controls
    lower-contrast so they do not glow against the navy application surface. */
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]) {
+.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
@@ -197,8 +224,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
+.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
   border-color: #4d8dff !important;
   background: color-mix(in srgb, var(--primary) 10%, var(--surface)) !important;
 }

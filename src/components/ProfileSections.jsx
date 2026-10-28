@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Camera, Circle, CircleCheck, TriangleAlert } from 'lucide-react';
+import { Camera, Circle, CircleCheck, Paperclip, TriangleAlert } from 'lucide-react';
 import { Button, Card, FormField, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
@@ -207,13 +207,19 @@ function ReadOnlyField({ label, value, note, className = '' }) {
 // reason instead of a request for a document: `Not applicable` when it is not
 // read for the student's year standing, `No proof needed` when the answer claims
 // nothing, or `Not answered` while the optional answer is still "Not specified".
+// The action is a quiet chip beside the badge, deliberately not `link-btn`: inside
+// the authenticated shell that class is a page action (40px tall, painted border and
+// background), which dwarfed the status pill and wrapped the field's label line.
 function AttributeVerification({ attributeKey, attributeVerifications = {}, onAttachProof }) {
   const status = attributeVerifications[attributeKey] || 'Unverified';
   return (
-    <span className="inline-flex flex-wrap items-center gap-2">
+    <span className="inline-flex min-w-0 flex-wrap items-center gap-2">
       <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>
       {!isAttributeProofSettled(status) && onAttachProof && (
-        <button type="button" className="link-btn" onClick={() => onAttachProof(attributeKey)}>{status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+        <button type="button" className="proof-action" onClick={() => onAttachProof(attributeKey)}>
+          <Paperclip size={13} aria-hidden="true" />
+          {status === 'Outdated' ? 'Upload new proof' : status === 'Pending' ? 'View proof' : 'Attach proof'}
+        </button>
       )}
     </span>
   );
