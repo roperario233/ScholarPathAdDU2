@@ -1802,8 +1802,34 @@ a:focus-visible {
   }
 }
 
+/* My Profile: the answer a Scholarship Explorer link points at glows for a
+   moment (ProfileView adds the class, then removes it after 1.8s). The ring is a
+   box-shadow so it sits outside the field without shifting the layout. */
+.field-spotlight {
+  border-radius: 14px;
+  animation: field-spotlight 1.8s ease-out;
+}
+
+@keyframes field-spotlight {
+  0%, 45% {
+    background-color: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1), 0 0 0 8px rgba(59, 130, 246, 0.55);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0), 0 0 0 8px rgba(59, 130, 246, 0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .profile-section-enter {
     animation: none;
+  }
+
+  /* No fade: a steady ring for as long as the class stays on. */
+  .field-spotlight {
+    animation: none;
+    background-color: rgba(59, 130, 246, 0.1);
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.1), 0 0 0 8px rgba(59, 130, 246, 0.55);
   }
 }

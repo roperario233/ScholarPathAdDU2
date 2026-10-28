@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ProfileView from '../src/pages/ProfileView';
 import { FamilySection } from '../src/components/ProfileSections';
+import { academicPrograms } from '../src/lib/academicPrograms';
 
 // My Profile is the student's application form (FORM 230-SCH): a numbered,
 // status-marked section menu, a Continue action, and a progress strip. Staff keep
@@ -64,6 +65,16 @@ describe('My Profile as the application form', () => {
     expect(html).toContain('to apply');
     expect(html).toContain('Find a scholarship');
     expect(html).not.toContain('Continue:');
+  });
+
+  it('tags the answers a Scholarship Explorer link can highlight', () => {
+    const background = render({ profile: student, role: 'student', initialSection: 'background', initialField: 'householdIncome' });
+    expect(background).toContain('data-field="householdIncome"');
+    expect(background).toContain('data-field="citizenship"');
+    expect(background).toContain('data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid"');
+    const academic = render({ profile: student, role: 'student', initialSection: 'academic', academicPrograms });
+    expect(academic).toContain('data-field="degreeProgram"');
+    expect(academic).toContain('data-field="qpi"');
   });
 
   it('keeps the plain profile page for staff', () => {

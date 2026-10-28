@@ -35,6 +35,8 @@ describe('getEligibilityChecklist', () => {
     expect(householdIncome.status).toBe('fail');
     expect(householdIncome.messages[0]).toMatch(/at or below/);
     expect(householdIncome.section).not.toBeNull();
+    // The answer the Update link highlights in that section.
+    expect(householdIncome.field).toBe('householdIncome');
   });
 
   it('shows every rule check even when an answer is still missing', () => {

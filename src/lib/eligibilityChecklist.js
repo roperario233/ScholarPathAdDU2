@@ -113,8 +113,11 @@ export const getEligibilityChecklist = (profile = {}, scholarship = {}) => {
       ? issues.filter((item) => !item.field || !claimed.has(item.field))
       : issues.filter((item) => row.fields.includes(item.field));
     const status = !rowIssues.length ? 'pass' : row.answer == null ? 'unanswered' : 'fail';
-    const section = rowIssues.map((item) => getProfileSectionForField(item.field)).find(Boolean) || null;
-    return { ...row, status, messages: rowIssues.map((item) => item.message), section };
+    // The first issue with an editing section decides where Update links to, and
+    // its field is the answer highlighted there.
+    const linked = rowIssues.find((item) => getProfileSectionForField(item.field));
+    const section = linked ? getProfileSectionForField(linked.field) : null;
+    return { ...row, status, messages: rowIssues.map((item) => item.message), section, field: linked?.field || null };
   });
 
   const failed = rows.filter((row) => row.status === 'fail').length;

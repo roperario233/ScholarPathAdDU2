@@ -67,7 +67,7 @@ export function StatusBadge({ tone = 'neutral', title, children, className = '' 
   return <span className={clsx('inline-flex w-fit items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold', statusClasses[tone] || statusClasses.neutral, className)} title={title || undefined}>{children}</span>;
 }
 
-export function FormField({ label, hint, error, labelAdornment, children, className = '' }) {
+export function FormField({ label, hint, error, labelAdornment, fieldKey, children, className = '' }) {
   return (
     // The root is a plain container, not a <label>: a label adornment can carry an
     // action (the proof chip), and interactive content nested in a <label> is invalid
@@ -75,7 +75,9 @@ export function FormField({ label, hint, error, labelAdornment, children, classN
     // control stay inside the inner <label>, so click-to-focus still works.
     // content-start keeps label, control, and hint packed at the top, so a field
     // beside a taller neighbour (longer hint or error) is not stretched out of line.
-    <div className={clsx('grid min-w-0 content-start gap-2', className)}>
+    // `data-field` names the answer(s) the field edits, so a link into My Profile
+    // can find and highlight it (src/pages/ProfileView.jsx).
+    <div className={clsx('grid min-w-0 content-start gap-2', className)} data-field={fieldKey}>
       <label className="grid min-w-0 content-start gap-2">
         <span className="min-w-0 text-sm font-semibold text-app-text">{label}</span>
         {children}

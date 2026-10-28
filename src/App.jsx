@@ -297,6 +297,8 @@ function App() {
   // The My Profile section to open on, set when the Smart Eligibility Checker
   // links a failed reason to the section that edits it.
   const [profilePresetSection, setProfilePresetSection] = useState('');
+  // The answer inside that section to highlight (a `data-field` key).
+  const [profilePresetField, setProfilePresetField] = useState('');
   const [deadlineSync, setDeadlineSync] = useState(null);
   // The draft the application workspace opens on, set when a student starts an
   // application from the explorer or continues one from the dashboard.
@@ -952,6 +954,7 @@ function App() {
       ? { attribute: options.attribute || '', documentType: options.documentType || '' }
       : { attribute: '', documentType: '' });
     setProfilePresetSection(view === 'profile' ? (options.section || '') : '');
+    setProfilePresetField(view === 'profile' ? (options.field || '') : '');
     setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
     updateState({ activeView: view });
     setIsMobileNavOpen(false);
@@ -2921,7 +2924,7 @@ function App() {
               onSearchChange={(value) => updateState({ searchQuery: value })}
               onFilterChange={(patch) => updateState((previous) => ({ filters: { ...previous.filters, ...patch } }))}
               onApply={applyToScholarship}
-              onOpenProfileSection={(section) => navigate('profile', { section })}
+              onOpenProfileSection={(section, field) => navigate('profile', { section, field })}
             />
           )}
 
@@ -3178,6 +3181,7 @@ function App() {
               academicPrograms={activeAcademicPrograms}
               academicProgramGroups={activeAcademicProgramGroups}
               initialSection={profilePresetSection}
+              initialField={profilePresetField}
               onSaveProfile={saveProfile}
               onSaveFinancialProfile={saveFinancialProfile}
               financialMissing={financial.missing}

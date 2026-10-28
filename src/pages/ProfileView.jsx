@@ -50,6 +50,7 @@ export default function ProfileView({
   scholarships = [],
   documents = [],
   initialSection = '',
+  initialField = '',
   avatar = {},
   onSaveProfile,
   onSaveFinancialProfile,
@@ -81,11 +82,32 @@ export default function ProfileView({
   const [revealToken, setRevealToken] = useState(0);
 
   // Below `xl` the section menu sits above the form, so bring the linked
-  // section's fields into view instead of leaving the student on the menu.
+  // section's fields into view instead of leaving the student on the menu. When
+  // the link names the answer (`initialField`, matched against the fields'
+  // `data-field` tags), that field is centred, focused, and briefly highlighted
+  // so the student does not have to hunt for it inside the section.
   useEffect(() => {
-    if (activeSection !== 'overview' && activeSection === initialSection) {
-      sectionContentRef.current?.scrollIntoView({ block: 'start' });
+    if (activeSection === 'overview' || activeSection !== initialSection) return undefined;
+    const content = sectionContentRef.current;
+    const field = initialField && typeof CSS !== 'undefined' && CSS.escape
+      ? content?.querySelector(`[data-field~="${CSS.escape(initialField)}"]`)
+      : null;
+    if (!field) {
+      content?.scrollIntoView({ block: 'start' });
+      return undefined;
     }
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    field.scrollIntoView({ block: 'center', behavior: reduceMotion ? 'auto' : 'smooth' });
+    // A touch keyboard would cover the highlight, so focus only with a fine pointer.
+    if (!window.matchMedia?.('(pointer: coarse)').matches) {
+      field.querySelector('input, select, textarea, button')?.focus({ preventScroll: true });
+    }
+    field.classList.add('field-spotlight');
+    const timer = window.setTimeout(() => field.classList.remove('field-spotlight'), 1800);
+    return () => {
+      window.clearTimeout(timer);
+      field.classList.remove('field-spotlight');
+    };
     // Runs once on mount: the view remounts on every navigation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

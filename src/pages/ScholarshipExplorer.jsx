@@ -68,7 +68,7 @@ function EligibilityChecklist({ checklist, rowSpan, onOpenProfileSection }) {
                 <span key={message} className={`text-xs font-medium ${status.className}`}>{message}</span>
               ))}
               {row.status !== 'pass' && row.section && onOpenProfileSection && (
-                <button type="button" className="mt-1 inline-flex w-fit items-center gap-1 rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-xs font-semibold text-app-text" onClick={() => onOpenProfileSection(row.section.key)}>
+                <button type="button" className="mt-1 inline-flex w-fit items-center gap-1 rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-xs font-semibold text-app-text" onClick={() => onOpenProfileSection(row.section.key, row.field)}>
                   Update {row.section.label}
                   <ArrowRight size={13} aria-hidden="true" />
                 </button>
@@ -131,7 +131,8 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
   const VerdictIcon = verdict?.icon;
   const requirements = isInternal ? getScholarshipRequirements(scholarship, profile) : [];
   const coverage = guide?.coverage || [scholarship.coverage].filter(Boolean);
-  const firstMissingSection = profileGate.missing[0]?.section;
+  const firstMissing = profileGate.missing[0];
+  const firstMissingSection = firstMissing?.section;
   const [documentsOpen, setDocumentsOpen] = useState(false);
 
   return (
@@ -182,7 +183,7 @@ function ScholarshipCard({ scholarship, profile, profileGate, checklistRows, onA
               </button>
             )}
             {checklist.verdict === 'eligible' && !profileGate.allowed && firstMissingSection && onOpenProfileSection && (
-              <button type="button" className={`${secondaryButton} w-full justify-center`} onClick={() => onOpenProfileSection(firstMissingSection)}>
+              <button type="button" className={`${secondaryButton} w-full justify-center`} onClick={() => onOpenProfileSection(firstMissingSection, firstMissing.key)}>
                 Finish your Application Form to apply
                 <ArrowRight size={15} aria-hidden="true" />
               </button>
@@ -310,7 +311,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
           {onOpenProfileSection ? (
             <div className="flex flex-wrap gap-2">
               {missingSections.map((section) => (
-                <button key={section} type="button" className={secondaryButton} onClick={() => onOpenProfileSection(section)}>
+                <button key={section} type="button" className={secondaryButton} onClick={() => onOpenProfileSection(section, profileGate.missing.find((item) => item.section === section)?.key)}>
                   {PROFILE_SECTION_LABELS[section] || 'Application Form'}
                   <ArrowRight size={15} className="shrink-0" aria-hidden="true" />
                 </button>
