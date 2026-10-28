@@ -65,6 +65,24 @@ alter table profiles add column if not exists avatar_path text;
 -- keys mirror PROFILE_DETAIL_KEYS in src/lib/profile.js.
 alter table profiles add column if not exists profile_details jsonb not null default '{}'::jsonb;
 
+-- Annual QPI history (see migrations/20261047000001_add_annual_qpi_records.sql).
+-- One row per student per academic year, written by updateUserProfile /
+-- updateProfileFields in src/lib/auth.js whenever a QPI is saved. A student reads
+-- and writes only their own rows.
+create table if not exists annual_qpi_records (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(user_id) on delete cascade,
+  academic_year text not null,
+  qpi numeric not null check (qpi >= 0 and qpi <= 4),
+  recorded_at timestamptz not null default now(),
+  unique (user_id, academic_year)
+);
+
+alter table annual_qpi_records enable row level security;
+
+create policy "annual_qpi_records_self_access" on annual_qpi_records
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 create table if not exists scholarships (
   id uuid primary key default gen_random_uuid(),
   title text not null,
