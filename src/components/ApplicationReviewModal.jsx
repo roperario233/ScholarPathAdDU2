@@ -16,7 +16,7 @@ import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
-import { createInterviewDraft, getInterviewStateLabel, getLatestPanelRecommendation, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
+import { createInterviewDraft, getLatestPanelRecommendation, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -177,8 +177,11 @@ export default function ApplicationReviewModal({
   // roster. A failed join stays silent: reading the case must never be blocked by
   // it, and the next open retries.
   const caseOfficersOnApplication = getCaseOfficers(caseOfficers, application.id);
-  const isOnCase = Boolean(currentUserId)
-    && caseOfficersOnApplication.some((entry) => entry.officerId === currentUserId);
+  const currentOfficer = currentUserId
+    ? caseOfficersOnApplication.find((entry) => entry.officerId === currentUserId)
+    : null;
+  const isOnCase = Boolean(currentOfficer);
+  const currentOfficerName = currentOfficer?.officerName || 'Signed-in officer';
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveError, setLeaveError] = useState('');
   const joinAttemptedRef = useRef(false);
@@ -393,37 +396,6 @@ export default function ApplicationReviewModal({
     ? { label: 'Household income', value: snapshotIncome == null ? '' : fmtCurrency(snapshotIncome), verification: verificationBadge('householdIncome', snapshot.householdIncome?.verification), currentValue: currentIncome != null && snapshotIncome != null && currentIncome !== Number(snapshotIncome) ? fmtCurrency(currentIncome) : '' }
     : { label: 'Household income', value: currentIncome == null ? '' : fmtCurrency(currentIncome) };
 
-  const stageRecords = [
-    application.endorsement && {
-      key: 'endorsement',
-      title: 'Endorsement',
-      lines: [application.endorsement.note, `By ${application.endorsement.reviewedBy} · ${fmtDate(application.endorsement.decidedAt)}`],
-    },
-    application.interview && {
-      key: 'interview',
-      title: 'Interview',
-      lines: isStructuredInterview(application.interview)
-        ? [
-          summarizeInterview(application.interview),
-          [getInterviewStateLabel(application.interview.state), application.interview.school ? `Panel from ${application.interview.school}` : ''].filter(Boolean).join(' · '),
-        ]
-        : [
-          [application.interview.panel, application.interview.school].filter(Boolean).join(' · '),
-          application.interview.scheduledAt ? `Scheduled ${fmtDate(application.interview.scheduledAt)}` : 'Schedule pending',
-        ],
-    },
-    application.deliberation && {
-      key: 'deliberation',
-      title: 'Deliberation',
-      lines: [[application.deliberation.decision, application.deliberation.note].filter(Boolean).join(' · '), `By ${application.deliberation.decidedBy} · ${fmtDate(application.deliberation.decidedAt)}`],
-    },
-    application.release && {
-      key: 'release',
-      title: 'Release of results',
-      lines: [`Released to ${application.release.releasedTo} · Reference ${application.release.reference}`, fmtDate(application.release.releasedAt)],
-    },
-  ].filter(Boolean);
-
   const tabs = [
     { key: 'overview', label: 'Overview' },
     // The frozen profile snapshot sits beside the overview so a reviewer reads
@@ -605,7 +577,7 @@ export default function ApplicationReviewModal({
               {caseOfficersOnApplication.length === 0
                 ? 'No case officers yet'
                 : isOnCase
-                  ? `You${caseOfficersOnApplication.length > 1 ? ` + ${caseOfficersOnApplication.length - 1}` : ''} on this case`
+                  ? `${currentOfficerName}${caseOfficersOnApplication.length > 1 ? ` + ${caseOfficersOnApplication.length - 1}` : ''} on this case`
                   : `${caseOfficersOnApplication.length} case officer${caseOfficersOnApplication.length === 1 ? '' : 's'}`}
             </StatusBadge>
           ) : null}
@@ -630,63 +602,10 @@ export default function ApplicationReviewModal({
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
             {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
-            {isAdmissionsReviewer ? (
-              <Panel className="grid content-start gap-3">
-                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <h4 className={sectionHeading}>Case officers</h4>
-                  {isOnCase && onLeaveCase ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        setLeaveError('');
-                        setLeaveOpen(true);
-                      }}
-                    >
-                      Leave case
-                    </Button>
-                  ) : null}
-                </div>
-                {caseOfficersOnApplication.length ? (
-                  <ul className="m-0 grid gap-2 p-0">
-                    {caseOfficersOnApplication.map((officer) => (
-                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
-                        <span className="min-w-0 text-sm font-semibold text-app-text">
-                          {officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName}
-                        </span>
-                        <span className="text-xs text-app-muted">
-                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
-                          {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
-                {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
-              </Panel>
-            ) : null}
-
-
-
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <Panel className="grid content-start gap-2">
-                <h4 className={sectionHeading}>Application statement</h4>
-                <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
-              </Panel>
-              <Panel className="grid content-start gap-3">
-                <h4 className={sectionHeading}>Stage records</h4>
-                {stageRecords.length ? (
-                  <ul className="m-0 grid gap-3 p-0">
-                    {stageRecords.map((record) => (
-                      <li key={record.key} className="grid gap-1 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
-                        <strong className="text-sm text-app-text">{record.title}</strong>
-                        {record.lines.filter(Boolean).map((line) => <span key={line} className="text-sm text-app-muted">{line}</span>)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="m-0 text-sm text-app-muted">No endorsement, interview, deliberation, or release has been recorded yet.</p>}
-              </Panel>
-            </div>
+            <Panel className="grid content-start gap-2">
+              <h4 className={sectionHeading}>Application statement/essay</h4>
+              <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
+            </Panel>
           </div>
         )}
 
@@ -809,6 +728,39 @@ export default function ApplicationReviewModal({
                     </li>
                   ))}
                 </ul>
+              </Panel>
+            ) : null}
+            {isAdmissionsReviewer ? (
+              <Panel className="grid content-start gap-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <h4 className={sectionHeading}>Case officers</h4>
+                  {isOnCase && onLeaveCase ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setLeaveError('');
+                        setLeaveOpen(true);
+                      }}
+                    >
+                      Leave case
+                    </Button>
+                  ) : null}
+                </div>
+                {caseOfficersOnApplication.length ? (
+                  <ul className="m-0 grid gap-2 p-0">
+                    {caseOfficersOnApplication.map((officer) => (
+                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
+                        <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
+                        <span className="text-xs text-app-muted">
+                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
+                          {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
+                {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
               </Panel>
             ) : null}
             <Panel className="grid gap-2">
