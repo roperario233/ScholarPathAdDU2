@@ -75,8 +75,8 @@ mobile header). Overview is read-only; every other section saves on its own:
 | Address | Students | Complete address, country, and a residing address that can mirror the complete address with a same-as toggle |
 | Family details | Students | Father and mother name, occupation, and deceased status, family position, and number of siblings |
 | Academic profile | Students | Degree program (sets the school, cluster, and academic department the profile is filed under), year standing, academic standing, AdDU student number, and annual QPI; an incoming first-year reports senior high school strand and general average instead of a student number and QPI, and ranks a 2nd and 3rd program choice |
-| Household and financial aid | Students | Household income plus the exclusion answers: active government grant, another active scholarship, sibling on AdDU aid, prepaid tuition plan |
-| Eligibility background | Students | Citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran) |
+| Household finances | Students | Office-only FORM 230-SCH household finances: perceived economic status, each parent's employment and income, assets, and appliances (readable by the student and the Admissions Office, never by a Department Chair) |
+| Eligibility background | Students | Household income, the exclusion answers (active government grant, another active scholarship, prepaid tuition plan, sibling on AdDU aid), citizenship, IP community, PWD, employment status, graduating honors standing and class size, and sponsor ties (GSIS, AFP/CAA, US veteran). The grant list activates when one of the first three exclusion answers is on — or when a grant was already recorded — and requires at least one grant, and it is taken as declared (no document is verified for it) |
 | Account security | Everyone | Change password or email a reset link |
 
 The Smart Eligibility Checker uses the saved values right away. QPI and income

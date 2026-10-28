@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Award, GraduationCap, LayoutDashboard, MapPin, PiggyBank, ShieldCheck, UserRound, Users, Wallet } from 'lucide-react';
-import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancesSection, FinancialSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
+import { Award, GraduationCap, LayoutDashboard, MapPin, PiggyBank, ShieldCheck, UserRound, Users } from 'lucide-react';
+import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancesSection, PersonalSection, ProfileOverview, SecuritySection } from '../components/ProfileSections';
 import ProfileAvatar from '../components/ProfileAvatar';
 import { getDocumentChecklist } from '../lib/applicationRequirements';
 import { getProfileCompleteness } from '../lib/profile';
@@ -11,7 +11,6 @@ const sections = [
   { key: 'address', label: 'Address', icon: MapPin, studentOnly: true },
   { key: 'family', label: 'Family details', icon: Users, studentOnly: true },
   { key: 'academic', label: 'Academic profile', icon: GraduationCap, studentOnly: true },
-  { key: 'financial', label: 'Household and financial aid', icon: Wallet, studentOnly: true },
   { key: 'finances', label: 'Household finances', icon: PiggyBank, studentOnly: true },
   { key: 'background', label: 'Eligibility background', icon: Award, studentOnly: true },
   { key: 'security', label: 'Account security', icon: ShieldCheck, studentOnly: false },
@@ -124,7 +123,6 @@ export default function ProfileView({
           {activeSection === 'academic' && isStudent && (
             <AcademicSection {...sectionProps} documents={documents} academicPrograms={academicPrograms} academicProgramGroups={academicProgramGroups} />
           )}
-          {activeSection === 'financial' && isStudent && <FinancialSection {...sectionProps} />}
           {activeSection === 'finances' && isStudent && <FinancesSection {...sectionProps} onSave={onSaveFinancialProfile} migrationMissing={financialMissing} />}
           {activeSection === 'background' && isStudent && <BackgroundSection {...sectionProps} />}
           {activeSection === 'security' && (

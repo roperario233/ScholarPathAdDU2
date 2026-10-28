@@ -195,7 +195,7 @@ describe('eligibility issues link to My Profile sections', () => {
     const fields = fieldsOf(evaluateApplicationGate(eligibleProfile, { title: 'Jubilee Scholarship', isActive: true }));
     expect(fields).toEqual(expect.arrayContaining(['honorsRank', 'graduatingClassSize']));
     expect(getProfileSectionForField('honorsRank')).toMatchObject({ key: 'background' });
-    expect(getProfileSectionForField('householdIncome')).toMatchObject({ key: 'financial' });
+    expect(getProfileSectionForField('householdIncome')).toMatchObject({ key: 'background' });
     expect(getProfileSectionForField('qpi')).toMatchObject({ key: 'academic' });
   });
 

@@ -55,12 +55,12 @@ import {
   honorsRankOptions,
   hsStrandOptions,
   ipCommunityOptions,
+  isGrantListActive,
   pwdOptions,
   validateAcademicSection,
   validateAddressSection,
   validateBackgroundSection,
   validateFamilySection,
-  validateFinancialSection,
   validatePasswordChange,
   validatePersonalSection,
   religionOptions,
@@ -898,39 +898,6 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
   );
 }
 
-export function FinancialSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
-  const form = useSectionForm({
-    initialValues: {
-      householdIncome: asText(profile.householdIncome),
-      hasActiveGovernmentGrant: Boolean(profile.hasActiveGovernmentGrant),
-      hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
-      hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
-      isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
-    },
-    validate: validateFinancialSection,
-    onSave,
-    onDirtyChange,
-    previewProofImpact,
-  });
-  const { values, errors, update } = form;
-
-  return (
-    <SectionForm title="Household and financial aid" description="Income ceilings and exclusion rules read these answers." form={form}>
-      <div className="grid gap-4 md:grid-cols-2">
-        <FormField label="Annual household income" hint="Combined yearly income in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
-          <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
-        </FormField>
-      </div>
-      <div className="grid gap-3 md:grid-cols-2">
-        <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
-        <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
-        <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
-        <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
-      </div>
-    </SectionForm>
-  );
-}
-
 export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
@@ -949,6 +916,13 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       },
       ipGroupName: asText(profile.ipGroupName),
       communityService: asText(profile.communityService),
+      // Household income and the Exclusion Flag Hierarchy answers moved here from
+      // the retired "Household and financial aid" section.
+      householdIncome: asText(profile.householdIncome),
+      hasActiveGovernmentGrant: Boolean(profile.hasActiveGovernmentGrant),
+      hasOtherActiveScholarship: Boolean(profile.hasOtherActiveScholarship),
+      hasSiblingOnAid: Boolean(profile.hasSiblingOnAid),
+      isOnPrepaidPlan: Boolean(profile.isOnPrepaidPlan),
       previousGrants: Array.isArray(profile.previousGrants)
         ? profile.previousGrants.map((row) => ({ type: asText(row?.type), name: asText(row?.name), level: asText(row?.level), status: asText(row?.status), institution: asText(row?.institution), amount: asText(row?.amount) }))
         : [],
@@ -960,9 +934,22 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   });
   const { values, errors, update } = form;
   const updateSponsorTie = (key, checked) => update({ sponsorTies: { ...values.sponsorTies, [key]: checked } });
+  // The grant list is only active while the student says they already receive aid.
+  // `isGrantListActive` is the single rule behind both the rendering and the
+  // validator, so a hidden row can never block the save.
+  const grantListActive = isGrantListActive(values);
+  // With every aid answer off, the list can only be open because grants were
+  // recorded earlier; the note then asks the student to keep or remove them
+  // instead of demanding a new row.
+  const receivesAid = Boolean(values.hasActiveGovernmentGrant || values.hasOtherActiveScholarship || values.isOnPrepaidPlan);
 
   return (
-    <SectionForm title="Eligibility background" description="Citizenship, disability, employment, honors, and sponsor ties." form={form}>
+    <SectionForm title="Eligibility background" description="Citizenship, disability, employment, household income, existing aid, honors, and sponsor ties." form={form}>
+      <div className="grid gap-4 md:grid-cols-2">
+        <FormField label="Annual household income" hint="Combined yearly income in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerification attributeKey="householdIncome" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
+          <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
+        </FormField>
+      </div>
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
@@ -977,22 +964,42 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} />
       </div>
-      <RepeatableRows
-        legend="Grant"
-        rows={values.previousGrants}
-        max={MAX_GRANT_ROWS}
-        addLabel="Add a grant applied for or received"
-        error={errors.previousGrants}
-        onChange={(rows) => update({ previousGrants: rows })}
-        columns={[
-          { key: 'type', label: 'Type', type: 'select', options: [{ value: '', label: 'Type' }, ...grantTypeOptions] },
-          { key: 'name', label: 'Grant (CHED, DOST, STEP, GSIS, ...)' },
-          { key: 'level', label: 'Level', type: 'select', options: [{ value: '', label: 'Level' }, ...grantLevelOptions] },
-          { key: 'status', label: 'Status', type: 'select', options: [{ value: '', label: 'Status' }, ...grantStatusOptions] },
-          { key: 'institution', label: 'Institution' },
-          { key: 'amount', label: 'Amount a year (PHP)' },
-        ]}
-      />
+      <fieldset className="m-0 grid gap-3 border-0 p-0">
+        <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
+        <small className="field-hint block">The first three answers are exclusion rules the Smart Eligibility Checker reads, and any of them opens the grant list below. A sibling on AdDU financial aid is about your sibling, not about you.</small>
+        <div className="grid gap-3 md:grid-cols-2">
+          <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
+          <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
+          <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
+          <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
+        </div>
+      </fieldset>
+      {grantListActive && (
+        <>
+          <p className="m-0 rounded-xl border border-app-border bg-app-surface/60 px-3 py-2 text-sm text-app-muted" role="note">
+            {receivesAid
+              ? 'List every grant you applied for or received, in senior high school or in college. At least one grant is required while you already receive aid.'
+              : 'You recorded these grants earlier. Keep them, or remove the ones that no longer apply.'}
+            {' '}These answers are taken as declared; no document is verified for them.
+          </p>
+          <RepeatableRows
+            legend="Grant"
+            rows={values.previousGrants}
+            max={MAX_GRANT_ROWS}
+            addLabel="Add a grant applied for or received"
+            error={errors.previousGrants}
+            onChange={(rows) => update({ previousGrants: rows })}
+            columns={[
+              { key: 'type', label: 'Type', type: 'select', options: [{ value: '', label: 'Type' }, ...grantTypeOptions] },
+              { key: 'name', label: 'Grant (CHED, DOST, STEP, GSIS, ...)' },
+              { key: 'level', label: 'Level', type: 'select', options: [{ value: '', label: 'Level' }, ...grantLevelOptions] },
+              { key: 'status', label: 'Status', type: 'select', options: [{ value: '', label: 'Status' }, ...grantStatusOptions] },
+              { key: 'institution', label: 'Institution' },
+              { key: 'amount', label: 'Amount a year (PHP)' },
+            ]}
+          />
+        </>
+      )}
       <fieldset className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-3 text-sm font-semibold text-app-text">Sponsor ties</legend>
         <div className="grid gap-3 md:grid-cols-3">

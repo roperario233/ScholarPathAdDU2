@@ -15,6 +15,7 @@ import {
   getYearStandingLabel,
   getYearStandingOptions,
   isParentFinancesAnswered,
+  isGrantListActive,
   isProofRequired,
   isTransfereeProfile,
   getProfileCompleteness,
@@ -279,7 +280,7 @@ describe('section validators', () => {
     expect(academic.values.awards).toBe('With honors');
 
     const background = validateBackgroundSection({
-      citizenship: 'Filipino', ipCommunity: 'Yes', ipGroupName: ' Bagobo ', communityService: 'Yes',
+      citizenship: 'Filipino', householdIncome: '240000', ipCommunity: 'Yes', ipGroupName: ' Bagobo ', communityService: 'Yes',
       previousGrants: [{ type: 'Government', name: 'CHED', status: 'applied', institution: '' }, { type: '', name: '', status: '', institution: '' }],
     });
     expect(background.errors).toEqual({});
@@ -387,7 +388,7 @@ describe('section validators', () => {
     const honors = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Valedictorian', graduatingClassSize: '' });
     expect(honors.errors.graduatingClassSize).toBeTruthy();
 
-    const valid = validateBackgroundSection({ citizenship: 'Filipino', honorsRank: 'Salutatorian', graduatingClassSize: '120', sponsorTies: { afpDependent: true } });
+    const valid = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', honorsRank: 'Salutatorian', graduatingClassSize: '120', sponsorTies: { afpDependent: true } });
     expect(valid.errors).toEqual({});
     expect(valid.values).toMatchObject({
       isHonorsGraduate: true,
@@ -396,6 +397,46 @@ describe('section validators', () => {
     });
     // Senior high school standing now lives with the academic profile.
     expect(valid.values).not.toHaveProperty('hsAverage');
+  });
+
+  it('edits the household income and the exclusion answers in Eligibility background', () => {
+    const background = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasActiveGovernmentGrant: true });
+    expect(background.errors.householdIncome).toBeUndefined();
+    expect(background.values).toMatchObject({ householdIncome: 240000, hasActiveGovernmentGrant: true });
+    // Income is still needed to apply, and it is now a background answer.
+    expect(validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '' }).errors.householdIncome).toBeTruthy();
+    expect(getProfileCompleteness({ householdIncome: 240000 }).items.find((item) => item.key === 'householdIncome').section).toBe('background');
+  });
+
+  it('opens the grant list only for the answers that say the student receives aid', () => {
+    expect(isGrantListActive({})).toBe(false);
+    expect(isGrantListActive({ hasActiveGovernmentGrant: true })).toBe(true);
+    expect(isGrantListActive({ hasOtherActiveScholarship: true })).toBe(true);
+    expect(isGrantListActive({ isOnPrepaidPlan: true })).toBe(true);
+    // A sibling on AdDU financial aid is about the sibling, not the applicant.
+    expect(isGrantListActive({ hasSiblingOnAid: true })).toBe(false);
+    // A saved row keeps the list open, so a recorded grant never becomes unreachable.
+    expect(isGrantListActive({ previousGrants: [{ name: 'CHED' }] })).toBe(true);
+  });
+
+  it('requires at least one grant while the list is open', () => {
+    const open = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasOtherActiveScholarship: true });
+    expect(open.errors.previousGrants).toMatch(/at least one grant/);
+
+    const completed = validateBackgroundSection({
+      citizenship: 'Filipino',
+      householdIncome: '240000',
+      isOnPrepaidPlan: true,
+      previousGrants: [{ type: 'Government', name: 'CHED', status: 'accepted', institution: 'CHED', amount: '12000' }],
+    });
+    expect(completed.errors).toEqual({});
+    expect(completed.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', level: '', status: 'accepted', institution: 'CHED', amount: 12000 }]);
+  });
+
+  it('never asks for a grant when no aid answer is on', () => {
+    const closed = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasSiblingOnAid: true });
+    expect(closed.errors.previousGrants).toBeUndefined();
+    expect(closed.values.previousGrants).toEqual([]);
   });
 
   it('requires a matching password with letters and numbers', () => {

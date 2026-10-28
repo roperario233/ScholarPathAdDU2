@@ -90,8 +90,10 @@ export const PROFILE_DRAFT_KEYS = ['degreeProgram', 'qpi', 'householdIncome', 'h
 // The keys match the `issues[].field` tags in src/lib/eligibility.js and the
 // section keys in src/pages/ProfileView.jsx.
 const ACADEMIC_PROFILE_SECTION = { key: 'academic', label: 'Academic profile' };
-const FINANCIAL_PROFILE_SECTION = { key: 'financial', label: 'Household and financial aid' };
 const BACKGROUND_PROFILE_SECTION = { key: 'background', label: 'Eligibility background' };
+// Household income and the Exclusion Flag Hierarchy answers live in Eligibility
+// background beside the other answers the Smart Eligibility Checker reads; there
+// is no separate "Household and financial aid" section.
 export const ELIGIBILITY_FIELD_PROFILE_SECTIONS = {
   yearStanding: ACADEMIC_PROFILE_SECTION,
   degreeProgram: ACADEMIC_PROFILE_SECTION,
@@ -99,10 +101,11 @@ export const ELIGIBILITY_FIELD_PROFILE_SECTIONS = {
   qpi: ACADEMIC_PROFILE_SECTION,
   hsAverage: ACADEMIC_PROFILE_SECTION,
   hsStrand: ACADEMIC_PROFILE_SECTION,
-  householdIncome: FINANCIAL_PROFILE_SECTION,
-  hasOtherActiveScholarship: FINANCIAL_PROFILE_SECTION,
-  hasSiblingOnAid: FINANCIAL_PROFILE_SECTION,
-  isOnPrepaidPlan: FINANCIAL_PROFILE_SECTION,
+  householdIncome: BACKGROUND_PROFILE_SECTION,
+  hasActiveGovernmentGrant: BACKGROUND_PROFILE_SECTION,
+  hasOtherActiveScholarship: BACKGROUND_PROFILE_SECTION,
+  hasSiblingOnAid: BACKGROUND_PROFILE_SECTION,
+  isOnPrepaidPlan: BACKGROUND_PROFILE_SECTION,
   citizenship: BACKGROUND_PROFILE_SECTION,
   honorsRank: BACKGROUND_PROFILE_SECTION,
   graduatingClassSize: BACKGROUND_PROFILE_SECTION,
@@ -192,9 +195,9 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     typeStanding: { 'Grade Report': 'continuing', Transcript: 'continuing', 'HS Report Card': 'incoming' },
     hint: 'Upload your latest grade report or transcript (or your senior high school report card if you are an incoming first-year).',
   },
-  { key: 'householdIncome', label: 'Annual household income', section: 'financial', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
+  { key: 'householdIncome', label: 'Annual household income', section: 'background', annual: true, acceptedDocumentTypes: ['Income Proof', 'Certificate of Indigency'], hint: 'Upload your BIR-stamped ITR or a certificate of indigency.' },
   {
-    key: 'employed', label: 'Employment status', section: 'financial',
+    key: 'employed', label: 'Employment status', section: 'background',
     acceptedDocumentTypes: ['Certificate of Employment', 'Payslip'],
     proofRequired: (profile) => !isBlank(profile.employed) && profile.employed !== 'Not employed',
     skipReason: (profile) => (isBlank(profile.employed) ? 'unanswered' : 'claim'),
@@ -1255,13 +1258,47 @@ export const validateFinancialSection = (form = {}) => collect({
   isOnPrepaidPlan: ok(Boolean(form.isOnPrepaidPlan)),
 });
 
+// The grant list ("grants applied for or received") sits under the Exclusion Flag
+// Hierarchy answers in Eligibility background, and it is only active when the
+// student says they already receive aid: a government grant, another active
+// scholarship, or a prepaid tuition plan. A sibling on AdDU financial aid is about
+// the sibling, not the applicant, so it does not open the list. The list also stays
+// open while a saved row exists, so a grant recorded earlier can never become
+// unreachable (and the submitted snapshot keeps listing it). Shared by the My
+// Profile section and its validator so the two cannot disagree.
+export const isGrantListActive = (form = {}) => (
+  Boolean(form.hasActiveGovernmentGrant)
+  || Boolean(form.hasOtherActiveScholarship)
+  || Boolean(form.isOnPrepaidPlan)
+  || (Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
+);
+
 export const validateBackgroundSection = (form = {}) => {
   const honorsRank = form.honorsRank || '';
+  const grants = validateRows(form.previousGrants, {
+    max: MAX_GRANT_ROWS,
+    label: 'Grant',
+    columns: {
+      type: { options: grantTypeOptions },
+      name: { text: SCHOOL_FIELD_MAX_LENGTH },
+      level: { options: grantLevelOptions },
+      status: { options: grantStatusOptions },
+      institution: { text: SCHOOL_FIELD_MAX_LENGTH },
+      amount: { amount: true },
+    },
+    required: ['name', 'type', 'status'],
+  });
+  const grantListActive = isGrantListActive(form);
   const result = collect({
+    householdIncome: validateHouseholdIncome(form.householdIncome),
     citizenship: oneOf(form.citizenship, citizenshipOptions, 'Choose your citizenship.'),
     ipCommunity: oneOf(form.ipCommunity || '', ipCommunityOptions, 'Choose an IP community option.'),
     pwd: oneOf(form.pwd || '', pwdOptions, 'Choose a PWD option.'),
     employed: oneOf(form.employed || '', employmentOptions, 'Choose an employment status.'),
+    hasActiveGovernmentGrant: ok(Boolean(form.hasActiveGovernmentGrant)),
+    hasOtherActiveScholarship: ok(Boolean(form.hasOtherActiveScholarship)),
+    hasSiblingOnAid: ok(Boolean(form.hasSiblingOnAid)),
+    isOnPrepaidPlan: ok(Boolean(form.isOnPrepaidPlan)),
     honorsRank: oneOf(honorsRank, honorsRankOptions, 'Choose an honors standing.'),
     isHonorsGraduate: ok(Boolean(honorsRank)),
     graduatingClassSize: validateOptionalInteger(form.graduatingClassSize, { min: 1, max: 10000, message: 'Enter the graduating class size as a whole number.' }),
@@ -1270,23 +1307,16 @@ export const validateBackgroundSection = (form = {}) => {
       ? validateText(form.ipGroupName, { max: SCHOOL_FIELD_MAX_LENGTH, message: `Keep the group name within ${SCHOOL_FIELD_MAX_LENGTH} characters.` })
       : ok(''),
     communityService: oneOf(form.communityService || '', communityServiceOptions, 'Choose an option.'),
-    previousGrants: validateRows(form.previousGrants, {
-      max: MAX_GRANT_ROWS,
-      label: 'Grant',
-      columns: {
-        type: { options: grantTypeOptions },
-        name: { text: SCHOOL_FIELD_MAX_LENGTH },
-        level: { options: grantLevelOptions },
-        status: { options: grantStatusOptions },
-        institution: { text: SCHOOL_FIELD_MAX_LENGTH },
-        amount: { amount: true },
-      },
-      required: ['name', 'type', 'status'],
-    }),
+    // A saved row activates the list itself, so a grant the student can no longer
+    // see is never validated (and never blocks the save).
+    previousGrants: grants,
   });
 
   if (honorsRank && result.values.graduatingClassSize === '' && !result.errors.graduatingClassSize) {
     result.errors.graduatingClassSize = 'Add your graduating class size to support your honors standing.';
+  }
+  if (grantListActive && !result.values.previousGrants.length && !result.errors.previousGrants) {
+    result.errors.previousGrants = 'Add at least one grant, or turn off the answers that say you already receive aid.';
   }
   return result;
 };
@@ -1402,7 +1432,7 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
     if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);
     if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);
-    add('application', 'householdIncome', 'Annual household income', 'financial', !validateHouseholdIncome(profile.householdIncome).error);
+    add('application', 'householdIncome', 'Annual household income', 'background', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
     add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
     if (standing.requiresHsStanding) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
