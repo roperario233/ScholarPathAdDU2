@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Camera } from 'lucide-react';
-import { Button, ModalShell, Panel, StatusBadge } from './ui';
+import { Button, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
@@ -427,7 +427,10 @@ export default function ApplicationWorkspaceModal({
           {current === 'statement' && (
             <section className="grid gap-3" aria-label="Application statement">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Statement/essay</span>
+                <span className="text-sm font-semibold text-app-text">
+                  Statement/essay
+                  {!statement.trim() && <RequiredMark />}
+                </span>
                 <span className="text-sm text-app-muted">{ESSAY_TOPIC}</span>
                 <small className="field-hint">{ESSAY_INSTRUCTION}</small>
                 <textarea

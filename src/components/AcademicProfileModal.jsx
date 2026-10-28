@@ -32,9 +32,9 @@ function AttributeVerificationBadge({ attributeKey, attributeVerifications = {} 
   return <StatusBadge tone={getAttributeVerificationTone(status)} title={describeAttributeVerification(status)}>{status}</StatusBadge>;
 }
 
-function NativeSelect({ label, hint, error, labelAdornment, value, onChange, options, placeholder }) {
+function NativeSelect({ label, hint, error, labelAdornment, value, onChange, options, placeholder, required = false }) {
   return (
-    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment}>
+    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment} required={required}>
       <select className={controlClass} value={value} onChange={(event) => onChange(event.target.value)} autoComplete="off" aria-invalid={Boolean(error)}>
         <option value="" disabled>{placeholder}</option>
         {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
@@ -205,14 +205,14 @@ export default function AcademicProfileModal({
         {/* Avoid native form submission: Chromium treats canceled submit events as autofill-save signals. */}
         <div className="mt-5 grid gap-4" onKeyDown={handleKeyDown}>
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError('yearStanding', 'studentNumber', 'qpi', 'programChoice2', 'programChoice3'); }} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} />
+            <NativeSelect label="Year standing" value={yearStanding} onChange={(value) => { setYearStanding(value); clearError('yearStanding', 'studentNumber', 'qpi', 'programChoice2', 'programChoice3'); }} options={yearStandingOptions} placeholder="Choose year standing" error={errors.yearStanding} required={!yearStanding} />
             {needsStudentNumber && (
-              <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber}>
+              <FormField label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber} required={!studentNumber}>
                 <input className={controlClass} value={studentNumber} onChange={(event) => { setStudentNumber(event.target.value.replace(/\D/g, '').slice(0, 12)); clearError('studentNumber'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" required aria-invalid={Boolean(errors.studentNumber)} />
               </FormField>
             )}
           </div>
-          <SelectPicker label={standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError('degreeProgram', 'programChoice2', 'programChoice3'); }} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="academic-profile-program" />
+          <SelectPicker label={standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError('degreeProgram', 'programChoice2', 'programChoice3'); }} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="academic-profile-program" required={!program} />
           {standing.requiresProgramChoices && (
             <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">
               <div>
@@ -226,27 +226,27 @@ export default function AcademicProfileModal({
             </div>
           )}
           <div className="grid gap-4 sm:grid-cols-2">
-            <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError('academicStanding'); }} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} labelAdornment={<AttributeVerificationBadge attributeKey="academicStanding" attributeVerifications={verifications} />} />
-            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError('citizenship'); }} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} labelAdornment={<AttributeVerificationBadge attributeKey="citizenship" attributeVerifications={verifications} />} />
+            <NativeSelect label="Academic standing" value={academicStanding} onChange={(value) => { setAcademicStanding(value); clearError('academicStanding'); }} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} required={!academicStanding} labelAdornment={<AttributeVerificationBadge attributeKey="academicStanding" attributeVerifications={verifications} />} />
+            <NativeSelect label="Citizenship" value={citizenship} onChange={(value) => { setCitizenship(value); clearError('citizenship'); }} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} required={!citizenship} labelAdornment={<AttributeVerificationBadge attributeKey="citizenship" attributeVerifications={verifications} />} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <FormField label="Mobile number" hint="Optional. Deadline reminder texts use this Philippine mobile number." error={errors.phone}>
               <input className={controlClass} value={phone} onChange={(event) => { setPhone(event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20)); clearError('phone'); }} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
             </FormField>
-            <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." error={errors.householdIncome} labelAdornment={<AttributeVerificationBadge attributeKey="householdIncome" attributeVerifications={verifications} />}>
+            <FormField label="Annual household income" hint="Combined household income for one year, in Philippine pesos." error={errors.householdIncome} required={householdIncome === ''} labelAdornment={<AttributeVerificationBadge attributeKey="householdIncome" attributeVerifications={verifications} />}>
               <input className={controlClass} value={householdIncome} onChange={(event) => { setHouseholdIncome(event.target.value.replace(/[^\d]/g, '')); clearError('householdIncome'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" required aria-invalid={Boolean(errors.householdIncome)} />
             </FormField>
           </div>
           {standing.requiresHsStanding && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <NativeSelect label="Senior high school strand" value={hsStrand} onChange={(value) => { setHsStrand(value); clearError('hsStrand'); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} />
-              <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} labelAdornment={<AttributeVerificationBadge attributeKey="hsAverage" attributeVerifications={verifications} />}>
+              <NativeSelect label="Senior high school strand" value={hsStrand} onChange={(value) => { setHsStrand(value); clearError('hsStrand'); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={!hsStrand} />
+              <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} required={hsAverage === ''} labelAdornment={<AttributeVerificationBadge attributeKey="hsAverage" attributeVerifications={verifications} />}>
                 <input className={controlClass} value={hsAverage} onChange={(event) => { setHsAverage(event.target.value.replace(/\D/g, '').slice(0, 3)); clearError('hsAverage'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" required aria-invalid={Boolean(errors.hsAverage)} />
               </FormField>
             </div>
           )}
           {standing.requiresQpi && (
-            <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={verifications} />}>
+            <FormField label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} required={qpi === ''} labelAdornment={<AttributeVerificationBadge attributeKey="qpi" attributeVerifications={verifications} />}>
               <input className={controlClass} value={qpi} onChange={(event) => { setQpi(event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1')); clearError('qpi'); }} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" required aria-invalid={Boolean(errors.qpi)} />
             </FormField>
           )}

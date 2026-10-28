@@ -1494,6 +1494,18 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
   };
 };
 
+// The "Needed to apply" answers a profile — or one My Profile section's live
+// draft, shaped like a profile — still leaves unanswered, by completeness key.
+// The red asterisks in the application form read this list, so a mark can never
+// disagree with the Overview checklist, the "N left" counters, or the gate that
+// blocks an application. Filled answers are absent, so only a blank answer is
+// marked.
+export const getMissingRequiredAnswers = (profile = {}, role = 'student') => new Set(
+  getProfileCompleteness(profile, role).items
+    .filter((item) => item.group === 'application' && !item.done)
+    .map((item) => item.key),
+);
+
 // My Profile is the student's application form (FORM 230-SCH): every AdDU
 // application copies these answers at submit. The six editable sections are its
 // numbered parts, in the order the section menu lists them.

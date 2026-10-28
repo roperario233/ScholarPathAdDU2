@@ -21,6 +21,7 @@ import {
   isGrantListActive,
   isProofRequired,
   isTransfereeProfile,
+  getMissingRequiredAnswers,
   getProfileCompleteness,
   normalizeAttestedValue,
   getStandingRequirements,
@@ -953,5 +954,44 @@ describe('getApplicationFormProgress', () => {
     expect(byKey.academic).toMatchObject({ state: 'alert', statusLabel: 'Outdated' });
     expect(byKey.background).toMatchObject({ state: 'alert', statusLabel: '2 to fix' });
     expect(progress.ready).toBe(false);
+  });
+});
+
+// The red asterisks in the application form read this list, so it has to be the
+// same "Needed to apply" set the checklist and the application gate use.
+describe('getMissingRequiredAnswers', () => {
+  const complete = { ...studentProfile, ...formCore, studentNumber: '2023001', academicStanding: 'good' };
+
+  it('is empty once every application answer is given', () => {
+    expect(getMissingRequiredAnswers(complete).size).toBe(0);
+  });
+
+  it('names the answers a draft still leaves blank', () => {
+    const missing = getMissingRequiredAnswers({ ...studentProfile, ...formCore });
+    expect(missing.has('studentNumber')).toBe(true);
+    expect(missing.has('academicStanding')).toBe(true);
+    // An answered item is never listed, so a filled answer loses its mark.
+    expect(missing.has('qpi')).toBe(false);
+    expect(missing.has('birthdate')).toBe(false);
+  });
+
+  it('follows the standing: an incoming first-year needs the senior high school answers instead', () => {
+    const missing = getMissingRequiredAnswers({
+      ...complete,
+      yearStanding: 'incoming-1st',
+      isTransferee: 'No',
+      hsStrand: '',
+      hsAverage: '',
+      qpi: '',
+      studentNumber: '',
+    });
+    expect(missing.has('hsStrand')).toBe(true);
+    expect(missing.has('hsAverage')).toBe(true);
+    expect(missing.has('qpi')).toBe(false);
+    expect(missing.has('studentNumber')).toBe(false);
+  });
+
+  it('marks nothing for a staff account, whose two items are plain details', () => {
+    expect(getMissingRequiredAnswers(chairProfile, 'admissions_office').size).toBe(0);
   });
 });

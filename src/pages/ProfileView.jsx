@@ -212,7 +212,9 @@ export default function ProfileView({
             <h2>{isStudent ? 'Your scholarship application form' : 'Profile and account details'}</h2>
             {isStudent && (
               <p className="mb-0 mt-2 max-w-2xl text-sm text-app-muted">
-                Every AdDU scholarship application you submit copies these answers. Complete each part once.
+                Every AdDU scholarship application you submit copies these answers. Complete each part once. Answers marked{' '}
+                <span className="font-semibold text-rose-500 dark:text-rose-400">*</span>
+                {' '}are still missing.
               </p>
             )}
             {/* The page's one primary action sits with the explanation it follows from. */}

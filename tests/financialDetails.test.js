@@ -4,6 +4,7 @@ import {
   createEmptyFinancialProfile,
   getFinancialAnswersMissing,
   getFinancialDetailSections,
+  getMissingFinancialAnswerKeys,
   isFinancialAnswersComplete,
   normalizeFinancialAnswers,
   validateFinancialProfileSection,
@@ -64,6 +65,14 @@ describe('financial situation answers', () => {
   it('accepts 0 as an amount but not a blank', () => {
     expect(isFinancialAnswersComplete({ ...complete, expenseOther: 0 })).toBe(true);
     expect(getFinancialAnswersMissing({ ...complete, expenseOther: '' })).toEqual(['Other daily expenses']);
+  });
+
+  it('names the unanswered field with the same rule as the labels', () => {
+    const answers = { ...complete, transportMode: 'other', expenseOther: '' };
+    // One key-level list drives the asterisks; the labels are its translation, so
+    // the mark and "Still needed" can never name different answers.
+    expect(getMissingFinancialAnswerKeys(answers)).toEqual(['transportOther', 'expenseOther']);
+    expect(getFinancialAnswersMissing(answers)).toEqual(['Other mode of transport', 'Other daily expenses']);
   });
 
   it('asks for the details behind a Yes answer', () => {
