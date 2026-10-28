@@ -280,10 +280,13 @@ function CompletenessItem({ item, status, onEditSection, onAttachProof }) {
       </span>
       <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
         {showAttachProof && (
-          <button type="button" className="link-btn shrink-0" onClick={() => onAttachProof(item.key)}>{status === 'Pending' ? 'View' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}</button>
+          <button type="button" className="proof-action shrink-0" onClick={() => onAttachProof(item.key)}>
+            <Paperclip size={13} className="shrink-0" aria-hidden="true" />
+            {status === 'Pending' ? 'View proof' : status === 'Outdated' ? 'Upload new proof' : 'Attach proof'}
+          </button>
         )}
         {!item.done && (
-          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
+          <button type="button" className="proof-action shrink-0" onClick={() => onEditSection(item.section)}>Add</button>
         )}
       </span>
     </li>
@@ -334,7 +337,8 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
                 <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
                   <StatusBadge tone={state.tone}>{state.label}</StatusBadge>
                   {onUploadDocument && (
-                    <button type="button" className="link-btn shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item, standing))}>
+                    <button type="button" className="proof-action shrink-0" onClick={() => onUploadDocument(getRequirementUploadPreset(item, standing))}>
+                      {item.state !== 'attached' && item.state !== 'verified' && <Paperclip size={13} className="shrink-0" aria-hidden="true" />}
                       {item.state === 'missing' ? 'Upload' : item.state === 'rejected' ? 'Upload again' : item.state === 'outdated' ? 'Upload new proof' : 'View'}
                     </button>
                   )}
@@ -351,7 +355,7 @@ function DocumentChecklistCard({ checklist, standing, hasDefaultStatement, onUpl
         </span>
         <span className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <StatusBadge tone={hasDefaultStatement ? 'success' : 'neutral'}>{hasDefaultStatement ? 'Saved' : 'Not set'}</StatusBadge>
-          <button type="button" className="link-btn shrink-0" onClick={() => onEditSection('personal')}>{hasDefaultStatement ? 'Edit' : 'Write'}</button>
+          <button type="button" className="proof-action shrink-0" onClick={() => onEditSection('personal')}>{hasDefaultStatement ? 'Edit' : 'Write'}</button>
         </span>
       </div>
     </Card>
