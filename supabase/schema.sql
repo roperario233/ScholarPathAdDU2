@@ -702,7 +702,12 @@ as $$
     case when p_type = 'Certificate of Award' then 'honorsRank' end,
     case when p_type in ('PSA Birth Certificate', 'Philippine National ID', 'Driver''s License', 'Passport') then 'citizenship' end,
     case when p_type = 'Certificate of Tribal Membership' then 'ipCommunity' end,
-    case when p_type in ('PWD ID', 'Medical Certificate') then 'pwd' end
+    case when p_type in ('PWD ID', 'Medical Certificate') then 'pwd' end,
+    -- Address and family answers (getAttributeValue() in src/lib/profile.js).
+    case when p_type in ('Proof of Billing', 'Certificate of Residency') then 'completeAddress' end,
+    case when p_type in ('Proof of Billing', 'Certificate of Residency') then 'residingAddress' end,
+    case when p_type = 'PSA Birth Certificate' then 'parents' end,
+    case when p_type = 'Certificate of Residency' then 'householdMembers' end
   ], null)
   from standing s;
 $$;
@@ -896,6 +901,11 @@ as $$
       'sexAtBirth', p.profile_details -> 'sexAtBirth',
       'civilStatus', p.profile_details -> 'civilStatus',
       'completeAddress', p.profile_details -> 'completeAddress',
+      'residingAddress', case
+        when coalesce(p.profile_details ->> 'sameAsCompleteAddress', 'true') = 'false'
+          then nullif(btrim(p.profile_details ->> 'residingAddress'), '')
+        else nullif(btrim(p.profile_details ->> 'completeAddress'), '')
+      end,
       'schoolLastAttended', p.profile_details -> 'schoolLastAttended',
       'communityService', p.profile_details -> 'communityService',
       'familyDetails', p.profile_details -> 'familyDetails',

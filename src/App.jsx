@@ -10,7 +10,7 @@ import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCU
 import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { isCaseOfficer } from './lib/admissionsOffice';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
-import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, normalizeAttestedValue, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
+import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getAttestedValue, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, isComparableAttribute, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
@@ -2268,7 +2268,11 @@ function App() {
     ])];
     // The declared value each linked attribute had at upload, so the proof reads
     // as Outdated once the student changes that value (src/lib/verification.js).
-    const attestedValues = Object.fromEntries(linkedAttributes.map((key) => [key, normalizeAttestedValue(key, studentMatchProfile[key])]));
+    // An answer a proof cannot be compared against (the family lists) records no
+    // attested value, so the file stays current until a decision reverts it.
+    const attestedValues = Object.fromEntries(linkedAttributes
+      .filter((key) => isComparableAttribute(key))
+      .map((key) => [key, getAttestedValue(key, studentMatchProfile)]));
     // A real uuid so the row, the storage path, and application_documents links
     // all share the same identifier.
     const id = crypto.randomUUID();

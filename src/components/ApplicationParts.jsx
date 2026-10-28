@@ -352,9 +352,9 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
           {proofs.map((proof) => (
             <span key={proof.key} className="inline-flex flex-wrap items-center gap-1">
               <StatusBadge tone="info">{proof.label}</StatusBadge>
-              {proof.hasAttested ? <span className="text-xs text-app-muted">Declared at upload: {formatProofValue(proof.key, proof.attested)}</span> : null}
+              {proof.hasAttested ? <span className="min-w-0 text-xs text-app-muted [overflow-wrap:anywhere]">Declared at upload: {formatProofValue(proof.key, proof.attested)}</span> : null}
               {proof.hasDeclared && (!proof.hasAttested || proof.staleReason === 'value') ? (
-                <span className="text-xs text-app-muted">{proof.source === 'snapshot' ? 'Application snapshot' : 'Profile now'}: {formatProofValue(proof.key, proof.declared)}</span>
+                <span className="min-w-0 text-xs text-app-muted [overflow-wrap:anywhere]">{proof.source === 'snapshot' ? 'Application snapshot' : 'Profile now'}: {formatProofValue(proof.key, proof.declared)}</span>
               ) : null}
               {proof.staleReason ? (
                 <StatusBadge tone="danger">{proof.staleReason === 'year' ? 'Outdated · earlier academic year' : proof.source === 'snapshot' ? 'Mismatch · snapshot differs' : 'Outdated · profile changed'}</StatusBadge>

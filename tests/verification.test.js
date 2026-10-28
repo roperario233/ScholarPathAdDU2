@@ -12,7 +12,7 @@ import {
   getProofStaleReason,
   isAttributeProofSettled,
 } from '../src/lib/verification';
-import { VERIFIABLE_ATTRIBUTE_KEYS, getProofSkipReason, isProofRequired } from '../src/lib/profile';
+import { VERIFIABLE_ATTRIBUTE_KEYS, getAttributeValue, getProofSkipReason, isComparableAttribute, isProofRequired } from '../src/lib/profile';
 import { normalizeDocument } from '../src/lib/appState';
 
 const doc = (overrides) => ({ id: 'doc-x', linkedAttributes: [], verificationStatus: 'Pending', ...overrides });
@@ -242,4 +242,66 @@ describe('answers that need no proof', () => {
     expect(getProofStaleReason(proof, 'academicStanding', { profile: { yearStanding: '2nd' } })).toBeNull();
     expect(getProofStaleReason(proof, 'academicStanding', { profile: { academicStanding: 'probation' } })).toBe('value');
   });
+
+describe('address and family proofs', () => {
+  const profile = {
+    completeAddress: '12 Rizal St, Davao City',
+    residingAddress: '12 Rizal St, Davao City',
+    sameAsCompleteAddress: true,
+    familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes', siblings: [{ name: 'Mika' }], householdAdults: [] },
+  };
+  const billing = doc({
+    documentType: 'Proof of Billing',
+    linkedAttributes: ['completeAddress', 'residingAddress'],
+    attestedValues: { completeAddress: '12 Rizal St, Davao City', residingAddress: '12 Rizal St, Davao City' },
+    verificationStatus: 'Verified',
+  });
+
+  it('resolves a nested or toggle-driven answer the same way the upload attested it', () => {
+    expect(getAttributeValue('completeAddress', profile)).toBe('12 Rizal St, Davao City');
+    // While the toggle is on there is one address, so the complete address answers both.
+    expect(getAttributeValue('residingAddress', profile)).toBe('12 Rizal St, Davao City');
+    expect(getAttributeValue('residingAddress', { ...profile, sameAsCompleteAddress: false, residingAddress: 'Board house, Davao City' })).toBe('Board house, Davao City');
+    expect(getAttributeValue('parents', profile)).toBe('Jose Reyes · Maria Reyes');
+    expect(getAttributeValue('householdMembers', profile)).toBe('Mika');
+  });
+
+  it('marks an address proof Outdated once the address changes, and current again when it is restored', () => {
+    expect(deriveAttributeStatus([billing], 'completeAddress', { profile })).toBe('Verified');
+    const moved = { ...profile, completeAddress: '99 Mabini St, Davao City', residingAddress: '99 Mabini St, Davao City' };
+    expect(getProofStaleReason(billing, 'completeAddress', { profile: moved })).toBe('value');
+    expect(deriveAttributeStatus([billing], 'completeAddress', { profile: moved })).toBe('Outdated');
+    expect(deriveAttributeStatus([billing], 'residingAddress', { profile: moved })).toBe('Outdated');
+    expect(getOutdatedAttributeAlerts([billing], moved).map((alert) => alert.key)).toEqual(expect.arrayContaining(['completeAddress', 'residingAddress']));
+    expect(deriveAttributeStatus([billing], 'completeAddress', { profile })).toBe('Verified');
+  });
+
+  it('moves the residing address proof with the same-as toggle', () => {
+    const elsewhere = { ...profile, sameAsCompleteAddress: false, residingAddress: 'Board house, Davao City' };
+    expect(getProofStaleReason(billing, 'residingAddress', { profile: elsewhere })).toBe('value');
+  });
+
+  it('never compares a family proof, so a corrected name keeps it current', () => {
+    expect(isComparableAttribute('parents')).toBe(false);
+    expect(isComparableAttribute('householdMembers')).toBe(false);
+    expect(isComparableAttribute('completeAddress')).toBe(true);
+    const birthCertificate = doc({ documentType: 'PSA Birth Certificate', linkedAttributes: ['parents'], verificationStatus: 'Verified' });
+    const corrected = { ...profile, familyDetails: { ...profile.familyDetails, fatherName: 'Jose R. Reyes' } };
+    expect(getProofStaleReason(birthCertificate, 'parents', { profile: corrected })).toBeNull();
+    expect(deriveAttributeStatus([birthCertificate], 'parents', { profile: corrected })).toBe('Verified');
+    expect(getOutdatedAttributeAlerts([birthCertificate], corrected)).toEqual([]);
+  });
+
+  it('reads the address and family answers as verified from their own proof', () => {
+    const documents = [billing, doc({ id: 'birth', documentType: 'PSA Birth Certificate', linkedAttributes: ['citizenship', 'parents'], verificationStatus: 'Verified' })];
+    const verifications = deriveAttributeVerifications(documents, ['completeAddress', 'residingAddress', 'parents', 'householdMembers'], { profile });
+    expect(verifications).toEqual({
+      completeAddress: 'Verified',
+      residingAddress: 'Verified',
+      parents: 'Verified',
+      householdMembers: 'Unverified',
+    });
+  });
+});
+
 });

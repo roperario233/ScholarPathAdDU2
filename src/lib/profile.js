@@ -150,6 +150,23 @@ export const getProfileSectionForField = (field) => (field && ELIGIBILITY_FIELD_
 // An option without `skipReason` falls back to `claim`.
 // `claimLabel` names the extra requirement row an application gains when the
 // answer is a claim (getClaimProofRequirements in applicationRequirements.js).
+//
+// `value(profile)` reads the declared answer when it is not a top-level profile
+// key: the residing address resolves the "same as my complete address" toggle,
+// and the parents' names come from the nested family details. getAttributeValue()
+// is the single accessor every attestation and staleness check reads.
+//
+// `compareValue: false` marks an answer a proof cannot be compared against: the
+// family details are lists of names, not one recorded value. Such an answer is
+// never attested, so its proof stays current until the Admissions Office reverts
+// the file. The client and the database agree because document_proof_is_current()
+// only compares the keys present in `attested_values`.
+//
+// The address and family answers are verified like the academic, financial, and
+// background ones (Consultation 2): a proof of billing or a barangay certificate
+// of residency proves the address, and a PSA birth certificate or the same
+// certificate proves the family details. Every in-scope track asks for both
+// (DEFAULT_REQUIRED_DOCUMENTS in applicationRequirements.js).
 export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
   {
     key: 'qpi', label: 'Annual QPI', section: 'academic', annual: true,
@@ -211,6 +228,37 @@ export const VERIFIABLE_ATTRIBUTE_OPTIONS = [
     claimLabel: 'Proof of PWD status',
     hint: 'Upload your PWD ID or medical certificate of disability.',
   },
+  {
+    key: 'completeAddress', label: 'Complete address', section: 'address',
+    acceptedDocumentTypes: ['Proof of Billing', 'Certificate of Residency'],
+    hint: 'Upload a proof of billing or a barangay certificate of residency showing the address you declared.',
+  },
+  {
+    key: 'residingAddress', label: 'Residing address', section: 'address',
+    acceptedDocumentTypes: ['Proof of Billing', 'Certificate of Residency'],
+    // While the "same as my complete address" toggle is on there is only one
+    // address to prove, so one file answers both attributes.
+    value: (profile) => (profile.sameAsCompleteAddress === false ? profile.residingAddress : profile.completeAddress),
+    hint: 'Upload a proof of billing for the address you stay at while studying.',
+  },
+  {
+    key: 'parents', label: "Parents' names", section: 'family',
+    acceptedDocumentTypes: ['PSA Birth Certificate'],
+    // The names are shown to the reviewer but never compared: a birth
+    // certificate is not invalidated by a corrected profile entry, and the file
+    // already carries the citizenship requirement of every in-scope track.
+    compareValue: false,
+    value: (profile) => familyNames(profile).parents,
+    hint: 'Upload your PSA birth certificate showing your parents’ names.',
+  },
+  {
+    key: 'householdMembers', label: 'Siblings and household members', section: 'family',
+    acceptedDocumentTypes: ['Certificate of Residency'],
+    // A list of names, not one declared value, so it is shown but not compared.
+    compareValue: false,
+    value: (profile) => familyNames(profile).household,
+    hint: 'Upload a barangay certificate of residency that lists the members of your household.',
+  },
 ];
 
 export const VERIFIABLE_ATTRIBUTE_KEYS = VERIFIABLE_ATTRIBUTE_OPTIONS.map((option) => option.key);
@@ -239,6 +287,38 @@ export const getProvenAttributes = (documentType, profile = null) => (
       .map((option) => option.key)
     : []
 );
+
+// The names the family details answer with: the parents for the birth
+// certificate and the siblings plus other household adults for the barangay
+// certificate. Exported so the snapshot and the reviewer pane read them the same
+// way, including from a frozen application snapshot.
+export const familyNames = (profile = {}) => {
+  const family = profile && typeof profile === 'object' && profile.familyDetails && typeof profile.familyDetails === 'object'
+    ? profile.familyDetails
+    : {};
+  const clean = (value) => String(value ?? '').trim();
+  const joinPeople = (rows) => (Array.isArray(rows) ? rows.map((row) => clean(row?.name)).filter(Boolean).join(', ') : '');
+  return {
+    parents: [clean(family.fatherName), clean(family.motherName)].filter(Boolean).join(' · '),
+    household: [joinPeople(family.siblings), joinPeople(family.householdAdults)].filter(Boolean).join(', '),
+  };
+};
+
+// The declared answer of a verifiable attribute. Most answers are a top-level
+// profile key; the residing address resolves from the address toggle and the
+// family answers from the nested family details through the option's `value()`.
+// Every attestation, staleness check, and reviewer value reads this accessor, so
+// the client and student_profile_answers() in the database stay in step.
+export const getAttributeValue = (key, profile = {}) => {
+  const source = profile && typeof profile === 'object' ? profile : {};
+  const option = getVerifiableAttributeOption(key);
+  return option?.value ? option.value(source) : source[key];
+};
+
+// Whether a proof records the value it was uploaded to prove. An answer marked
+// `compareValue: false` (the family lists) is never attested, so its proof cannot
+// read Outdated: it stays a current proof until the Admissions Office reverts it.
+export const isComparableAttribute = (key) => getVerifiableAttributeOption(key)?.compareValue !== false;
 
 // Whether the student's current answer needs proof. An answer that claims
 // nothing (for example IP community "No") needs no document, and an attribute
@@ -299,6 +379,13 @@ export const normalizeAttestedValue = (key, value) => {
   }
   return text;
 };
+
+// The value a proof records at upload: the declared answer in comparable form,
+// or null for an answer a proof cannot be compared against (isComparableAttribute
+// is false, so nothing is attested and the database never compares it).
+export const getAttestedValue = (key, profile = {}) => (
+  isComparableAttribute(key) ? normalizeAttestedValue(key, getAttributeValue(key, profile)) : null
+);
 
 // The document types a profile attribute accepts as proof, shaped as picker
 // options (`{ value, label }`). An unknown attribute yields an empty list. With a

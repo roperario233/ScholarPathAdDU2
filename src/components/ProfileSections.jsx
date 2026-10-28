@@ -630,7 +630,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
   );
 }
 
-export function AddressSection({ profile, onSave, onDirtyChange }) {
+export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const form = useSectionForm({
     initialValues: {
       completeAddress: asText(profile.completeAddress),
@@ -643,11 +643,13 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
     validate: validateAddressSection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
   return (
-    <SectionForm title="Address" description="Included in each application you submit." form={form}>
-      <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}>
+    <SectionForm title="Address" description="Included in each application you submit. Every application asks for a proof of address." form={form}>
+      <FormField label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress}
+        labelAdornment={<AttributeVerification attributeKey="completeAddress" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
       </FormField>
       <FormField label="Country" hint={`Up to ${COUNTRY_MAX_LENGTH} characters.`} error={errors.country}>
@@ -655,7 +657,8 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
       </FormField>
       <SettingToggle checked={values.sameAsCompleteAddress} onChange={(checked) => update({ sameAsCompleteAddress: checked })} title="Residing address is the same as my complete address" description="Turn off to enter a different address." />
       {!values.sameAsCompleteAddress && (
-        <FormField label="Residing address" error={errors.residingAddress}>
+        <FormField label="Residing address" error={errors.residingAddress}
+          labelAdornment={<AttributeVerification attributeKey="residingAddress" attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
           <textarea className="min-h-24" value={values.residingAddress} onChange={(event) => update({ residingAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.residingAddress)} />
         </FormField>
       )}
@@ -667,7 +670,28 @@ export function AddressSection({ profile, onSave, onDirtyChange }) {
   );
 }
 
-export function FamilySection({ profile, onSave, onDirtyChange }) {
+// The two family proofs in one block: a PSA birth certificate proves the parents'
+// names and a barangay certificate of residency the household. Each badge links to
+// the Document Vault with that attribute preselected (onAttachProof).
+function FamilyProofRow({ attributeVerifications = {}, onAttachProof }) {
+  const rows = [
+    { key: 'parents', label: "Parents' names" },
+    { key: 'householdMembers', label: 'Siblings and household members' },
+  ];
+  return (
+    <div className="grid gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-3">
+      <p className="m-0 text-xs uppercase tracking-[0.08em] text-app-muted">Proof of family details</p>
+      {rows.map(({ key, label }) => (
+        <div key={key} className="flex min-w-0 flex-wrap items-center justify-between gap-2 text-sm text-app-text">
+          <span className="min-w-0">{label}</span>
+          <AttributeVerification attributeKey={key} attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function FamilySection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact }) {
   const stored = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
   const form = useSectionForm({
     initialValues: { familyDetails: {
@@ -682,12 +706,14 @@ export function FamilySection({ profile, onSave, onDirtyChange }) {
     validate: validateFamilySection,
     onSave,
     onDirtyChange,
+    previewProofImpact,
   });
   const { values, errors, update } = form;
   const family = values.familyDetails;
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } }, ['siblings', 'householdAdults']);
   return (
-    <SectionForm title="Family details" description="Supports household-income and dependent-based review. Included in each application." form={form}>
+    <SectionForm title="Family details" description="Supports household-income and dependent-based review. Included in each application, with a proof of family details." form={form}>
+      <FamilyProofRow attributeVerifications={attributeVerifications} onAttachProof={onAttachProof} />
       <div className="grid gap-4 md:grid-cols-2">
         <FormField label="Father's name" error={errors.fatherName}><input className={controlClass} value={family.fatherName} onChange={(event) => updateFamily({ fatherName: event.target.value })} /></FormField>
         <FormField label="Father's occupation" error={errors.fatherOccupation}><input className={controlClass} value={family.fatherOccupation} onChange={(event) => updateFamily({ fatherOccupation: event.target.value })} /></FormField>

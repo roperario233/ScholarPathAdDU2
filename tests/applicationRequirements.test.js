@@ -317,11 +317,23 @@ describe('profile snapshot', () => {
     });
     expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
     expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: '' });
-    expect(snapshot.address).toEqual({ completeAddress: 'Roxas Ave, Davao City', residingAddress: 'Roxas Ave, Davao City', country: 'Philippines', housingType: '', housingOther: '' });
+    expect(snapshot.address).toEqual({
+      completeAddress: 'Roxas Ave, Davao City',
+      residingAddress: 'Roxas Ave, Davao City',
+      country: 'Philippines',
+      housingType: '',
+      housingOther: '',
+      verification: { completeAddress: 'Unverified', residingAddress: 'Unverified' },
+    });
     expect(snapshot.education).toEqual({ schoolLastAttended: { name: 'Davao Senior High School', city: '', province: '' }, awards: '' });
     expect(snapshot.aid).toEqual({ communityService: 'Yes', previousGrants: [] });
     expect(snapshot.background.ipGroupName).toBe('');
-    expect(snapshot.family).toMatchObject({ fatherName: 'Jose Reyes', motherDeceased: true, numberOfSiblings: 2 });
+    expect(snapshot.family).toMatchObject({
+      fatherName: 'Jose Reyes',
+      motherDeceased: true,
+      numberOfSiblings: 2,
+      verification: { parents: 'Unverified', householdMembers: 'Unverified' },
+    });
     expect(JSON.stringify(snapshot)).not.toContain('My default statement.');
   });
 
@@ -501,7 +513,7 @@ describe('My Profile document checklist', () => {
   it('merges the open internal scholarships into one list per document', () => {
     const checklist = getDocumentChecklist({ scholarships: [gia, jubilee, sa, closed, inactive, external], profile: continuingProfile, today });
     expect(checklist.scholarships.map((item) => item.id)).toEqual(['gia', 'jubilee', 'sa']);
-    expect(ids(checklist.items)).toEqual(['applicant-photo', 'citizenship-proof', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'barangay-residence-certification', 'signed-affidavit', 'certificate-of-award']);
+    expect(ids(checklist.items)).toEqual(['applicant-photo', 'citizenship-proof', 'address-proof', 'family-proof', 'college-grades', 'income-proof', 'residence-photos', 'good-moral', 'barangay-residence-certification', 'signed-affidavit', 'certificate-of-award']);
     expect(keyOf(checklist.items, 'signed-affidavit').askedByAll).toBe(true);
     expect(keyOf(checklist.items, 'income-proof').scholarships.map((item) => item.id)).toEqual(['gia', 'sa']);
     expect(keyOf(checklist.items, 'income-proof').notAskedBy).toEqual([{ id: 'jubilee', title: jubilee.title }]);
@@ -526,6 +538,8 @@ describe('My Profile document checklist', () => {
       'barangay-residence-certification': 'missing',
       'applicant-photo': 'missing',
       'citizenship-proof': 'missing',
+      'address-proof': 'missing',
+      'family-proof': 'missing',
       'college-grades': 'attached',
       'income-proof': 'rejected',
       'residence-photos': 'missing',
@@ -533,7 +547,7 @@ describe('My Profile document checklist', () => {
       'certificate-of-award': 'missing',
     });
     // A pending file counts, a rejected one does not: the same bar as submitting.
-    expect([checklist.ready, checklist.total]).toEqual([2, 9]);
+    expect([checklist.ready, checklist.total]).toEqual([2, 11]);
   });
 
   it('is empty when no internal scholarship is open', () => {
@@ -812,16 +826,42 @@ describe('profile answers behind the requirements', () => {
   it('names the answers each requirement proves for the standing', () => {
     expect(byId['college-grades'].proves).toEqual(['qpi', 'academicStanding']);
     expect(byId['income-proof'].proves).toEqual(['householdIncome']);
-    expect(byId['citizenship-proof'].proves).toEqual(['citizenship']);
+    // A PSA birth certificate proves citizenship and the parents' names.
+    expect(byId['citizenship-proof'].proves).toEqual(['citizenship', 'parents']);
+    // The address row accepts the barangay certificate too, which also proves the
+    // household list; a proof of billing proves only the two addresses.
+    expect(byId['address-proof'].proves).toEqual(['completeAddress', 'residingAddress', 'householdMembers']);
+    expect(byId['family-proof'].proves).toEqual(['citizenship', 'parents', 'completeAddress', 'residingAddress', 'householdMembers']);
     expect(byId['signed-affidavit'].proves).toEqual([]);
     const incoming = Object.fromEntries(getScholarshipRequirements(gia, incomingProfile).map((item) => [item.id, item]));
     expect(incoming['hs-report-card'].proves).toEqual(['hsAverage', 'academicStanding']);
   });
 
-  it('asks every in-scope track for proof of citizenship', () => {
+  it('asks every in-scope track for proof of citizenship, the address and the family details', () => {
     Object.values(DEFAULT_REQUIRED_DOCUMENTS).forEach((items) => {
       expect(items.find((item) => item.id === 'citizenship-proof')).toMatchObject({ standing: 'all' });
+      expect(items.find((item) => item.id === 'address-proof')).toMatchObject({ standing: 'all', documentTypes: ['Proof of Billing', 'Certificate of Residency'] });
+      expect(items.find((item) => item.id === 'family-proof')).toMatchObject({ standing: 'all', documentTypes: ['PSA Birth Certificate', 'Certificate of Residency'] });
     });
+  });
+
+  it('lets one barangay certificate answer the address and the family rows at once', () => {
+    const certificate = proof('d', 'Certificate of Residency', { completeAddress: continuingProfile.completeAddress, residingAddress: continuingProfile.completeAddress });
+    const documents = [certificate];
+    const application = { status: 'Draft', attachedDocuments: [certificate.id], statement: 'Statement.' };
+    const result = readinessOf({ application, scholarship: gia, documents, profile: continuingProfile, certified: true, today });
+    const states = Object.fromEntries(result.requirements.map((item) => [item.id, item.state]));
+    expect(states['address-proof']).toBe('attached');
+    expect(states['family-proof']).toBe('attached');
+  });
+
+  it('reads an address proof as outdated once the declared address changes', () => {
+    const billing = proof('d', 'Proof of Billing', { completeAddress: 'Old address, Davao City', residingAddress: 'Old address, Davao City' });
+    const documents = [billing];
+    const application = { status: 'Draft', attachedDocuments: [billing.id], statement: 'Statement.' };
+    const result = readinessOf({ application, scholarship: gia, documents, profile: continuingProfile, certified: true, today });
+    expect(result.requirements.find((item) => item.id === 'address-proof').state).toBe('outdated');
+    expect(result.blockers.some((blocker) => blocker.startsWith('Upload a current proof for Proof of address'))).toBe(true);
   });
 
   it('is ready with current proofs and blocks a proof the profile no longer matches', () => {
