@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Award, GraduationCap, LayoutDashboard, MapPin, PiggyBank, ShieldCheck, UserRound, Users } from 'lucide-react';
+import { ArrowRight, Award, Check, GraduationCap, LayoutDashboard, MapPin, PiggyBank, ShieldCheck, UserRound, Users } from 'lucide-react';
 import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancesSection, FormSectionStatusIcon, PersonalSection, ProfileOverview, SectionContinueContext, SecuritySection, getFormSectionStatusText } from '../components/ProfileSections';
 import { Button } from '../components/ui';
 import { getDocumentChecklist } from '../lib/applicationRequirements';
@@ -22,7 +22,23 @@ const STRIP_TONES = {
   alert: 'bg-rose-500',
 };
 
-const menuButtonClass = (isActive) => `flex min-h-11 min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${isActive ? 'bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-sm' : 'border border-app-border bg-app-surface text-app-text'}`;
+// The section menu is a flat stepper list rather than a stack of page actions:
+// `.profile-menu-item` opts it out of the shell's action-button treatment
+// (src/styles.css), so the open section reads as a soft highlight.
+const menuButtonClass = (isActive) => `profile-menu-item flex min-h-11 min-w-0 items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${isActive ? 'bg-blue-500/10 font-bold text-app-text' : 'font-semibold text-app-muted hover:bg-app-surface hover:text-app-text'}`;
+
+// Each step's circle carries its status: a check once complete, the part number
+// on amber while answers are missing, on rose when a proof needs replacing.
+const STEP_TONES = {
+  complete: 'border-emerald-500 bg-emerald-500 text-white',
+  incomplete: 'border-amber-400 bg-app-card text-amber-600 dark:text-amber-300',
+  alert: 'border-rose-500 bg-rose-500 text-white',
+};
+
+const STEP_STATUS_TEXT = {
+  incomplete: 'text-amber-600 dark:text-amber-300',
+  alert: 'text-rose-600 dark:text-rose-300',
+};
 
 export default function ProfileView({
   profile,
@@ -137,14 +153,18 @@ export default function ProfileView({
         aria-current={isActive ? 'page' : undefined}
       >
         {formSection ? (
-          <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${isActive ? 'bg-white/20' : 'bg-app-card text-app-muted'}`} aria-hidden="true">{formSection.number}</span>
+          <span
+            className={`relative z-10 grid h-7 w-7 shrink-0 place-items-center rounded-full border-2 text-xs font-bold transition-shadow duration-200 ${STEP_TONES[formSection.state]} ${isActive ? 'ring-4 ring-blue-500/20' : ''}`}
+            aria-hidden="true"
+          >
+            {formSection.state === 'complete' ? <Check size={14} strokeWidth={3} /> : formSection.number}
+          </span>
         ) : (
-          <Icon size={17} className="shrink-0" aria-hidden="true" />
+          <span className="grid h-7 w-7 shrink-0 place-items-center" aria-hidden="true"><Icon size={17} /></span>
         )}
         <span className="min-w-0 flex-1">{label}</span>
         {formSection && (
-          <span className="flex shrink-0 items-center gap-1 text-xs font-semibold">
-            <FormSectionStatusIcon state={formSection.state} />
+          <span className={`shrink-0 text-xs font-semibold ${STEP_STATUS_TEXT[formSection.state] || ''}`}>
             {formSection.state !== 'complete' && <span aria-hidden="true">{formSection.statusLabel}</span>}
             <span className="sr-only">{`: ${getFormSectionStatusText(formSection.state)}${formSection.state === 'complete' ? '' : `, ${formSection.description}`}`}</span>
           </span>
@@ -231,13 +251,20 @@ export default function ProfileView({
         {isStudent ? (
           <nav
             ref={navRef}
-            className="relative flex snap-x gap-2 overflow-x-auto rounded-app border border-app-border bg-app-card p-3 shadow-app backdrop-blur xl:sticky xl:top-5 xl:grid xl:grid-cols-1 xl:overflow-visible"
+            // From `lg` (where the app sidebar exists) the menu floats while a long
+            // section scrolls: a pinned strip above the form, then from `xl` a side
+            // column beside it.
+            className="relative flex snap-x items-center gap-1 overflow-x-auto rounded-app border border-app-border bg-app-card p-2 shadow-app backdrop-blur lg:sticky lg:top-5 lg:z-20 xl:grid xl:grid-cols-1 xl:items-stretch xl:gap-0.5 xl:overflow-visible xl:p-3"
             aria-label="Profile sections"
           >
             {renderMenuButton(visibleSections[0])}
-            <p className="m-0 hidden px-1 pt-2 text-xs font-bold uppercase tracking-[0.08em] text-app-muted xl:block">Application form</p>
-            {formMenuSections.map(renderMenuButton)}
-            <span className="w-px shrink-0 self-stretch bg-app-border xl:my-1 xl:h-px xl:w-auto" aria-hidden="true" />
+            <p className="m-0 hidden px-2.5 pb-1 pt-3 text-xs font-bold uppercase tracking-[0.08em] text-app-muted xl:block">Application form</p>
+            <div className="relative flex shrink-0 items-center gap-1 xl:grid xl:shrink xl:gap-0.5">
+              {/* The rail joining the step circles (centred under them) in the side column. */}
+              <span className="pointer-events-none absolute bottom-6 left-[23px] top-6 hidden w-0.5 rounded-full bg-app-border xl:block" aria-hidden="true" />
+              {formMenuSections.map(renderMenuButton)}
+            </div>
+            <span className="mx-1 h-7 w-px shrink-0 bg-app-border xl:mx-0 xl:my-2 xl:h-px xl:w-auto" aria-hidden="true" />
             {renderMenuButton(visibleSections[visibleSections.length - 1])}
           </nav>
         ) : (
@@ -246,7 +273,8 @@ export default function ProfileView({
           </nav>
         )}
 
-        <div ref={sectionContentRef} className="min-w-0 scroll-mt-4">
+        {/* Keyed by section so each opened part eases in instead of snapping. */}
+        <div ref={sectionContentRef} key={activeSection} className="profile-section-enter min-w-0 scroll-mt-4">
           <SectionContinueContext.Provider value={continueContext}>
             {activeSection === 'overview' && (
               <ProfileOverview

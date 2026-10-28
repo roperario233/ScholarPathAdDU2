@@ -99,9 +99,10 @@ button.bg-app-card:hover {
 }
 
 /* Keep actions distinct in dark mode: quiet surface controls should not look
-   like primary submit buttons, and picker internals and the compact proof chip
-   (`.proof-action`, a badge companion rather than a page action) stay untouched. */
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
+   like primary submit buttons, and picker internals, the compact proof chip
+   (`.proof-action`, a badge companion rather than a page action), and the My
+   Profile section menu (`.profile-menu-item`, a flat stepper list) stay untouched. */
+.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
@@ -114,8 +115,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
@@ -127,7 +128,7 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):disabled {
+.blue-action-view button:not(.profile-menu-item):not(.calendar-cell):not([class*="from-rose"]):not([class*="from-amber"]):disabled {
   background: #6683bd !important;
   border-color: #6683bd !important;
   color: #eaf1ff !important;
@@ -212,7 +213,7 @@ button.bg-app-card:hover {
 
 /* Light mode can carry the brighter Ateneo blue; dark mode keeps controls
    lower-contrast so they do not glow against the navy application surface. */
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
+.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]) {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
@@ -224,8 +225,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
-.theme-light .blue-action-view button:not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
+.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):hover,
+.theme-light .blue-action-view button:not(.profile-menu-item):not(.select-picker-option):not(.fixed):not(.calendar-cell):not(.proof-action):not([class*="from-rose"]):not([class*="from-amber"]):focus-visible {
   border-color: #4d8dff !important;
   background: color-mix(in srgb, var(--primary) 10%, var(--surface)) !important;
 }
@@ -529,8 +530,13 @@ main .deadline-item > .deadline-actions {
   background-position: center;
   background-repeat: no-repeat;
   position: relative;
+  /* `clip`, not `hidden`: it still stops sideways scrolling, but it does not make
+     the body a scroll container. A `hidden`/`auto` body is a scroller that never
+     scrolls (the page scrolls the viewport), and `position: sticky` anchors to the
+     nearest scroller, so the sidebar and the My Profile section menu never stuck.
+     `hidden` stays first as the fallback for browsers without `clip`. */
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-x: clip;
 }
 
 .login-overlay {
@@ -1835,4 +1841,26 @@ a:focus-visible {
   .print-sheet-root section { break-inside: avoid-page; }
   .print-sheet-root table { break-inside: auto; }
   .print-sheet-root tr { break-inside: avoid; }
+}
+
+/* My Profile: an opened section eases in rather than snapping into place. */
+.profile-section-enter {
+  animation: profile-section-in 180ms ease-out;
+}
+
+@keyframes profile-section-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-section-enter {
+    animation: none;
+  }
 }

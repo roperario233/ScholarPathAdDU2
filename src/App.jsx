@@ -2775,7 +2775,7 @@ function App() {
   }
 
   return (
-    <div className={`min-h-screen max-w-[100vw] overflow-x-hidden bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
+    <div className={`min-h-screen max-w-[100vw] overflow-x-clip bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
       {sessionTimeoutState && (
         <SessionTimeoutModal
           reason={sessionTimeoutState.reason}
@@ -2886,6 +2886,9 @@ function App() {
       </button>
 
       <main className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
+        {/* Floats beside long pages from `lg`. It never scrolls on its own: when it is
+            taller than the window its top (the page links) stays in view and the
+            summary boxes below come into view at the bottom of the page. */}
         <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
           <div className="flex items-center gap-4 border-b border-app-border pb-4">
             <ProfileAvatar src={avatarPreview.url} name={currentIdentity.fullName} size="lg" rounded="rounded-[18px]" className="!h-[50px] !w-[50px]" />
