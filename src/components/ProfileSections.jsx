@@ -874,6 +874,11 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
       motherAge: asText(stored.motherAge), motherDateOfDeath: asText(stored.motherDateOfDeath),
       siblings: Array.isArray(stored.siblings) ? stored.siblings.map((row) => ({ name: asText(row?.name), age: asText(row?.age), relationship: asText(row?.relationship), status: asText(row?.status) })) : [],
       householdAdults: Array.isArray(stored.householdAdults) ? stored.householdAdults.map((row) => ({ name: asText(row?.name), age: asText(row?.age), relationship: asText(row?.relationship) })) : [],
+      // "None" is a saved answer (validateFamilySection returns both flags), so it
+      // has to ride the draft: without them the post-save re-sync dropped the
+      // answers, the toggles read "no", and the next save erased them.
+      siblingsNone: Boolean(stored.siblingsNone),
+      householdAdultsNone: Boolean(stored.householdAdultsNone),
     } },
     validate: validateFamilySection,
     onSave,

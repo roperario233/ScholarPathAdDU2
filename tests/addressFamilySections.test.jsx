@@ -67,6 +67,31 @@ describe('My Profile address and family proofs', () => {
     expect(chip).toBeGreaterThan(labelClose);
   });
 
+  it('keeps a saved "none" answer on its toggle and hides the row editors', () => {
+    const html = renderToStaticMarkup(
+      <FamilySection
+        profile={{ familyDetails: { siblingsNone: true, householdAdultsNone: true } }}
+        onSave={noop}
+        onDirtyChange={noop}
+      />,
+    );
+    expect(html).toContain('No siblings to list');
+    expect(html).toContain('No other adults in the household');
+    // "None" is a saved answer (validateFamilySection returns both flags), so the
+    // draft has to carry it: the toggles open checked instead of snapping back to
+    // "no" after a save, and the lists they replace stay hidden.
+    expect(html).not.toContain('Add a sibling');
+    expect(html).not.toContain('Add another adult in the household');
+    expect((html.match(/checked=""/g) || []).length).toBe(2);
+  });
+
+  it('offers both household lists while the "none" answers are off', () => {
+    const html = renderToStaticMarkup(<FamilySection profile={{ familyDetails: {} }} onSave={noop} onDirtyChange={noop} />);
+    expect(html).toContain('Add a sibling');
+    expect(html).toContain('Add another adult in the household');
+    expect((html.match(/checked=""/g) || []).length).toBe(0);
+  });
+
   it('renders without the proof props, as the staff preview does', () => {
     const html = renderToStaticMarkup(<FamilySection profile={{}} onSave={noop} onDirtyChange={noop} />);
     expect(html).toContain('Proof of family details');
