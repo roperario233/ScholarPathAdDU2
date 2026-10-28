@@ -1234,9 +1234,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = [], { full
     programChoice3: standing.requiresProgramChoices ? validateOptionalProgramChoice(form.programChoice3, academicPrograms) : ok(''),
     // Applicant Status: a transferee already attended college. The answer is kept
     // apart from the year standing so the QPI / senior high school average branch
-    // never changes. A blank answer is allowed here, like civil status and the
-    // other optional selects, because the first-login modal does not ask for it;
-    // the completeness checklist and the database gate require it to apply.
+    // never changes. Both My Profile and the first-login modal ask for it, but a
+    // blank answer is still allowed here, like civil status and the other optional
+    // selects, so a profile saved before the control existed stays loadable; the
+    // completeness checklist and the database gate require it to apply.
     // An incoming first-year is not a transferee, and an answered standing already
     // separates a current student from a transferee, so the answer is recorded
     // instead of being left blank while the control always shows one of the three.
@@ -1376,18 +1377,22 @@ export const validateBackgroundSection = (form = {}) => {
 
 // First-login onboarding collects the essentials the Smart Eligibility Checker
 // needs beyond the credentials form. It reuses the same section rules as My
-// Profile so the onboarding modal and the profile editor never disagree.
+// Profile so the onboarding modal and the profile editor never disagree. The
+// mobile number is deliberately not collected here: My Profile owns the contact
+// number FORM 230-SCH asks for, so the blocking first-login dialog stays short.
 export const validateOnboardingEssentials = (form = {}, academicPrograms = []) => {
   // The first-login modal collects only the eligibility essentials, so it is not
   // held to the full FORM 230-SCH answers My Profile asks for.
   const academic = validateAcademicSection(form, academicPrograms, { fullForm: false });
   const financial = validateFinancialSection(form);
-  const phone = validateMobileNumber(form.phone);
   const citizenship = oneOf(form.citizenship, citizenshipOptions, 'Choose your citizenship.');
 
   const errors = { ...academic.errors, ...financial.errors };
-  if (phone.error) errors.phone = phone.error;
   if (citizenship.error) errors.citizenship = citizenship.error;
+  // The modal asks the senior high school strand of every applicant the way My
+  // Profile does (FORM 230-SCH), so the essentials require it even though the
+  // section validator keeps it incoming-only while the full form is off.
+  if (!academic.values.hsStrand) errors.hsStrand = 'Choose your senior high school strand.';
 
   return {
     values: {
@@ -1396,6 +1401,9 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
       yearStanding: academic.values.yearStanding,
       applicantType: academic.values.applicantType,
       yearLevel: academic.values.yearLevel,
+      // FORM 230-SCH Applicant Status: only the transferee answer is stored, and it
+      // decides whether the AdDU student number is asked for at all.
+      isTransferee: academic.values.isTransferee,
       academicStanding: academic.values.academicStanding,
       qpi: academic.values.qpi,
       hsStrand: academic.values.hsStrand,
@@ -1409,7 +1417,6 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
       // The active-grant response is optional in the form, but its current
       // boolean value must be carried through onboarding when supplied.
       hasActiveGovernmentGrant: Boolean(form.hasActiveGovernmentGrant),
-      phone: phone.value,
       citizenship: citizenship.value,
     },
     errors,

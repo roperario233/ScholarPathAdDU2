@@ -156,12 +156,16 @@ describe('FORM 230-SCH applicant status and name parts', () => {
     expect(isTransfereeProfile({ isTransferee: 'Yes' })).toBe(true);
   });
 
-  it('keeps the applicant status out of the first-login essentials but in the gate', () => {
+  it('tolerates a blank applicant status in the first-login essentials but requires it to apply', () => {
+    // The modal asks the applicant status the way My Profile does, but an answered
+    // standing already names it, so the essentials never ask the same question twice.
     const onboarding = validateOnboardingEssentials({
       studentNumber: '2023001', degreeProgram: 'BS Information Technology', yearStanding: '2nd',
-      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+      academicStanding: 'good', qpi: '3.1', hsStrand: 'STEM', householdIncome: '180000', citizenship: 'Filipino',
     }, programs);
     expect(onboarding.errors).toEqual({});
+    // A current student is not a transferee, and the answer is carried through.
+    expect(onboarding.values.isTransferee).toBe('No');
     const missing = getApplicationProfileGate({
       fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
       academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino', ...formCore, isTransferee: '',
@@ -531,9 +535,12 @@ describe('year standing', () => {
     // blocked by a field the modal does not show.
     const onboarding = validateOnboardingEssentials({
       studentNumber: '', degreeProgram: 'BS Information Technology', yearStanding: '2nd', isTransferee: 'Yes',
-      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+      academicStanding: 'good', qpi: '3.1', hsStrand: 'STEM', householdIncome: '180000', citizenship: 'Filipino',
     }, programs);
     expect(onboarding.errors).toEqual({});
+    // The status rides through onboarding, so the next sign-in still knows the
+    // student is a transferee and keeps the student number out of the form.
+    expect(onboarding.values.isTransferee).toBe('Yes');
   });
 
   it('names each standing as the year the applicant is going into', () => {
@@ -692,9 +699,9 @@ describe('validateOnboardingEssentials', () => {
     yearStanding: '2nd',
     academicStanding: 'good',
     qpi: '3.1',
+    hsStrand: 'STEM',
     householdIncome: '240000',
     hasActiveGovernmentGrant: false,
-    phone: '09171234567',
     citizenship: 'Filipino',
   };
 
@@ -707,15 +714,15 @@ describe('validateOnboardingEssentials', () => {
       yearStanding: '2nd',
       applicantType: 'current',
       yearLevel: 2,
+      isTransferee: 'No',
       academicStanding: 'good',
       qpi: 3.1,
-      hsStrand: '',
+      hsStrand: 'STEM',
       hsAverage: '',
       programChoice2: '',
       programChoice3: '',
       householdIncome: 240000,
       hasActiveGovernmentGrant: false,
-      phone: '+63 917 123 4567',
       citizenship: 'Filipino',
     });
   });
@@ -730,7 +737,6 @@ describe('validateOnboardingEssentials', () => {
       hsAverage: '94',
       householdIncome: '240000',
       hasActiveGovernmentGrant: false,
-      phone: '',
       citizenship: 'Filipino',
     };
 
@@ -758,7 +764,11 @@ describe('validateOnboardingEssentials', () => {
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, programs).errors).toEqual({});
     expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
-    expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toMatch(/Philippine mobile/);
+    // The mobile number is My Profile's contact number, so the first-login
+    // essentials neither ask for it nor validate a value a caller passes along.
+    expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toBeUndefined();
+    // The strand is asked of every applicant, the way My Profile asks it.
+    expect(validateOnboardingEssentials({ ...base, hsStrand: '' }, programs).errors.hsStrand).toBeTruthy();
   });
 });
 

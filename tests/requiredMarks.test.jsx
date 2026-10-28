@@ -22,12 +22,13 @@ const renderModal = (props = {}) => renderToStaticMarkup(
 
 describe('first-login academic profile marks', () => {
   it('marks the answers the Continue gate still needs', () => {
-    // Nothing answered: year standing, program, academic standing, citizenship, and
-    // household income. The QPI and student number only appear once a standing is
-    // picked, and the mobile number is optional here.
+    // Nothing answered: applicant status, year standing, the senior high school
+    // strand, program, academic standing, citizenship, and household income. The
+    // QPI and student number only appear once a standing is picked.
     const html = renderModal();
-    expect(countMarks(html)).toBe(5);
-    expect(html).toContain('Mobile number');
+    expect(countMarks(html)).toBe(7);
+    expect(html).toContain('Applicant status');
+    expect(html).not.toContain('Mobile number');
     expect(html).not.toContain('Annual QPI');
   });
 
@@ -35,9 +36,21 @@ describe('first-login academic profile marks', () => {
     // Choosing a standing clears the Year standing mark and reveals the two answers
     // a current student still owes: the student number and the annual QPI.
     const html = renderModal({ initialYearStanding: '2nd', initialIsTransferee: 'No' });
-    expect(countMarks(html)).toBe(6);
+    expect(countMarks(html)).toBe(7);
     expect(html).toContain('AdDU student number');
     expect(html).toContain('Annual QPI');
+  });
+
+  it('follows the applicant status the way My Profile does', () => {
+    // An incoming first-year answers the year standing with the status, so the year
+    // control is left out entirely.
+    const incoming = renderModal({ initialYearStanding: 'incoming-1st' });
+    expect(incoming).toContain('Applicant status');
+    expect(incoming).not.toContain('Year standing');
+    // A transferee's record belongs to the institution they left, so the student
+    // number is not asked for.
+    const transferee = renderModal({ initialYearStanding: '2nd', initialIsTransferee: 'Yes' });
+    expect(transferee).not.toContain('AdDU student number');
   });
 
   it('drops the mark once the answer is given', () => {
@@ -50,6 +63,7 @@ describe('first-login academic profile marks', () => {
       initialCitizenship: 'Filipino',
       initialHouseholdIncome: '240000',
       initialQpi: '3.2',
+      initialHsStrand: 'STEM',
     });
     expect(countMarks(html)).toBe(0);
   });
