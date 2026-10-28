@@ -5,7 +5,6 @@ import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import ApplicationFinancialStep from './ApplicationFinancialStep';
-import ApplicationPrintButton from './ApplicationPrintSheet';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
 import { getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
@@ -514,13 +513,8 @@ export default function ApplicationWorkspaceModal({
                 </p>
                 <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your application form</Button></div>
               </div>
-              <Panel className="grid gap-2 text-sm text-app-muted">
-                <strong className="text-app-text">Two pages stay on paper</strong>
-                <p className="m-0">Print the application form, have the Punong Barangay certify the residence photos, and have yourself and both parents sign the affidavit. Upload the signed pages in the Required documents step.</p>
-                <div><ApplicationPrintButton sheet={{ application, snapshot, financialSections, statement, requirements: readiness.requirements, applicantPhoto: getApplicantPhotoDocument(application, documents) }} /></div>
-              </Panel>
               <details className="rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-muted">
-                <summary className="cursor-pointer font-semibold text-app-text">Affidavit of agreement and data privacy notice</summary>
+                <summary className="cursor-pointer font-semibold text-app-text">Agreement and data privacy notice</summary>
                 <ol className="mt-2 grid gap-2 pl-5">{AFFIDAVIT_CLAUSES.map((clause) => <li key={clause}>{clause}</li>)}</ol>
                 <p className="mb-0 mt-3">{DATA_PRIVACY_NOTICE}</p>
               </details>
