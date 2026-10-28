@@ -23,13 +23,26 @@ export const SCHOLARSHIP_GUIDES = [
   {
     ruleFamily: 'work-study',
     catalogTitle: ADDU_INTERNAL_PROGRAM_TITLES[2],
-    name: 'Working Scholar Program',
+    name: 'Working Scholar Program (WSP)',
     kind: 'Work-study',
     summary: 'Financial assistance in which recipients render service hours as payment for a portion of their total assessment.',
     coverage: ['100% tuition and fees'],
     criteria: [
       'Willing to render at least four (4) hours of service a day',
-      'Open to students across all academic programs',
+      'Enrolled in, or entering, one of the WSP programs',
+    ],
+    // The leaflet's WSP program list, as printed. The eligibility rule reads the
+    // matching taxonomy keys in WORKING_SCHOLAR_ELIGIBLE_DEGREES.
+    programs: [
+      {
+        heading: 'Bachelor of Science in',
+        names: ['Business Management', 'Entrepreneurship', 'Finance', 'Human Resource Development and Management', 'Management Accounting', 'Marketing', 'Mathematics'],
+      },
+      { heading: 'Bachelor in', names: ['Public Management'] },
+      {
+        heading: 'Bachelor of Arts in',
+        names: ['Communication', 'Development Studies', 'Economics', 'English', 'Interdisciplinary Studies', 'International Studies', 'Philosophy', 'Political Science', 'Psychology', 'Sociology'],
+      },
     ],
   },
   {

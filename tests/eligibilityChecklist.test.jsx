@@ -39,6 +39,15 @@ describe('getEligibilityChecklist', () => {
     expect(householdIncome.field).toBe('householdIncome');
   });
 
+  it('fails the Working Scholar Program degree row for a program outside the leaflet list', () => {
+    const wsp = { id: 'wsp', title: 'Working Scholar Program (WSP)', ruleFamily: 'work-study', isActive: true, deadline: '2099-04-30' };
+    const { degreeProgram } = rowsByKey(getEligibilityChecklist(qualified, wsp));
+    expect(degreeProgram.status).toBe('fail');
+    expect(degreeProgram.required).toMatch(/Working Scholar Program course/);
+    expect(degreeProgram.messages).toEqual(['BS Computer Science is not among the Working Scholar Program courses.']);
+    expect(getEligibilityChecklist({ ...qualified, degreeProgram: 'BS Finance' }, wsp).verdict).toBe('eligible');
+  });
+
   it('shows every rule check even when an answer is still missing', () => {
     const checklist = getEligibilityChecklist({ ...qualified, citizenship: '', degreeProgram: 'BS Nursing' }, gia);
     const rows = rowsByKey(checklist);

@@ -70,7 +70,7 @@ export const aggregateCalendarMarks = (marks = []) => {
 
 // AdDU internal catalog deadlines, the windows the Admissions Office publishes.
 // `onlyInScope` keeps the calendar aligned with the catalog route (GIA, Jubilee,
-// and the Student Assistant program).
+// and the Working Scholar Program).
 export const getDeadlineMarksByDate = (scholarships = [], { onlyInScope = false } = {}) => {
   const marks = new Map();
   (Array.isArray(scholarships) ? scholarships : [])

@@ -1,5 +1,8 @@
-import { ArrowRight, CalendarClock, CheckCircle2, FileText, ListChecks } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ArrowRight, CalendarClock, CheckCircle2, ChevronRight, FileText, ListChecks } from 'lucide-react';
 import ScholarshipTrackIcon from '../components/ScholarshipTrackIcon';
+import { ModalShell } from '../components/ui';
 import { getDeadlineStatus, getScholarshipAcademicDisplay } from '../lib/eligibility';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { getStandingRequirements } from '../lib/profile';
@@ -25,7 +28,41 @@ function SectionHeading({ icon: Icon, children }) {
   );
 }
 
+const countPrograms = (programs) => programs.reduce((total, group) => total + group.names.length, 0);
+
+// The programs a track admits, as the leaflet prints them, in a dialog portaled
+// to <body>: the card's backdrop blur would otherwise trap the fixed overlay.
+function ProgramsModal({ card, onClose }) {
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  return createPortal(
+    <ModalShell title="WSP programs" onClose={onClose} className="flex w-[min(560px,100%)] max-h-[min(86vh,760px)] flex-col">
+      <p className="m-0 text-sm text-app-muted">
+        <strong className="text-app-text">{card.name}</strong> · Open only to the {countPrograms(card.programs)} programs below, as listed by the Office of Admission and Aid.
+      </p>
+      <div className="app-scroll mt-4 grid gap-3 overflow-y-auto">
+        {card.programs.map((group) => (
+          <section key={group.heading} className="rounded-xl border border-app-border bg-app-surface p-3">
+            <h4 className="m-0 text-xs font-bold uppercase tracking-wide text-app-muted">{group.heading}</h4>
+            <ul className="m-0 mt-2 grid list-disc gap-1 pl-5 text-sm text-app-text sm:grid-cols-2">
+              {group.names.map((name) => <li key={name}>{name}</li>)}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </ModalShell>,
+    document.body,
+  );
+}
+
 function ScholarshipGuideCard({ card, profile, standingNote }) {
+  const [programsOpen, setProgramsOpen] = useState(false);
   const criteria = [...card.criteria, ...getCatalogCriteria(card.scholarship, profile)];
   const deadline = card.scholarship?.deadline;
   const deadlineStatus = deadline ? getDeadlineStatus(deadline) : null;
@@ -48,14 +85,31 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
         {card.coverage.map((line) => <strong key={line} className="mt-1 block text-sm text-app-text">{line}</strong>)}
       </div>
 
-      <div className="grid gap-2">
+      {/* `content-start` keeps each section at its natural spacing when the
+          subgrid row stretches to the tallest card in the row. */}
+      <div className="grid content-start gap-2">
         <SectionHeading icon={CheckCircle2}>Who can apply</SectionHeading>
         <ul className="m-0 grid list-disc gap-1 pl-5 text-sm text-app-text">
           {criteria.map((line) => <li key={line}>{line}</li>)}
         </ul>
+        {card.programs && (
+          // Styled as the card-surface row the list used to expand from:
+          // `disclosure-action` keeps the blue-action-view palette off it, and
+          // the surface is set as a token value because `button.bg-app-surface`
+          // would repaint it as a tinted page action.
+          <button
+            type="button"
+            className="disclosure-action flex w-full items-center gap-1.5 rounded-xl border border-app-border bg-[color:var(--surface)] px-3 py-2 text-left text-sm font-semibold text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+            aria-haspopup="dialog"
+            onClick={() => setProgramsOpen(true)}
+          >
+            <ChevronRight size={16} className="shrink-0" aria-hidden="true" />
+            WSP programs ({countPrograms(card.programs)})
+          </button>
+        )}
       </div>
 
-      <div className="grid gap-2">
+      <div className="grid content-start gap-2">
         <SectionHeading icon={FileText}>Documents to submit</SectionHeading>
         <p className="m-0 text-xs text-app-muted">{standingNote}</p>
         <ul className="m-0 grid list-disc gap-1 pl-5 text-sm text-app-text">
@@ -68,6 +122,7 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
           ? <>Deadline <strong className="text-app-text">{fmtDate(deadline)}</strong> · {deadlineStatus.label}</>
           : 'Deadline to be announced by the Office of Admission and Aid'}
       </p>
+      {programsOpen && <ProgramsModal card={card} onClose={() => setProgramsOpen(false)} />}
     </article>
   );
 }

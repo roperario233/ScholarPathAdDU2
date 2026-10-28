@@ -59,7 +59,9 @@ export const getEligibilityChecklist = (profile = {}, scholarship = {}) => {
       label: 'Degree program',
       fields: ['degreeProgram'],
       answer: isBlank(profile.degreeProgram) ? null : profile.degreeProgram,
-      required: isGeneralPool ? `Any except ${GENERAL_POOL_EXCLUDED_DEGREES.join(' and ')}` : 'All programs',
+      required: isGeneralPool
+        ? `Any except ${GENERAL_POOL_EXCLUDED_DEGREES.join(' and ')}`
+        : ruleFamily === 'work-study' ? 'A Working Scholar Program course (selected SAS and SBG programs)' : 'All programs',
     },
     {
       key: 'citizenship',

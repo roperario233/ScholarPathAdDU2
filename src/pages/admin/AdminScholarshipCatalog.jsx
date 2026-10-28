@@ -3,7 +3,7 @@ import AdminPageHeader from '../../components/AdminPageHeader';
 import RequiredDocumentsEditor from '../../components/RequiredDocumentsEditor';
 import { Button, Card, FormField, StatusBadge } from '../../components/ui';
 import { getInternalCatalogEntries } from '../../lib/admissionsOffice';
-import { ADDU_INTERNAL_PROGRAM_TITLES, isAdduInternalProgram } from '../../lib/eligibility';
+import { ADDU_INTERNAL_PROGRAM_TITLES, WORKING_SCHOLAR_ELIGIBLE_DEGREES, isAdduInternalProgram } from '../../lib/eligibility';
 import { normalizeRequirements } from '../../lib/applicationRequirements';
 
 // Catalog management is its own route: publishing an AdDU internal scholarship
@@ -40,7 +40,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
     const scholarship = {
       ...(editingScholarship || {}),
       title,
-      // Keep the stored category when editing, so saving the Student Assistant
+      // Keep the stored category when editing, so saving the Working Scholar
       // program does not silently relabel it as an Internal Endowment.
       category: editingScholarship?.category || 'Internal Endowment',
       origin: 'AdDU',
@@ -49,7 +49,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
       minimumQpi: data.get('minimumQpi') || null,
       minimumShsAverage: data.get('minimumShsAverage') || null,
       maximumIncome: data.get('maximumIncome') || null,
-      eligibleDegrees: ruleFamily === 'work-study' ? ['ALL'] : [],
+      eligibleDegrees: ruleFamily === 'work-study' ? WORKING_SCHOLAR_ELIGIBLE_DEGREES : [],
       allowsMultipleGrants: false,
       departmentScope: null,
       deadline: data.get('deadline') || null,
@@ -97,7 +97,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
                 <select name="ruleFamily" required defaultValue={editingScholarship?.ruleFamily || 'general-pool'}>
                   <option value="general-pool">Grant-in-Aid / general pool</option>
                   <option value="honors">Jubilee / honors</option>
-                  <option value="work-study">Student Assistant / Working Scholar</option>
+                  <option value="work-study">Working Scholar Program (WSP)</option>
                 </select>
               </FormField>
               <FormField label="Coverage type">

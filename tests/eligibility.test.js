@@ -9,7 +9,9 @@ import {
   getScholarshipAcademicDisplay,
   isAdduInternalProgram,
   isInternalScholarship,
+  WORKING_SCHOLAR_ELIGIBLE_DEGREES,
 } from '../src/lib/eligibility';
+import { academicPrograms } from '../src/lib/academicPrograms';
 import { getProfileSectionForField } from '../src/lib/profile';
 
 const eligibleProfile = {
@@ -109,14 +111,26 @@ describe('internal scholarship eligibility gate', () => {
     expect(jubileeResult.reasons).not.toContain('Open only to incoming AdDU first-year students.');
   });
 
-  it('allows Student Assistant applicants from any degree program', () => {
-    const workingScholarsResult = evaluateApplicationGate(eligibleProfile, {
-      title: 'Student Assistant Program (Working Scholars)',
-      isActive: true,
-      eligibleDegrees: ['BS Nursing'],
-    });
-    expect(workingScholarsResult.allowed).toBe(true);
-    expect(workingScholarsResult.reasons).toEqual([]);
+  it('admits Working Scholar Program applicants only from the leaflet programs', () => {
+    const wsp = { title: 'Working Scholar Program (WSP)', isActive: true };
+    const listed = evaluateApplicationGate({ ...eligibleProfile, degreeProgram: 'AB Psychology' }, wsp);
+    expect(listed.allowed).toBe(true);
+    expect(listed.reasons).toEqual([]);
+
+    const unlisted = evaluateApplicationGate(eligibleProfile, wsp);
+    expect(unlisted.allowed).toBe(false);
+    expect(unlisted.issues).toEqual([
+      { message: 'BS Information Technology is not among the Working Scholar Program courses.', field: 'degreeProgram' },
+    ]);
+
+    // BS Psychology is not on the leaflet; only AB Psychology is.
+    expect(evaluateApplicationGate({ ...eligibleProfile, degreeProgram: 'BS Psychology' }, wsp).allowed).toBe(false);
+    expect(evaluateApplicationGate({ ...eligibleProfile, degreeProgram: '' }, wsp).issues[0].field).toBe('degreeProgram');
+  });
+
+  it('keeps every Working Scholar Program course in the academic taxonomy', () => {
+    const values = new Set(academicPrograms.map((program) => program.value));
+    expect(WORKING_SCHOLAR_ELIGIBLE_DEGREES.filter((value) => !values.has(value))).toEqual([]);
   });
 });
 
@@ -212,7 +226,7 @@ describe('eligibility issues link to My Profile sections', () => {
 describe('in-scope AdDU internal tracks', () => {
   const gia = { title: 'Grant-in-Aid (GIA)', ruleFamily: 'general-pool' };
   const jubilee = { title: 'Jubilee Scholarship Fund (Valedictorian & Salutatorian)', ruleFamily: 'honors' };
-  const sa = { title: 'Student Assistant (SA) Program', ruleFamily: 'work-study' };
+  const sa = { title: 'Working Scholar Program (WSP)', ruleFamily: 'work-study' };
 
   it('accepts the three canonical tracks', () => {
     expect(isAdduInternalProgram(gia)).toBe(true);
@@ -223,6 +237,7 @@ describe('in-scope AdDU internal tracks', () => {
   it('accepts the title variants the catalog and documents use', () => {
     expect(isAdduInternalProgram({ title: 'Jubilee Scholarship' })).toBe(true);
     expect(isAdduInternalProgram({ title: 'Student Assistant Program (Working Scholars)' })).toBe(true);
+    expect(isAdduInternalProgram({ title: 'Student Assistant (SA) Program' })).toBe(true);
     expect(isAdduInternalProgram({ title: 'GIA' })).toBe(true);
   });
 
