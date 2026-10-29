@@ -48,7 +48,7 @@ export function SopStageTrack({ status }) {
           // same utility.
           const fill = isDone ? 'bg-emerald-400/50' : isCurrent ? 'bg-sky-400/75' : 'bg-app-border';
           const pill = isDone
-            ? 'sm:border-emerald-400/30 sm:bg-emerald-400/10 sm:text-emerald-300'
+            ? 'sm:border-emerald-600/35 sm:bg-emerald-500/15 sm:text-emerald-800 sm:dark:border-emerald-400/30 sm:dark:bg-emerald-400/10 sm:dark:text-emerald-300'
             : isCurrent
               ? 'sm:border-ateneo-strong/50 sm:bg-ateneo/15 sm:text-ateneo-strong sm:dark:border-blue-400/50 sm:dark:bg-blue-500/15 sm:dark:text-sky-200'
               : 'sm:border-app-border sm:bg-app-surface sm:text-app-muted';

@@ -579,11 +579,11 @@ export default function ApplicationReviewModal({
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-review-modal">
       <header className="grid shrink-0 gap-2 pb-2">
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-          <div className="min-w-0 w-full">
+          <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
             <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentSchool || 'School on file'}</p>
           </div>
-          <StatusBadge tone={statusTone(application.status)}>{getApplicationStatusLabel(application.status)}</StatusBadge>
+          <StatusBadge tone={statusTone(application.status)} className="shrink-0 whitespace-nowrap">{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
         {sopStageIndex(application.status) != null ? <SopStageTrack status={application.status} /> : null}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-app-muted">
