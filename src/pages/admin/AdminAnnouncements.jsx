@@ -6,7 +6,7 @@ import { Button, Card, EmptyState, FormField, StatusBadge } from '../../componen
 // history stay separate from the review queue and the catalog form.
 export default function AdminAnnouncements({ announcements = [], onCreateAnnouncement }) {
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Office announcements"
         description="Publish application windows, answers to inquiries, and program updates."

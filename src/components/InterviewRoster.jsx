@@ -1,3 +1,4 @@
+import { getCaseCardClass } from './pageParts';
 import { Button, StatusBadge } from './ui';
 import { getInterviewStateLabel } from '../lib/interview';
 import { formatInterviewTimeRange } from '../lib/interviewRoster';
@@ -43,7 +44,7 @@ export function InterviewRosterRow({
     : (entry.locationLabel || 'Location to be announced');
 
   return (
-    <article className="grid gap-2 rounded-[14px] border border-app-border bg-app-surface p-3.5">
+    <article className={getCaseCardClass(getInterviewStateTone(entry.state))}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-base">{entry.studentName}</h3>

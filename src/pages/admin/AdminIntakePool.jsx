@@ -1,8 +1,8 @@
+import { Clock, Inbox, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
-import { StatCard } from '../../components/pageParts';
+import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { describeApplicantAcademic } from '../../lib/applicationRequirements';
 import {
@@ -151,7 +151,7 @@ export default function AdminIntakePool({
     ));
     const routedTo = getRoutedInterviewers(entry, staffDirectory, programIndex);
     return (
-      <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
+      <article key={entry.id} className={getCaseCardClass(days != null && days >= WAITING_THRESHOLD_DAYS ? 'warning' : getStatusTone(entry.status))}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
           <div className="w-full min-w-0 flex-1">
             <h3>{entry.studentName}</h3>
@@ -187,7 +187,7 @@ export default function AdminIntakePool({
   };
 
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Application intake pool"
         description={isHead
@@ -223,10 +223,10 @@ export default function AdminIntakePool({
       )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Unclaimed submissions" value={unclaimed.filter((entry) => entry.status === 'Submitted').length} note="Nobody has opened these yet" />
-        <StatCard label="Oldest waiting" value={oldestWait == null ? '—' : `${oldestWait}d`} note="First come, first served" />
-        <StatCard label="In progress, no officer" value={unclaimedInProgress.length} note="Moving without an officer" />
-        <StatCard label="With officers" value={taken.length} note="Taken and discoverable below" />
+        <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimed.filter((entry) => entry.status === 'Submitted').length} note="Nobody has opened these yet" />
+        <StatCard icon={Clock} tone="danger" label="Oldest waiting" value={oldestWait == null ? '—' : `${oldestWait}d`} note="First come, first served" />
+        <StatCard icon={Users} tone="info" label="In progress, no officer" value={unclaimedInProgress.length} note="Moving without an officer" />
+        <StatCard icon={UserCheck} tone="success" label="With officers" value={taken.length} note="Taken and discoverable below" />
       </section>
 
       <section>
@@ -347,7 +347,7 @@ export default function AdminIntakePool({
             {interviewerWorkload.length ? (
               <ul className="m-0 grid gap-2 p-0">
                 {interviewerWorkload.map((interviewer) => (
-                  <li key={interviewer.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
+                  <li key={interviewer.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface p-3 transition hover:-translate-y-px hover:shadow-card">
                     <span className="min-w-0 text-sm font-semibold text-app-text">{interviewer.fullName}</span>
                     <span className="text-xs text-app-muted">
                       {interviewer.scopeLabel || 'Scope not assigned'} · {interviewer.cases} open interview case{interviewer.cases === 1 ? '' : 's'}
@@ -371,7 +371,7 @@ export default function AdminIntakePool({
             {workload.length ? (
               <ul className="m-0 grid gap-2 p-0">
                 {workload.map((officer) => (
-                  <li key={officer.officerId || officer.officerName} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
+                  <li key={officer.officerId || officer.officerName} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface p-3 transition hover:-translate-y-px hover:shadow-card">
                     <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
                     <span className="text-xs text-app-muted">
                       {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'} · {officer.cases} open case{officer.cases === 1 ? '' : 's'}

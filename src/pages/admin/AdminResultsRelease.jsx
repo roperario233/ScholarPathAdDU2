@@ -1,7 +1,8 @@
+import { Award, Gavel, SendHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
-import { StatCard } from '../../components/pageParts';
+import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { downloadApplicantSummaryCsv, getApprovalQueue, getFinalCheckHints, getReleaseGroups } from '../../lib/admissionsOffice';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
@@ -76,7 +77,7 @@ export default function AdminResultsRelease({
   };
 
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Final check and release"
         description="Check each approved case, then release a scholarship's results to every applicant at once."
@@ -85,9 +86,9 @@ export default function AdminResultsRelease({
       />
 
       <section className="grid gap-3 sm:grid-cols-3">
-        <StatCard label="Awaiting the school's approval" value={awaitingSchool.length} note="Approved by the configured level" />
-        <StatCard label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
-        <StatCard label="Results released" value={applications.filter((entry) => entry.status === 'Released').length} note="Accepted applicants notified" />
+        <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Approved by the configured level" />
+        <StatCard icon={Award} tone="info" label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
+        <StatCard icon={SendHorizontal} tone="success" label="Results released" value={applications.filter((entry) => entry.status === 'Released').length} note="Accepted applicants notified" />
       </section>
 
       {feedback ? (
@@ -103,7 +104,7 @@ export default function AdminResultsRelease({
             const allChecked = group.approved.every((entry) => checked[entry.id]);
             const notAccepted = group.decided.filter((entry) => entry.status === 'Rejected').length;
             return (
-              <section key={group.scholarshipId} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4">
+              <section key={group.scholarshipId} className={getCaseCardClass('success')}>
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="m-0 min-w-0 text-base font-semibold">{group.title}</h3>
                   <span className="text-xs text-app-muted">
@@ -116,7 +117,7 @@ export default function AdminResultsRelease({
                       const hints = getFinalCheckHints(entry, applications);
                       const flagged = hints.siblingsOnGrant.length || hints.pendingCases.length || hints.selfDeclaredSibling;
                       return (
-                        <li key={entry.id} className="grid gap-2 rounded-[14px] border border-app-border bg-app-card/60 p-3">
+                        <li key={entry.id} className="grid gap-2 rounded-2xl border border-app-border bg-app-card/60 p-3">
                           <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
                             <div className="min-w-0 w-full">
                               <strong className="block truncate text-sm">{entry.studentName}</strong>
@@ -175,7 +176,7 @@ export default function AdminResultsRelease({
           {awaitingSchool.length ? awaitingSchool.map((entry) => {
             const approver = getApproverRoleForApplication(entry, approvalLevels, programIndex);
             return (
-              <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+              <article key={entry.id} className={getCaseCardClass('warning')}>
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
                   <div className="min-w-0 w-full"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p></div>
                   <StatusBadge tone="info">With the {REVIEW_ROLE_LABELS[approver] || 'Chairperson'}</StatusBadge>

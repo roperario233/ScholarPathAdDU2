@@ -6,16 +6,43 @@ import { Button, EmptyState, StatusBadge } from './ui';
 
 export { Button, Card, EmptyState, StatusBadge } from './ui';
 
-export function StatCard({ label, value, note }) {
+const statToneClasses = {
+  info: 'bg-blue-500/15 text-blue-700 dark:text-blue-300',
+  warning: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  success: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  danger: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+  neutral: 'bg-slate-500/15 text-slate-700 dark:text-slate-300',
+};
+
+// Metric tile shared by the staff pages. With an `icon` it matches the student
+// Applications tiles (a toned icon chip, a large figure); without one it keeps the
+// original quiet tile. A long text value (a review scope) stays smaller.
+export function StatCard({ label, value, note, icon: Icon, tone = 'info' }) {
+  const isLongValue = typeof value === 'string' && value.length > 12;
   return (
-    <article className="group relative flex flex-col gap-1 overflow-hidden rounded-app border border-app-border bg-app-card p-5 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app">
-      <span className="absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-blue-500/10 transition group-hover:scale-125" />
-      <span className="text-sm font-semibold text-app-muted">{label}</span>
-      <strong className="text-xl font-bold text-app-text">{value}</strong>
-      <p className="mb-0 text-sm text-app-muted">{note}</p>
+    <article className="group page-metric relative overflow-hidden rounded-app border border-app-border bg-app-card p-4 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app">
+      {Icon ? null : <span className="pointer-events-none absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-blue-500/10 transition group-hover:scale-125" aria-hidden="true" />}
+      {Icon ? <div className={`absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${statToneClasses[tone] || statToneClasses.info}`} aria-hidden="true"><Icon size={18} /></div> : null}
+      <span className={`text-xs font-semibold text-app-muted ${Icon ? 'pr-12' : ''}`}>{label}</span>
+      <strong className={`text-app-text ${isLongValue ? '!text-lg' : '!text-3xl'}`}>{value}</strong>
+      {note ? <p className="text-xs text-app-muted">{note}</p> : null}
     </article>
   );
 }
+
+// The card surface for one application row in a staff queue: the student pages'
+// accent bar on the left, coloured by where the case stands.
+const caseAccentBars = {
+  success: 'before:bg-emerald-500',
+  danger: 'before:bg-rose-500',
+  warning: 'before:bg-amber-500',
+  info: 'before:bg-blue-500',
+  neutral: 'before:bg-slate-400',
+};
+
+export const getCaseCardClass = (tone = 'info') => (
+  `relative grid gap-3 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-4 pl-5 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 hover:-translate-y-0.5 hover:shadow-app ${caseAccentBars[tone] || caseAccentBars.info}`
+);
 
 export function ScholarshipRow({ scholarship, onApply, profile, compact = false }) {
   const academicDisplay = getScholarshipAcademicDisplay(profile || {}, scholarship);

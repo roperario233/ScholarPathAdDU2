@@ -2,6 +2,7 @@ import { useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../../components/InterviewRoster';
+import { getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import {
   getInterviewEntries,
@@ -24,7 +25,7 @@ const FILTERS = [
 
 function ScheduleRow({ application, onOpen }) {
   return (
-    <article className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+    <article className={getCaseCardClass('warning')}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate">{application.studentName}</h3>

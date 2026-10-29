@@ -1,3 +1,4 @@
+import AdminPageHeader from '../components/AdminPageHeader';
 import { useState } from 'react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../components/InterviewRoster';
@@ -68,13 +69,11 @@ export default function DepartmentInterviewsView({
 
   return (
     <div className="grid content-start gap-5 self-start">
-      <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-        <div className="page-title-copy">
-          <span className="page-section-label">{REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} interviews</span>
-          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} interview panel</h2>
-        </div>
-        <StatusBadge tone="info">{panelUpcoming.length} on your panel</StatusBadge>
-      </section>
+      <AdminPageHeader
+        label={`${REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} interviews`}
+        title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} interview panel`}
+        badge={`${panelUpcoming.length} on your panel`}
+      />
 
       <Card
         title="Interviews"

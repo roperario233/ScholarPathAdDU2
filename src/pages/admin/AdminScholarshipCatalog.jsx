@@ -77,7 +77,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
   };
 
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="AdDU internal scholarship catalog"
         description="Publish AdDU internal tracks and the documents each one requires."

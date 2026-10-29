@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { StatCard } from '../components/pageParts';
+import { CalendarClock, ClipboardCheck, Layers, SendHorizontal, UserCheck } from 'lucide-react';
+import AdminPageHeader from '../components/AdminPageHeader';
+import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
@@ -78,7 +80,7 @@ export default function DepartmentReviewView({
     const onPanel = panelApplicationIds.has(entry.id);
     const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
     return (
-      <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+      <article key={entry.id} className={getCaseCardClass('warning')}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full">
             <h3 className="truncate">{entry.studentName}</h3>
@@ -103,27 +105,23 @@ export default function DepartmentReviewView({
   };
 
   return (
-    <div className="grid gap-5">
-      <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-        <div className="page-title-copy">
-          <span className="page-section-label">{REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace</span>
-          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} applicants</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">
-            {isInterviewer
+    <div className="grid content-start gap-5">
+      <AdminPageHeader
+        label={`${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace`}
+        title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} applicants`}
+        description={isInterviewer
               ? 'Applicants in your scope reach you once the Admissions Office has verified their documents. Schedule the interview, record your recommendation level, then send the recommendation to the school.'
               : 'Interview the applicants in your scope or follow the interviewer’s work, and decide the recommendations your school routes to you. Document verification and release stay with the Admissions Office Head.'}
-          </p>
-        </div>
-        <StatusBadge tone="info">{queue.length} in scope</StatusBadge>
-      </section>
+        badge={`${queue.length} in scope`}
+      />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Waiting for an interview" value={awaitingInterview.length} />
-        <StatCard label="Interviews on your panel" value={panelInterviews.length} />
+        <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
+        <StatCard icon={UserCheck} tone="info" label="Interviews on your panel" value={panelInterviews.length} />
         {isInterviewer
-          ? <StatCard label="Recommendations sent" value={decidedInScope.length} />
-          : <StatCard label="Awaiting your approval" value={awaitingApproval.length} />}
-        <StatCard label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
+          ? <StatCard icon={SendHorizontal} tone="success" label="Recommendations sent" value={decidedInScope.length} />
+          : <StatCard icon={ClipboardCheck} tone="warning" label="Awaiting your approval" value={awaitingApproval.length} />}
+        <StatCard icon={Layers} tone="neutral" label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
       </section>
 
       {!isInterviewer ? (
@@ -135,7 +133,7 @@ export default function DepartmentReviewView({
             {awaitingApproval.length ? awaitingApproval.map((entry) => {
               const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
               return (
-                <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+                <article key={entry.id} className={getCaseCardClass('warning')}>
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
                     <div className="min-w-0 w-full">
                       <h3 className="truncate">{entry.studentName}</h3>
@@ -173,7 +171,7 @@ export default function DepartmentReviewView({
           {queue.length ? queue.map((entry) => {
             const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
             return (
-              <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
+              <article key={entry.id} className={getCaseCardClass(queueTone(entry.status))}>
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
                   <div className="min-w-0 w-full">
                     <h3 className="truncate">{entry.studentName}</h3>
