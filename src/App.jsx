@@ -8,7 +8,8 @@ import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, is
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
 import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
-import { isCaseOfficer } from './lib/admissionsOffice';
+import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
+import { getUpcomingInterviews } from './lib/interviewRoster';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getAttestedValue, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, isComparableAttribute, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
@@ -45,7 +46,7 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
-import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isReviewerRole } from './lib/reviewScope';
+import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 
 const roleLabels = {
   student: 'Student',
@@ -961,6 +962,64 @@ function App() {
     state.viewerRole,
     currentProfile.id,
     currentProfile.department,
+    unreadNotifications.length,
+  ]);
+
+  // The sidebar's quick-glance tiles follow the account's role. A student keeps the
+  // catalog overview; each office lane and each reviewer sees its own workload, read
+  // through the same selectors as the pages the numbers summarize.
+  const sidebarStats = useMemo(() => {
+    const role = state.viewerRole;
+    const applications = state.applications || [];
+    const unread = { key: 'unread', label: 'Unread alerts', value: unreadNotifications.length };
+    if (isAdmissionsReviewerRole(role)) {
+      const isHead = isAdmissionsHeadRole(role);
+      return [
+        { key: 'intake', label: 'Intake pool', value: getIntakePool(applications, state.caseOfficers).length },
+        { key: 'verify', label: 'Files to verify', value: getDocumentsAwaitingReview(applications, state.documents).length },
+        isHead
+          ? { key: 'release', label: 'Final check', value: getReleaseQueue(applications).approved.length }
+          : { key: 'interviews', label: 'Interviews', value: getUpcomingInterviews(applications).length },
+      ];
+    }
+    if (isReviewerRole(role)) {
+      const reviewerProfile = { ...currentProfile, role };
+      const scoped = getScopedQueue(applications, reviewerProfile, activeAcademicPrograms);
+      const programIndex = buildProgramScopeIndex(activeAcademicPrograms);
+      const interviews = { key: 'interviews', label: 'Interviews', value: getUpcomingInterviews(scoped).length };
+      if (isInterviewerRole(role)) {
+        return [
+          { key: 'schedule', label: 'To schedule', value: scoped.filter((entry) => entry.status === 'Endorsed').length },
+          interviews,
+          unread,
+        ];
+      }
+      return [
+        { key: 'cases', label: 'Cases in scope', value: scoped.filter((entry) => !['Draft', 'Released', 'Rejected'].includes(entry.status)).length },
+        {
+          key: 'approve',
+          label: 'To approve',
+          value: scoped.filter((entry) => entry.status === 'Recommended'
+            && isApproverForApplication(entry, reviewerProfile, state.approvalLevels || [], programIndex)).length,
+        },
+        interviews,
+      ];
+    }
+    return [
+      { key: 'programs', label: 'Programs', value: scholarshipCatalog.length },
+      { key: 'deadlines', label: 'Open deadlines', value: activeDeadlineCount },
+      unread,
+    ];
+  }, [
+    state.viewerRole,
+    state.applications,
+    state.caseOfficers,
+    state.documents,
+    state.approvalLevels,
+    currentProfile,
+    activeAcademicPrograms,
+    scholarshipCatalog.length,
+    activeDeadlineCount,
     unreadNotifications.length,
   ]);
 
@@ -3031,7 +3090,7 @@ function App() {
           {renderNavigation('my-4')}
 
           <div className="border-t border-app-border pt-4">
-            <SidebarStats programs={stats.totalPrograms} deadlines={activeDeadlineCount} unread={stats.unreadNotifications} />
+            <SidebarStats items={sidebarStats} />
           </div>
         </aside>
 
