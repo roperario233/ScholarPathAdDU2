@@ -3876,3 +3876,59 @@ grant execute on function public.revoke_account_invitation(uuid, text) to authen
 grant execute on function public.update_account_scope(uuid, text, text, text, text) to authenticated;
 grant execute on function public.deactivate_account(uuid, text) to authenticated;
 grant execute on function public.reactivate_account(uuid) to authenticated;
+
+
+-- ===========================================================================
+-- Advisor cleanup (Oct 29). Mirrors, in order:
+--   supabase/migrations/20261052000000_pin_function_search_paths.sql
+--   supabase/migrations/20261052000001_index_uncovered_foreign_keys.sql
+-- Neither block changes behaviour or privilege; both clear a linter finding.
+-- Every statement is idempotent.
+-- ===========================================================================
+
+-- 1. Pin the search_path on the fifteen helper functions reported as
+--    `function_search_path_mutable` (lint 0011). They are all SECURITY INVOKER,
+--    so this is hygiene rather than a privilege fix: setting the path does not
+--    change EXECUTE, and the helpers whose grants were revoked by
+--    20261040000000_restrict_profile_gate_function_access.sql stay revoked.
+alter function public.academic_year_start(timestamp with time zone) set search_path = public;
+alter function public.attribute_proof_required(text, jsonb) set search_path = public;
+alter function public.document_proof_is_current(jsonb, timestamp with time zone, text, jsonb, timestamp with time zone) set search_path = public;
+alter function public.document_type_attributes(text, text) set search_path = public;
+alter function public.financial_answers_complete(jsonb) set search_path = public;
+alter function public.financial_multi_select_answered(jsonb) set search_path = public;
+alter function public.financial_option_group_answered(jsonb, text, text[]) set search_path = public;
+alter function public.is_addu_in_scope_track(text) set search_path = public;
+alter function public.jsonb_array_empty(jsonb) set search_path = public;
+alter function public.jsonb_is_true(jsonb) set search_path = public;
+alter function public.missing_application_profile_item(jsonb) set search_path = public;
+alter function public.parent_finances_answered(jsonb, text) set search_path = public;
+alter function public.parent_name_answered(jsonb, text) set search_path = public;
+alter function public.profile_year_standing(jsonb) set search_path = public;
+alter function public.proof_numeric_value(text) set search_path = public;
+
+-- 2. Cover the foreign keys reported as `unindexed_foreign_keys` (lint 0001).
+--    Existing composite indexes do not lead with these columns, so each one is
+--    added on its own; `results_releases.scholarship_id` is already covered by
+--    results_releases_scholarship_idx (scholarship_id, released_at) and is not
+--    repeated here.
+create index if not exists account_invitations_claimed_by_idx on public.account_invitations (claimed_by);
+create index if not exists account_invitations_invited_by_idx on public.account_invitations (invited_by);
+create index if not exists account_invitations_revoked_by_idx on public.account_invitations (revoked_by);
+create index if not exists account_provisioning_log_actor_id_idx on public.account_provisioning_log (actor_id);
+create index if not exists account_provisioning_log_target_user_id_idx on public.account_provisioning_log (target_user_id);
+create index if not exists applications_student_id_idx on public.applications (student_id);
+create index if not exists applications_scholarship_id_idx on public.applications (scholarship_id);
+create index if not exists application_documents_document_id_idx on public.application_documents (document_id);
+create index if not exists application_case_officers_added_by_idx on public.application_case_officers (added_by);
+create index if not exists application_review_comments_author_id_idx on public.application_review_comments (author_id);
+create index if not exists documents_owner_id_idx on public.documents (owner_id);
+create index if not exists application_financial_details_student_id_idx on public.application_financial_details (student_id);
+create index if not exists application_interview_panelists_added_by_idx on public.application_interview_panelists (added_by);
+create index if not exists interview_locations_created_by_idx on public.interview_locations (created_by);
+create index if not exists department_reviews_reviewer_id_idx on public.department_reviews (reviewer_id);
+create index if not exists approval_levels_updated_by_idx on public.approval_levels (updated_by);
+create index if not exists results_releases_released_by_idx on public.results_releases (released_by);
+create index if not exists announcements_created_by_idx on public.announcements (created_by);
+create index if not exists office_calendar_entries_created_by_idx on public.office_calendar_entries (created_by);
+
