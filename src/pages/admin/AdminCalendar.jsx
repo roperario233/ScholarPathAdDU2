@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CalendarClock } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import FilterChips from '../../components/FilterChips';
 import InterviewLocationsModal from '../../components/InterviewLocationsModal';
 import MonthCalendar, { CalendarLegend, getCalendarMarkTone } from '../../components/MonthCalendar';
 import { Button, Card, EmptyState, FormField, ModalShell, StatusBadge } from '../../components/ui';
@@ -280,29 +281,13 @@ export default function AdminCalendar({
           )}
         >
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-1">
-              {MARK_FILTERS.map((option) => {
-                const isActive = markFilter === option.value;
-                return (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    variant={isActive ? 'secondary' : 'ghost'}
-                    aria-pressed={isActive}
-                    onClick={() => setMarkFilter(option.value)}
-                  >
-                    {/* The authenticated action styling paints every button the
-                        same, so the active chip marks itself with its own mark tone. */}
-                    <span className="inline-flex items-center gap-1.5">
-                      {isActive ? (
-                        <span className={`h-1.5 w-1.5 rounded-full ${getCalendarMarkTone(option.value)}`} aria-hidden="true" />
-                      ) : null}
-                      {option.label}
-                    </span>
-                  </Button>
-                );
-              })}
-            </div>
+            <FilterChips
+              name="calendar-mark-filter"
+              legend="Show on the calendar"
+              value={markFilter}
+              onChange={setMarkFilter}
+              options={MARK_FILTERS.map((option) => ({ ...option, dotClass: getCalendarMarkTone(option.value) }))}
+            />
             <Button type="button" variant="ghost" onClick={goToToday}>Today</Button>
           </div>
           <MonthCalendar

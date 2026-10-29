@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarClock, CalendarPlus } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../../components/InterviewRoster';
+import FilterChips from '../../components/FilterChips';
 import { getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import {
@@ -187,41 +188,19 @@ export default function AdminInterviews({
       ) : null}
 
       <Card title="Interviews">
-        <fieldset className="m-0 mb-3 flex min-w-0 flex-wrap gap-2 border-0 p-0">
-          <legend className="sr-only">Filter interviews</legend>
-          {FILTERS.map((entry) => {
-            const selectedChip = entry.key === filter;
-            const alert = entry.key === 'needs-scheduling' && counts[entry.key] > 0;
-            return (
-              <label key={entry.key} className="cursor-pointer">
-                <input
-                  type="radio"
-                  name="interview-filter"
-                  value={entry.key}
-                  checked={selectedChip}
-                  onChange={() => setFilter(entry.key)}
-                  className="peer sr-only"
-                />
-                <span
-                  className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition peer-focus-visible:ring-4 peer-focus-visible:ring-blue-500/20 ${selectedChip
-                    ? 'border-ateneo bg-ateneo text-white dark:border-sky-400 dark:bg-sky-400/20 dark:text-sky-100'
-                    : 'border-app-border bg-app-surface text-app-text hover:border-ateneo/50'}`}
-                >
-                  {entry.label}
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] ${selectedChip
-                      ? 'bg-white/20 text-white'
-                      : alert
-                        ? 'bg-amber-400/20 text-amber-700 dark:text-amber-200'
-                        : 'bg-app-card text-app-muted'}`}
-                  >
-                    {counts[entry.key]}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </fieldset>
+        <FilterChips
+          name="interview-filter"
+          legend="Filter interviews"
+          className="mb-3"
+          value={filter}
+          onChange={setFilter}
+          options={FILTERS.map((entry) => ({
+            value: entry.key,
+            label: entry.label,
+            count: counts[entry.key],
+            alert: entry.key === 'needs-scheduling' && counts[entry.key] > 0,
+          }))}
+        />
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {showScheduleList ? (
             needsSchedule.length ? needsSchedule.map((entry) => (
