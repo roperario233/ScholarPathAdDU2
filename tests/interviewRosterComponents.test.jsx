@@ -166,9 +166,26 @@ describe('InterviewRosterRow', () => {
 describe('AdminInterviews', () => {
   it('places endorsed applicants in the scheduling list', () => {
     const html = renderToStaticMarkup(<AdminInterviews {...officeProps()} initialFilter="needs-scheduling" />);
-    expect(html).toContain('Needs schedule');
-    expect(html).toContain('Schedule interview');
+    expect(html).toContain('Awaiting schedule');
+    expect(html).toContain('To be scheduled by');
+    expect(html).toContain('Read-only for Admissions Office Staff');
+    expect(html).toContain('View case');
+    expect(html).not.toContain('Schedule as Head');
     expect(html).toContain('Ada Cruz');
+  });
+
+  it('offers the Head the override and shows a count on every category', () => {
+    const html = renderToStaticMarkup(<AdminInterviews {...officeProps({ role: 'admissions_head' })} initialFilter="needs-scheduling" />);
+    expect(html).toContain('Schedule as Head');
+    ['Upcoming', 'Needs scheduling', 'Cancelled', 'All interviews'].forEach((label) => {
+      expect(html).toMatch(new RegExp(`${label}<span[^>]*>\\d+</span>`));
+    });
+  });
+
+  it('opens on the first category that has something in it', () => {
+    const html = renderToStaticMarkup(<AdminInterviews {...officeProps({ applications: applications().filter((entry) => entry.status === 'Endorsed') })} />);
+    expect(html).toContain('Awaiting schedule');
+    expect(html).not.toContain('No upcoming interviews');
   });
 
   it('shows the upcoming roster with its filter and panel', () => {

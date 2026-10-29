@@ -29,6 +29,14 @@ const FILTERS = [
   { key: 'all', label: 'All interviews' },
 ];
 
+// The line under an empty list, so a reader is told when the work sits in
+// another category instead of seeing a bare "nothing here".
+const describeOtherCategories = (others = [], counts = {}) => (
+  others.length
+    ? `Elsewhere: ${others.map((entry) => `${counts[entry.key]} ${entry.label.toLowerCase()}`).join(', ')}.`
+    : 'Nothing is waiting in any category.'
+);
+
 // The interviewers of the applicant's school and cluster schedule the interview
 // (Consultation 2); the Head can step in. Staff read the board without acting.
 function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
@@ -96,7 +104,7 @@ export default function AdminInterviews({
   onReleaseResults,
   onChangeDocument,
   interviewWorkspace = null,
-  initialFilter = 'upcoming',
+  initialFilter = null,
   // Case officers: opening a case from the interview board joins the officer to it.
   caseOfficers = [],
   currentUserId = '',
@@ -110,13 +118,25 @@ export default function AdminInterviews({
     () => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []),
     [interviewWorkspace?.academicPrograms],
   );
-  const [filter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : 'upcoming');
+  // Until the reader picks a category, open the first one that has something in
+  // it, so the board never lands on an empty list while work waits elsewhere.
+  const [chosenFilter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : null);
   const [selectedId, setSelectedId] = useState(null);
 
   const entries = getInterviewEntries(applications);
   const upcoming = getUpcomingInterviews(applications, { now });
   const needsSchedule = getInterviewsNeedingSchedule(applications);
   const cancelled = entries.filter((entry) => entry.state === 'cancelled');
+  const counts = {
+    upcoming: upcoming.length,
+    'needs-scheduling': needsSchedule.length,
+    cancelled: cancelled.length,
+    all: entries.length,
+  };
+  const filter = chosenFilter
+    || ['upcoming', 'needs-scheduling', 'cancelled'].find((key) => counts[key] > 0)
+    || 'upcoming';
+  const otherWithItems = FILTERS.filter((entry) => entry.key !== 'all' && entry.key !== filter && counts[entry.key] > 0);
   const conflicts = findRosterConflicts(applications, interviewWorkspace?.panelists || []);
   const selected = applications.find((entry) => entry.id === selectedId) || null;
   const calendarNeedsAttention = Boolean(interviewWorkspace)
@@ -166,21 +186,42 @@ export default function AdminInterviews({
         </p>
       ) : null}
 
-      <Card
-        title="Interviews"
-        action={(
-          <div className="w-[13rem] max-w-full">
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              aria-label="Filter interviews"
-              className="min-h-10 w-full"
-            >
-              {FILTERS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}</option>)}
-            </select>
-          </div>
-        )}
-      >
+      <Card title="Interviews">
+        <fieldset className="m-0 mb-3 flex min-w-0 flex-wrap gap-2 border-0 p-0">
+          <legend className="sr-only">Filter interviews</legend>
+          {FILTERS.map((entry) => {
+            const selectedChip = entry.key === filter;
+            const alert = entry.key === 'needs-scheduling' && counts[entry.key] > 0;
+            return (
+              <label key={entry.key} className="cursor-pointer">
+                <input
+                  type="radio"
+                  name="interview-filter"
+                  value={entry.key}
+                  checked={selectedChip}
+                  onChange={() => setFilter(entry.key)}
+                  className="peer sr-only"
+                />
+                <span
+                  className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition peer-focus-visible:ring-4 peer-focus-visible:ring-blue-500/20 ${selectedChip
+                    ? 'border-ateneo bg-ateneo text-white dark:border-sky-400 dark:bg-sky-400/20 dark:text-sky-100'
+                    : 'border-app-border bg-app-surface text-app-text hover:border-ateneo/50'}`}
+                >
+                  {entry.label}
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] ${selectedChip
+                      ? 'bg-white/20 text-white'
+                      : alert
+                        ? 'bg-amber-400/20 text-amber-700 dark:text-amber-200'
+                        : 'bg-app-card text-app-muted'}`}
+                  >
+                    {counts[entry.key]}
+                  </span>
+                </span>
+              </label>
+            );
+          })}
+        </fieldset>
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {showScheduleList ? (
             needsSchedule.length ? needsSchedule.map((entry) => (
@@ -191,7 +232,7 @@ export default function AdminInterviews({
                 isHead={isHead}
                 onOpen={setSelectedId}
               />
-            )) : <EmptyState title="Nothing to schedule" />
+            )) : <EmptyState title="Nothing to schedule" description={describeOtherCategories(otherWithItems, counts)} />
           ) : groups.length ? groups.map((group) => (
             <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>
               <div className="grid gap-3">
@@ -206,7 +247,21 @@ export default function AdminInterviews({
                 ))}
               </div>
             </InterviewDayGroup>
-          )) : <EmptyState title="No interviews here" />}
+          )) : (
+            <EmptyState
+              title={filter === 'upcoming' ? 'No upcoming interviews' : 'No interviews here'}
+              description={describeOtherCategories(otherWithItems, counts)}
+              action={otherWithItems.length ? (
+                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                  {otherWithItems.map((entry) => (
+                    <Button key={entry.key} type="button" onClick={() => setFilter(entry.key)}>
+                      {entry.label} ({counts[entry.key]})
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
+            />
+          )}
         </div>
       </Card>
 
