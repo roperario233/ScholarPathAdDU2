@@ -143,14 +143,19 @@ export default function AdminResultsRelease({
         <div className="grid gap-4">
           {groups.length ? groups.map((group) => {
             const allChecked = group.approved.every((entry) => checked[entry.id]);
+            const checkedCount = group.approved.filter((entry) => checked[entry.id]).length;
             const notAccepted = group.decided.filter((entry) => entry.status === 'Rejected').length;
+            const progress = group.approved.length ? Math.round((checkedCount / group.approved.length) * 100) : 0;
+            const releasing = busyScholarship === group.scholarshipId;
             return (
               <section key={group.scholarshipId} className={getCaseCardClass('success')}>
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="m-0 min-w-0 text-base font-semibold">{group.title}</h3>
-                  <span className="text-xs text-app-muted">
-                    {group.approved.length} approved · {group.decided.length} decided, not yet released{notAccepted ? ` (${notAccepted} not accepted)` : ''}
-                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge tone="success" className="whitespace-nowrap">{plural(group.approved.length, 'approved case')}</StatusBadge>
+                    {notAccepted ? <StatusBadge tone="warning" className="whitespace-nowrap">{notAccepted} not accepted · held</StatusBadge> : null}
+                    {group.decided.length > notAccepted ? <StatusBadge tone="info" className="whitespace-nowrap">{group.decided.length - notAccepted} decided · held</StatusBadge> : null}
+                  </div>
                 </div>
                 {group.approved.length ? (
                   <ul className="m-0 grid gap-2 p-0">
@@ -164,7 +169,7 @@ export default function AdminResultsRelease({
                               <strong className="block truncate text-sm">{entry.studentName}</strong>
                               <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'} · approved {entry.updatedAt ? fmtDate(entry.updatedAt) : ''}</span>
                             </div>
-                            <StatusBadge tone={flagged ? 'warning' : 'success'}>{flagged ? 'Check before release' : 'No flags'}</StatusBadge>
+                            <StatusBadge tone={flagged ? 'warning' : 'success'} className="shrink-0 whitespace-nowrap">{flagged ? 'Check before release' : 'No flags'}</StatusBadge>
                           </div>
                           {flagged ? (
                             <ul className="m-0 grid gap-1 pl-4 text-xs text-amber-700 dark:text-amber-300">
@@ -177,14 +182,17 @@ export default function AdminResultsRelease({
                               ))}
                             </ul>
                           ) : null}
-                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-                            <label className="flex items-center gap-2 text-sm">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-3">
+                            <label
+                              className={`flex min-h-10 cursor-pointer items-center gap-2.5 rounded-xl border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-blue-500/40 ${checked[entry.id] ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : 'border-app-border bg-app-surface text-app-text hover:bg-app-card'}`}
+                            >
                               <input
                                 type="checkbox"
+                                className="h-4 w-4 cursor-pointer accent-emerald-600"
                                 checked={Boolean(checked[entry.id])}
                                 onChange={(event) => setChecked((previous) => ({ ...previous, [entry.id]: event.target.checked }))}
                               />
-                              Final check done
+                              {checked[entry.id] ? 'Final check done' : 'Mark final check as done'}
                             </label>
                             <Button type="button" variant="secondary" onClick={() => setOpenId(entry.id)}>Open case</Button>
                           </div>
@@ -193,18 +201,36 @@ export default function AdminResultsRelease({
                     })}
                   </ul>
                 ) : null}
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-3">
-                  <span className="text-xs text-app-muted">
-                    {group.approved.length && !allChecked
-                      ? 'Mark every approved case as checked to release.'
-                      : 'Releasing notifies the accepted applicants and sends the general letter to the others.'}
-                  </span>
+                <div className="grid gap-3 border-t border-app-border pt-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-4">
+                  <div className="grid min-w-0 gap-1.5">
+                    {group.approved.length ? (
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
+                          role="progressbar"
+                          aria-label={`Final checks done for ${group.title}`}
+                          aria-valuemin={0}
+                          aria-valuemax={group.approved.length}
+                          aria-valuenow={checkedCount}
+                        >
+                          <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300" style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums text-app-text">{checkedCount} of {group.approved.length} checked</span>
+                      </div>
+                    ) : null}
+                    <span className="text-xs text-app-muted">
+                      {group.approved.length && !allChecked
+                        ? 'Tick the final check on every approved case to unlock the release.'
+                        : 'Releasing notifies the accepted applicants and sends the general letter to the others.'}
+                    </span>
+                  </div>
                   <Button
                     type="button"
                     variant="primary"
-                    disabled={!allChecked || busyScholarship === group.scholarshipId}
+                    className="w-full sm:w-auto"
+                    disabled={!allChecked || releasing}
                     onClick={() => releaseGroup(group)}
-                  >{busyScholarship === group.scholarshipId ? 'Releasing…' : 'Release results'}</Button>
+                  ><SendHorizontal className="h-4 w-4" aria-hidden="true" />{releasing ? 'Releasing…' : 'Release results'}</Button>
                 </div>
               </section>
             );
