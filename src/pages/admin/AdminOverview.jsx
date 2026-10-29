@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import { Activity, ArrowRight, Award, CalendarClock, CalendarDays, ClipboardList, FileCheck2, Gavel, Hourglass, Inbox, LibraryBig, Megaphone, SendHorizontal, Users } from 'lucide-react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import { Activity, ArrowRight, Award, CalendarClock, CalendarDays, CheckCircle2, ClipboardList, FileCheck2, Gavel, History, Hourglass, Inbox, LibraryBig, Megaphone, SendHorizontal, Users } from 'lucide-react';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Card, EmptyState, StatusBadge } from '../../components/ui';
 import { getApprovalQueue, getDocumentsAwaitingReview, getIntakePool, getMyReviewQueue, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
 import { getEndorsementQueue } from '../../lib/endorsement';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
-import { fmtDate } from '../../lib/formatters';
+import { fmtDate, plural } from '../../lib/formatters';
 
 // The Admissions Office landing route. It carries only the metrics that steer the
 // day's work, the links into each functional workspace, and the cross-cutting
@@ -69,6 +69,61 @@ const workspaces = [
   },
 ];
 
+// The header tile, shaped like the student Dashboard's "Next deadline" tile: it
+// names the one piece of work that needs the signed-in lane next and opens it.
+// The Head's order follows the pipeline's end first, because a released result
+// is what applicants are waiting on: final check, then the intake pool, then the
+// officer's own queue. Staff only read, so their tile reports the open cases.
+function getNextAction({ isHead, approved, intakePool, myQueue, openCases }) {
+  if (!isHead) {
+    return {
+      icon: Activity,
+      label: 'Open applications',
+      title: plural(openCases, 'open case'),
+      note: 'Read-only for Admissions Office Staff',
+      view: 'admin-intake',
+    };
+  }
+  if (approved) {
+    return {
+      icon: SendHorizontal,
+      label: 'Needs your attention',
+      tone: 'warning',
+      title: `${plural(approved, 'approved case')} ready for release`,
+      note: 'Tick each final check, then release the results',
+      view: 'admin-release',
+    };
+  }
+  if (intakePool) {
+    return {
+      icon: Inbox,
+      label: 'Needs your attention',
+      tone: 'warning',
+      title: `${plural(intakePool, 'application')} in the intake pool`,
+      note: 'Pick one up to verify its documents',
+      view: 'admin-intake',
+    };
+  }
+  if (myQueue) {
+    return {
+      icon: ClipboardList,
+      label: 'Needs your attention',
+      tone: 'warning',
+      title: `${plural(myQueue, 'case')} in your review queue`,
+      note: 'Verify documents, then forward to interview',
+      view: 'admin-review',
+    };
+  }
+  return {
+    icon: CheckCircle2,
+    label: 'Office status',
+    tone: 'success',
+    title: 'You are all caught up',
+    note: 'No case needs your action right now',
+    view: null,
+  };
+}
+
 export default function AdminOverview({ applications = [], documents = [], caseOfficers = [], currentUserId = '', role = 'admissions_office', onOpenWorkspace }) {
   const isHead = isAdmissionsHeadRole(role);
   const visibleWorkspaces = useMemo(
@@ -103,6 +158,14 @@ export default function AdminOverview({ applications = [], documents = [], caseO
   );
   const recentActivity = useMemo(() => getRecentApplicationActivity(applications, 5), [applications]);
 
+  const nextAction = getNextAction({
+    isHead,
+    approved: approvedApplications.length,
+    intakePool: intakePool.length,
+    myQueue: myQueue.length,
+    openCases: reviewApplications.length,
+  });
+
   return (
     <div className="grid content-start gap-5">
       <AdminPageHeader
@@ -110,9 +173,13 @@ export default function AdminOverview({ applications = [], documents = [], caseO
         description={isHead
           ? 'Verify documents, forward cases to the interviewers, then check and release the results.'
           : 'A read-only view of the office\'s open applications.'}
-        badge={isHead ? 'Final check and release' : 'Read-only'}
         featured
-      />
+      >
+        <AdminHeaderTile
+          {...nextAction}
+          onClick={nextAction.view ? () => onOpenWorkspace?.(nextAction.view) : undefined}
+        />
+      </AdminPageHeader>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={Inbox} tone="warning" label="Intake pool" value={intakePool.length} note="Open cases nobody has picked up" />

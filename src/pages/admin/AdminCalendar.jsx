@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import { CalendarClock } from 'lucide-react';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import InterviewLocationsModal from '../../components/InterviewLocationsModal';
 import MonthCalendar, { CalendarLegend, getCalendarMarkTone } from '../../components/MonthCalendar';
@@ -24,6 +25,7 @@ import {
   getInterviewMarksByDate,
   getInterviewsForDate,
   getManilaTodayKey,
+  getNextInterviewTile,
   getUpcomingInterviews,
 } from '../../lib/interviewRoster';
 import { getInterviewStateLabel } from '../../lib/interview';
@@ -263,9 +265,9 @@ export default function AdminCalendar({
       <AdminPageHeader
         title="Office calendar"
         description="Interviews, scholarship deadlines, recorded decisions, and office planning entries."
-        badge={`${upcoming.length} upcoming interview${upcoming.length === 1 ? '' : 's'}`}
-        badgeTone={upcoming.length ? 'info' : 'neutral'}
-      />
+      >
+        <AdminHeaderTile icon={CalendarClock} {...getNextInterviewTile(upcoming, { emptyNote: 'Interviews the schools schedule appear here.' })} />
+      </AdminPageHeader>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
         <Card

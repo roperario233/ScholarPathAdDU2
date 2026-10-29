@@ -1,6 +1,6 @@
-import { ChevronDown, Clock, Inbox, UserCheck, Users, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock, Inbox, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
@@ -24,7 +24,7 @@ import {
 } from '../../lib/admissionsOffice';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
 import { buildProgramScopeIndex } from '../../lib/reviewScope';
-import { fmtDate } from '../../lib/formatters';
+import { fmtDate, plural } from '../../lib/formatters';
 
 const PAGE_SIZE = 20;
 const WAITING_THRESHOLD_DAYS = 7;
@@ -199,9 +199,19 @@ export default function AdminIntakePool({
         description={isHead
           ? 'Every open application in one list, oldest submission first. Pick up a case to verify its documents.'
           : 'Every open application in one list, oldest submission first. Read-only for Admissions Office Staff.'}
-        badge={`${unclaimed.length} unclaimed`}
-        badgeTone={unclaimed.length ? 'warning' : 'success'}
-      />
+      >
+        {unclaimed.length ? (
+          <AdminHeaderTile
+            icon={Inbox}
+            tone={oldestWait != null && oldestWait >= WAITING_THRESHOLD_DAYS ? 'warning' : 'info'}
+            label="Unclaimed"
+            title={plural(unclaimed.length, 'application')}
+            note={oldestWait == null ? 'Nobody has picked these up yet.' : `The oldest has waited ${plural(oldestWait, 'day')}.`}
+          />
+        ) : (
+          <AdminHeaderTile icon={CheckCircle2} tone="success" label="Unclaimed" title="Nothing waiting" note="Every open case has an officer." />
+        )}
+      </AdminPageHeader>
 
       {feedback?.message && (
         <div

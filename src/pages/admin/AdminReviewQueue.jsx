@@ -1,6 +1,6 @@
-import { ClipboardList, FileCheck2, FileSearch, Inbox, X } from 'lucide-react';
+import { CheckCircle2, ClipboardList, FileCheck2, FileSearch, Inbox, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { SopStageTrack } from '../../components/ApplicationParts';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
@@ -14,7 +14,7 @@ import {
   getSubmissionWaitDays,
 } from '../../lib/admissionsOffice';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
-import { fmtDate } from '../../lib/formatters';
+import { fmtDate, plural } from '../../lib/formatters';
 
 // SOP steps 2-6 for the Admissions Office, as each officer sees it: the cases the
 // signed-in account has opened. The office-wide list lives in the intake pool's
@@ -91,9 +91,28 @@ export default function AdminReviewQueue({
         description={isHead
           ? 'The cases you opened, through every stage you decide.'
           : 'The cases you opened. Pick up more from the intake pool.'}
-        badge={`${myQueue.length} in your queue`}
-        badgeTone={myQueue.length ? 'warning' : 'success'}
-      />
+      >
+        {myQueue.length ? (
+          <AdminHeaderTile
+            icon={ClipboardList}
+            tone="warning"
+            label="Your queue"
+            title={`${plural(myQueue.length, 'case')} in progress`}
+            note={blockingDocuments.length
+              ? `${plural(blockingDocuments.length, 'document')} to verify.`
+              : 'No document waits on you right now.'}
+          />
+        ) : (
+          <AdminHeaderTile
+            icon={CheckCircle2}
+            tone="success"
+            label="Your queue"
+            title="Your queue is clear"
+            note={intakePool.length ? `${plural(intakePool.length, 'case')} waiting in the intake pool.` : 'Nothing is waiting in the intake pool.'}
+            onClick={intakePool.length && onOpenWorkspace ? () => onOpenWorkspace('admin-intake') : undefined}
+          />
+        )}
+      </AdminPageHeader>
 
       {feedback?.message && (
         <div

@@ -1,10 +1,12 @@
-import AdminPageHeader from '../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { useState } from 'react';
+import { CalendarClock } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../components/InterviewRoster';
 import { Card, EmptyState, StatusBadge } from '../components/ui';
 import {
   getInterviewEntries,
+  getNextInterviewTile,
   getPanelApplicationIds,
   getPanelForApplication,
   getNoteCountForApplication,
@@ -73,8 +75,12 @@ export default function DepartmentInterviewsView({
         label={`${REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} interviews`}
         title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} interview panel`}
         description="Follow the interviews in your scope and open one to record your notes for applicants on your panel."
-        badge={`${panelUpcoming.length} on your panel`}
-      />
+      >
+        <AdminHeaderTile
+          icon={CalendarClock}
+          {...getNextInterviewTile(panelUpcoming, { label: 'Next on your panel', emptyNote: 'Interviews you sit on appear here.' })}
+        />
+      </AdminPageHeader>
 
       <Card
         title="Interviews"

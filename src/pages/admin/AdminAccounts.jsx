@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock3, UserCheck, UserX } from 'lucide-react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ReasonModal from '../../components/ReasonModal';
 import { StatCard } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, ModalShell, StatusBadge } from '../../components/ui';
@@ -24,7 +24,7 @@ import {
   validateInvitationDraft,
 } from '../../lib/accountProvisioning';
 import { academicPrograms as referencePrograms } from '../../lib/academicPrograms';
-import { fmtDate as formatDate } from '../../lib/formatters';
+import { fmtDate as formatDate, plural } from '../../lib/formatters';
 import {
   deactivateSupabaseAccount,
   inviteSupabaseAccount,
@@ -303,9 +303,16 @@ export function AccountsWorkspace({
       <AdminPageHeader
         title="Accounts"
         description="Invite Admissions Office and academic reviewer accounts. The role is assigned when the person signs in with the invited address."
-        badge={`${summary.active} active`}
       >
-        <Button type="button" variant="primary" onClick={() => setDialog({ action: 'invite' })}>Invite an account</Button>
+        <AdminHeaderTile
+          icon={UserCheck}
+          label="Accounts"
+          title={plural(summary.active, 'active account')}
+          note={summary.expired
+            ? `${plural(summary.expired, 'invitation')} expired. Renew or revoke.`
+            : `${summary.invited} invited · ${summary.deactivated} deactivated`}
+          tone={summary.expired ? 'warning' : 'info'}
+        />
       </AdminPageHeader>
 
       {missing && (
@@ -327,7 +334,15 @@ export function AccountsWorkspace({
         <StatCard icon={UserX} tone="neutral" label="Deactivated" value={summary.deactivated} note="Role removed, history kept" />
       </section>
 
-      <Card title="Accounts" action={<StatusBadge>{visibleRows.length} shown</StatusBadge>}>
+      <Card
+        title="Accounts"
+        action={(
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <StatusBadge>{visibleRows.length} shown</StatusBadge>
+            <Button type="button" variant="primary" onClick={() => setDialog({ action: 'invite' })}>Invite an account</Button>
+          </div>
+        )}
+      >
         <div className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
           <input
             type="search"

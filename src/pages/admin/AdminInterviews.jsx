@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import { AlertTriangle, CalendarClock, CalendarPlus } from 'lucide-react';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { InterviewDayGroup, InterviewRosterRow } from '../../components/InterviewRoster';
 import { getCaseCardClass } from '../../components/pageParts';
@@ -7,12 +8,14 @@ import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import {
   getInterviewEntries,
   getInterviewsNeedingSchedule,
+  getNextInterviewTile,
   getNoteCountForApplication,
   getPanelForApplication,
   getUpcomingInterviews,
   groupInterviewsByDate,
 } from '../../lib/interviewRoster';
 import { findRosterConflicts, formatInterviewDateShort } from '../../lib/interview';
+import { plural } from '../../lib/formatters';
 
 // SOP step 5 for the Admissions Office. Scheduling and rescheduling open the
 // shared review surface.
@@ -93,9 +96,28 @@ export default function AdminInterviews({
       <AdminPageHeader
         title="Interview schedule"
         description="Interviews scheduled by each school, and any panel or room clashes."
-        badge={`${upcoming.length} upcoming`}
-        badgeTone={upcoming.length ? 'info' : 'neutral'}
-      />
+      >
+        {conflicts.length ? (
+          <AdminHeaderTile
+            icon={AlertTriangle}
+            tone="warning"
+            label="Needs attention"
+            title={plural(conflicts.length, 'panel or room clash', 'panel or room clashes')}
+            note="Two interviews share a panelist or a room."
+          />
+        ) : needsSchedule.length ? (
+          <AdminHeaderTile
+            icon={CalendarPlus}
+            tone="warning"
+            label="Needs scheduling"
+            title={`${plural(needsSchedule.length, 'applicant')} to schedule`}
+            note="Open one to set a date and venue."
+            onClick={() => setFilter('needs-scheduling')}
+          />
+        ) : (
+          <AdminHeaderTile icon={CalendarClock} {...getNextInterviewTile(upcoming)} />
+        )}
+      </AdminPageHeader>
 
       {calendarNeedsAttention ? (
         <p className="m-0 text-sm text-amber-700 dark:text-amber-200">

@@ -1,5 +1,6 @@
-import AdminPageHeader from '../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { useState } from 'react';
+import { CalendarClock } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import MonthCalendar, { CalendarLegend } from '../components/MonthCalendar';
 import { getInterviewStateTone } from '../components/InterviewRoster';
@@ -23,6 +24,7 @@ import {
   getInterviewMarksByDate,
   getInterviewsForDate,
   getManilaTodayKey,
+  getNextInterviewTile,
   getPanelApplicationIds,
   getUpcomingInterviews,
 } from '../lib/interviewRoster';
@@ -191,8 +193,14 @@ export default function DepartmentCalendarView({
         label={`${REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} calendar`}
         title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} calendar`}
         description="Interviews in your scope, scholarship deadlines, and office dates."
-        badge={`${panelUpcoming.length} on your panel`}
-      />
+      >
+        <AdminHeaderTile
+          icon={CalendarClock}
+          {...(panelUpcoming.length || !departmentUpcoming.length
+            ? getNextInterviewTile(panelUpcoming, { label: 'Next on your panel', emptyNote: 'Interviews you sit on appear here.' })
+            : getNextInterviewTile(departmentUpcoming, { label: 'Next in your scope' }))}
+        />
+      </AdminPageHeader>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
         <Card

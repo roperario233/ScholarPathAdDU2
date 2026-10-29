@@ -6,6 +6,7 @@ import {
   getInterviewsNeedingSchedule,
   getInterviewsForDate,
   getManilaTodayKey,
+  getNextInterviewTile,
   getPanelApplicationIds,
   getPanelForApplication,
   getUpcomingInterviews,
@@ -60,6 +61,23 @@ describe('interview roster entries', () => {
     ];
     expect([...getPanelApplicationIds(panelists, 'chair-sea')]).toEqual(['app-1']);
     expect(getPanelForApplication(panelists, 'app-1')).toHaveLength(1);
+  });
+});
+
+describe('the header tile for the next interview', () => {
+  it('names the earliest upcoming applicant with the Manila time and venue', () => {
+    const later = application({ id: 'app-2', studentName: 'Eli Tan', interview: interview({ startsAt: '2026-11-05T01:00:00.000Z' }) });
+    const upcoming = getUpcomingInterviews([later, application()], { now: NOW });
+    const tile = getNextInterviewTile(upcoming);
+    expect(tile.title).toBe('Ada Cruz');
+    expect(tile.note).toContain('Nov');
+    expect(tile.note).toContain('9:00 AM');
+    expect(tile.note).toContain('Interview Room A');
+  });
+
+  it('says so when nothing is scheduled', () => {
+    const tile = getNextInterviewTile([], { label: 'Next on your panel', emptyNote: 'Nothing yet.' });
+    expect(tile).toMatchObject({ label: 'Next on your panel', title: 'No interviews scheduled', note: 'Nothing yet.', tone: 'neutral' });
   });
 });
 

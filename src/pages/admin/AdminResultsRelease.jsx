@@ -1,6 +1,6 @@
-import { Award, ChevronDown, Gavel, SendHorizontal } from 'lucide-react';
+import { Award, CheckCircle2, ChevronDown, Gavel, SendHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../../components/ui';
@@ -8,7 +8,7 @@ import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue
 import { getActorRoleLabel } from '../../lib/applicationRequirements';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
-import { fmtDate } from '../../lib/formatters';
+import { fmtDate, plural } from '../../lib/formatters';
 
 // The Admissions Office Head's last step (Consultation 2, #13): the school
 // approves, then the Head checks each approved case for a sibling already on a
@@ -106,9 +106,25 @@ export default function AdminResultsRelease({
       <AdminPageHeader
         title="Final check and release"
         description="Check each approved case, then release a scholarship's results to every applicant at once."
-        badge={`${approvedCount} awaiting your final check`}
-        badgeTone={approvedCount ? 'warning' : 'success'}
-      />
+      >
+        {approvedCount ? (
+          <AdminHeaderTile
+            icon={SendHorizontal}
+            tone="warning"
+            label="Final check"
+            title={`${plural(approvedCount, 'approved case')} to check`}
+            note={awaitingSchool.length ? `${plural(awaitingSchool.length, 'more case')} still with the schools.` : 'Tick each check, then release the results.'}
+          />
+        ) : (
+          <AdminHeaderTile
+            icon={CheckCircle2}
+            tone="success"
+            label="Final check"
+            title="Nothing to release"
+            note={awaitingSchool.length ? `${plural(awaitingSchool.length, 'case')} awaiting the school approval.` : 'No approved case is waiting.'}
+          />
+        )}
+      </AdminPageHeader>
 
       <section className="grid gap-3 sm:grid-cols-3">
         <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Approved by the configured level" />

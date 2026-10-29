@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { CalendarClock, ClipboardCheck, Layers, SendHorizontal, UserCheck } from 'lucide-react';
-import AdminPageHeader from '../components/AdminPageHeader';
+import { CalendarClock, CheckCircle2, ClipboardCheck, Layers, SendHorizontal, UserCheck } from 'lucide-react';
+import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
@@ -9,7 +9,7 @@ import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getRev
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getActorRoleLabel, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { downloadApplicantSummary, getApplicantSummaryFileName } from '../lib/admissionsOffice';
 import { getLatestPanelRecommendation } from '../lib/interview';
-import { fmtCurrency, fmtDate } from '../lib/formatters';
+import { fmtCurrency, fmtDate, plural } from '../lib/formatters';
 
 const queueTone = (status) => {
   if (['Approved', 'Released'].includes(status)) return 'success';
@@ -117,8 +117,40 @@ export default function DepartmentReviewView({
         description={isInterviewer
               ? 'Applicants in your scope reach you once the Admissions Office has verified their documents. Schedule the interview, record your recommendation level, then send the recommendation to the school.'
               : 'Interview the applicants in your scope or follow the interviewer’s work, and decide the recommendations your school routes to you. Document verification and release stay with the Admissions Office Head.'}
-        badge={`${queue.length} in scope`}
-      />
+      >
+        {awaitingApproval.length ? (
+          <AdminHeaderTile
+            icon={ClipboardCheck}
+            tone="warning"
+            label="Needs your approval"
+            title={`${plural(awaitingApproval.length, 'recommendation')} to decide`}
+            note={`${plural(queue.length, 'applicant')} in your scope.`}
+          />
+        ) : awaitingInterview.length ? (
+          <AdminHeaderTile
+            icon={CalendarClock}
+            tone="warning"
+            label="Needs an interview"
+            title={`${plural(awaitingInterview.length, 'applicant')} waiting`}
+            note={`${plural(queue.length, 'applicant')} in your scope.`}
+          />
+        ) : panelInterviews.length ? (
+          <AdminHeaderTile
+            icon={UserCheck}
+            label="On your panel"
+            title={plural(panelInterviews.length, 'interview in progress', 'interviews in progress')}
+            note="Record the recommendation after each one."
+          />
+        ) : (
+          <AdminHeaderTile
+            icon={CheckCircle2}
+            tone="success"
+            label="Your scope"
+            title="Nothing waiting on you"
+            note={`${plural(queue.length, 'applicant')} in your scope.`}
+          />
+        )}
+      </AdminPageHeader>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />

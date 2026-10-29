@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState } from 'react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import { LibraryBig } from 'lucide-react';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import RequiredDocumentsEditor from '../../components/RequiredDocumentsEditor';
 import ApprovalLevelsCard from '../../components/ApprovalLevelsCard';
 import { Button, Card, FormField, ModalShell, StatusBadge } from '../../components/ui';
 import { getInternalCatalogEntries } from '../../lib/admissionsOffice';
 import { ADDU_INTERNAL_PROGRAM_TITLES, WORKING_SCHOLAR_ELIGIBLE_DEGREES, isAdduInternalProgram } from '../../lib/eligibility';
 import { normalizeRequirements } from '../../lib/applicationRequirements';
+import { fmtDate, plural } from '../../lib/formatters';
 
 // Catalog management is its own route: publishing an AdDU internal scholarship
 // never shares a screen with the review queue or the announcement composer. The
@@ -18,6 +20,14 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
   const dirtyRef = useRef(false);
   const internalScholarships = useMemo(() => getInternalCatalogEntries(scholarships), [scholarships]);
   const editingScholarship = editor?.scholarship || null;
+  // The header tile reports the open tracks and the next application deadline.
+  const activeTracks = useMemo(() => internalScholarships.filter((entry) => entry.isActive !== false), [internalScholarships]);
+  const nextDeadline = useMemo(() => {
+    const startOfToday = new Date().setHours(0, 0, 0, 0);
+    return activeTracks
+      .filter((entry) => entry.deadline && new Date(entry.deadline).getTime() >= startOfToday)
+      .sort((left, right) => new Date(left.deadline) - new Date(right.deadline))[0] || null;
+  }, [activeTracks]);
 
   const markDirty = () => {
     dirtyRef.current = true;
@@ -96,8 +106,15 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
       <AdminPageHeader
         title="AdDU internal scholarship catalog"
         description="Publish AdDU internal tracks and the documents each one requires."
-        badge={`${internalScholarships.length} AdDU internal tracks`}
-      />
+      >
+        <AdminHeaderTile
+          icon={LibraryBig}
+          label="Open for applications"
+          title={`${plural(activeTracks.length, 'active track')} of ${internalScholarships.length}`}
+          note={nextDeadline ? `Next deadline: ${nextDeadline.title} · ${fmtDate(nextDeadline.deadline)}` : 'No upcoming application deadline.'}
+          tone={activeTracks.length ? 'info' : 'neutral'}
+        />
+      </AdminPageHeader>
 
       <section className="grid gap-4">
         <Card
