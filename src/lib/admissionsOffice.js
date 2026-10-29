@@ -3,7 +3,7 @@ import { areDocumentsReviewable, describeStatusActor } from './applicationRequir
 import { isAdduInternalProgram } from './eligibility';
 import { findAcademicProgram } from './academicPrograms';
 import { buildXlsx, columnName, downloadBytes } from './xlsxWriter';
-import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole } from './reviewScope';
+import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
 
 // The Admissions Office workspace is split into one route per function
 // (dashboard, application review, catalog management, results release, and
@@ -611,6 +611,18 @@ export const getRoutedInterviewers = (application, staffDirectory = [], programI
   .filter((entry) => isInterviewerRole(entry.role))
   .filter((entry) => isApplicationInReviewerScope(application, getReviewerScope(entry), programIndex))
   .sort((left, right) => String(left.fullName || '').localeCompare(String(right.fullName || '')));
+
+// Who may schedule an applicant's interview (App.jsx `canCoordinateInterview`):
+// any scoped reviewer whose level covers the applicant. The routed interviewers
+// come first because the case reaches them automatically; a Dean, Assistant Dean,
+// or Chairperson in scope can also schedule. The Head's override is not listed.
+export const getInterviewSchedulers = (application, staffDirectory = [], programIndex = new Map()) => asList(staffDirectory)
+  .filter((entry) => isReviewerRole(entry.role))
+  .filter((entry) => isApplicationInReviewerScope(application, getReviewerScope(entry), programIndex))
+  .sort((left, right) => (
+    Number(isInterviewerRole(right.role)) - Number(isInterviewerRole(left.role))
+    || String(left.fullName || '').localeCompare(String(right.fullName || ''))
+  ));
 
 // Each interviewer's open interview work: the cases in scope that wait for, or
 // sit in, the interview stage. Read-only, like the officer workload.

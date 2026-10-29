@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, CalendarPlus } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
@@ -14,7 +14,10 @@ import {
   getUpcomingInterviews,
   groupInterviewsByDate,
 } from '../../lib/interviewRoster';
+import { getInterviewSchedulers } from '../../lib/admissionsOffice';
+import { isAdmissionsHeadRole } from '../../lib/constants';
 import { findRosterConflicts, formatInterviewDateShort } from '../../lib/interview';
+import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getReviewScopeLabel } from '../../lib/reviewScope';
 import { plural } from '../../lib/formatters';
 
 // SOP step 5 for the Admissions Office. Scheduling and rescheduling open the
@@ -26,7 +29,9 @@ const FILTERS = [
   { key: 'all', label: 'All interviews' },
 ];
 
-function ScheduleRow({ application, onOpen }) {
+// The interviewers of the applicant's school and cluster schedule the interview
+// (Consultation 2); the Head can step in. Staff read the board without acting.
+function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
   return (
     <article className={getCaseCardClass('warning')}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -36,10 +41,40 @@ function ScheduleRow({ application, onOpen }) {
             {application.scholarshipTitle} · {application.studentProgram || 'Program on file'}
           </p>
         </div>
-        <StatusBadge tone="warning">Needs schedule</StatusBadge>
+        <StatusBadge tone="warning">Awaiting schedule</StatusBadge>
       </div>
-      <div className="flex justify-end border-t border-app-border pt-2">
-        <Button type="button" onClick={() => onOpen(application.id)}>Schedule interview</Button>
+      <div className="grid gap-1.5">
+        <p className="m-0 text-xs font-bold uppercase tracking-[0.12em] text-app-muted">To be scheduled by</p>
+        {schedulers.length ? (
+          <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+            {schedulers.map((person) => (
+              <li
+                key={person.userId || person.fullName}
+                className="min-w-0 rounded-lg border border-app-border bg-app-surface px-2.5 py-1.5 text-sm"
+              >
+                <span className="font-semibold text-app-text">{person.fullName || REVIEW_ROLE_LABELS[person.role]}</span>
+                <span className="text-app-muted">
+                  {' · '}{REVIEW_ROLE_LABELS[person.role]}
+                  {getReviewScopeLabel(person) ? ` · ${getReviewScopeLabel(person)}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="m-0 text-sm text-amber-700 dark:text-amber-200">
+            No interviewer covers this school or cluster yet. Add one on Accounts{isHead ? '' : ' (Admissions Office Head)'}.
+          </p>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
+        <p className="m-0 min-w-0 flex-1 text-xs text-app-muted">
+          {isHead
+            ? 'The Head can schedule in their place.'
+            : 'Read-only for Admissions Office Staff.'}
+        </p>
+        <Button type="button" onClick={() => onOpen(application.id)}>
+          {isHead ? 'Schedule as Head' : 'View case'}
+        </Button>
       </div>
     </article>
   );
@@ -69,6 +104,12 @@ export default function AdminInterviews({
   onLeaveCase,
 }) {
   const now = new Date();
+  const isHead = isAdmissionsHeadRole(role);
+  const staffDirectory = useMemo(() => interviewWorkspace?.staffDirectory || [], [interviewWorkspace?.staffDirectory]);
+  const programIndex = useMemo(
+    () => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []),
+    [interviewWorkspace?.academicPrograms],
+  );
   const [filter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : 'upcoming');
   const [selectedId, setSelectedId] = useState(null);
 
@@ -111,7 +152,7 @@ export default function AdminInterviews({
             tone="warning"
             label="Needs scheduling"
             title={`${plural(needsSchedule.length, 'applicant')} to schedule`}
-            note="Open one to set a date and venue."
+            note="Each waits for an interviewer of its school."
             onClick={() => setFilter('needs-scheduling')}
           />
         ) : (
@@ -143,7 +184,13 @@ export default function AdminInterviews({
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {showScheduleList ? (
             needsSchedule.length ? needsSchedule.map((entry) => (
-              <ScheduleRow key={entry.id} application={entry} onOpen={setSelectedId} />
+              <ScheduleRow
+                key={entry.id}
+                application={entry}
+                schedulers={getInterviewSchedulers(entry, staffDirectory, programIndex)}
+                isHead={isHead}
+                onOpen={setSelectedId}
+              />
             )) : <EmptyState title="Nothing to schedule" />
           ) : groups.length ? groups.map((group) => (
             <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>
