@@ -6,6 +6,11 @@
   :root {
     color-scheme: dark;
     --bg: radial-gradient(circle at 8% 0%, rgba(37, 99, 235, 0.34), transparent 30%), radial-gradient(circle at 96% 8%, rgba(14, 165, 233, 0.22), transparent 26%), linear-gradient(145deg, #06132b 0%, #0b1d3a 48%, #071426 100%);
+    /* The same gradient as --bg, translucent, laid over the campus photo (see
+       body::before) so the photo only shows through as a faint texture. */
+    --bg-veil: radial-gradient(circle at 8% 0%, rgba(37, 99, 235, 0.34), transparent 30%), radial-gradient(circle at 96% 8%, rgba(14, 165, 233, 0.22), transparent 26%), linear-gradient(145deg, rgba(6, 19, 43, 0.88) 0%, rgba(11, 29, 58, 0.88) 48%, rgba(7, 20, 38, 0.88) 100%);
+    /* The top bar: a solid colour a step darker than the page. */
+    --header-bg: #030a18;
     --card: rgba(10, 28, 58, 0.88);
     --card-border: rgba(125, 182, 255, 0.24);
     --surface: rgba(20, 46, 88, 0.82);
@@ -34,6 +39,9 @@
   .theme-light {
     color-scheme: light;
     --bg: radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.14), transparent 30%), radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.12), transparent 28%), linear-gradient(180deg, #f5f9ff 0%, #edf4ff 52%, #f8fbff 100%);
+    --bg-veil: radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.14), transparent 30%), radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.12), transparent 28%), linear-gradient(180deg, rgba(245, 249, 255, 0.88) 0%, rgba(237, 244, 255, 0.88) 52%, rgba(248, 251, 255, 0.88) 100%);
+    /* A step lighter than the page. */
+    --header-bg: #fcfdff;
     --card: rgba(255, 255, 255, 0.94);
     --card-border: rgba(30, 78, 140, 0.14);
     --surface: rgba(239, 246, 255, 0.92);
@@ -66,11 +74,24 @@
     margin: 0;
   }
 
+  /* The page gradient lives on <html> (:root). The campus photo sits on a fixed
+     layer between it and the content, under the translucent --bg-veil, so it is
+     heavily muted. A fixed element, not background-attachment: fixed, because
+     iOS Safari ignores that. The body paints no background of its own, or it
+     would cover the layer. */
   body {
     min-height: 100vh;
     min-height: 100dvh;
-    background: var(--bg);
     color: var(--text);
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: var(--bg-veil), url('../pictures/background.jpg') 38% 30% / cover no-repeat;
   }
 
   button,

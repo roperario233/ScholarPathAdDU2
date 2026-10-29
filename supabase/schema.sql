@@ -65,6 +65,24 @@ alter table profiles add column if not exists avatar_path text;
 -- keys mirror PROFILE_DETAIL_KEYS in src/lib/profile.js.
 alter table profiles add column if not exists profile_details jsonb not null default '{}'::jsonb;
 
+-- Annual QPI history (see migrations/20261047000001_add_annual_qpi_records.sql).
+-- One row per student per academic year, written by updateUserProfile /
+-- updateProfileFields in src/lib/auth.js whenever a QPI is saved. A student reads
+-- and writes only their own rows.
+create table if not exists annual_qpi_records (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references profiles(user_id) on delete cascade,
+  academic_year text not null,
+  qpi numeric not null check (qpi >= 0 and qpi <= 4),
+  recorded_at timestamptz not null default now(),
+  unique (user_id, academic_year)
+);
+
+alter table annual_qpi_records enable row level security;
+
+create policy "annual_qpi_records_self_access" on annual_qpi_records
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 create table if not exists scholarships (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -900,13 +918,22 @@ as $$
       'birthdate', p.profile_details -> 'birthdate',
       'sexAtBirth', p.profile_details -> 'sexAtBirth',
       'civilStatus', p.profile_details -> 'civilStatus',
+      'religion', p.profile_details -> 'religion',
+      'pronouns', p.profile_details -> 'pronouns',
       'completeAddress', p.profile_details -> 'completeAddress',
       'residingAddress', case
         when coalesce(p.profile_details ->> 'sameAsCompleteAddress', 'true') = 'false'
           then nullif(btrim(p.profile_details ->> 'residingAddress'), '')
         else nullif(btrim(p.profile_details ->> 'completeAddress'), '')
       end,
+      'housingType', p.profile_details -> 'housingType',
+      'housingOther', p.profile_details -> 'housingOther',
       'schoolLastAttended', p.profile_details -> 'schoolLastAttended',
+      'awards', p.profile_details -> 'awards',
+      'awardsNone', p.profile_details -> 'awardsNone',
+      'ipGroupName', p.profile_details -> 'ipGroupName',
+      'previousGrants', p.profile_details -> 'previousGrants',
+      'previousGrantsAnswered', p.profile_details -> 'previousGrantsAnswered',
       'communityService', p.profile_details -> 'communityService',
       'familyDetails', p.profile_details -> 'familyDetails',
       'financialProfile', f.details
@@ -954,6 +981,43 @@ as $$
     or char_length(btrim(coalesce(p_profile #>> array['familyDetails', p_parent || 'Name'], ''))) > 0;
 $$;
 
+-- JSON helpers for the printed form's flags and lists
+-- (20261046000000_require_complete_form_230_sch.sql). A stored value is only
+-- trusted when it is the type the app writes, so a malformed row can never make
+-- the gate raise instead of answering.
+create or replace function public.jsonb_is_true(p_value jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select coalesce(p_value = 'true'::jsonb, false);
+$$;
+
+create or replace function public.jsonb_array_empty(p_value jsonb)
+returns boolean
+language sql
+immutable
+as $$
+  select case when jsonb_typeof(p_value) = 'array' then jsonb_array_length(p_value) else 0 end = 0;
+$$;
+
+-- One of the printed form's checkbox groups (assets, appliances): an item,
+-- "None of the above", or a typed "Others" is an answer. Mirrors
+-- isOptionGroupAnswered() in src/lib/profile.js.
+create or replace function public.financial_option_group_answered(p_profile jsonb, p_group text, p_keys text[])
+returns boolean
+language sql
+immutable
+as $$
+  select public.jsonb_is_true(p_profile #> array[p_group, 'none'])
+    or btrim(coalesce(p_profile #>> array[p_group, 'others'], '')) <> ''
+    or exists (
+      select 1
+      from unnest(p_keys) as key
+      where public.jsonb_is_true(p_profile #> array[p_group, key])
+    );
+$$;
+
 -- Same checks as 20261028000000 plus the FORM 230-SCH core items, Applicant
 -- Status, and the current-student AdDU student number. Mirrors
 -- getProfileCompleteness() (group `application`) in src/lib/profile.js; the
@@ -974,12 +1038,20 @@ declare
   v_qpi numeric := public.proof_numeric_value(p_profile ->> 'qpi');
   v_income numeric := public.proof_numeric_value(p_profile ->> 'householdIncome');
   v_transferee text := coalesce(p_profile ->> 'isTransferee', '');
+  v_family jsonb := coalesce(p_profile -> 'familyDetails', '{}'::jsonb);
+  v_financial jsonb := coalesce(p_profile -> 'financialProfile', '{}'::jsonb);
+  v_parent text;
+  v_age numeric;
+  v_employment text;
 begin
   if p_profile is null then return 'your profile'; end if;
   if char_length(btrim(coalesce(p_profile ->> 'fullName', ''))) < 2 then return 'Full name'; end if;
   if v_standing = '' then return 'Year standing'; end if;
   if v_transferee not in ('Yes', 'No') then return 'Applicant status'; end if;
-  if v_transferee = 'No' and coalesce(btrim(p_profile ->> 'studentNumber'), '') !~ '^[0-9]{4,12}$' then
+  -- An AdDU student number belongs to a current student: an incoming first-year
+  -- has not been issued one and a transferee's record is at the college they left.
+  if v_transferee = 'No' and v_standing <> 'incoming-1st'
+    and coalesce(btrim(p_profile ->> 'studentNumber'), '') !~ '^[0-9]{4,12}$' then
     return 'AdDU student number';
   end if;
   if coalesce(btrim(p_profile ->> 'degreeProgram'), '') = '' then return 'Degree program'; end if;
@@ -991,10 +1063,11 @@ begin
   if v_income is null or v_income < 0 then return 'Annual household income'; end if;
   if coalesce(p_profile ->> 'citizenship', '') not in ('Filipino', 'Non-Filipino') then return 'Citizenship'; end if;
   if coalesce(btrim(p_profile ->> 'civilStatus'), '') = '' then return 'Civil status'; end if;
-  if v_standing = 'incoming-1st' and coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then
-    return 'Senior high school strand';
-  end if;
+  -- The printed form asks every applicant for their strand, not only an incoming
+  -- first-year.
+  if coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then return 'Senior high school strand'; end if;
   if coalesce(btrim(p_profile ->> 'completeAddress'), '') = '' then return 'Complete address'; end if;
+  if coalesce(btrim(p_profile ->> 'housingType'), '') = '' then return 'Where you stay while studying'; end if;
   if not public.parent_name_answered(p_profile, 'father') then return 'Father''s name'; end if;
   if not public.parent_name_answered(p_profile, 'mother') then return 'Mother''s name'; end if;
   if coalesce(p_profile ->> 'ipCommunity', '') not in ('Yes', 'No') then return 'IP community'; end if;
@@ -1004,19 +1077,100 @@ begin
   end if;
   if coalesce(p_profile ->> 'birthdate', '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then return 'Birthdate'; end if;
   if coalesce(p_profile ->> 'sexAtBirth', '') not in ('Female', 'Male') then return 'Sex assigned at birth'; end if;
-  -- A transferee records the college last attended instead of a senior high school.
-  if (v_standing = 'incoming-1st' or v_transferee = 'Yes')
-    and char_length(btrim(coalesce(p_profile #>> '{schoolLastAttended,name}', ''))) = 0 then
-    return case when v_transferee = 'Yes' then 'College last attended' else 'Senior high school last attended' end;
+  if coalesce(btrim(p_profile ->> 'religion'), '') = '' then return 'Religion'; end if;
+  if coalesce(btrim(p_profile ->> 'pronouns'), '') = '' then return 'Preferred pronouns'; end if;
+  -- The printed form asks for the senior high school (the college a transferee
+  -- left), its city, and its province.
+  if char_length(btrim(coalesce(p_profile #>> '{schoolLastAttended,name}', ''))) = 0
+    or char_length(btrim(coalesce(p_profile #>> '{schoolLastAttended,city}', ''))) = 0
+    or char_length(btrim(coalesce(p_profile #>> '{schoolLastAttended,province}', ''))) = 0 then
+    return case when v_transferee = 'Yes'
+      then 'College last attended (name, city, and province)'
+      else 'Senior high school last attended (name, city, and province)' end;
+  end if;
+  -- "No awards received" is a recorded answer.
+  if public.jsonb_is_true(p_profile -> 'awardsNone') = false
+    and coalesce(btrim(p_profile ->> 'awards'), '') = '' then
+    return 'Awards received';
   end if;
   if coalesce(p_profile ->> 'communityService', '') not in ('Yes', 'No') then
     return 'Willingness to render community service';
+  end if;
+  -- The class size supports an honors standing, so it is asked only when one is claimed.
+  if coalesce(btrim(p_profile ->> 'honorsRank'), '') <> ''
+    and (public.proof_numeric_value(p_profile ->> 'graduatingClassSize') is null
+      or public.proof_numeric_value(p_profile ->> 'graduatingClassSize') < 1) then
+    return 'Number of graduates of your senior high school';
+  end if;
+  if coalesce(p_profile ->> 'previousGrantsAnswered', '') not in ('Yes', 'No') then
+    return 'Financial aid already received';
+  end if;
+  if coalesce(p_profile ->> 'previousGrantsAnswered', '') = 'Yes'
+    and public.jsonb_array_empty(p_profile -> 'previousGrants') then
+    return 'Grants applied for or received';
   end if;
   if coalesce(p_profile #>> '{financialProfile,economicStatus}', '') not in ('lower', 'middle', 'upper') then
     return 'Perceived economic status';
   end if;
   if not public.parent_finances_answered(p_profile, 'father') then return 'Father''s employment and income'; end if;
   if not public.parent_finances_answered(p_profile, 'mother') then return 'Mother''s employment and income'; end if;
+  -- Each listed parent's age (or date of death) and occupation, then the employer
+  -- of a working parent and the last employment detail of an unemployed one.
+  foreach v_parent in array array['father', 'mother'] loop
+    if public.jsonb_is_true(v_family -> (v_parent || 'Unknown')) = false then
+      if public.jsonb_is_true(v_family -> (v_parent || 'Deceased')) then
+        if coalesce(v_family ->> (v_parent || 'DateOfDeath'), '') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' then
+          return case when v_parent = 'father' then 'Father''s date of death' else 'Mother''s date of death' end;
+        end if;
+      else
+        v_age := public.proof_numeric_value(v_family ->> (v_parent || 'Age'));
+        if v_age is null or v_age < 15 or v_age > 120 then
+          return case when v_parent = 'father' then 'Father''s age' else 'Mother''s age' end;
+        end if;
+      end if;
+      if btrim(coalesce(v_family ->> (v_parent || 'Occupation'), '')) = '' then
+        return case when v_parent = 'father' then 'Father''s occupation' else 'Mother''s occupation' end;
+      end if;
+    end if;
+  end loop;
+  if public.proof_numeric_value(v_family ->> 'numberOfSiblings') is null
+    or public.proof_numeric_value(v_family ->> 'numberOfSiblings') < 0 then
+    return 'Number of siblings';
+  end if;
+  if public.jsonb_is_true(v_family -> 'siblingsNone') = false
+    and public.jsonb_array_empty(v_family -> 'siblings') then
+    return 'Siblings (names and ages), or none';
+  end if;
+  if public.jsonb_is_true(v_family -> 'householdAdultsNone') = false
+    and public.jsonb_array_empty(v_family -> 'householdAdults') then
+    return 'Other adults in the household, or none';
+  end if;
+  foreach v_parent in array array['father', 'mother'] loop
+    if public.jsonb_is_true(v_family -> (v_parent || 'Unknown'))
+      or public.jsonb_is_true(v_family -> (v_parent || 'Deceased')) then
+      continue;
+    end if;
+    v_employment := coalesce(v_financial #>> array[v_parent, 'employmentStatus'], '');
+    if v_employment in ('employed', 'self-employed')
+      and btrim(coalesce(v_financial #>> array[v_parent, 'employer'], '')) = '' then
+      return case when v_parent = 'father' then 'Father''s employer or business' else 'Mother''s employer or business' end;
+    end if;
+    if v_employment = 'unemployed'
+      and (btrim(coalesce(v_financial #>> array[v_parent, 'lastEmployed'], '')) = ''
+        or btrim(coalesce(v_financial #>> array[v_parent, 'unemploymentReason'], '')) = '') then
+      return case when v_parent = 'father' then 'Father''s last employment and reason' else 'Mother''s last employment and reason' end;
+    end if;
+  end loop;
+  if not public.financial_option_group_answered(
+    v_financial, 'assets', array['house', 'lot', 'car', 'puv', 'motorcycle', 'realEstate', 'heavyEquipment']
+  ) then
+    return 'Assets owned by the family';
+  end if;
+  if not public.financial_option_group_answered(
+    v_financial, 'appliances', array['smartphones', 'aircon', 'laptop', 'postpaidInternet']
+  ) then
+    return 'Appliances and services owned by the family';
+  end if;
   -- A Philippine mobile number: 09XXXXXXXXX, +639XXXXXXXXX or 9XXXXXXXXX (formatting ignored).
   if regexp_replace(coalesce(p_profile ->> 'phone', ''), '[^0-9]', '', 'g') !~ '^(63|0)?9[0-9]{9}$' then
     return 'Philippine mobile number';
@@ -2446,4 +2600,726 @@ revoke execute on function public.financial_multi_select_answered(jsonb) from pu
 -- (see 20261040000000_restrict_profile_gate_function_access.sql).
 revoke execute on function public.missing_application_profile_item(jsonb) from public, anon, authenticated;
 revoke execute on function public.parent_name_answered(jsonb, text) from public, anon, authenticated;
+revoke execute on function public.jsonb_is_true(jsonb) from public, anon, authenticated;
+revoke execute on function public.jsonb_array_empty(jsonb) from public, anon, authenticated;
+revoke execute on function public.financial_option_group_answered(jsonb, text, text[]) from public, anon, authenticated;
 revoke execute on function public.enforce_student_application_update() from public, anon, authenticated;
+
+
+-- ===========================================================================
+-- Consultation 2 account split (Oct 27): interviewers recommend, the school's
+-- approving level approves, the Admissions Office Head verifies, checks, and
+-- releases. Mirrors, in order:
+--   supabase/migrations/20261050000000_interviewer_role_and_approval_routing.sql
+--   supabase/migrations/20261050000001_lane_transitions_by_flow_role.sql
+--   supabase/migrations/20261050000002_add_results_releases.sql
+-- Every statement is idempotent and replaces the earlier definition above.
+-- ===========================================================================
+
+-- Consultation 2 (Oct 27): interviewers recommend, the school's chair or dean
+-- approves, and the Admissions Office Head does the final check and releases.
+--
+-- This migration adds the account split that process needs:
+--
+--   * `interviewer` — a faculty account scoped like the reviewer ladder (one of
+--     review_school / review_cluster / review_department; e.g. the Computer
+--     Studies cluster of SAS). Applications are routed to it automatically by the
+--     applicant's program, through the same `reviewer_scopes_to_student()`
+--     predicate, so there is no assignment step.
+--   * `approval_levels` — which ladder level approves for a school or cluster
+--     (SOE -> Dean, SEA -> Chairperson, SAS · Computer Studies -> Assistant Dean).
+--     Anything unset defaults to the Chairperson. `approver_role_for_student()`
+--     resolves it; src/lib/reviewScope.js `getApproverRoleForApplication()`
+--     mirrors it.
+--   * Scoped reads for the new and the previously unreadable levels: a Dean,
+--     Assistant Dean, or interviewer reads the profiles in its scope plus the
+--     staff directory (before this, Deans and Assistant Deans read no applicant
+--     profile at all).
+--   * Interview work for every scoped reviewer: in-scope interviewers and ladder
+--     accounts may build the panel, and the author_role checks accept the Dean,
+--     the Assistant Dean, and the interviewer (they rejected a Dean's note).
+--   * Document decisions belong to the Admissions Office Head only. Staff keep a
+--     read-only office view.
+--
+-- The stage moves themselves are enforced by
+-- 20261050000001_lane_transitions_by_flow_role.sql.
+
+-- 1. The interviewer role and its scope.
+alter table public.profiles drop constraint if exists profiles_role_check;
+alter table public.profiles add constraint profiles_role_check
+  check (role in ('student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
+
+alter table public.profiles drop constraint if exists profiles_review_scope_check;
+alter table public.profiles add constraint profiles_review_scope_check check (
+  (review_cluster is null or role in ('assistant_dean', 'interviewer'))
+  and (review_department is null or role in ('department_chair', 'interviewer'))
+  and (review_school is null or role in ('dean', 'assistant_dean', 'department_chair', 'interviewer'))
+);
+
+-- 2. The single scope predicate, now including the interviewer. An interviewer is
+--    scoped to the narrowest level it holds: a department, else a cluster inside
+--    its school, else the whole school.
+create or replace function public.reviewer_scopes_to_student(p_student_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles s
+    join public.profiles c on c.user_id = auth.uid()
+    left join public.academic_programs ap on ap.value = s.degree_program
+    where s.user_id = p_student_id
+      and (
+        (
+          c.role = 'department_chair'
+          and (
+            (
+              nullif(btrim(coalesce(c.review_department, '')), '') is not null
+              and ap.department is not null
+              and ap.department = c.review_department
+            )
+            or (
+              nullif(btrim(coalesce(c.review_department, '')), '') is null
+              and nullif(btrim(coalesce(c.department, '')), '') is not null
+              and s.department = c.department
+            )
+          )
+        )
+        or (
+          c.role = 'assistant_dean'
+          and nullif(btrim(coalesce(c.review_school, '')), '') is not null
+          and ap.school = c.review_school
+          and (nullif(btrim(coalesce(c.review_cluster, '')), '') is null or ap.cluster = c.review_cluster)
+        )
+        or (
+          c.role = 'dean'
+          and nullif(btrim(coalesce(c.review_school, '')), '') is not null
+          and ap.school = c.review_school
+        )
+        or (
+          c.role = 'interviewer'
+          and (
+            (
+              nullif(btrim(coalesce(c.review_department, '')), '') is not null
+              and ap.department is not null
+              and ap.department = c.review_department
+            )
+            or (
+              nullif(btrim(coalesce(c.review_department, '')), '') is null
+              and nullif(btrim(coalesce(c.review_cluster, '')), '') is not null
+              and nullif(btrim(coalesce(c.review_school, '')), '') is not null
+              and ap.school = c.review_school
+              and ap.cluster = c.review_cluster
+            )
+            or (
+              nullif(btrim(coalesce(c.review_department, '')), '') is null
+              and nullif(btrim(coalesce(c.review_cluster, '')), '') is null
+              and nullif(btrim(coalesce(c.review_school, '')), '') is not null
+              and ap.school = c.review_school
+            )
+          )
+        )
+      )
+  )
+$$;
+
+revoke all on function public.reviewer_scopes_to_student(uuid) from public, anon;
+grant execute on function public.reviewer_scopes_to_student(uuid) to authenticated;
+
+-- 3. Which ladder level approves (SOP step 7) for a school or cluster.
+create table if not exists public.approval_levels (
+  id uuid primary key default gen_random_uuid(),
+  school text not null check (char_length(btrim(school)) between 1 and 200),
+  cluster text check (cluster is null or char_length(btrim(cluster)) between 1 and 200),
+  approver_role text not null check (approver_role in ('dean', 'assistant_dean', 'department_chair')),
+  updated_by uuid references public.profiles(user_id) on delete set null default auth.uid(),
+  updated_at timestamptz not null default now()
+);
+create unique index if not exists approval_levels_scope_unique
+  on public.approval_levels (school, coalesce(cluster, ''));
+
+alter table public.approval_levels enable row level security;
+
+drop policy if exists "approval_levels_staff_read" on public.approval_levels;
+drop policy if exists "approval_levels_head_insert" on public.approval_levels;
+drop policy if exists "approval_levels_head_update" on public.approval_levels;
+drop policy if exists "approval_levels_head_delete" on public.approval_levels;
+create policy "approval_levels_staff_read" on public.approval_levels
+for select using (
+  public.current_profile_role() in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer')
+);
+create policy "approval_levels_head_insert" on public.approval_levels
+for insert with check (public.is_admissions_head());
+create policy "approval_levels_head_update" on public.approval_levels
+for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+create policy "approval_levels_head_delete" on public.approval_levels
+for delete using (public.is_admissions_head());
+
+-- The three examples given at the consultation (32:08-36:01).
+insert into public.approval_levels (school, cluster, approver_role)
+values
+  ('School of Education (SOE)', null, 'dean'),
+  ('School of Engineering and Architecture (SEA)', null, 'department_chair'),
+  ('School of Arts and Sciences (SAS)', 'Computer Studies', 'assistant_dean')
+on conflict do nothing;
+
+-- The approving level for an applicant: the cluster row, then the school row,
+-- else the Chairperson.
+create or replace function public.approver_role_for_student(p_student_id uuid)
+returns text
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select coalesce(
+    (
+      select al.approver_role from public.approval_levels al
+      where ap.school is not null and al.school = ap.school
+        and al.cluster is not null and al.cluster = ap.cluster
+      limit 1
+    ),
+    (
+      select al.approver_role from public.approval_levels al
+      where ap.school is not null and al.school = ap.school and al.cluster is null
+      limit 1
+    ),
+    'department_chair'
+  )
+  from public.profiles s
+  left join public.academic_programs ap on ap.value = s.degree_program
+  where s.user_id = p_student_id
+$$;
+
+revoke all on function public.approver_role_for_student(uuid) from public, anon;
+grant execute on function public.approver_role_for_student(uuid) to authenticated;
+
+-- 4. Profile reads. The Chair keeps its existing read; the Dean, the Assistant
+--    Dean, and the interviewer read the applicants in their scope and the staff
+--    directory the panel picker needs.
+drop policy if exists "reviewer_scoped_profiles_read" on public.profiles;
+create policy "reviewer_scoped_profiles_read" on public.profiles
+for select using (
+  public.current_profile_role() in ('dean', 'assistant_dean', 'interviewer')
+  and (profiles.role <> 'student' or public.reviewer_scopes_to_student(profiles.user_id))
+);
+
+-- 5. Every scoped-reviewer read now includes the interviewer.
+drop policy if exists "chair_documents_read" on public.documents;
+create policy "chair_documents_read" on public.documents
+for select using (
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+  and public.reviewer_scopes_to_student(documents.owner_id)
+);
+
+drop policy if exists "chair_applications_read" on public.applications;
+create policy "chair_applications_read" on public.applications
+for select using (
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+  and public.reviewer_scopes_to_student(applications.student_id)
+);
+
+drop policy if exists "staff_application_documents_reviewer_read" on public.application_documents;
+create policy "staff_application_documents_reviewer_read" on public.application_documents
+for select using (
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+  and exists (
+    select 1 from public.applications a
+    where a.id = application_documents.application_id
+      and public.reviewer_scopes_to_student(a.student_id)
+  )
+);
+
+drop policy if exists "staff_review_comments_read" on public.application_review_comments;
+create policy "staff_review_comments_read" on public.application_review_comments
+for select using (
+  public.is_admissions_office()
+  or (
+    public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+    and exists (
+      select 1 from public.applications a
+      where a.id = application_review_comments.application_id
+        and public.reviewer_scopes_to_student(a.student_id)
+    )
+  )
+);
+
+drop policy if exists "staff_review_comments_insert" on public.application_review_comments;
+create policy "staff_review_comments_insert" on public.application_review_comments
+for insert with check (
+  author_id = auth.uid()
+  and author_role = public.current_profile_role()
+  and (
+    public.is_admissions_head()
+    or (
+      public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+      and exists (
+        select 1 from public.applications a
+        where a.id = application_id
+          and public.reviewer_scopes_to_student(a.student_id)
+      )
+    )
+  )
+);
+
+alter table public.application_review_comments
+  drop constraint if exists application_review_comments_author_role_check;
+alter table public.application_review_comments add constraint application_review_comments_author_role_check
+  check (author_role in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
+
+drop policy if exists "status_log_staff_read" on public.application_status_log;
+create policy "status_log_staff_read" on public.application_status_log
+for select using (
+  public.is_admissions_office()
+  or (
+    public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+    and exists (
+      select 1 from public.applications a
+      where a.id = application_status_log.application_id
+        and public.reviewer_scopes_to_student(a.student_id)
+    )
+  )
+);
+
+drop policy if exists "documents_storage_chair_read" on storage.objects;
+create policy "documents_storage_chair_read" on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'documents'
+  and public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+  and exists (
+    select 1 from public.profiles p
+    where p.user_id::text = (storage.foldername(name))[1]
+      and public.reviewer_scopes_to_student(p.user_id)
+  )
+);
+
+-- `is_chair_for_application` keeps its name (the interview policies call it) and
+-- now covers every scoped reviewer, the interviewer included.
+create or replace function public.is_chair_for_application(p_application_id uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+    and exists (
+      select 1 from public.applications a
+      where a.id = p_application_id
+        and public.reviewer_scopes_to_student(a.student_id)
+    )
+$$;
+
+-- 6. Interview work. The interviewer schedules its own interviews (45:23), and a
+--    Chairperson, Assistant Dean, or Dean in scope may run the interview itself in
+--    a small program (20:11), so every scoped reviewer may build the panel. The
+--    Head keeps the office override; Staff no longer coordinate interviews.
+drop policy if exists "admissions_office_interview_locations_read" on public.interview_locations;
+create policy "admissions_office_interview_locations_read" on public.interview_locations
+for select using (
+  public.current_profile_role() in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer')
+);
+
+drop policy if exists "admissions_office_interview_panelists_insert" on public.application_interview_panelists;
+drop policy if exists "admissions_office_interview_panelists_update" on public.application_interview_panelists;
+create policy "admissions_office_interview_panelists_insert" on public.application_interview_panelists
+for insert with check (
+  public.is_admissions_head()
+  or public.is_chair_for_application(application_id)
+);
+create policy "admissions_office_interview_panelists_update" on public.application_interview_panelists
+for update using (
+  public.is_admissions_head()
+  or public.is_chair_for_application(application_id)
+) with check (
+  public.is_admissions_head()
+  or public.is_chair_for_application(application_id)
+);
+
+alter table public.application_interview_notes
+  drop constraint if exists application_interview_notes_author_role_check;
+alter table public.application_interview_notes add constraint application_interview_notes_author_role_check
+  check (author_role in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
+
+drop policy if exists "interview_notes_insert" on public.application_interview_notes;
+create policy "interview_notes_insert" on public.application_interview_notes
+for insert with check (
+  author_id = auth.uid()
+  and author_role = public.current_profile_role()
+  and (
+    public.is_admissions_head()
+    or (
+      public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+      and public.is_interview_panelist(application_id)
+    )
+  )
+);
+
+-- SOP 5a, server-side: every ladder level and every interviewer whose scope covers
+-- the applicant may sit on the panel, and so may either Admissions Office lane.
+create or replace function public.validate_interview_panelist()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_student_school text;
+  v_school text;
+  v_cluster text;
+  v_department text;
+  v_role text;
+  v_review_school text;
+  v_review_cluster text;
+  v_review_department text;
+  v_legacy_school text;
+begin
+  if new.profile_id is null then
+    return new;
+  end if;
+  select p.department, ap.school, ap.cluster, ap.department
+    into v_student_school, v_school, v_cluster, v_department
+    from public.applications a
+    join public.profiles p on p.user_id = a.student_id
+    left join public.academic_programs ap on ap.value = p.degree_program
+    where a.id = new.application_id;
+  select role, review_school, review_cluster, review_department, department
+    into v_role, v_review_school, v_review_cluster, v_review_department, v_legacy_school
+    from public.profiles
+    where user_id = new.profile_id;
+
+  if v_role in ('admissions_office', 'admissions_head') then
+    return new;
+  end if;
+
+  if v_role = 'dean'
+    and nullif(btrim(coalesce(v_review_school, '')), '') is not null
+    and v_school is not null
+    and v_review_school = v_school then
+    return new;
+  end if;
+
+  if v_role = 'assistant_dean'
+    and nullif(btrim(coalesce(v_review_school, '')), '') is not null
+    and v_school is not null
+    and v_review_school = v_school
+    and (nullif(btrim(coalesce(v_review_cluster, '')), '') is null or v_review_cluster = v_cluster) then
+    return new;
+  end if;
+
+  if v_role = 'department_chair' then
+    if nullif(btrim(coalesce(v_review_department, '')), '') is not null then
+      if v_department is not null and v_review_department = v_department then
+        return new;
+      end if;
+    elsif nullif(btrim(coalesce(v_legacy_school, '')), '') is not null
+      and v_student_school = v_legacy_school then
+      return new;
+    end if;
+  end if;
+
+  if v_role = 'interviewer' then
+    if nullif(btrim(coalesce(v_review_department, '')), '') is not null then
+      if v_department is not null and v_review_department = v_department then
+        return new;
+      end if;
+    elsif nullif(btrim(coalesce(v_review_cluster, '')), '') is not null then
+      if v_school is not null and v_review_school = v_school and v_review_cluster = v_cluster then
+        return new;
+      end if;
+    elsif nullif(btrim(coalesce(v_review_school, '')), '') is not null
+      and v_school is not null
+      and v_review_school = v_school then
+      return new;
+    end if;
+  end if;
+
+  raise exception 'Interview panelists must be an interviewer, Chairperson, Assistant Dean, or Dean whose scope covers the applicant (SOP 5a), or an Admissions Office account.'
+    using errcode = '23514';
+end;
+$$;
+
+revoke all on function public.validate_interview_panelist() from public;
+revoke all on function public.validate_interview_panelist() from anon, authenticated;
+
+-- 7. Document decisions belong to the Admissions Office Head.
+drop policy if exists "admissions_office_documents_update" on public.documents;
+create policy "admissions_office_documents_update" on public.documents
+for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+
+-- Verification (run after applying):
+--   select school, cluster, approver_role from public.approval_levels order by school;
+--   select conname from pg_constraint where conname in (
+--     'profiles_role_check', 'profiles_review_scope_check',
+--     'application_review_comments_author_role_check', 'application_interview_notes_author_role_check');
+
+-- Stage authority by role, following the process Ma'am Devi described at
+-- Consultation 2 (Oct 27):
+--
+--   Admissions Office Head  Submitted -> Under Review -> For Verification, verifies
+--                           every file, then forwards the case straight to the
+--                           interviewer (For Verification -> Endorsed; the separate
+--                           endorsement hand-off is retired). Superset override on
+--                           the interview and approval moves. Final check and
+--                           release (Approved -> Released), or Approved -> Rejected
+--                           when the final check finds a sibling already on a grant
+--                           or a pending case.
+--   Admissions Office Staff no stage moves; a read-only office view.
+--   Interviewer, and any    Endorsed -> Interview (scheduling) and, once on the
+--   ladder level in scope   panel, Interview -> Recommended. An interviewer never
+--                           rejects: "Not recommended" is a recommendation level.
+--   Approver                Recommended -> Approved / Rejected, when the caller's
+--                           role is approver_role_for_student() for the applicant.
+--
+-- src/lib/constants.js `getNextApplicationStatuses()` mirrors this map.
+-- The legacy For Endorsement -> Endorsed move stays with the Head so rows sent to
+-- endorsement before this migration can still leave that stage.
+
+create or replace function public.enforce_admissions_office_lane_transitions()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  caller_role text := public.current_profile_role();
+  v_allowed boolean := false;
+begin
+  -- Students (enforce_student_application_update) and service-role jobs are
+  -- governed elsewhere.
+  if caller_role is null or caller_role = 'student' then
+    return new;
+  end if;
+
+  -- A scoped reviewer writes the interview and deliberation stage payloads only;
+  -- the submitted record, the office's endorsement and release records stay as
+  -- they were.
+  if caller_role in ('dean', 'assistant_dean', 'department_chair', 'interviewer') then
+    if new.student_id is distinct from old.student_id
+      or new.scholarship_id is distinct from old.scholarship_id
+      or new.statement is distinct from old.statement
+      or new.profile_snapshot is distinct from old.profile_snapshot
+      or new.certified_at is distinct from old.certified_at
+      or new.submitted_at is distinct from old.submitted_at
+      or new.endorsement is distinct from old.endorsement
+      or new.release is distinct from old.release then
+      raise exception 'A reviewer can only record the interview and the recommendation on an application.'
+        using errcode = '42501';
+    end if;
+  end if;
+
+  -- Staff have no update policy any more, so a non-status write by them never
+  -- reaches this trigger; a status move is refused below.
+  if new.status is not distinct from old.status then
+    return new;
+  end if;
+
+  if caller_role = 'admissions_head' then
+    v_allowed := (old.status = 'Submitted' and new.status in ('Under Review', 'For Verification', 'Rejected'))
+      or (old.status = 'Under Review' and new.status in ('For Verification', 'Rejected'))
+      or (old.status = 'For Verification' and new.status in ('Endorsed', 'Rejected'))
+      or (old.status = 'For Endorsement' and new.status in ('Endorsed', 'Rejected'))
+      or (old.status = 'Endorsed' and new.status in ('Interview', 'Rejected'))
+      or (old.status = 'Interview' and new.status in ('Recommended', 'Rejected'))
+      or (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
+      or (old.status = 'Approved' and new.status in ('Released', 'Rejected'));
+  elsif caller_role in ('dean', 'assistant_dean', 'department_chair', 'interviewer') then
+    if public.reviewer_scopes_to_student(new.student_id) then
+      v_allowed := (old.status = 'Endorsed' and new.status = 'Interview')
+        or (
+          old.status = 'Interview' and new.status = 'Recommended'
+          and public.is_interview_panelist(new.id)
+        )
+        or (
+          caller_role <> 'interviewer'
+          and old.status = 'Recommended' and new.status in ('Approved', 'Rejected')
+          and caller_role = public.approver_role_for_student(new.student_id)
+        );
+    end if;
+  end if;
+
+  if not v_allowed then
+    raise exception 'Your role cannot move this application from % to %.', old.status, new.status
+      using errcode = '42501';
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists enforce_admissions_office_lane_transitions on public.applications;
+create trigger enforce_admissions_office_lane_transitions
+  before update on public.applications
+  for each row execute function public.enforce_admissions_office_lane_transitions();
+
+revoke all on function public.enforce_admissions_office_lane_transitions() from public;
+revoke all on function public.enforce_admissions_office_lane_transitions() from anon, authenticated;
+
+-- Row access for the writes above. The trigger decides which status move is
+-- allowed; these policies decide which rows each role may touch at all.
+drop policy if exists "admissions_staff_applications_update" on public.applications;
+
+drop policy if exists "admissions_head_applications_update" on public.applications;
+create policy "admissions_head_applications_update" on public.applications
+for update using (
+  public.is_admissions_head()
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved')
+) with check (
+  public.is_admissions_head()
+  and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
+);
+
+drop policy if exists "reviewer_applications_update" on public.applications;
+create policy "reviewer_applications_update" on public.applications
+for update using (
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+  and public.reviewer_scopes_to_student(student_id)
+  and status in ('Endorsed', 'Interview', 'Recommended')
+) with check (
+  public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+  and public.reviewer_scopes_to_student(student_id)
+  and status in ('Endorsed', 'Interview', 'Recommended', 'Approved', 'Rejected')
+);
+
+-- The case-officer roster is no longer how work is routed (an applicant reaches
+-- the interviewers of its scope automatically), so only the Head opens a case
+-- into review. `join_application_review` still checks the caller itself; the
+-- trigger above refuses a Staff status move.
+
+-- Results are released per scholarship, in one batch (Consultation 2, #8 and #13).
+--
+-- Until the Admissions Office Head releases a scholarship's results, no outcome
+-- reaches the student: notify-application-status holds the Approved and Rejected
+-- notices, and the student's surfaces show "Under deliberation". Releasing:
+--
+--   1. moves the remaining Approved cases to Released (the normal status write,
+--      which notifies each accepted applicant), then
+--   2. calls record_results_release(), which records this release with the
+--      number of applicants and the number accepted, and the exact applications
+--      it covers, then
+--   3. this table's insert trigger calls notify-application-status in its
+--      `results-release` mode, which sends every covered, non-accepted applicant
+--      the general letter: no reason, only the counts.
+--
+-- Students read these rows (the counts are what the letter states, and the
+-- covered application ids are what unmask a Rejected status on their own
+-- surfaces); only the Head inserts, through the function.
+--
+-- Setup before applying, as for the other notify migrations:
+--   1. Replace <project-ref> with the deployed project ref.
+--   2. Replace <REMINDER_CRON_SECRET> with the REMINDER_CRON_SECRET value.
+--   3. Redeploy notify-application-status with verify_jwt disabled.
+
+create table if not exists public.results_releases (
+  id uuid primary key default gen_random_uuid(),
+  scholarship_id uuid not null references public.scholarships(id) on delete cascade,
+  released_at timestamptz not null default now(),
+  released_by uuid references public.profiles(user_id) on delete set null default auth.uid(),
+  applicant_count integer not null check (applicant_count >= 0),
+  accepted_count integer not null check (accepted_count >= 0),
+  application_ids uuid[] not null default '{}'
+);
+create index if not exists results_releases_scholarship_idx
+  on public.results_releases (scholarship_id, released_at);
+
+alter table public.results_releases enable row level security;
+
+drop policy if exists "results_releases_read" on public.results_releases;
+create policy "results_releases_read" on public.results_releases
+for select to authenticated using (true);
+-- No insert/update/delete policy: record_results_release() writes as definer.
+
+create or replace function public.record_results_release(p_scholarship_id uuid)
+returns public.results_releases
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_covered uuid[];
+  v_applicants integer;
+  v_accepted integer;
+  v_row public.results_releases;
+begin
+  if not public.is_admissions_head() then
+    raise exception 'Only the Admissions Office Head can release results.' using errcode = '42501';
+  end if;
+  if exists (
+    select 1 from public.applications
+    where scholarship_id = p_scholarship_id and status = 'Approved'
+  ) then
+    raise exception 'Release every approved application of this scholarship before recording the results.'
+      using errcode = '23514';
+  end if;
+
+  -- Decided applications not covered by an earlier release.
+  select coalesce(array_agg(a.id), '{}')
+    into v_covered
+    from public.applications a
+    where a.scholarship_id = p_scholarship_id
+      and a.status in ('Released', 'Rejected')
+      and not exists (
+        select 1 from public.results_releases r
+        where r.scholarship_id = p_scholarship_id and a.id = any (r.application_ids)
+      );
+  if coalesce(array_length(v_covered, 1), 0) = 0 then
+    raise exception 'There are no decided applications to release for this scholarship.'
+      using errcode = '23514';
+  end if;
+
+  -- Applicants this cycle: every submitted application not covered before,
+  -- including the ones still in progress.
+  select count(*)
+    into v_applicants
+    from public.applications a
+    where a.scholarship_id = p_scholarship_id
+      and a.status <> 'Draft'
+      and not exists (
+        select 1 from public.results_releases r
+        where r.scholarship_id = p_scholarship_id and a.id = any (r.application_ids)
+      );
+  select count(*) into v_accepted
+    from public.applications a
+    where a.id = any (v_covered) and a.status = 'Released';
+
+  insert into public.results_releases (scholarship_id, applicant_count, accepted_count, application_ids)
+  values (p_scholarship_id, v_applicants, v_accepted, v_covered)
+  returning * into v_row;
+  return v_row;
+end;
+$$;
+
+revoke all on function public.record_results_release(uuid) from public, anon;
+grant execute on function public.record_results_release(uuid) to authenticated;
+
+
+-- Reference only (placeholders, like the other notify blocks above):
+-- create extension if not exists pg_net;
+--
+-- create or replace function public.notify_results_release()
+-- returns trigger
+-- language plpgsql
+-- security definer
+-- set search_path = public, net
+-- as $$
+-- begin
+--   perform net.http_post(
+--     url := 'https://<project-ref>.supabase.co/functions/v1/notify-application-status',
+--     headers := jsonb_build_object(
+--       'Authorization', 'Bearer <REMINDER_CRON_SECRET>',
+--       'Content-Type', 'application/json'
+--     ),
+--     body := jsonb_build_object('mode', 'results-release', 'releaseId', new.id)
+--   );
+--   return new;
+-- end;
+-- $$;
+--
+-- drop trigger if exists notify_results_release on public.results_releases;
+-- create trigger notify_results_release
+--   after insert on public.results_releases
+--   for each row execute function public.notify_results_release();

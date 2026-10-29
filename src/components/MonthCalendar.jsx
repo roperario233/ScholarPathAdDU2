@@ -61,6 +61,8 @@ export default function MonthCalendar({
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDay = new Date(year, month, 1).getDay();
   const monthName = new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const today = new Date();
+  const isCurrentMonth = today.getFullYear() === year && today.getMonth() === month;
   const days = [];
   for (let index = 0; index < firstDay; index += 1) days.push(null);
   for (let day = 1; day <= daysInMonth; day += 1) days.push(day);
@@ -70,16 +72,16 @@ export default function MonthCalendar({
       <div className="calendar-nav">
         <button
           type="button"
-          className="grid h-10 w-10 place-items-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+          className="grid h-10 w-10 place-items-center rounded-full border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px hover:bg-app-card focus:outline-none focus:ring-4 focus:ring-blue-500/20"
           onClick={onPrevMonth}
           aria-label="Previous month"
         >
           <ArrowLeft size={18} />
         </button>
-        <h3 className="m-0 text-center text-lg font-semibold text-app-text">{monthName}</h3>
+        <h3 className="m-0 text-center text-xl font-bold tracking-tight text-app-text" aria-live="polite">{monthName}</h3>
         <button
           type="button"
-          className="grid h-10 w-10 place-items-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+          className="grid h-10 w-10 place-items-center rounded-full border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px hover:bg-app-card focus:outline-none focus:ring-4 focus:ring-blue-500/20"
           onClick={onNextMonth}
           aria-label="Next month"
         >
@@ -103,14 +105,16 @@ export default function MonthCalendar({
           const hasPrimary = marks.some((mark) => PRIMARY_MARK_KINDS.has(mark.kind));
           const hasSecondary = marks.some((mark) => SECONDARY_MARK_KINDS.has(mark.kind));
           const isSelected = selectedDate === day;
+          const isToday = isCurrentMonth && today.getDate() === day;
           const markLabel = marks.map((mark) => mark.label).filter(Boolean).join(', ');
           return (
             <button
               key={day}
               type="button"
-              className={`calendar-cell active ${hasPrimary ? 'has-deadline' : ''} ${hasSecondary ? 'has-custom-deadline' : ''} ${isSelected ? 'selected' : ''}`}
+              className={`calendar-cell active ${hasPrimary ? 'has-deadline' : ''} ${hasSecondary ? 'has-custom-deadline' : ''} ${isSelected ? 'selected' : ''} ${isToday ? 'today' : ''}`}
               onClick={() => onSelectDate?.(isSelected ? null : day)}
               aria-pressed={isSelected}
+              aria-current={isToday ? 'date' : undefined}
               aria-label={markLabel ? `${day} — ${markLabel}` : `${day}`}
             >
               {day}

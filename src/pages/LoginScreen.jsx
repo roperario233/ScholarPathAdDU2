@@ -5,7 +5,7 @@ import bgImage from '../../pictures/picture1.png';
 import logoImage from '../../pictures/logo.png';
 import { signInWithGoogle } from '../lib/auth';
 import { clearPendingSessionStart, markPendingSessionStart } from '../lib/sessionTimeout';
-import { Button, FormField, ModalShell } from '../components/ui';
+import { Button, FormField, ModalShell, RequiredMark } from '../components/ui';
 
 
 // Supabase Auth reports Google sign-in failures through the return URL instead
@@ -43,12 +43,24 @@ const clearAuthRedirectParams = () => {
   window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
 };
 
-function SelectPicker({ label, value, onChange, options, idPrefix, error = '' }) {
+function SelectPicker({ label, value, onChange, options, idPrefix, error = '', required = false, placeholder = '' }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const selectableOptions = options.filter((option) => !option.isGroup);
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredOptions = options.filter((option) => option.isGroup || !normalizedQuery || option.label.toLowerCase().includes(normalizedQuery));
+  // A search matches the label or the description line (searching "income" finds
+  // the payslip), and a group header stays only while one of its options does.
+  const matchesQuery = (option) => !normalizedQuery
+    || option.label.toLowerCase().includes(normalizedQuery)
+    || String(option.description || '').toLowerCase().includes(normalizedQuery);
+  const filteredOptions = options.filter((option, index) => {
+    if (!option.isGroup) return matchesQuery(option);
+    if (!normalizedQuery) return true;
+    for (let next = index + 1; next < options.length && !options[next].isGroup; next += 1) {
+      if (matchesQuery(options[next])) return true;
+    }
+    return false;
+  });
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -64,7 +76,10 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '' })
     };
   }, []);
 
-  const selectedOption = selectableOptions.find((option) => option.value === value) ?? selectableOptions[0];
+  // With a placeholder, an unmatched value reads as "nothing chosen" instead of
+  // silently showing the first option.
+  const selectedOption = selectableOptions.find((option) => option.value === value)
+    ?? (placeholder ? { label: placeholder } : selectableOptions[0]);
 
   const chooseOption = (nextValue) => {
     onChange(nextValue);
@@ -84,7 +99,10 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '' })
     // implicit auto track would grow to the long program name's min-content
     // width and paint over the neighbouring field (issue #18).
     <div className="relative grid min-w-0 max-w-full grid-cols-1 gap-2" onKeyDown={handleKeyDown}>
-      <span className="text-sm font-semibold text-app-text">{label}</span>
+      <span className="text-sm font-semibold text-app-text">
+        {label}
+        {required && <RequiredMark />}
+      </span>
       <button
         type="button"
         className={`flex min-h-12 w-full min-w-0 items-center justify-between gap-3 overflow-hidden rounded-control border bg-app-surface px-4 py-3 text-left text-app-text shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${error ? 'border-rose-400/60' : 'border-app-border'}`}

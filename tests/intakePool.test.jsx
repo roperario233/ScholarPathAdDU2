@@ -51,13 +51,13 @@ const other = application({
 });
 
 describe('AdminIntakePool', () => {
-  it('lists only the unclaimed cases by default, with the pickup action', () => {
+  it('lists only the unclaimed cases by default, with the Head’s pickup action', () => {
     const html = renderToStaticMarkup(
       <AdminIntakePool
         applications={[application(), other]}
         caseOfficers={[caseOfficer({ applicationId: 'app-2', officerId: 'officer-b', officerName: 'Ben Reyes' })]}
         currentUserId="officer-a"
-        role="admissions_office"
+        role="admissions_head"
       />,
     );
 
@@ -69,6 +69,38 @@ describe('AdminIntakePool', () => {
     expect(html).not.toContain('Open case');
     expect(html).toContain('Unclaimed submissions');
     expect(html).toContain('With officers');
+  });
+
+  // Consultation 2: Staff are not part of the application process any more.
+  it('keeps the pool read-only for Admissions Office Staff', () => {
+    const html = renderToStaticMarkup(
+      <AdminIntakePool
+        applications={[application()]}
+        currentUserId="officer-a"
+        role="admissions_office"
+      />,
+    );
+
+    expect(html).toContain('Ada Cruz');
+    expect(html).not.toContain('Pick up for review');
+    expect(html).toContain('View case');
+  });
+
+  it('shows where each case is routed, and warns when no interviewer covers it', () => {
+    const programs = [{ value: 'BS Computer Science', label: 'BS Computer Science', school: 'School of Arts and Sciences (SAS)', cluster: 'Computer Studies', department: 'Computer Science Department' }];
+    const render = (staffDirectory) => renderToStaticMarkup(
+      <AdminIntakePool
+        applications={[application({ studentProgram: 'BS Computer Science' })]}
+        currentUserId="officer-a"
+        role="admissions_head"
+        interviewWorkspace={{ staffDirectory, academicPrograms: programs }}
+      />,
+    );
+
+    expect(render([])).toContain('No interviewer covers this cluster yet');
+    const routed = render([{ userId: 'ogs', fullName: 'Sir Ogs', role: 'interviewer', reviewSchool: 'School of Arts and Sciences (SAS)', reviewCluster: 'Computer Studies' }]);
+    expect(routed).toContain('Interviewers: Sir Ogs');
+    expect(routed).toContain('Interviewer workload');
   });
 
   it('keeps taken cases discoverable and reports officer workload to the Head', () => {
@@ -132,7 +164,8 @@ describe('ApplicationReviewModal case officers', () => {
       application={application({ status: 'Under Review' })}
       scholarship={scholarship}
       documents={[]}
-      role="admissions_office"
+      role="admissions_head"
+      initialTab="history"
       currentUserId="officer-a"
       onClose={() => undefined}
       onStatusChange={() => ({ ok: true })}
@@ -144,8 +177,9 @@ describe('ApplicationReviewModal case officers', () => {
   it('names the officers on the case and lets the officer leave it', () => {
     const html = renderModal({ caseOfficers: [caseOfficer()] });
 
+    // The roster sits in the History tab since the case-officer simplification.
     expect(html).toContain('Case officers');
-    expect(html).toContain('You');
+    expect(html).toContain('Ana Reyes');
     expect(html).toContain('Admissions Office Staff · joined');
     expect(html).toContain('Leave case');
   });

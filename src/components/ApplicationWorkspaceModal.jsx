@@ -1,11 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Camera } from 'lucide-react';
-import { Button, ModalShell, Panel, StatusBadge } from './ui';
+import { Camera, FolderOpen } from 'lucide-react';
+import { Button, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import ApplicationFinancialStep from './ApplicationFinancialStep';
-import ApplicationPrintButton from './ApplicationPrintSheet';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
 import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
 import { getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
@@ -38,6 +37,8 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
   const [uploadType, setUploadType] = useState(requirement.documentTypes[0]);
   const [cameraOpen, setCameraOpen] = useState(false);
   const reusable = getMatchingVaultDocuments(requirement, documents).filter((doc) => !attachedIds.includes(doc.id));
+  // Files the student can attach right now; a reverted file cannot be reused.
+  const readyFiles = reusable.filter((doc) => doc.verificationStatus !== 'Rejected');
   // A single-type photo requirement (the applicant photo and the residence
   // photos) can be satisfied with the camera; a mixed list offers it only for the
   // photo type currently selected.
@@ -89,6 +90,27 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {readyFiles.length && !['attached', 'verified'].includes(requirement.state) ? (
+        <div className="grid gap-1.5" role="group" aria-label={`Files in your Document Vault for ${requirement.label}`}>
+          <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-app-muted">
+            <FolderOpen size={14} aria-hidden="true" className="shrink-0" />
+            {readyFiles.length === 1 ? 'Already in your Document Vault' : `${readyFiles.length} files already in your Document Vault`}
+          </p>
+          <ul className="m-0 grid gap-1.5 p-0">
+            {readyFiles.slice(0, 3).map((doc) => (
+              <li key={doc.id} className="flex min-w-0 flex-col gap-1 rounded-lg border border-app-border/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                <span className="block min-w-0 text-sm text-app-text">{doc.title}<span className="ml-2 text-xs text-app-muted [overflow-wrap:anywhere]">{getDocumentStatusLabel(doc.verificationStatus)} · {fmtDate(doc.uploadedAt)}</span></span>
+                <span className="flex shrink-0 gap-2">
+                  <Button type="button" variant="ghost" className="!min-h-8 !px-2.5 !py-0.5 !text-xs" onClick={() => onPreview(doc)}>View</Button>
+                  <Button type="button" className="!min-h-8 !px-2.5 !py-0.5 !text-xs" disabled={busy} onClick={() => onAttach(requirement, doc.id)}>Use</Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+          {readyFiles.length > 3 ? <p className="m-0 text-xs text-app-muted">{readyFiles.length - 3} more in the list below.</p> : null}
+        </div>
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -264,6 +286,11 @@ export default function ApplicationWorkspaceModal({
   const documentsDone = readiness.requirements.every((item) => item.state === 'attached' || item.state === 'verified');
   const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith(APPLICATION_FORM_BLOCKER_PREFIX) || blocker.startsWith('Set your year standing'));
   const supportingCount = readiness.supportingDocuments.length;
+  // Distinct files being sent: one file can satisfy two requirements, so count ids.
+  const sharedDocumentCount = new Set([
+    ...readiness.requirements.flatMap((requirement) => requirement.attached.map((doc) => doc.id)),
+    ...readiness.supportingDocuments.map((doc) => doc.id),
+  ]).size;
 
   const stepDone = {
     documents: documentsDone,
@@ -338,6 +365,11 @@ export default function ApplicationWorkspaceModal({
   };
 
   const current = STEPS[step].key;
+  // Requirements still open that a non-reverted vault file could satisfy.
+  const vaultReadyCount = readiness.requirements.filter((requirement) => (
+    !['attached', 'verified'].includes(requirement.state)
+    && getMatchingVaultDocuments(requirement, documents).some((doc) => !(application.attachedDocuments || []).includes(doc.id) && doc.verificationStatus !== 'Rejected')
+  )).length;
 
   return (
     <>
@@ -370,6 +402,12 @@ export default function ApplicationWorkspaceModal({
           {current === 'documents' && (
             <section className="grid gap-3" aria-label="Required documents">
               <p className="m-0 text-sm text-app-muted">Attach one file per requirement. Uploads go to your Document Vault and can be reused.</p>
+              {vaultReadyCount ? (
+                <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-app-muted" role="status">
+                  <FolderOpen size={14} aria-hidden="true" className="shrink-0" />
+                  {vaultReadyCount === 1 ? '1 requirement has' : `${vaultReadyCount} requirements have`} a matching file already in your Document Vault.
+                </p>
+              ) : null}
               {readiness.requirements.length ? (
                 <ul className="m-0 grid gap-3 p-0">
                   {readiness.requirements.map((requirement) => (
@@ -404,7 +442,7 @@ export default function ApplicationWorkspaceModal({
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Application form">
               <p className="m-0 text-sm text-app-muted">Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
-              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections} /></Panel>
+              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections.filter((section) => section.key !== 'situation')} /></Panel>
               {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
                   {[...profileBlockers, ...eligibilityBlockers].map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
@@ -427,7 +465,10 @@ export default function ApplicationWorkspaceModal({
           {current === 'statement' && (
             <section className="grid gap-3" aria-label="Application statement">
               <label className="grid gap-2">
-                <span className="text-sm font-semibold text-app-text">Statement/essay</span>
+                <span className="text-sm font-semibold text-app-text">
+                  Statement/essay
+                  {!statement.trim() && <RequiredMark />}
+                </span>
                 <span className="text-sm text-app-muted">{ESSAY_TOPIC}</span>
                 <small className="field-hint">{ESSAY_INSTRUCTION}</small>
                 <textarea
@@ -468,17 +509,12 @@ export default function ApplicationWorkspaceModal({
               <div className="grid gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3" role="note" aria-label="What you are sharing">
                 <strong className="text-sm text-app-text">What you are sharing</strong>
                 <p className="m-0 text-sm text-app-muted">
-                  Your required documents, {supportingCount} supporting {supportingCount === 1 ? 'document' : 'documents'}, your statement, and your full Application Form, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
+                  {sharedDocumentCount} attached {sharedDocumentCount === 1 ? 'document' : 'documents'}, your statement, and your full Application Form, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
                 </p>
                 <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your application form</Button></div>
               </div>
-              <Panel className="grid gap-2 text-sm text-app-muted">
-                <strong className="text-app-text">Two pages stay on paper</strong>
-                <p className="m-0">Print the application form, have the Punong Barangay certify the residence photos, and have yourself and both parents sign the affidavit. Upload the signed pages in the Required documents step.</p>
-                <div><ApplicationPrintButton sheet={{ application, snapshot, financialSections, statement, requirements: readiness.requirements, applicantPhoto: getApplicantPhotoDocument(application, documents) }} /></div>
-              </Panel>
               <details className="rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-muted">
-                <summary className="cursor-pointer font-semibold text-app-text">Affidavit of agreement and data privacy notice</summary>
+                <summary className="cursor-pointer font-semibold text-app-text">Agreement and data privacy notice</summary>
                 <ol className="mt-2 grid gap-2 pl-5">{AFFIDAVIT_CLAUSES.map((clause) => <li key={clause}>{clause}</li>)}</ol>
                 <p className="mb-0 mt-3">{DATA_PRIVACY_NOTICE}</p>
               </details>

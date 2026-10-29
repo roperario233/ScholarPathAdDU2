@@ -552,7 +552,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   if (!getStandingRequirements(requirementProfile).yearStanding) {
     blockers.push('Set your year standing in your Application Form so the documents for your standing can be listed.');
   }
-  const profileGate = getApplicationProfileGate(profile);
+  const profileGate = getApplicationProfileGate(profile, { verb: 'submitting' });
   if (!proofContext.frozen && !profileGate.allowed) blockers.push(...profileGate.reasons);
   const missing = requirements.filter((item) => item.state === 'missing');
   const rejected = requirements.filter((item) => item.state === 'rejected');
@@ -641,6 +641,14 @@ export const getApplicantPhotoDocument = (application, documents = []) => {
   return photos.find((doc) => doc.verificationStatus !== 'Rejected') || photos[0] || null;
 };
 
+// The photos of the residence the application attaches, oldest first so the
+// printout reads in the order the student took them. Reverted files are left out.
+export const getResidencePhotoDocuments = (application, documents = []) => (
+  getLinkedDocuments(application, documents)
+    .filter((doc) => doc.documentType === 'Photos of Residence' && doc.verificationStatus !== 'Rejected')
+    .sort((left, right) => -byNewest(left, right))
+);
+
 // The single readiness check behind the document-verification gate: every
 // attached file must be Verified. The reviewer UI reads this to disable forward
 // actions, and `tests/applicationRequirements.test.js` pins the behavior; the
@@ -668,7 +676,10 @@ export const isApplicationVerifiedForEndorsement = (application, documents = [])
 const ACTOR_ROLE_LABELS = {
   admissions_office: 'Admissions Office Staff',
   admissions_head: 'Admissions Office Head',
+  dean: 'Dean',
+  assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',
+  interviewer: 'Interviewer',
   student: 'Student',
   system: 'System',
 };
@@ -785,6 +796,10 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       birthdate: asText(profile.birthdate),
       sexAtBirth: asText(profile.sexAtBirth),
       pronouns: asText(profile.pronouns),
+      // FORM 230-SCH asks for an email address and a contact number; both are frozen
+      // with the snapshot so the printed sheet carries what the student submitted.
+      email: asText(profile.email),
+      phone: asText(profile.phone),
     },
     address: {
       completeAddress: asText(profile.completeAddress),
@@ -950,6 +965,8 @@ export const getProfileSnapshotSections = (snapshot) => {
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
         row('Religion', optionLabel(religionOptions, personal.religion)),
+        ...(personal.email ? [row('Email address', personal.email)] : []),
+        ...(personal.phone ? [row('Contact number', personal.phone)] : []),
         row('Complete address', address.completeAddress, address.verification?.completeAddress),
         row('Residing address', address.residingAddress, address.verification?.residingAddress),
         ...(snapshot.version >= 3 && address.housingType

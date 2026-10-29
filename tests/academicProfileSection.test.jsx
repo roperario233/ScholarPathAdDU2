@@ -41,13 +41,14 @@ describe('My Profile academic profile', () => {
     expect(html).toContain('AdDU student number');
   });
 
-  it('hides the senior high school answers from a current Ateneo student', () => {
+  it('asks a current Ateneo student for the school and strand the printed form asks for, not the senior high school average', () => {
     const html = render({ yearStanding: '3rd', isTransferee: 'No', studentNumber: '2023001', qpi: '3.2', hsStrand: 'STEM' });
-    // They are already in college: neither the strand nor a previous school is asked.
-    expect(html).not.toContain('Senior high school strand');
+    // FORM 230-SCH asks every applicant for their senior high school and strand.
+    expect(html).toContain('Senior high school strand');
+    expect(html).toContain('Senior high school last attended');
+    // The general average is matched only for an incoming first-year, whose
+    // credential is the senior high school average instead of a college QPI.
     expect(html).not.toContain('Senior high school general average');
-    expect(html).not.toContain('Senior high school last attended');
-    expect(html).not.toContain('School last attended');
   });
 
   it('asks for the year again when a saved 1st year standing is no longer offered', () => {
@@ -60,10 +61,10 @@ describe('My Profile academic profile', () => {
     const html = render({ yearStanding: '2nd', isTransferee: 'Yes', studentNumber: '', qpi: '3.2' });
     expect(html).toContain('Year standing');
     expect(html).not.toContain('AdDU student number');
-    // The college last attended is what a transferee reports instead, and the senior
-    // high school strand is not asked of them.
+    // The college last attended is what a transferee reports instead of a senior
+    // high school, and the strand is asked of every applicant.
     expect(html).toContain('College last attended');
-    expect(html).not.toContain('Senior high school strand');
+    expect(html).toContain('Senior high school strand');
     expect(html).not.toContain('Senior high school last attended');
   });
 

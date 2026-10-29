@@ -21,6 +21,7 @@ import {
   isGrantListActive,
   isProofRequired,
   isTransfereeProfile,
+  getMissingRequiredAnswers,
   getProfileCompleteness,
   normalizeAttestedValue,
   getStandingRequirements,
@@ -65,10 +66,12 @@ const chairProfile = {
 
 // The FORM 230-SCH "Needed to apply" answers: applicant status, birthdate, sex,
 // school, community service, and the office-only household finances merged in as
-// financialProfile.
+// financialProfile. A complete answer set now includes the descriptive answers the
+// printed form asks for, so the fixtures stay "complete" under the full parity list.
 const formCore = {
   civilStatus: 'Single',
   completeAddress: '123 Rizal St, Davao City',
+  housingType: 'I live at home',
   ipCommunity: 'No',
   pwd: 'No',
   employed: 'Not employed',
@@ -77,14 +80,31 @@ const formCore = {
   hsStrand: 'STEM',
   birthdate: '2005-04-12',
   sexAtBirth: 'Female',
+  religion: 'Roman Catholic',
+  pronouns: 'she/her',
   communityService: 'Yes',
+  awardsNone: true,
+  graduatingClassSize: 120,
+  previousGrantsAnswered: 'No',
   schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' },
-  // Each parent's name (or an unknown parent) is needed to apply.
-  familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes' },
+  // Each listed parent's name, age, and occupation are printed on the form.
+  familyDetails: {
+    fatherName: 'Jose Reyes',
+    fatherAge: 52,
+    fatherOccupation: 'Driver',
+    motherName: 'Maria Reyes',
+    motherAge: 49,
+    motherOccupation: 'Teacher',
+    numberOfSiblings: 0,
+    siblingsNone: true,
+    householdAdultsNone: true,
+  },
   financialProfile: {
     economicStatus: 'lower',
-    father: { employmentStatus: 'employed', annualIncome: 120000 },
-    mother: { employmentStatus: 'unemployed', annualIncome: 0 },
+    father: { employmentStatus: 'employed', annualIncome: 120000, employer: 'Davao Transit' },
+    mother: { employmentStatus: 'unemployed', annualIncome: 0, lastEmployed: 'March 2024', unemploymentReason: 'Health' },
+    assets: { none: true, others: '' },
+    appliances: { none: true, others: '' },
   },
 };
 
@@ -136,12 +156,16 @@ describe('FORM 230-SCH applicant status and name parts', () => {
     expect(isTransfereeProfile({ isTransferee: 'Yes' })).toBe(true);
   });
 
-  it('keeps the applicant status out of the first-login essentials but in the gate', () => {
+  it('tolerates a blank applicant status in the first-login essentials but requires it to apply', () => {
+    // The modal asks the applicant status the way My Profile does, but an answered
+    // standing already names it, so the essentials never ask the same question twice.
     const onboarding = validateOnboardingEssentials({
       studentNumber: '2023001', degreeProgram: 'BS Information Technology', yearStanding: '2nd',
-      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+      academicStanding: 'good', qpi: '3.1', hsStrand: 'STEM', householdIncome: '180000', citizenship: 'Filipino',
     }, programs);
     expect(onboarding.errors).toEqual({});
+    // A current student is not a transferee, and the answer is carried through.
+    expect(onboarding.values.isTransferee).toBe('No');
     const missing = getApplicationProfileGate({
       fullName: 'Ana Reyes', yearStanding: '2nd', studentNumber: '202300001', degreeProgram: 'BS Information Technology',
       academicStanding: 'good', qpi: 3.2, householdIncome: 180000, citizenship: 'Filipino', ...formCore, isTransferee: '',
@@ -156,7 +180,7 @@ describe('FORM 230-SCH applicant status and name parts', () => {
       ...formCore, isTransferee: 'Yes', schoolLastAttended: { name: '' },
     };
     const gate = getApplicationProfileGate(completeTransferee);
-    expect(gate.missing.map((item) => [item.key, item.label])).toEqual([['schoolLastAttended', 'College last attended']]);
+    expect(gate.missing.map((item) => [item.key, item.label])).toEqual([['schoolLastAttended', 'College last attended (name, city, and province)']]);
   });
 
   it('finds the senior high school grants', () => {
@@ -223,6 +247,8 @@ describe('section validators', () => {
       motherDateOfDeath: '',
       familyPosition: 'Eldest',
       numberOfSiblings: 2,
+      siblingsNone: false,
+      householdAdultsNone: false,
       siblings: [],
       householdAdults: [],
     });
@@ -297,7 +323,12 @@ describe('section validators', () => {
   });
 
   it('derives applicant type and year level from the year standing', () => {
-    const base = { degreeProgram: 'BS Information Technology', academicStanding: 'good' };
+    const base = {
+      degreeProgram: 'BS Information Technology',
+      academicStanding: 'good',
+      hsStrand: 'STEM',
+      schoolLastAttended: { name: 'Davao SHS', city: 'Davao City', province: 'Davao del Sur' },
+    };
     const incoming = validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs);
     expect(incoming.errors).toEqual({});
     expect(incoming.values).toMatchObject({ yearStanding: 'incoming-1st', applicantType: 'first-year', yearLevel: 1, qpi: '' });
@@ -311,17 +342,31 @@ describe('section validators', () => {
     expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '' }, programs).errors.qpi).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '2nd', qpi: '3.1' }, programs).errors.studentNumber).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
-    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeUndefined();
-    // The strand is asked only of an incoming first-year, and only there is it
-    // validated; another standing keeps a valid recorded answer.
-    expect(validateAcademicSection({ ...base, yearStanding: 'incoming-1st', hsStrand: 'x', hsAverage: '94' }, programs).errors.hsStrand).toBeTruthy();
+    // FORM 230-SCH asks every applicant for the strand, so My Profile validates it
+    // for a continuing student too; the first-login modal is exempt (`fullForm`).
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1' }, programs).errors.hsStrand).toBeUndefined();
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', isTransferee: 'No', hsStrand: 'STEM' }, programs).values.hsStrand).toBe('STEM');
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '' }, programs).errors.yearStanding).toBeTruthy();
     expect(validateAcademicSection({ ...base, degreeProgram: 'BS Unknown', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs).errors.degreeProgram).toBeTruthy();
+    // The school, city, and province the printed form asks for are required in the
+    // full form, and skipped by the onboarding essentials.
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', schoolLastAttended: { name: '', city: '', province: '' } }, programs).errors.schoolLastAttended).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', schoolLastAttended: { name: 'Davao SHS', city: '', province: 'Davao del Sur' } }, programs).errors.schoolLastAttendedCity).toBeTruthy();
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', schoolLastAttended: { name: '', city: '', province: '' }, hsStrand: '' }, programs, { fullForm: false }).errors.schoolLastAttended).toBeUndefined();
   });
 
   it('validates ranked program choices for incoming first-years', () => {
-    const base = { degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' };
+    const base = {
+      degreeProgram: 'BS Information Technology',
+      academicStanding: 'good',
+      studentNumber: '',
+      yearStanding: 'incoming-1st',
+      hsStrand: 'STEM',
+      hsAverage: '94',
+      qpi: '',
+      schoolLastAttended: { name: 'Davao SHS', city: 'Davao City', province: 'Davao del Sur' },
+    };
     const choices = [
       ...programs,
       { value: 'BS Computer Science', label: 'BS Computer Science', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' },
@@ -427,7 +472,7 @@ describe('section validators', () => {
 
   it('requires at least one grant while the list is open', () => {
     const open = validateBackgroundSection({ citizenship: 'Filipino', householdIncome: '240000', hasOtherActiveScholarship: true });
-    expect(open.errors.previousGrants).toMatch(/at least one grant/);
+    expect(open.errors.previousGrants).toMatch(/Add the grant you applied for/);
 
     const completed = validateBackgroundSection({
       citizenship: 'Filipino',
@@ -483,16 +528,19 @@ describe('year standing', () => {
     expect(requiresStudentNumber({ yearStanding: 'incoming-1st', isTransferee: 'No' })).toBe(false);
     expect(requiresStudentNumber({ yearStanding: '', isTransferee: 'No' })).toBe(false);
     // A transferee's profile is complete without one, and the section accepts it.
-    const transferee = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '', yearStanding: '2nd', qpi: '3.1', isTransferee: 'Yes' }, programs);
+    const transferee = validateAcademicSection({ degreeProgram: 'BS Information Technology', academicStanding: 'good', studentNumber: '', yearStanding: '2nd', qpi: '3.1', isTransferee: 'Yes', hsStrand: 'STEM', schoolLastAttended: { name: 'Ateneo de Davao University', city: 'Davao City', province: 'Davao del Sur' } }, programs);
     expect(transferee.errors).toEqual({});
     expect(transferee.values.studentNumber).toBe('');
     // The first-login essentials follow the same rule, so a transferee is never
     // blocked by a field the modal does not show.
     const onboarding = validateOnboardingEssentials({
       studentNumber: '', degreeProgram: 'BS Information Technology', yearStanding: '2nd', isTransferee: 'Yes',
-      academicStanding: 'good', qpi: '3.1', householdIncome: '180000', citizenship: 'Filipino', phone: '0917 123 4567',
+      academicStanding: 'good', qpi: '3.1', hsStrand: 'STEM', householdIncome: '180000', citizenship: 'Filipino',
     }, programs);
     expect(onboarding.errors).toEqual({});
+    // The status rides through onboarding, so the next sign-in still knows the
+    // student is a transferee and keeps the student number out of the form.
+    expect(onboarding.values.isTransferee).toBe('Yes');
   });
 
   it('names each standing as the year the applicant is going into', () => {
@@ -589,14 +637,33 @@ describe('getProfileCompleteness', () => {
     expect(missing).toEqual([expect.objectContaining({ key: 'studentNumber', section: 'academic', group: 'application' })]);
     // The default statement/essay is an optional template, not a tracked item.
     expect(completeness.items.map((item) => item.key)).not.toContain('essay');
-    expect(completeness.percent).toBe(Math.round((22 / 23) * 100));
+    expect(completeness.percent).toBe(Math.round(((completeness.total - 1) / completeness.total) * 100));
   });
 
   it('separates what an application needs from the descriptive details', () => {
     const completeness = getProfileCompleteness(completeStudent, 'student');
-    expect(keysOf(completeness, 'application')).toEqual(['fullName', 'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi', 'householdIncome', 'citizenship', 'civilStatus', 'completeAddress', 'fatherName', 'motherName', 'ipCommunity', 'pwd', 'employed', 'applicantStatus', 'birthdate', 'sexAtBirth', 'communityService', 'economicStatus', 'fatherFinances', 'motherFinances', 'phone']);
+    expect(keysOf(completeness, 'application')).toEqual([
+      // The answers in the order getProfileCompleteness adds them.
+      'fullName',
+      // Educational background and the standing it branches on.
+      'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi',
+      // Eligibility inputs and the printed personal/background answers.
+      'householdIncome', 'citizenship', 'civilStatus', 'hsStrand',
+      'completeAddress', 'housingType',
+      // Family background and household details.
+      'fatherName', 'motherName', 'fatherAge', 'fatherOccupation', 'motherAge', 'motherOccupation',
+      'numberOfSiblings', 'siblings', 'householdAdults',
+      'ipCommunity', 'pwd', 'employed', 'applicantStatus',
+      'birthdate', 'sexAtBirth', 'religion', 'pronouns', 'schoolLastAttended', 'awards',
+      'communityService', 'previousGrantsAnswered',
+      // Household finances (office-only).
+      'economicStatus', 'fatherFinances', 'motherFinances',
+      'fatherEmployer', 'motherUnemployment', 'assets', 'appliances',
+      // The printed form's contact number, added last.
+      'phone',
+    ]);
     expect(keysOf(completeness, 'details')).toEqual([]);
-    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', 23, 23]]);
+    expect(completeness.groups.map((group) => [group.key, group.completed, group.total])).toEqual([['application', completeness.total, completeness.total]]);
     expect(completeness.percent).toBe(100);
   });
 
@@ -632,9 +699,9 @@ describe('validateOnboardingEssentials', () => {
     yearStanding: '2nd',
     academicStanding: 'good',
     qpi: '3.1',
+    hsStrand: 'STEM',
     householdIncome: '240000',
     hasActiveGovernmentGrant: false,
-    phone: '09171234567',
     citizenship: 'Filipino',
   };
 
@@ -647,15 +714,15 @@ describe('validateOnboardingEssentials', () => {
       yearStanding: '2nd',
       applicantType: 'current',
       yearLevel: 2,
+      isTransferee: 'No',
       academicStanding: 'good',
       qpi: 3.1,
-      hsStrand: '',
+      hsStrand: 'STEM',
       hsAverage: '',
       programChoice2: '',
       programChoice3: '',
       householdIncome: 240000,
       hasActiveGovernmentGrant: false,
-      phone: '+63 917 123 4567',
       citizenship: 'Filipino',
     });
   });
@@ -670,7 +737,6 @@ describe('validateOnboardingEssentials', () => {
       hsAverage: '94',
       householdIncome: '240000',
       hasActiveGovernmentGrant: false,
-      phone: '',
       citizenship: 'Filipino',
     };
 
@@ -698,7 +764,11 @@ describe('validateOnboardingEssentials', () => {
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, programs).errors).toEqual({});
     expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
-    expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toMatch(/Philippine mobile/);
+    // The mobile number is My Profile's contact number, so the first-login
+    // essentials neither ask for it nor validate a value a caller passes along.
+    expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toBeUndefined();
+    // The strand is asked of every applicant, the way My Profile asks it.
+    expect(validateOnboardingEssentials({ ...base, hsStrand: '' }, programs).errors.hsStrand).toBeTruthy();
   });
 });
 
@@ -851,6 +921,8 @@ describe('FORM 230-SCH core answers', () => {
       ['economicStatus', 'finances'],
       ['fatherFinances', 'finances'],
       ['motherFinances', 'finances'],
+      ['assets', 'finances'],
+      ['appliances', 'finances'],
     ]);
   });
 
@@ -866,13 +938,17 @@ describe('FORM 230-SCH core answers', () => {
     ]);
     const incoming = { ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, hsStrand: '' };
     expect(getApplicationProfileGate(incoming).missing.map((item) => [item.key, item.section])).toEqual([['hsStrand', 'academic']]);
-    expect(getApplicationProfileGate({ ...complete, hsStrand: '' }).allowed).toBe(true);
+    // FORM 230-SCH asks every applicant for the strand, so a continuing student is
+    // asked for it too.
+    expect(getApplicationProfileGate({ ...complete, hsStrand: '' }).missing.map((item) => item.key)).toEqual(['hsStrand']);
   });
 
-  it('asks only an incoming first-year for the senior high school last attended', () => {
-    const incoming = { ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, schoolLastAttended: { name: '' } };
-    expect(getApplicationProfileGate(incoming).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
-    expect(getApplicationProfileGate({ ...complete, schoolLastAttended: { name: '' } }).allowed).toBe(true);
+  it('asks every applicant for the senior high school last attended, its city, and its province', () => {
+    const incomplete = { ...complete, schoolLastAttended: { name: '', city: '', province: '' } };
+    expect(getApplicationProfileGate(incomplete).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
+    // A continuing student answers the printed form's school line too.
+    expect(getApplicationProfileGate({ ...complete, schoolLastAttended: { name: 'Davao SHS', city: '', province: '' } }).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
+    expect(getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, schoolLastAttended: { name: '' } }).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
   });
 
   it('counts a deceased parent as answered and accepts a 0 income', () => {
@@ -881,6 +957,77 @@ describe('FORM 230-SCH core answers', () => {
     expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'unemployed', annualIncome: '' } } }, 'mother')).toBe(false);
     expect(isParentFinancesAnswered({ financialProfile: { mother: { employmentStatus: 'retired', annualIncome: 10 } } }, 'mother')).toBe(false);
     expect(isParentFinancesAnswered({}, 'father')).toBe(false);
+  });
+});
+
+describe('FORM 230-SCH full-form parity', () => {
+  // The Admissions Office asked for the printed form to be answered completely
+  // inside ScholarPath, so the descriptive answers it asks are "Needed to apply".
+  const complete = { ...studentProfile, ...formCore, academicStanding: 'good', studentNumber: '2023001' };
+  const missingFor = (patch) => getApplicationProfileGate({ ...complete, ...patch }).missing.map((item) => item.key);
+  const familyWith = (patch) => ({ familyDetails: { ...formCore.familyDetails, ...patch } });
+
+  it('requires the personal and address answers the form asks every applicant for', () => {
+    expect(missingFor({ religion: '' })).toEqual(['religion']);
+    expect(missingFor({ pronouns: '' })).toEqual(['pronouns']);
+    expect(missingFor({ housingType: '' })).toEqual(['housingType']);
+    // "Prefer not to say" and "I live at home" are recorded answers.
+    expect(missingFor({ religion: 'Prefer not to say', housingType: 'I live at home' })).toEqual([]);
+  });
+
+  it('requires the school, the strand, and the awards for every applicant, and the class size with an honors standing', () => {
+    expect(missingFor({ schoolLastAttended: { name: 'Davao SHS', city: 'Davao City', province: '' } })).toEqual(['schoolLastAttended']);
+    expect(missingFor({ hsStrand: '' })).toEqual(['hsStrand']);
+    // The class size supports an honors standing, so it is asked only when one is claimed.
+    expect(missingFor({ graduatingClassSize: '' })).toEqual([]);
+    expect(missingFor({ honorsRank: 'Valedictorian', graduatingClassSize: '' })).toEqual(['graduatingClassSize']);
+    expect(missingFor({ awards: '', awardsNone: false })).toEqual(['awards']);
+    // "No awards received" is an answer, so the field itself can stay blank.
+    expect(missingFor({ awards: '', awardsNone: true })).toEqual([]);
+  });
+
+  it("requires each listed parent's age (or date of death) and occupation", () => {
+    expect(missingFor(familyWith({ fatherAge: '' }))).toEqual(['fatherAge']);
+    expect(missingFor(familyWith({ motherOccupation: '' }))).toEqual(['motherOccupation']);
+    // A deceased parent reports a date of death instead of an age.
+    expect(missingFor(familyWith({ fatherDeceased: true, fatherDateOfDeath: '' }))).toEqual(['fatherDateOfDeath']);
+    expect(missingFor(familyWith({ fatherDeceased: true, fatherDateOfDeath: '2020-05-01' }))).toEqual([]);
+    // An unknown parent answers none of them.
+    expect(missingFor(familyWith({ fatherUnknown: true, fatherAge: '', fatherOccupation: '' }))).toEqual([]);
+  });
+
+  it('requires the household totals and each list, or an explicit none', () => {
+    expect(missingFor(familyWith({ numberOfSiblings: '' }))).toEqual(['numberOfSiblings']);
+    expect(missingFor(familyWith({ siblingsNone: false, siblings: [] }))).toEqual(['siblings']);
+    expect(missingFor(familyWith({ householdAdultsNone: false, householdAdults: [] }))).toEqual(['householdAdults']);
+    expect(missingFor(familyWith({ siblingsNone: false, siblings: [{ name: 'Mika', age: 12 }] }))).toEqual([]);
+  });
+
+  it('requires the employer of a working parent and the details of an unemployed one', () => {
+    const financesWith = (patch) => ({
+      financialProfile: { ...formCore.financialProfile, ...patch },
+    });
+    expect(missingFor(financesWith({ father: { employmentStatus: 'employed', annualIncome: 120000, employer: '' } }))).toEqual(['fatherEmployer']);
+    expect(missingFor(financesWith({ mother: { employmentStatus: 'unemployed', annualIncome: 0, lastEmployed: '', unemploymentReason: '' } }))).toEqual(['motherUnemployment']);
+    expect(missingFor(financesWith({ mother: { employmentStatus: 'unemployed', annualIncome: 0, lastEmployed: 'March 2024', unemploymentReason: 'Health' } }))).toEqual([]);
+    // A deceased parent answers no employment at all.
+    expect(missingFor({ ...financesWith({ father: {} }), ...familyWith({ fatherDeceased: true, fatherDateOfDeath: '2020-05-01' }) })).toEqual([]);
+  });
+
+  it('requires an answer to the assets and appliances checklists', () => {
+    expect(missingFor({ financialProfile: { ...formCore.financialProfile, assets: {} } })).toEqual(['assets']);
+    expect(missingFor({ financialProfile: { ...formCore.financialProfile, appliances: { others: 'Electric fan' } } })).toEqual([]);
+  });
+
+  it('requires the financial aid question, with the grant list when it is Yes', () => {
+    expect(missingFor({ previousGrantsAnswered: '' })).toEqual(['previousGrantsAnswered']);
+    expect(missingFor({ previousGrantsAnswered: 'Yes', previousGrants: [] })).toEqual(['previousGrants']);
+    expect(missingFor({ previousGrantsAnswered: 'No', previousGrants: [] })).toEqual([]);
+  });
+
+  it("names the submit stage in the readiness blocker", () => {
+    const reason = getApplicationProfileGate({ ...complete, religion: '' }, { verb: 'submitting' }).reasons[0];
+    expect(reason).toBe('Complete your Application Form before submitting: Religion.');
   });
 });
 
@@ -893,10 +1040,10 @@ describe("parents' names and the unknown-parent answer", () => {
   };
 
   it("requires each parent's name unless the parent is marked unknown", () => {
-    const blank = { ...complete, familyDetails: { fatherName: '  ', motherName: 'Maria Reyes' } };
+    const blank = { ...complete, familyDetails: { ...formCore.familyDetails, fatherName: '  ' } };
     expect(getApplicationProfileGate(blank).missing.map((item) => [item.key, item.section])).toEqual([['fatherName', 'family']]);
     expect(isParentNameAnswered({ familyDetails: { fatherUnknown: true } }, 'father')).toBe(true);
-    expect(getApplicationProfileGate({ ...complete, familyDetails: { fatherUnknown: true, motherName: 'Maria Reyes' } }).allowed).toBe(true);
+    expect(getApplicationProfileGate({ ...complete, familyDetails: { ...formCore.familyDetails, fatherUnknown: true } }).allowed).toBe(true);
   });
 
   it("waives an unknown parent's finances like a deceased parent's", () => {
@@ -953,5 +1100,44 @@ describe('getApplicationFormProgress', () => {
     expect(byKey.academic).toMatchObject({ state: 'alert', statusLabel: 'Outdated' });
     expect(byKey.background).toMatchObject({ state: 'alert', statusLabel: '2 to fix' });
     expect(progress.ready).toBe(false);
+  });
+});
+
+// The red asterisks in the application form read this list, so it has to be the
+// same "Needed to apply" set the checklist and the application gate use.
+describe('getMissingRequiredAnswers', () => {
+  const complete = { ...studentProfile, ...formCore, studentNumber: '2023001', academicStanding: 'good' };
+
+  it('is empty once every application answer is given', () => {
+    expect(getMissingRequiredAnswers(complete).size).toBe(0);
+  });
+
+  it('names the answers a draft still leaves blank', () => {
+    const missing = getMissingRequiredAnswers({ ...studentProfile, ...formCore });
+    expect(missing.has('studentNumber')).toBe(true);
+    expect(missing.has('academicStanding')).toBe(true);
+    // An answered item is never listed, so a filled answer loses its mark.
+    expect(missing.has('qpi')).toBe(false);
+    expect(missing.has('birthdate')).toBe(false);
+  });
+
+  it('follows the standing: an incoming first-year needs the senior high school answers instead', () => {
+    const missing = getMissingRequiredAnswers({
+      ...complete,
+      yearStanding: 'incoming-1st',
+      isTransferee: 'No',
+      hsStrand: '',
+      hsAverage: '',
+      qpi: '',
+      studentNumber: '',
+    });
+    expect(missing.has('hsStrand')).toBe(true);
+    expect(missing.has('hsAverage')).toBe(true);
+    expect(missing.has('qpi')).toBe(false);
+    expect(missing.has('studentNumber')).toBe(false);
+  });
+
+  it('marks nothing for a staff account, whose two items are plain details', () => {
+    expect(getMissingRequiredAnswers(chairProfile, 'admissions_office').size).toBe(0);
   });
 });

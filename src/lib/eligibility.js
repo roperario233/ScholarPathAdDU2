@@ -444,6 +444,8 @@ export const getApplicationProgress = (status) => {
     case 'Endorsed': return 65;
     case 'Interview': return 75;
     case 'Recommended': return 85;
+    // The student-facing stand-in while an Approved or Rejected result is held.
+    case 'Under deliberation': return 90;
     case 'Approved': return 95;
     case 'Released': return 100;
     case 'Rejected': return 100;

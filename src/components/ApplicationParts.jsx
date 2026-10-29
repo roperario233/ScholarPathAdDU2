@@ -424,6 +424,39 @@ const signedPhotoUrl = (storagePath) => {
   return request;
 };
 
+// A vault image read through the same short-lived signed URL, with no frame of
+// its own. The printable application uses it for the residence photos and tells
+// the print button when the picture has loaded (or failed) through `onSettled`.
+export function SignedVaultImage({ doc, alt, className = '', onSettled }) {
+  const [state, setState] = useState({ url: '', error: false });
+  const storagePath = doc?.storagePath || '';
+
+  useEffect(() => {
+    let active = true;
+    setState({ url: '', error: false });
+    if (!storagePath) {
+      onSettled?.();
+      return () => { active = false; };
+    }
+    signedPhotoUrl(storagePath).then(({ url, error }) => {
+      if (!active) return;
+      if (error || !url) {
+        setState({ url: '', error: true });
+        onSettled?.();
+      } else {
+        setState({ url, error: false });
+      }
+    });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storagePath]);
+
+  if (state.url && !state.error) {
+    return <img src={state.url} alt={alt} className={className} onLoad={() => onSettled?.()} onError={() => { setState({ url: '', error: true }); onSettled?.(); }} />;
+  }
+  return <span className="grid h-full w-full place-items-center px-2 text-center text-[10pt] text-neutral-600">{state.error || !storagePath ? 'Photo unavailable' : 'Loading photo…'}</span>;
+}
+
 // The applicant's 2x2 ID photo, framed square and read from the private
 // Document Vault bucket through a short-lived signed URL. It is the photograph
 // submitted with the application, never the personal profile photo, which is

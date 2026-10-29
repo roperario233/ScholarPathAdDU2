@@ -14,10 +14,12 @@ html {
   -webkit-text-size-adjust: 100%;
 }
 
+/* No body background: the page gradient lives on <html> and the campus photo on
+   the fixed body::before layer (src/tailwind.css), which a body background would
+   paint over. */
 body {
   min-height: 100vh;
   min-height: 100dvh;
-  background: var(--bg);
   color: var(--text);
 }
 
@@ -118,8 +120,8 @@ button.bg-app-card:hover {
   color: #ffffff !important;
 }
 
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, [class*="from-rose"], [class*="from-amber"]):hover,
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
@@ -440,16 +442,12 @@ main span {
 
 /* Reusable list/card headers: the title column must give space to a status
    badge or action instead of pushing it into the text. */
-main article > .flex > div:first-child,
-main .deadline-item > div:first-child,
-main .upcoming-deadlines-header > h3 {
+main article > .flex > div:first-child {
   min-width: 0;
   flex: 1 1 0%;
 }
 
-main article > .flex > :last-child,
-main .deadline-item > .days-left,
-main .deadline-item > .deadline-actions {
+main article > .flex > :last-child {
   flex-shrink: 0;
 }
 
@@ -1362,23 +1360,11 @@ a:focus-visible {
 
   .calendar-cell {
     min-height: 36px;
-    border-radius: 7px;
+    border-radius: 10px;
     font-size: 0.78rem;
   }
 
-  .upcoming-deadlines-header,
-.deadline-item {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 0.65rem;
-  }
-
-  .deadline-actions {
-    justify-content: space-between;
-  }
-
-  .modal-overlay,
-.deadline-modal-backdrop {
+  .modal-overlay {
     align-items: flex-start;
     padding: max(0.75rem, env(safe-area-inset-top)) max(0.75rem, env(safe-area-inset-right)) max(0.75rem, env(safe-area-inset-bottom)) max(0.75rem, env(safe-area-inset-left));
   }
@@ -1416,9 +1402,11 @@ a:focus-visible {
 
 .calendar-day-label {
   text-align: center;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
   padding: 0.5rem 0;
 }
 
@@ -1434,11 +1422,11 @@ a:focus-visible {
   align-items: center;
   justify-content: center;
   position: relative;
-  border-radius: 8px;
+  border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.12);
   font-size: 0.9rem;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s;
   background: transparent;
   padding: 0;
 }
@@ -1451,6 +1439,17 @@ a:focus-visible {
 .calendar-cell.active:hover {
   background: var(--surface);
   border-color: rgba(148, 163, 184, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Today keeps its ring whether or not it carries a mark or is selected. */
+.calendar-cell.today {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6);
+  font-weight: 800;
+}
+
+.calendar-cell.today.selected {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.6), 0 4px 12px rgba(59, 130, 246, 0.25);
 }
 
 .calendar-cell.has-deadline {
@@ -1512,219 +1511,6 @@ a:focus-visible {
   opacity: 0.8;
 }
 
-.upcoming-deadlines-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.upcoming-deadlines-header h3 {
-  margin: 0;
-  flex: 1;
-}
-
-.deadline-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: grid;
-  place-items: center;
-  padding: 1.25rem;
-  background: rgba(2, 6, 23, 0.42);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-.deadline-modal-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-start;
-}
-
-.deadline-modal-head h3,
-.deadline-modal-head p {
-  margin: 0;
-}
-
-.deadline-modal-head p {
-  color: var(--muted);
-  margin-top: 0.35rem;
-}
-
-.deadline-modal-close {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  border: 1px solid rgba(168, 85, 247, 0.18);
-  background: rgba(168, 85, 247, 0.08);
-  color: #d8b4fe;
-  flex-shrink: 0;
-}
-
-.add-deadline-form {
-  display: grid;
-  gap: 0.85rem;
-}
-
-.add-deadline-form label {
-  display: grid;
-  gap: 0.4rem;
-}
-
-.add-deadline-form span {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.add-deadline-form input {
-  padding: 0.65rem 0.85rem;
-  border: 1px solid rgba(168, 85, 247, 0.2);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
-  font-size: 0.9rem;
-}
-
-.add-deadline-form input:focus {
-  outline: none;
-  border-color: #a855f7;
-  box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.1);
-}
-
-.deadline-form-note {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
-.deadline-form-error {
-  margin: 0;
-  color: #fb7185;
-  font-size: 0.88rem;
-  font-weight: 600;
-}
-
-.deadline-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.delete-deadline-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  border: 1px solid rgba(239, 68, 68, 0.24);
-  background: rgba(239, 68, 68, 0.08);
-  color: #fecaca;
-  display: grid;
-  place-items: center;
-  font-size: 0.85rem;
-}
-
-.deadline-item.custom-deadline {
-  border-left-color: #a855f7;
-  background: rgba(168, 85, 247, 0.06);
-}
-
-.deadline-item.custom-deadline strong {
-  color: #d8b4fe;
-}
-
-.deadline-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.delete-deadline-btn {
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 1px solid rgba(239, 68, 68, 0.25);
-  background: transparent;
-  color: #fca5a5;
-  cursor: pointer;
-  font-size: 0.9rem;
-  transition: all 0.16s ease;
-}
-
-.delete-deadline-btn:hover {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: #ef4444;
-}
-
-.deadline-list {
-  display: grid;
-  gap: 0.75rem;
-}
-
-.deadline-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem;
-  border-radius: 12px;
-  background: var(--surface-2);
-  border-left: 4px solid var(--primary);
-}
-
-.deadline-item > div:first-child {
-  min-width: 0;
-}
-
-.deadline-item.urgent {
-  border-left-color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.deadline-item.urgent strong {
-  color: #fca5a5;
-}
-
-.deadline-item.warning {
-  border-left-color: #f59e0b;
-  background: rgba(245, 158, 11, 0.08);
-}
-
-.deadline-item.warning strong {
-  color: #fcd34d;
-}
-
-.deadline-item strong {
-  display: block;
-  margin-bottom: 0.25rem;
-}
-
-.deadline-item p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
-.days-left {
-  background: rgba(148, 163, 184, 0.12);
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.no-deadlines {
-  text-align: center;
-  color: var(--muted);
-  padding: 2rem 1rem;
-  background: var(--surface-2);
-  border-radius: 12px;
-  margin: 0;
-}
-
-
 .spinner-icon {
   width: 1.2rem;
   height: 1.2rem;
@@ -1746,18 +1532,6 @@ a:focus-visible {
 }
 
 .field-hint { color: var(--muted); font-size: .78rem; line-height: 1.4; }
-@media (max-width: 720px) {
-
-  .deadline-item,
-.upcoming-deadlines-header {
-    min-width: 0;
-  }
-
-  .deadline-item > *,
-.upcoming-deadlines-header > * {
-    max-width: 100%;
-  }
-}
 
 /* Printable application (FORM 230-SCH order). The sheet is mounted in a portal on
    <body> only while printing, so print mode hides every other body child,
@@ -1765,7 +1539,16 @@ a:focus-visible {
 .print-sheet-root { display: none; }
 
 @media print {
-  @page { size: A4; margin: 14mm; }
+  @page {
+    size: A4;
+    margin: 14mm 14mm 16mm;
+
+    @bottom-center {
+      content: "ScholarPath AdDU · Page " counter(page) " of " counter(pages);
+      font-size: 8pt;
+      color: #64748b;
+    }
+  }
 
   html,
   body { background: #fff !important; }
@@ -1778,7 +1561,9 @@ a:focus-visible {
     background: #fff;
     color-scheme: light;
     font-size: 11pt;
-    line-height: 1.35;
+    line-height: 1.4;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   .print-sheet-root .print-page-break { break-before: page; }

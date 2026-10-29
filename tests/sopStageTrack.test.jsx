@@ -2,16 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SopStageTrack } from '../src/components/ApplicationParts';
 
-// Nine labelled pills wrapped into three lines inside the review-modal header on
-// a phone, so below `sm` the track becomes a segmented bar under a position
+// Eight labelled pills (the retired endorsement hand-off is gone) wrapped onto
+// several lines inside the review-modal header on a phone, so below `sm` the track becomes a segmented bar under a position
 // caption. The stage names must survive in the markup for assistive tech.
 describe('SopStageTrack', () => {
   const stageNames = [
     'Submitted',
     'Under Review',
     'For Verification',
-    'Awaiting Endorsement',
-    'Endorsement',
+    'For Interview',
     'Interview',
     'Recommended',
     'Approved',
@@ -26,8 +25,8 @@ describe('SopStageTrack', () => {
 
   it('names the position in a caption that only shows below `sm`', () => {
     const markup = renderToStaticMarkup(<SopStageTrack status="Recommended" />);
-    expect(markup).toContain('Standard Procedure stage 7 of 9');
-    expect(markup).toMatch(/sm:hidden">Standard Procedure stage 7 of 9/);
+    expect(markup).toContain('Standard Procedure stage 6 of 8');
+    expect(markup).toMatch(/sm:hidden">Standard Procedure stage 6 of 8/);
   });
 
   it('marks exactly one stage as the current step', () => {

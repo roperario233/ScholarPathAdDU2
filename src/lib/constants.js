@@ -1,16 +1,17 @@
-import { buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isReviewerRole } from './reviewScope';
+import { buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
 
 export const coverageTypes = ['all', 'Full Tuition', 'Partial Tuition', 'Allowance'];
 export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
 
-// Standard Procedure for Scholarship Applications stage sequence (SOP steps 3-8).
-// Step 2 (Submission) maps to `Submitted`, step 3 (Document Verification) maps to
-// `For Verification`, the Admissions Office's hand-off to the Head for endorsement is
-// `For Endorsement`, step 4 (Endorsement) maps to `Endorsed`, step 5 (Interview)
-// maps to `Interview`, step 6 (Evaluation and Deliberation) maps to `Recommended`,
-// step 7 (Recommendation and Approval) maps to `Approved`, and step 8 (Release of
-// Results) maps to `Released`.
-export const sopStages = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+// Standard Procedure for Scholarship Applications stage sequence (SOP steps 3-8),
+// as the Admissions Office runs it since Consultation 2. Step 2 (Submission) maps
+// to `Submitted`, step 3 (Document Verification) to `For Verification`, the
+// Head's forward to the interviewer (the former step-4 endorsement) to `Endorsed`
+// (shown "For Interview"), step 5 (Interview) to `Interview`, the interviewer's
+// recommendation to `Recommended`, the school's approval to `Approved`, and the
+// Head's release to `Released`. `For Endorsement` survives only on rows handed
+// off before the change; sopStageIndex() places it with verification.
+export const sopStages = ['Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 
 const nextStatusMap = {
   Draft: ['Submitted'],
@@ -26,68 +27,58 @@ const nextStatusMap = {
   Rejected: [],
 };
 
-// The Admissions Office is two lanes with one accountability boundary. Staff
-// prepare a case (intake, document verification, the hand-off to the Head for
-// endorsement, the interview schedule, and the sub-committee recommendation); the Head
-// decides it (approval and release) and owns the office's policy surfaces.
-// Stage authority is still this one map: App.jsx's changeApplicationStatus guard,
-// the review modal's action bar, and the database trigger all read it.
+// Stage authority follows the process the Admissions Office described at
+// Consultation 2 (Oct 27): the Head verifies every file and forwards the case to
+// the interviewer, an interviewer (or a ladder account in scope that runs the
+// interview itself) schedules and recommends, the school's approving level
+// approves, and the Head does the final check and releases. Staff keep a
+// read-only office view. App.jsx's changeApplicationStatus guard, the review
+// modal's action bar, and the database trigger
+// (20261050000001_lane_transitions_by_flow_role.sql) all read this one map.
 export const ADMISSIONS_OFFICE_ROLES = ['admissions_office', 'admissions_head'];
 
-// The decisions the Head owns: SOP step 7 (approval) and step 8 (release).
-export const ADMISSIONS_APPROVAL_STATUSES = ['Recommended', 'Approved'];
-
-// Every decision the Head owns, including the SOP step-4 endorsement. The Head's
-// "applications to review" count reads this, so a case waiting on the endorsement
-// decision is never missing from it.
-export const ADMISSIONS_HEAD_DECISION_STATUSES = ['For Endorsement', ...ADMISSIONS_APPROVAL_STATUSES];
+// The Head's own decisions: the final check before release (Approved), plus the
+// legacy endorsement rows still waiting at For Endorsement.
+export const ADMISSIONS_APPROVAL_STATUSES = ['Approved'];
+export const ADMISSIONS_HEAD_DECISION_STATUSES = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', ...ADMISSIONS_APPROVAL_STATUSES];
 
 export const isAdmissionsStaffRole = (role) => role === 'admissions_office';
 export const isAdmissionsHeadRole = (role) => role === 'admissions_head';
 export const isAdmissionsReviewerRole = (role) => ADMISSIONS_OFFICE_ROLES.includes(role);
 
 const roleNextStatusMap = {
-  admissions_office: {
-    Submitted: ['Under Review', 'For Verification', 'Rejected'],
-    'Under Review': ['For Verification', 'Rejected'],
-    // The Admissions Office Staff finish document verification and hand the
-    // application to the Head for endorsement (SOP step 4).
-    'For Verification': ['For Endorsement', 'Rejected'],
-    // SOP steps 5 and 6: staff coordinate the interview (its panel comes from
-    // the applicant's school, SOP 5a) and record the sub-committee
-    // recommendation (scheduleInterview and recordDeliberation in App.jsx read
-    // this map through their status guard). Approval and release are not staff
-    // decisions. A Chair on the interview panel reads the schedule and records
-    // evaluation notes without any status move, so the Chair map below stays
-    // empty.
-    Endorsed: ['Interview', 'Rejected'],
-    Interview: ['Recommended', 'Rejected'],
-  },
+  // Read-only: Staff are not part of the application process any more.
+  admissions_office: {},
   admissions_head: {
-    // The Head is a superset of the Staff lane: they can run every preparation
-    // stage and also decide approval (SOP step 7) and release (step 8). Staff
-    // remain limited to the preparation stages.
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
-    'For Verification': ['For Endorsement', 'Rejected'],
-    // The Head records the endorsement (SOP step 4); Staff only hand off.
+    // Once every file is Verified the Head forwards the case straight to the
+    // interviewer; the separate endorsement hand-off is retired.
+    'For Verification': ['Endorsed', 'Rejected'],
+    // Legacy rows handed off before the change can still leave the stage.
     'For Endorsement': ['Endorsed', 'Rejected'],
+    // Superset override on the interview and approval moves.
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
     Recommended: ['Approved', 'Rejected'],
-    Approved: ['Released'],
+    // The final check before release: a sibling already on a grant or a pending
+    // case ends the application here.
+    Approved: ['Released', 'Rejected'],
   },
-  // The academic reviewer ladder — Dean (school), Assistant Dean (cluster), and
-  // Chairperson (department) — has read-only visibility over its scope plus panel
-  // work (the schedule and private evaluation notes). Endorsement is an Admissions
-  // Office decision (SOP step 4), so no reviewer level has a stage move.
-  department_chair: {},
-  assistant_dean: {},
-  dean: {},
 };
 
-export const getNextApplicationStatuses = (status, role) => {
-  if (isReviewerRole(role)) return roleNextStatusMap[role]?.[status] || [];
+// A scoped reviewer's moves depend on the case, not only the role: any reviewer
+// in scope may schedule, only a panel member recommends, and only the approving
+// level approves. `context` carries those two facts (App.jsx `stageContextFor`).
+const reviewerNextStatuses = (status, role, { isPanelist = false, isApprover = false } = {}) => {
+  if (status === 'Endorsed') return ['Interview'];
+  if (status === 'Interview') return isPanelist ? ['Recommended'] : [];
+  if (status === 'Recommended' && role !== 'interviewer' && isApprover) return ['Approved', 'Rejected'];
+  return [];
+};
+
+export const getNextApplicationStatuses = (status, role, context = {}) => {
+  if (isReviewerRole(role)) return reviewerNextStatuses(status, role, context);
   if (isAdmissionsReviewerRole(role)) return roleNextStatusMap[role][status] || [];
   return nextStatusMap[status] || [];
 };
@@ -101,10 +92,10 @@ export const getNextApplicationStatuses = (status, role) => {
 export const AUTOMATIC_STAGE_STATUSES = ['Under Review'];
 
 // The stages that can still take a case officer. Opening an application in the
-// Admissions Office workspace joins the officer to the case, and joining is the
-// one status move that can start the review (Submitted -> Under Review).
-// Recommended and Approved are the Head's decision lane, and a closed
-// application takes nobody, so neither can be joined. Mirrors the status list in
+// Admissions Office workspace joins the Head to the case, and joining is the one
+// status move that can start the review (Submitted -> Under Review). Routing to
+// interviewers is derived from the applicant's scope, so the roster is only the
+// office's own record of who opened a case. Mirrors the status list in
 // public.join_application_review().
 export const CASE_OFFICER_JOINABLE_STATUSES = [
   'Submitted',
@@ -117,7 +108,7 @@ export const CASE_OFFICER_JOINABLE_STATUSES = [
 
 // The labels every surface shows for a stored application status. Kept in the
 // shared Edge Function module so the emails and SMS use the same words as the
-// app (for example `Endorsed` is shown as "Endorsement").
+// app (for example `Endorsed` is shown as "For Interview").
 export { getApplicationStatusLabel } from '../../supabase/functions/_shared/applicationStatus.js';
 
 // The verb a reviewer sees for each transition in the review modal's action
@@ -128,7 +119,8 @@ const stageActionLabels = {
   'Under Review': 'Mark under review',
   'For Verification': 'Continue to verification',
   'For Endorsement': 'Send to endorsement',
-  Endorsed: 'Endorse',
+  // The Head forwards a verified case to the interviewers of its scope.
+  Endorsed: 'Forward to interview',
   Interview: 'Schedule interview',
   Recommended: 'Recommend for approval',
   Approved: 'Approve',
@@ -156,13 +148,56 @@ const applicationStatusGuidance = {
   Submitted: 'Waiting for the Admissions Office to begin review.',
   'Under Review': 'The Admissions Office is reviewing your application.',
   'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified if a replacement is needed.',
-  'For Endorsement': 'Documents verified and sent for endorsement. No action needed.',
-  Endorsed: 'Endorsed. The Admissions Office will schedule your interview next.',
+  'For Endorsement': 'Documents verified. No action needed.',
+  Endorsed: 'Documents verified. An interviewer from your school will schedule your interview next.',
   Interview: 'Your interview is scheduled. Open the application for the details.',
-  Recommended: 'The sub-committee has recommended your application for approval.',
+  Recommended: 'Your interviewer has sent a recommendation to your school for its decision.',
+  // Approved and Rejected are never shown to a student before the results are
+  // released (getStudentFacingStatus); "Under deliberation" stands in for both.
+  'Under deliberation': 'Your school and the Admissions Office are deciding. Results are released to every applicant at the same time.',
   Approved: 'Approved and awaiting release of results.',
   Released: 'Results released. Open the application to review the outcome.',
   Rejected: 'The application was not accepted. No further action is needed for this application period.',
+};
+
+// Results reach every applicant of a scholarship at the same time (Consultation
+// 2, #8 and #13): until the Admissions Office Head releases them, an Approved
+// application and a Rejected one both read "Under deliberation" on the student's
+// own surfaces, and no notice is sent. A Rejected application is unmasked once a
+// `results_releases` row covers it. This is a display hold: the stored status
+// stays the authority for every staff surface and policy.
+export const STUDENT_DELIBERATION_STATUS = 'Under deliberation';
+
+export const isApplicationResultReleased = (application = {}, resultsReleases = []) => (
+  (Array.isArray(resultsReleases) ? resultsReleases : [])
+    .some((release) => Array.isArray(release?.applicationIds) && release.applicationIds.includes(application.id))
+);
+
+export const getStudentFacingStatus = (application = {}, resultsReleases = []) => {
+  const status = application?.status;
+  if (status === 'Approved') return STUDENT_DELIBERATION_STATUS;
+  if (status === 'Rejected' && !isApplicationResultReleased(application, resultsReleases)) return STUDENT_DELIBERATION_STATUS;
+  return status;
+};
+
+// The student's own copy of an application while its result is held: the
+// status reads "Under deliberation" and the held Approved/Rejected entries drop
+// out of the timeline and the status log, so no surface built on the record can
+// reveal the outcome early. A released result passes through unchanged.
+const HELD_RESULT_STATUSES = ['Approved', 'Rejected'];
+
+export const maskApplicationForStudent = (application, resultsReleases = []) => {
+  if (!application) return application;
+  const status = getStudentFacingStatus(application, resultsReleases);
+  if (status === application.status) return application;
+  return {
+    ...application,
+    status,
+    statusLog: (Array.isArray(application.statusLog) ? application.statusLog : [])
+      .filter((entry) => !HELD_RESULT_STATUSES.includes(entry?.toStatus)),
+    timeline: (Array.isArray(application.timeline) ? application.timeline : [])
+      .filter((entry) => !HELD_RESULT_STATUSES.includes(entry?.stage)),
+  };
 };
 
 export const getApplicationStatusGuidance = (status) => applicationStatusGuidance[status] || '';
@@ -172,7 +207,7 @@ export const getApplicationStatusGuidance = (status) => applicationStatusGuidanc
 export const getStatusTone = (status) => {
   if (status === 'Rejected') return 'danger';
   if (['Released', 'Approved'].includes(status)) return 'success';
-  if (['For Verification', 'For Endorsement', 'Endorsed'].includes(status)) return 'warning';
+  if (['For Verification', 'For Endorsement', 'Endorsed', 'Under deliberation'].includes(status)) return 'warning';
   return 'info';
 };
 
@@ -188,7 +223,6 @@ export const pageViewKeys = [
   'admin',
   'admin-intake',
   'admin-review',
-  'admin-endorsement',
   'admin-calendar',
   'admin-interviews',
   'admin-catalog',
@@ -201,53 +235,39 @@ export const pageViewKeys = [
   'settings',
 ];
 
-// The Admissions Office Staff review queue: everything that still needs a staff
-// or Department Chair action. `Recommended` is excluded because approval now
-// belongs to the Admissions Office Head, and `Approved` moves to the Head's
-// release queue.
+// The open office queue. Staff read it without acting; `Recommended` waits on the
+// school's approver and `Approved` sits in the Head's release lane.
 export const ADMISSIONS_REVIEW_EXCLUDED_STATUSES = ['Draft', 'Approved', 'Released', 'Rejected'];
 export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED_STATUSES, 'Recommended'];
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
-//   - Admissions Office Staff: the cases they joined plus everything still
-//     unclaimed in the intake pool. Without `caseOfficers` / `userId` (an older
-//     caller) it falls back to the whole office queue.
-//   - Admissions Office Head: the endorsement, approval, and release decisions
-//     the Head owns.
-//   - Department Chair / Assistant Dean / Dean: the live applications inside their
-//     review scope (they take no stage action, so the count is what their scope has
-//     in flight at the Admissions Office, shown read-only).
-export const countApplicationsToReview = (applications = [], { role, studentId, department, caseOfficers, userId, reviewScope, programs } = {}) => {
+//   - Admissions Office Staff: the open office queue, read-only.
+//   - Admissions Office Head: verification, legacy endorsement, and the final
+//     check before release.
+//   - Interviewer: the in-scope cases waiting for, or in, the interview.
+//   - Chairperson / Assistant Dean / Dean: the in-scope interview work plus the
+//     recommendations waiting for a decision.
+export const countApplicationsToReview = (applications = [], { role, studentId, department, reviewScope, programs } = {}) => {
   const list = Array.isArray(applications) ? applications : [];
 
   if (isAdmissionsStaffRole(role)) {
-    const roster = Array.isArray(caseOfficers) ? caseOfficers.filter((entry) => !entry.leftAt) : null;
-    if (!roster || !userId) {
-      return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
-    }
-    const claimed = new Set(roster.map((entry) => entry.applicationId));
-    const mine = new Set(roster.filter((entry) => entry.officerId === userId).map((entry) => entry.applicationId));
-    return list.filter((entry) => (
-      !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)
-      && (mine.has(entry.id) || !claimed.has(entry.id))
-    )).length;
+    return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
   }
 
   if (isAdmissionsHeadRole(role)) {
     return list.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
   }
 
-  // A reviewer at any level reads a scoped slice with no stage action, so the count
-  // is what that scope has in flight at the Admissions Office.
   if (isReviewerRole(role)) {
     // `reviewScope` may be the already-normalised scope (with a `level`) or the
     // reviewer's profile fields; normalise the latter here.
     const scope = reviewScope?.level ? reviewScope : getReviewerScope({ role, department, ...(reviewScope || {}) });
     const programIndex = buildProgramScopeIndex(programs);
+    const statuses = isInterviewerRole(role) ? ['Endorsed', 'Interview'] : ['Endorsed', 'Interview', 'Recommended'];
     return list.filter((entry) => (
       isApplicationInReviewerScope(entry, scope, programIndex)
-      && ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(entry.status)
+      && statuses.includes(entry.status)
     )).length;
   }
 
@@ -259,7 +279,7 @@ export const countApplicationsToReview = (applications = [], { role, studentId, 
 };
 
 export const sopStageIndex = (status) => {
-  const index = sopStages.indexOf(status);
+  const index = sopStages.indexOf(status === 'For Endorsement' ? 'For Verification' : status);
   return index === -1 ? null : index;
 };
 
@@ -270,7 +290,7 @@ export const verificationStatuses = ['Pending', 'Verified', 'Rejected'];
 // How a Document Vault decision reads on screen. The stored value stays
 // `Rejected` — the check constraint, the replace-in-place RPC, the verification
 // gate, and every trigger read it — and only the label translates, exactly as
-// `Endorsed` is displayed as "Endorsement". "Reverted for resubmission" is the
+// `Endorsed` is displayed as "For Interview". "Reverted for resubmission" is the
 // office's own wording for the decision (Consultation 2, request #3), and the
 // recorded reason stays visible because it tells the student what to correct.
 export const documentStatusLabels = { Rejected: 'Reverted for resubmission' };

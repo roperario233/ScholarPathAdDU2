@@ -67,7 +67,19 @@ export function StatusBadge({ tone = 'neutral', title, children, className = '' 
   return <span className={clsx('inline-flex w-fit items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold', statusClasses[tone] || statusClasses.neutral, className)} title={title || undefined}>{children}</span>;
 }
 
-export function FormField({ label, hint, error, labelAdornment, fieldKey, children, className = '' }) {
+// The red asterisk that marks a required answer the student has not given yet.
+// It sits directly after the label text, so it never enters an interactive
+// control, and the sr-only text keeps the requirement announced out loud.
+export function RequiredMark() {
+  return (
+    <>
+      <span className="ml-0.5 text-rose-500 dark:text-rose-400" aria-hidden="true">*</span>
+      <span className="sr-only"> (required)</span>
+    </>
+  );
+}
+
+export function FormField({ label, hint, error, labelAdornment, fieldKey, required = false, children, className = '' }) {
   return (
     // The root is a plain container, not a <label>: a label adornment can carry an
     // action (the proof chip), and interactive content nested in a <label> is invalid
@@ -79,7 +91,10 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, childr
     // can find and highlight it (src/pages/ProfileView.jsx).
     <div className={clsx('grid min-w-0 content-start gap-2', className)} data-field={fieldKey}>
       <label className="grid min-w-0 content-start gap-2">
-        <span className="min-w-0 text-sm font-semibold text-app-text">{label}</span>
+        <span className="min-w-0 text-sm font-semibold text-app-text">
+          {label}
+          {required && <RequiredMark />}
+        </span>
         {children}
       </label>
       {/* The adornment gets a row of its own under the control. Sharing the label
@@ -92,22 +107,44 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, childr
   );
 }
 
-export function SettingToggle({ checked, onChange, title, description }) {
+// With an `icon` the toggle becomes a feature tile (icon, copy, switch on the
+// right) for the Settings page; without one it keeps the compact form-row look
+// My Profile uses.
+export function SettingToggle({ checked, onChange, title, description, icon: Icon = null }) {
+  const switchControl = (
+    <span className={clsx('relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors has-[:checked]:bg-ateneo', Icon ? 'bg-slate-400/30' : 'bg-slate-400/20')}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+        className="peer sr-only"
+      />
+      <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+    </span>
+  );
+  const copy = (
+    <span className="min-w-0 flex-1">
+      <strong className="block text-sm font-semibold text-app-text">{title}</strong>
+      <span className="mt-1 block text-sm text-app-muted">{description}</span>
+    </span>
+  );
+
+  if (!Icon) {
+    return (
+      <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
+        {switchControl}
+        {copy}
+      </label>
+    );
+  }
+
   return (
-    <label className="group flex cursor-pointer items-start gap-4 rounded-xl bg-app-surface p-4 transition-colors hover:bg-app-card">
-      <span className="relative mt-0.5 h-7 w-12 shrink-0 rounded-full bg-slate-400/20 transition-colors has-[:checked]:bg-ateneo">
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(event.target.checked)}
-          className="peer sr-only"
-        />
-        <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+    <label className="group flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface p-4 transition hover:-translate-y-px hover:bg-app-card hover:shadow-card has-[:checked]:border-blue-500/40 has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20">
+      <span className="mt-0.5 grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-app-muted-surface text-app-muted transition-colors group-has-[:checked]:bg-blue-500/15 group-has-[:checked]:text-blue-600 dark:group-has-[:checked]:text-blue-200" aria-hidden="true">
+        <Icon size={18} />
       </span>
-      <span className="min-w-0">
-        <strong className="block text-sm font-semibold text-app-text">{title}</strong>
-        <span className="mt-1 block text-sm text-app-muted">{description}</span>
-      </span>
+      {copy}
+      {switchControl}
     </label>
   );
 }

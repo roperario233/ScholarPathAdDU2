@@ -38,6 +38,22 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+
+// Consultation 2: an interviewer, or a Chairperson / Assistant Dean / Dean whose
+// scope covers the applicant, schedules and runs the interview. Scope is decided
+// by public.reviewer_scopes_to_student() evaluated as the caller (its JWT), the
+// same predicate behind every reviewer row-level policy.
+const SCOPED_REVIEWER_ROLES = ['dean', 'assistant_dean', 'department_chair', 'interviewer'];
+const callerScopesToStudent = async (token: string, studentId: string) => {
+  const callerClient = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false } },
+  );
+  const { data, error } = await callerClient.rpc('reviewer_scopes_to_student', { p_student_id: studentId });
+  return !error && data === true;
+};
+
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
@@ -72,15 +88,32 @@ Deno.serve(async (req) => {
     .select('role')
     .eq('user_id', jwtUser.user.id)
     .maybeSingle();
-  if (!['admissions_office', 'admissions_head'].includes(callerProfile?.role)) {
-    return json({ error: 'Only the Admissions Office can manage interview events' }, 403);
-  }
-
   let payload = {};
   try {
     payload = await req.json();
   } catch {
     payload = {};
+  }
+
+  // The Admissions Office (the Head coordinates; Staff only read, but `status` and
+  // `verify` stay open to them) or a scoped reviewer of this applicant.
+  const callerRole = callerProfile?.role;
+  const isOffice = ['admissions_office', 'admissions_head'].includes(callerRole);
+  let allowed = isOffice;
+  if (!allowed && SCOPED_REVIEWER_ROLES.includes(callerRole)) {
+    const action = String(payload?.action ?? '');
+    if (action === 'status' || action === 'verify') {
+      allowed = true;
+    } else {
+      const applicationId = String(payload?.applicationId ?? '').trim();
+      const { data: application } = applicationId
+        ? await supabaseAdmin.from('applications').select('student_id').eq('id', applicationId).maybeSingle()
+        : { data: null };
+      allowed = Boolean(application?.student_id) && await callerScopesToStudent(token, application.student_id);
+    }
+  }
+  if (!allowed) {
+    return json({ error: 'Only the Admissions Office or an interviewer of this applicant can manage interview events' }, 403);
   }
 
   const { httpStatus, body } = await handleInterviewEvent({

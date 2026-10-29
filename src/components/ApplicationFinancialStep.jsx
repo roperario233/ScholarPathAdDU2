@@ -1,9 +1,10 @@
-import { FormField, Panel } from './ui';
+import { FormField, Panel, RequiredMark } from './ui';
 import {
   COPING_OPTIONS,
   DIFFICULTY_REASON_OPTIONS,
   TRANSPORT_MODE_OPTIONS,
   foodIntakeOptions,
+  getMissingFinancialAnswerKeys,
   yesNoAnswerOptions,
 } from '../lib/financialDetails';
 
@@ -25,11 +26,14 @@ const AmountInput = ({ value, onChange, label }) => (
 // A "check as many" answer, stored as a list of option keys. FORM 230-SCH asks the
 // financial-difficulty reasons and the coping strategies this way, with one
 // free-text follow-up when "Other" is chosen.
-function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, onOtherChange }) {
+function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, onOtherChange, required = false, otherRequired = false }) {
   const isSelected = (key) => selected.includes(key);
   return (
     <fieldset className="m-0 grid gap-2 border-0 p-0 md:col-span-2">
-      <legend className="mb-1 text-sm font-semibold text-app-text">{legend}</legend>
+      <legend className="mb-1 text-sm font-semibold text-app-text">
+        {legend}
+        {required && <RequiredMark />}
+      </legend>
       {hint ? <small className="field-hint block">{hint}</small> : null}
       <div className="grid gap-2 md:grid-cols-2">
         {options.map((option) => (
@@ -40,7 +44,7 @@ function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, 
         ))}
       </div>
       {isSelected('other') && otherValue !== undefined ? (
-        <FormField label="Please specify">
+        <FormField label="Please specify" required={otherRequired}>
           <input className={controlClass} value={otherValue} onChange={(event) => onOtherChange(event.target.value)} maxLength={300} />
         </FormField>
       ) : null}
@@ -61,6 +65,10 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
     const current = selection(key);
     set(key)(current.includes(option) ? current.filter((entry) => entry !== option) : [...current, option]);
   };
+  // The answers this submission still needs, from the same rule the readiness gate
+  // and "Still needed" read, so an asterisk never disagrees with that list.
+  const missingKeys = new Set(getMissingFinancialAnswerKeys(answers));
+  const needs = (key) => missingKeys.has(key);
 
   return (
     <section className="grid gap-3" aria-label="Financial situation">
@@ -69,17 +77,17 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </p>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Do you have other sources of income?">
+        <FormField label="Do you have other sources of income?" required={needs('otherIncomeAnswer')}>
           <select className={controlClass} value={answers.otherIncomeAnswer} onChange={text('otherIncomeAnswer')}>
             {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </FormField>
         {answers.otherIncomeAnswer === 'yes' ? (
           <>
-            <FormField label="Other income sources">
+            <FormField label="Other income sources" required={needs('otherIncomeSources')}>
               <input className={controlClass} value={answers.otherIncomeSources} onChange={text('otherIncomeSources')} maxLength={300} />
             </FormField>
-            <FormField label="Average monthly amount (PHP)">
+            <FormField label="Average monthly amount (PHP)" required={needs('otherIncomeMonthly')}>
               <AmountInput value={answers.otherIncomeMonthly} onChange={set('otherIncomeMonthly')} label="Average monthly amount of other income" />
             </FormField>
           </>
@@ -87,7 +95,7 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </Panel>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Has your family had financial difficulty in the last 3 months?">
+        <FormField label="Has your family had financial difficulty in the last 3 months?" required={needs('difficultyAnswer')}>
           <select className={controlClass} value={answers.difficultyAnswer} onChange={text('difficultyAnswer')}>
             {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
@@ -102,6 +110,8 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
               onToggle={toggle('difficultyReasons')}
               otherValue={answers.difficultyOther}
               onOtherChange={(value) => set('difficultyOther')(value)}
+              required={needs('difficultyReasons')}
+              otherRequired={needs('difficultyOther')}
             />
             <CheckboxGroup
               legend="How does your family cope?"
@@ -111,34 +121,36 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
               onToggle={toggle('difficultyCoping')}
               otherValue={answers.copingOther}
               onOtherChange={(value) => set('copingOther')(value)}
+              required={needs('difficultyCoping')}
+              otherRequired={needs('copingOther')}
             />
           </>
         ) : null}
       </Panel>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Daily allowance (PHP)">
+        <FormField label="Daily allowance (PHP)" required={needs('allowanceDaily')}>
           <AmountInput value={answers.allowanceDaily} onChange={set('allowanceDaily')} label="Daily allowance" />
         </FormField>
-        <FormField label="Is your daily allowance enough?">
+        <FormField label="Is your daily allowance enough?" required={needs('allowanceEnough')}>
           <select className={controlClass} value={answers.allowanceEnough} onChange={text('allowanceEnough')}>
             {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </FormField>
-        <FormField label="Daily food intake">
+        <FormField label="Daily food intake" required={needs('foodIntakeAdequacy')}>
           <select className={controlClass} value={answers.foodIntakeAdequacy} onChange={text('foodIntakeAdequacy')}>
             <option value="">Select</option>
             {foodIntakeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </FormField>
-        <FormField label="Mode of transport to school">
+        <FormField label="Mode of transport to school" required={needs('transportMode')}>
           <select className={controlClass} value={answers.transportMode} onChange={text('transportMode')}>
             <option value="">Select</option>
             {TRANSPORT_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </FormField>
         {answers.transportMode === 'other' ? (
-          <FormField label="Please specify your mode of transport" className="md:col-span-2">
+          <FormField label="Please specify your mode of transport" className="md:col-span-2" required={needs('transportOther')}>
             <input className={controlClass} value={answers.transportOther} onChange={text('transportOther')} maxLength={100} />
           </FormField>
         ) : null}
@@ -148,13 +160,13 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </Panel>
 
       <Panel className="grid gap-4 md:grid-cols-3">
-        <FormField label="Daily food expense (PHP)">
+        <FormField label="Daily food expense (PHP)" required={needs('expenseFood')}>
           <AmountInput value={answers.expenseFood} onChange={set('expenseFood')} label="Daily food expense" />
         </FormField>
-        <FormField label="Daily transport expense (PHP)">
+        <FormField label="Daily transport expense (PHP)" required={needs('expenseTransport')}>
           <AmountInput value={answers.expenseTransport} onChange={set('expenseTransport')} label="Daily transport expense" />
         </FormField>
-        <FormField label="Other daily expenses (PHP)">
+        <FormField label="Other daily expenses (PHP)" required={needs('expenseOther')}>
           <AmountInput value={answers.expenseOther} onChange={set('expenseOther')} label="Other daily expenses" />
         </FormField>
       </Panel>

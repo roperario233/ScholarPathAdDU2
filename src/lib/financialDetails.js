@@ -254,13 +254,16 @@ export const normalizeFinancialAnswers = (raw = {}) => {
   return answers;
 };
 
-// What is still missing for a submission. Mirrors financial_answers_complete()
-// in the database (the client also asks for the income source details and the
-// free-text follow-ups behind an "Other" option).
-export const getFinancialAnswersMissing = (rawAnswers) => {
+// What is still missing for a submission, by answer key. Mirrors
+// financial_answers_complete() in the database (the client also asks for the
+// income source details and the free-text follow-ups behind an "Other" option).
+// The application workspace marks the unanswered field from this list; the
+// labelled copy below is what the readiness gate and the step's summary read, so
+// the mark and the message can never name different answers.
+export const getMissingFinancialAnswerKeys = (rawAnswers) => {
   const answers = normalizeFinancialAnswers(rawAnswers || {});
   const missing = [];
-  const need = (key) => missing.push(FINANCIAL_ANSWER_FIELDS[key]);
+  const need = (key) => missing.push(key);
   if (!answers.otherIncomeAnswer) need('otherIncomeAnswer');
   if (answers.otherIncomeAnswer === 'yes') {
     if (!answers.otherIncomeSources) need('otherIncomeSources');
@@ -285,6 +288,9 @@ export const getFinancialAnswersMissing = (rawAnswers) => {
   if (!isAmount(answers.expenseOther)) need('expenseOther');
   return missing;
 };
+
+export const getFinancialAnswersMissing = (rawAnswers) => getMissingFinancialAnswerKeys(rawAnswers)
+  .map((key) => FINANCIAL_ANSWER_FIELDS[key]);
 
 export const isFinancialAnswersComplete = (answers) => getFinancialAnswersMissing(answers).length === 0;
 

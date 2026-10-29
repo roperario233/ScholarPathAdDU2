@@ -15,12 +15,15 @@ import {
   getCaseOpenedAt,
   getIntakePool,
   getIntakePoolFacets,
+  getInterviewerWorkload,
   getOfficerWorkload,
+  getRoutedInterviewers,
   getSubmissionWaitDays,
   getTakenCases,
   getUnclaimedInProgress,
 } from '../../lib/admissionsOffice';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
+import { buildProgramScopeIndex } from '../../lib/reviewScope';
 import { fmtDate } from '../../lib/formatters';
 
 const PAGE_SIZE = 20;
@@ -32,12 +35,12 @@ const waitLabel = (days) => {
   return `Waiting ${days} day${days === 1 ? '' : 's'}`;
 };
 
-// The Intake pool is the office's master list of open applications. Nothing here
-// is owned: an application leaves the unclaimed pool the moment any Admissions
-// Office account opens it, and stays discoverable under the "With officers"
-// coverage filter, which is how a taken case is found again. Picking up a case
-// starts its review (Submitted -> Under Review) and opens the shared review
-// surface, where a second officer who opens the same case simply joins it.
+// The Intake pool is the office's master list of open applications. Each case
+// is routed to the interviewers of the applicant's school and cluster the moment
+// it is submitted (Consultation 2, #12), and each row says who that is, or warns
+// that nobody covers the cluster yet. The Head picks a case up to start its
+// review (Submitted -> Under Review) and verify its documents; Staff read the
+// list without acting.
 export default function AdminIntakePool({
   applications = [],
   caseOfficers = [],
@@ -62,6 +65,15 @@ export default function AdminIntakePool({
   onLeaveCase,
 }) {
   const isHead = isAdmissionsHeadRole(role);
+  const staffDirectory = useMemo(() => interviewWorkspace?.staffDirectory || [], [interviewWorkspace?.staffDirectory]);
+  const programIndex = useMemo(
+    () => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []),
+    [interviewWorkspace?.academicPrograms],
+  );
+  const interviewerWorkload = useMemo(
+    () => (isHead ? getInterviewerWorkload(applications, staffDirectory, programIndex) : []),
+    [applications, staffDirectory, programIndex, isHead],
+  );
   const [filters, setFilters] = useState(DEFAULT_INTAKE_POOL_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selectedId, setSelectedId] = useState(null);
@@ -137,6 +149,7 @@ export default function AdminIntakePool({
     const officerChips = officers.map((officer) => (
       officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName
     ));
+    const routedTo = getRoutedInterviewers(entry, staffDirectory, programIndex);
     return (
       <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
@@ -156,14 +169,17 @@ export default function AdminIntakePool({
             : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
           {officerChips.length ? <StatusBadge tone="info">{officerChips.join(' · ')}</StatusBadge> : null}
           {openedAt ? <span className="text-xs text-app-muted">Picked up {fmtDate(openedAt)}</span> : null}
+          {routedTo.length
+            ? <StatusBadge tone="neutral">Interviewers: {routedTo.map((interviewer) => interviewer.fullName).join(' · ')}</StatusBadge>
+            : <StatusBadge tone="warning">No interviewer covers this cluster yet</StatusBadge>}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-          {isUnclaimed ? (
+          {isUnclaimed && isHead ? (
             <Button type="button" onClick={() => handlePickUp(entry.id)} disabled={pickingUp}>
               {pickingUp ? 'Picking up…' : 'Pick up for review'}
             </Button>
           ) : (
-            <Button type="button" onClick={() => openReview(entry.id)}>Open case</Button>
+            <Button type="button" onClick={() => openReview(entry.id)}>{isHead ? 'Open case' : 'View case'}</Button>
           )}
         </div>
       </article>
@@ -174,7 +190,9 @@ export default function AdminIntakePool({
     <div className="grid gap-5">
       <AdminPageHeader
         title="Application intake pool"
-        description="Every open application in one list, oldest submission first. Pick up a case to start its review."
+        description={isHead
+          ? 'Every open application in one list, oldest submission first. Pick up a case to verify its documents.'
+          : 'Every open application in one list, oldest submission first. Read-only for Admissions Office Staff.'}
         badge={`${unclaimed.length} unclaimed`}
         badgeTone={unclaimed.length ? 'warning' : 'success'}
       />
@@ -319,6 +337,30 @@ export default function AdminIntakePool({
           )}
         </Card>
       </section>
+
+      {isHead ? (
+        <section>
+          <Card
+            title="Interviewer workload"
+            action={<StatusBadge tone="info">{interviewerWorkload.length} interviewer{interviewerWorkload.length === 1 ? '' : 's'}</StatusBadge>}
+          >
+            {interviewerWorkload.length ? (
+              <ul className="m-0 grid gap-2 p-0">
+                {interviewerWorkload.map((interviewer) => (
+                  <li key={interviewer.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
+                    <span className="min-w-0 text-sm font-semibold text-app-text">{interviewer.fullName}</span>
+                    <span className="text-xs text-app-muted">
+                      {interviewer.scopeLabel || 'Scope not assigned'} · {interviewer.cases} open interview case{interviewer.cases === 1 ? '' : 's'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="m-0 text-sm text-app-muted">No interviewer account exists yet. Applicants are routed by school and cluster once one does.</p>
+            )}
+          </Card>
+        </section>
+      ) : null}
 
       {isHead ? (
         <section>

@@ -55,22 +55,42 @@ const continuingProfile = {
   // The remaining "Needed to apply" answers and the FORM 230-SCH core.
   civilStatus: 'Single',
   completeAddress: 'Roxas Ave, Davao City',
+  housingType: 'I live at home',
   ipCommunity: 'No',
   pwd: 'No',
   employed: 'Not employed',
   // FORM 230-SCH Applicant Status.
   isTransferee: 'No',
   phone: '0917 123 4567',
+  email: 'ana.reyes@example.com',
   birthdate: '2005-04-12',
   sexAtBirth: 'Female',
+  religion: 'Roman Catholic',
+  pronouns: 'she/her',
+  awardsNone: true,
+  graduatingClassSize: 120,
+  previousGrantsAnswered: 'No',
+  hsStrand: 'STEM',
   communityService: 'Yes',
-  schoolLastAttended: { name: 'Davao Senior High School' },
-  // Each parent's name (or an unknown parent) is needed to apply.
-  familyDetails: { fatherName: 'Jose Reyes', motherName: 'Maria Reyes' },
+  schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' },
+  // Each listed parent's name, age, and occupation are printed on the form.
+  familyDetails: {
+    fatherName: 'Jose Reyes',
+    fatherAge: 52,
+    fatherOccupation: 'Driver',
+    motherName: 'Maria Reyes',
+    motherAge: 49,
+    motherOccupation: 'Teacher',
+    numberOfSiblings: 0,
+    siblingsNone: true,
+    householdAdultsNone: true,
+  },
   financialProfile: {
     economicStatus: 'lower',
-    father: { employmentStatus: 'employed', annualIncome: 120000 },
-    mother: { employmentStatus: 'unemployed', annualIncome: 0 },
+    father: { employmentStatus: 'employed', annualIncome: 120000, employer: 'Davao Transit' },
+    mother: { employmentStatus: 'unemployed', annualIncome: 0, lastEmployed: 'March 2024', unemploymentReason: 'Health' },
+    assets: { none: true, others: '' },
+    appliances: { none: true, others: '' },
   },
 };
 
@@ -316,18 +336,19 @@ describe('profile snapshot', () => {
       hasSiblingOnAid: true,
       hasOtherActiveScholarship: false,
       isTransferee: 'No',
+      hsStrand: 'STEM',
     });
     expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
-    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: '' });
+    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: 'she/her', email: 'ana.reyes@example.com', phone: '0917 123 4567' });
     expect(snapshot.address).toEqual({
       completeAddress: 'Roxas Ave, Davao City',
       residingAddress: 'Roxas Ave, Davao City',
       country: 'Philippines',
-      housingType: '',
+      housingType: 'I live at home',
       housingOther: '',
       verification: { completeAddress: 'Unverified', residingAddress: 'Unverified' },
     });
-    expect(snapshot.education).toEqual({ schoolLastAttended: { name: 'Davao Senior High School', city: '', province: '' }, awards: '' });
+    expect(snapshot.education).toEqual({ schoolLastAttended: { name: 'Davao Senior High School', city: 'Davao City', province: 'Davao del Sur' }, awards: '' });
     expect(snapshot.aid).toEqual({ communityService: 'Yes', previousGrants: [] });
     expect(snapshot.background.ipGroupName).toBe('');
     expect(snapshot.family).toMatchObject({
@@ -386,7 +407,7 @@ describe('profile snapshot sections', () => {
     expect(rows.Mother.value).toBe('Maria Reyes · Vendor · Deceased');
     expect(rows.Father.value).toBe('Unknown / not listed');
     expect(rows['Sex assigned at birth'].value).toBe('Female');
-    expect(rows['School last attended'].value).toBe('Davao Senior High School');
+    expect(rows['School last attended'].value).toBe('Davao Senior High School, Davao City, Davao del Sur');
     expect(rows['Willing to render community service'].value).toBe('Yes');
   });
 
@@ -414,7 +435,7 @@ describe('profile snapshot sections', () => {
     expect(rows['Name of applicant (Last, First, Middle)']).toBe('Reyes, Ana Cruz');
     expect(rows.Name).toBeUndefined();
     expect(rows['Applicant status']).toBe('Transferee');
-    expect(rows['College last attended']).toBe('Davao Senior High School');
+    expect(rows['College last attended']).toBe('Davao Senior High School, Davao City, Davao del Sur');
     expect(rows['Number of graduates of your senior high school']).toBe('120');
     expect(rows['Financial aid in senior high school']).toContain('Senior high school');
     expect(rows['Financial aid in senior high school']).toContain('₱12,000 a year');

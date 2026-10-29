@@ -28,6 +28,9 @@ export default function DepartmentInterviewsView({
   scholarships = [],
   reviewComments = [],
   onChangeApplication,
+  onRejectApplication,
+  onApproveApplication,
+  onRecordDeliberation,
   onAddComment,
   interviewWorkspace = null,
 }) {
@@ -117,12 +120,18 @@ export default function DepartmentInterviewsView({
           application={selected}
           scholarship={scholarships.find((entry) => entry.id === selected.scholarshipId)}
           documents={documents}
-          role="department_chair"
+          role={profile?.role || 'department_chair'}
           initialTab="interview"
           reviewComments={reviewComments}
           onAddComment={onAddComment}
           onClose={() => setSelectedId(null)}
-          onStatusChange={onChangeApplication}
+          onStatusChange={(applicationId, status, options) => (
+            status === 'Approved' && onApproveApplication
+              ? onApproveApplication(applicationId, options?.note)
+              : onChangeApplication?.(applicationId, status, options)
+          )}
+          onRejectApplication={onRejectApplication}
+          onRecordDeliberation={onRecordDeliberation}
           interviewWorkspace={interviewWorkspace}
         />
       )}

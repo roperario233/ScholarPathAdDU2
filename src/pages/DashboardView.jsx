@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, CalendarClock, CheckCircle2, ChevronRight, FileText, ListChecks } from 'lucide-react';
+import { ArrowRight, CalendarClock, CheckCircle2, ChevronRight, FileText, ListChecks, Sparkles } from 'lucide-react';
 import ScholarshipTrackIcon from '../components/ScholarshipTrackIcon';
 import { ModalShell } from '../components/ui';
 import { getDeadlineStatus, getScholarshipAcademicDisplay } from '../lib/eligibility';
@@ -28,7 +28,15 @@ function SectionHeading({ icon: Icon, children }) {
   );
 }
 
-const countPrograms = (programs) => programs.reduce((total, group) => total + group.names.length, 0);
+// The header greets by time of day; the student's name already sits in the sidebar.
+const getGreeting = (now = new Date()) => {
+  const hour = now.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 18) return 'Good afternoon';
+  return 'Good evening';
+};
+
+const countPrograms =(programs) => programs.reduce((total, group) => total + group.names.length, 0);
 
 // The programs a track admits, as the leaflet prints them, in a dialog portaled
 // to <body>: the card's backdrop blur would otherwise trap the fixed overlay.
@@ -72,7 +80,10 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
     <article className="row-span-6 grid min-w-0 grid-rows-subgrid rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur">
       <header className="flex items-start gap-3">
         <ScholarshipTrackIcon ruleFamily={card.ruleFamily} />
-        <div className="min-w-0">
+        {/* flex-1: a global rule stops the last child of an article's flex row from
+            shrinking, so without it a long title ("Working Scholar Program (WSP)")
+            overflows the card instead of wrapping. */}
+        <div className="min-w-0 flex-1">
           <span className="eyebrow">{card.kind}</span>
           <h3 className="mt-2 text-lg font-bold text-app-text">{card.name}</h3>
         </div>
@@ -142,14 +153,37 @@ export default function DashboardView({ profile, isFirstLogin, scholarships, onO
     : standing.isIncomingFirstYear
       ? 'For incoming first-year applicants.'
       : 'For current Ateneo students and transferees.';
+  // The soonest still-open deadline among the three grants, for the header tile.
+  const nextDeadlineCard = cards
+    .filter((card) => card.scholarship?.deadline && getDeadlineStatus(card.scholarship.deadline).remainingDays >= 0)
+    .sort((a, b) => getDeadlineStatus(a.scholarship.deadline).remainingDays - getDeadlineStatus(b.scholarship.deadline).remainingDays)[0] || null;
 
   return (
     <div className="grid gap-4">
-      <section className="page-title-bar rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
-        <div className="page-title-copy">
-          <span className="page-section-label">{isFirstLogin ? 'Welcome' : `Welcome back, ${profile.fullName || 'Scholar'}`}</span>
-          <h2>Available AdDU scholarship grants</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">The Office of Admission and Aid offers three financial aid pipelines. Read what each one covers and what to prepare before you apply.</p>
+      {/* Same height as a plain title bar: the rail and glow are absolute, the
+          standing chip shares the greeting's line, and the deadline tile sits
+          beside the copy from `xl` only, so nothing stacks and adds height. */}
+      <section className="page-title-bar relative rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
+        <span className="pointer-events-none absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-ateneo via-sky-400 to-cyan-300" aria-hidden="true" />
+        <span className="pointer-events-none absolute -right-12 -top-16 h-48 w-48 rounded-full bg-blue-500/15 blur-3xl" aria-hidden="true" />
+        <div className="relative flex min-w-0 items-center justify-between gap-6">
+          <div className="page-title-copy flex-1">
+            <h2 className="flex min-w-0 items-center gap-2.5 !mt-0 text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">
+              <Sparkles size={24} className="shrink-0 text-[color:var(--accent)]" aria-hidden="true" />
+              <span className="min-w-0 truncate">{isFirstLogin ? 'Welcome, Scholar' : `${getGreeting()}, Scholar`}</span>
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm text-app-muted"><strong className="font-semibold text-app-text">Available AdDU scholarship grants.</strong> The Office of Admission and Aid offers three financial aid pipelines. Read what each one covers and what to prepare before you apply.</p>
+          </div>
+          {nextDeadlineCard ? (
+            <div className="hidden w-72 shrink-0 items-center gap-3 rounded-2xl border border-app-border bg-app-surface/70 p-3 xl:flex">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-500/15 text-blue-600 dark:text-blue-200" aria-hidden="true"><CalendarClock size={18} /></span>
+              <div className="min-w-0">
+                <span className="block text-xs font-semibold text-app-muted">Next deadline</span>
+                <strong className="block truncate text-sm font-bold text-app-text" title={nextDeadlineCard.name}>{nextDeadlineCard.name}</strong>
+                <span className="block truncate text-xs text-app-muted">{fmtDate(nextDeadlineCard.scholarship.deadline)} · {getDeadlineStatus(nextDeadlineCard.scholarship.deadline).label}</span>
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -182,7 +216,7 @@ export default function DashboardView({ profile, isFirstLogin, scholarships, onO
           <div className="min-w-0">
             <span className="text-xs font-bold uppercase tracking-[0.14em] text-white/70">Smart Eligibility Checker</span>
             <h3 className="mt-2 text-2xl font-bold leading-tight text-white sm:text-3xl">Ready to find the grant that fits you?</h3>
-            <p className="mt-2 max-w-xl text-sm text-white/85 sm:text-base">Compare the three grants against your Application Form answers, then start your application from the scholarship page.</p>
+            <p className="mt-2 max-w-xl text-sm text-white/85">Compare the three grants to your answers, then apply from the scholarship page.</p>
           </div>
           <button
             type="button"

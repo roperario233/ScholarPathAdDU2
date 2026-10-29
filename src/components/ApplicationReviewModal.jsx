@@ -11,12 +11,12 @@ import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
-import { createInterviewDraft, getInterviewStateLabel, getLatestPanelRecommendation, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from '../lib/interview';
+import { createInterviewDraft, getLatestPanelRecommendation, validateInterviewSchedule } from '../lib/interview';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -166,33 +166,45 @@ export default function ApplicationReviewModal({
   onJoinCase,
   onLeaveCase,
 }) {
-  // Both Admissions Office lanes can run the preparation stages; the Head is a
-  // superset and also decides the endorsement (SOP step 4), approval, and
-  // release. Department Chairs read the department's cases without a stage move.
+  // Since Consultation 2 the Head verifies the files, forwards the case to the
+  // interviewers of its scope, and does the final check and release; Staff read
+  // the office workspace without acting. A scoped reviewer (an interviewer or a
+  // ladder account) schedules and recommends, and the school's approving level
+  // approves; getNextApplicationStatuses decides each move from the case facts.
   const isAdmissionsHead = isAdmissionsHeadRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
+  const stageContext = interviewWorkspace?.stageContextFor?.(application) || {};
+  // Who may schedule this applicant's interview: an interviewer or ladder
+  // account in scope, or the Head (App.jsx canCoordinateInterview). Without the
+  // workspace's answer only the Head coordinates.
+  const canCoordinateInterview = interviewWorkspace?.canCoordinate
+    ? Boolean(interviewWorkspace.canCoordinate(application))
+    : isAdmissionsHead;
   const isWide = useIsWide();
   // Case officers. Opening an application is what adds the officer to it, so the
   // effect below runs once per open unless the signed-in account is already on the
   // roster. A failed join stays silent: reading the case must never be blocked by
   // it, and the next open retries.
   const caseOfficersOnApplication = getCaseOfficers(caseOfficers, application.id);
-  const isOnCase = Boolean(currentUserId)
-    && caseOfficersOnApplication.some((entry) => entry.officerId === currentUserId);
+  const currentOfficer = currentUserId
+    ? caseOfficersOnApplication.find((entry) => entry.officerId === currentUserId)
+    : null;
+  const isOnCase = Boolean(currentOfficer);
+  const currentOfficerName = currentOfficer?.officerName || 'Signed-in officer';
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaveError, setLeaveError] = useState('');
   const joinAttemptedRef = useRef(false);
   useEffect(() => {
-    if (!isAdmissionsReviewer || !onJoinCase) return;
+    if (!isAdmissionsHead || !onJoinCase) return;
     if (!CASE_OFFICER_JOINABLE_STATUSES.includes(application.status)) return;
     if (isCaseOfficer(caseOfficers, application.id, currentUserId)) return;
     if (joinAttemptedRef.current) return;
     joinAttemptedRef.current = true;
     Promise.resolve(onJoinCase(application.id)).catch(() => undefined);
-  }, [application.id, application.status, caseOfficers, currentUserId, isAdmissionsReviewer, onJoinCase]);
+  }, [application.id, application.status, caseOfficers, currentUserId, isAdmissionsHead, onJoinCase]);
 
   const previewPaneRef = useRef(null);
-  const nextStatuses = getNextApplicationStatuses(application.status, role);
+  const nextStatuses = getNextApplicationStatuses(application.status, role, stageContext);
   const linkedDocuments = getLinkedDocuments(application, documents);
   // The 2x2 ID photo heads the snapshot view, so a reviewer can put a face to
   // the application without opening the Documents tab.
@@ -271,7 +283,7 @@ export default function ApplicationReviewModal({
     if (stageTab === 'documents' && documentsUnlocked) return 'documents';
     if (stageTab === 'endorsement' && endorsementUnlocked) return 'endorsement';
     if (stageTab === 'interview' && interviewUnlocked) return 'interview';
-    return isAdmissionsReviewer && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
+    return isAdmissionsHead && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
@@ -358,7 +370,7 @@ export default function ApplicationReviewModal({
       }
       setEndorsementFeedback(endorsementDecision.mode === 'handoff'
         ? 'Sent for endorsement. The Admissions Office Head records the decision next.'
-        : 'The endorsement decision was recorded.');
+        : "Forwarded to interview. The interviewers of the applicant's school schedule it next.");
       setEndorsementDecision(null);
       // Stay on the Endorsement tab either way: the recorded hand-off or decision
       // is the confirmation, and closing the review surface would hide it.
@@ -393,37 +405,6 @@ export default function ApplicationReviewModal({
     ? { label: 'Household income', value: snapshotIncome == null ? '' : fmtCurrency(snapshotIncome), verification: verificationBadge('householdIncome', snapshot.householdIncome?.verification), currentValue: currentIncome != null && snapshotIncome != null && currentIncome !== Number(snapshotIncome) ? fmtCurrency(currentIncome) : '' }
     : { label: 'Household income', value: currentIncome == null ? '' : fmtCurrency(currentIncome) };
 
-  const stageRecords = [
-    application.endorsement && {
-      key: 'endorsement',
-      title: 'Endorsement',
-      lines: [application.endorsement.note, `By ${application.endorsement.reviewedBy} · ${fmtDate(application.endorsement.decidedAt)}`],
-    },
-    application.interview && {
-      key: 'interview',
-      title: 'Interview',
-      lines: isStructuredInterview(application.interview)
-        ? [
-          summarizeInterview(application.interview),
-          [getInterviewStateLabel(application.interview.state), application.interview.school ? `Panel from ${application.interview.school}` : ''].filter(Boolean).join(' · '),
-        ]
-        : [
-          [application.interview.panel, application.interview.school].filter(Boolean).join(' · '),
-          application.interview.scheduledAt ? `Scheduled ${fmtDate(application.interview.scheduledAt)}` : 'Schedule pending',
-        ],
-    },
-    application.deliberation && {
-      key: 'deliberation',
-      title: 'Deliberation',
-      lines: [[application.deliberation.decision, application.deliberation.note].filter(Boolean).join(' · '), `By ${application.deliberation.decidedBy} · ${fmtDate(application.deliberation.decidedAt)}`],
-    },
-    application.release && {
-      key: 'release',
-      title: 'Release of results',
-      lines: [`Released to ${application.release.releasedTo} · Reference ${application.release.reference}`, fmtDate(application.release.releasedAt)],
-    },
-  ].filter(Boolean);
-
   const tabs = [
     { key: 'overview', label: 'Overview' },
     // The frozen profile snapshot sits beside the overview so a reviewer reads
@@ -435,25 +416,25 @@ export default function ApplicationReviewModal({
     ...(documentsUnlocked ? [{
       key: 'documents',
       label: 'Documents',
-      badge: isAdmissionsReviewer && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
-      alert: isAdmissionsReviewer && blockedByDocuments,
-    }] : []),
-    // SOP step 4 in one place: the hand-off/decision record, the internal
-    // thread, and the decision action. It appears once the application has
-    // reached the endorsement stage and stays readable afterwards.
-    ...(endorsementUnlocked ? [{
-      key: 'endorsement',
-      label: 'Endorsement',
-      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
-      alert: application.status === 'For Endorsement',
+      badge: isAdmissionsHead && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
+      alert: isAdmissionsHead && blockedByDocuments,
     }] : []),
     // SOP step 5: the schedule, the panel from the applicant's school, and the
     // private evaluation notes.
     ...(interviewUnlocked ? [{
       key: 'interview',
       label: 'Interview',
-      badge: isAdmissionsReviewer && application.status === 'Endorsed' ? 'Schedule due' : null,
-      alert: isAdmissionsReviewer && application.status === 'Endorsed',
+      badge: canCoordinateInterview && application.status === 'Endorsed' ? 'Schedule due' : null,
+      alert: canCoordinateInterview && application.status === 'Endorsed',
+    }] : []),
+    // The forwarding record and the internal thread. It sits beside History
+    // because both are the case's record rather than a stage's work; it appears
+    // once the case is forwarded and stays readable afterwards.
+    ...(endorsementUnlocked ? [{
+      key: 'endorsement',
+      label: 'Case notes',
+      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
+      alert: application.status === 'For Endorsement',
     }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
@@ -466,20 +447,27 @@ export default function ApplicationReviewModal({
   // forward moves are allowed, the furthest one is the primary action. Moves the
   // surface performs itself (opening an application starts its review) never
   // render as buttons.
+  // Results are released per scholarship from the Head's final-check lane, so a
+  // single case never releases on its own (Consultation 2, #8 and #13).
   const forwardStatuses = nextStatuses.filter((status) => (
-    status !== 'Rejected' && !AUTOMATIC_STAGE_STATUSES.includes(status)
+    status !== 'Rejected' && status !== 'Released' && !AUTOMATIC_STAGE_STATUSES.includes(status)
+    && (status !== 'Interview' || canCoordinateInterview)
   ));
   const canReject = nextStatuses.includes('Rejected');
-  const showDeliberationField = isAdmissionsReviewer && nextStatuses.includes('Recommended');
+  const showDeliberationField = nextStatuses.includes('Recommended');
+  // An interviewer's recommendation carries one of the five recommendation levels
+  // (Consultation 2, #7), recorded with an evaluation note in the Interview tab.
+  const needsRecommendationLevel = !isAdmissionsHead && !latestPanelRecommendation;
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
-  const lockedDocumentsMessage = !isAdmissionsReviewer
+  const lockedDocumentsMessage = !isAdmissionsHead
     ? 'Documents become available at verification.'
     : linkedDocuments.length
       ? `Continue to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
       : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
+    if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Interview tab';
     return '';
   };
   const runAction = async (status) => {
@@ -558,7 +546,7 @@ export default function ApplicationReviewModal({
       setActiveTab('interview');
       return;
     }
-    if (status === 'For Verification' && isAdmissionsReviewer) {
+    if (status === 'For Verification' && isAdmissionsHead) {
       // The document queue opens in place: closing the modal would hide the work
       // the review just queued.
       setActiveTab('documents');
@@ -568,15 +556,23 @@ export default function ApplicationReviewModal({
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
-    : application.status === 'For Endorsement'
-      ? (isReviewerRole(role)
-        ? 'Awaiting the Office of Admissions & Aid endorsement decision.'
-        : 'Awaiting the Admissions Office Head endorsement decision.')
-      : isAdmissionsHead
-        ? 'No stage action is available at this stage.'
-        : isReviewerRole(role)
-          ? 'The next action at this stage belongs to the Admissions Office.'
-          : 'No stage action is available to your role at this stage.';
+    : isAdmissionsHead
+      ? (application.status === 'Recommended'
+        ? "Awaiting the approval of the applicant's school."
+        : application.status === 'Approved'
+          ? 'Release this result with its scholarship from Final check and release.'
+          : 'No stage action is available at this stage.')
+      : !isReviewerRole(role)
+        ? 'Admissions Office Staff have a read-only view of applications.'
+        : ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(application.status)
+          ? 'The Admissions Office Head verifies the documents before the interview.'
+          : application.status === 'Interview'
+            ? 'Only a member of this interview panel records the recommendation.'
+            : application.status === 'Recommended'
+              ? "The approving level for the applicant's school decides this recommendation."
+              : application.status === 'Approved'
+                ? 'Approved. The Admissions Office Head does the final check and releases the results.'
+                : 'No stage action is available to your role at this stage.';
 
   return (
     <>
@@ -600,12 +596,12 @@ export default function ApplicationReviewModal({
               <StatusBadge tone="neutral">{totalDocuments} document{totalDocuments === 1 ? '' : 's'} attached · reviewed at verification</StatusBadge>
             )
           ) : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
-          {isAdmissionsReviewer ? (
+          {isAdmissionsHead ? (
             <StatusBadge tone={caseOfficersOnApplication.length ? 'info' : 'neutral'}>
               {caseOfficersOnApplication.length === 0
                 ? 'No case officers yet'
                 : isOnCase
-                  ? `You${caseOfficersOnApplication.length > 1 ? ` + ${caseOfficersOnApplication.length - 1}` : ''} on this case`
+                  ? `${currentOfficerName}${caseOfficersOnApplication.length > 1 ? ` + ${caseOfficersOnApplication.length - 1}` : ''} on this case`
                   : `${caseOfficersOnApplication.length} case officer${caseOfficersOnApplication.length === 1 ? '' : 's'}`}
             </StatusBadge>
           ) : null}
@@ -630,63 +626,10 @@ export default function ApplicationReviewModal({
               <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
             </div>
             {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
-            {isAdmissionsReviewer ? (
-              <Panel className="grid content-start gap-3">
-                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <h4 className={sectionHeading}>Case officers</h4>
-                  {isOnCase && onLeaveCase ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        setLeaveError('');
-                        setLeaveOpen(true);
-                      }}
-                    >
-                      Leave case
-                    </Button>
-                  ) : null}
-                </div>
-                {caseOfficersOnApplication.length ? (
-                  <ul className="m-0 grid gap-2 p-0">
-                    {caseOfficersOnApplication.map((officer) => (
-                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
-                        <span className="min-w-0 text-sm font-semibold text-app-text">
-                          {officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName}
-                        </span>
-                        <span className="text-xs text-app-muted">
-                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
-                          {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
-                {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
-              </Panel>
-            ) : null}
-
-
-
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-              <Panel className="grid content-start gap-2">
-                <h4 className={sectionHeading}>Application statement</h4>
-                <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
-              </Panel>
-              <Panel className="grid content-start gap-3">
-                <h4 className={sectionHeading}>Stage records</h4>
-                {stageRecords.length ? (
-                  <ul className="m-0 grid gap-3 p-0">
-                    {stageRecords.map((record) => (
-                      <li key={record.key} className="grid gap-1 border-b border-app-border/60 pb-3 last:border-b-0 last:pb-0">
-                        <strong className="text-sm text-app-text">{record.title}</strong>
-                        {record.lines.filter(Boolean).map((line) => <span key={line} className="text-sm text-app-muted">{line}</span>)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : <p className="m-0 text-sm text-app-muted">No endorsement, interview, deliberation, or release has been recorded yet.</p>}
-              </Panel>
-            </div>
+            <Panel className="grid content-start gap-2">
+              <h4 className={sectionHeading}>Application statement/essay</h4>
+              <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
+            </Panel>
           </div>
         )}
 
@@ -733,7 +676,7 @@ export default function ApplicationReviewModal({
                   <Panel className="grid content-start gap-3">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                       <h4 className={sectionHeading}>Document verification</h4>
-                      {!isAdmissionsReviewer ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office</span> : null}
+                      {!isAdmissionsHead ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office Head</span> : null}
                     </div>
                     <DocumentVerificationItem
                       as="div"
@@ -741,7 +684,7 @@ export default function ApplicationReviewModal({
                       application={application}
                       owner={students[selectedDoc.ownerId] || null}
                       onPreview={isWide ? undefined : setPreviewDoc}
-                      onChangeDocument={isAdmissionsReviewer && onChangeDocument ? changeDocument : undefined}
+                      onChangeDocument={isAdmissionsHead && onChangeDocument ? changeDocument : undefined}
                       openUrl={isWide ? previewUrl : ''}
                     />
                     {isWide ? (
@@ -778,8 +721,8 @@ export default function ApplicationReviewModal({
                   snapshot: application.profileSnapshot,
                   financialSections: financialDetails.sections,
                   statement: application.statement,
-                  requirements,
                   applicantPhoto,
+                  residencePhotos: getResidencePhotoDocuments(application, documents),
                   audience: isAdmissionsReviewer ? 'office' : 'chair',
                 }}
               />
@@ -809,6 +752,39 @@ export default function ApplicationReviewModal({
                     </li>
                   ))}
                 </ul>
+              </Panel>
+            ) : null}
+            {isAdmissionsReviewer ? (
+              <Panel className="grid content-start gap-3">
+                <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+                  <h4 className={sectionHeading}>Case officers</h4>
+                  {isOnCase && onLeaveCase ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setLeaveError('');
+                        setLeaveOpen(true);
+                      }}
+                    >
+                      Leave case
+                    </Button>
+                  ) : null}
+                </div>
+                {caseOfficersOnApplication.length ? (
+                  <ul className="m-0 grid gap-2 p-0">
+                    {caseOfficersOnApplication.map((officer) => (
+                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
+                        <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
+                        <span className="text-xs text-app-muted">
+                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
+                          {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : <p className="m-0 text-sm text-app-muted">No officer has opened this case yet.</p>}
+                {leaveError ? <span className="text-sm text-rose-300" role="alert">{leaveError}</span> : null}
               </Panel>
             ) : null}
             <Panel className="grid gap-2">
@@ -868,8 +844,8 @@ export default function ApplicationReviewModal({
         {showDeliberationField ? (
           <div className="grid gap-1">
             <label className="grid gap-1 text-sm text-app-text">
-              <span className="font-semibold">Sub-committee note</span>
-              <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder="Record the sub-committee deliberation." />
+              <span className="font-semibold">{isAdmissionsHead ? 'Sub-committee note' : 'Recommendation note'}</span>
+              <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder={isAdmissionsHead ? 'Record the sub-committee deliberation.' : 'What the approver should know about this recommendation.'} />
             </label>
             <p className="m-0 text-xs text-app-muted">
               {latestPanelRecommendation

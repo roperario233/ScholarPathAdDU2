@@ -36,7 +36,6 @@ const sheet = (props = {}) => renderToStaticMarkup(
     snapshot={buildProfileSnapshot(profile)}
     financialSections={financialSections}
     statement="My story."
-    requirements={[{ id: 'a', label: 'Latest grade report or transcript', state: 'attached', attached: [{ title: 'Grades.pdf' }] }]}
     {...props}
   />,
 );
@@ -50,17 +49,19 @@ describe('ApplicationPrintSheet', () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     expect(html).toContain('Grant-in-Aid (GIA)');
     expect(html).toContain('My story.');
-    expect(html).toContain('Grades.pdf');
   });
 
-  it('carries the Barangay certification and the signed affidavit pages', () => {
-    const html = sheet();
-    expect(html).toContain('Certification of residence');
-    expect(html).toContain('Punong Barangay');
-    expect(html).toContain('Affidavit of agreement');
-    ['Applicant (signature', 'Father (signature', 'Mother (signature'].forEach((label) => expect(html).toContain(label));
-    AFFIDAVIT_CLAUSES.forEach((clause) => expect(html).toContain(clause.replace(/'/g, '&#x27;')));
+  it('shows the residence page with the address and the attached photos, without signature pages', () => {
+    const html = sheet({ residencePhotos: [{ id: 'p1', storagePath: 'u/p1/front.jpg' }, { id: 'p2', storagePath: 'u/p2/kitchen.jpg' }] });
+    expect(html).toContain('Residence</h2>');
     expect(html).toContain('Roxas Ave, Davao City');
+    expect(html).toContain('Photo 2');
+    ['Certification of residence', 'Punong Barangay', 'Affidavit of agreement', 'signature', 'Data privacy notice', 'Required documents', 'unrelated to academics'].forEach((text) => expect(html).not.toContain(text));
+    expect(html).not.toContain(AFFIDAVIT_CLAUSES[0].replace(/'/g, '&#x27;'));
+  });
+
+  it('says so when no residence photos are attached', () => {
+    expect(sheet()).toContain('No photos of the residence are attached');
   });
 
   it('leaves the financial groups out for the Department Chair', () => {
