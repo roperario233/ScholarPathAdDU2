@@ -7,7 +7,7 @@ import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureD
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
 import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
-import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
+import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
 import { getUpcomingInterviews } from './lib/interviewRoster';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
@@ -36,6 +36,7 @@ import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
+import AdminAccountsPage from './pages/admin/AdminAccounts';
 import AdminCalendarPage from './pages/admin/AdminCalendar';
 import AdminInterviewsPage from './pages/admin/AdminInterviews';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
@@ -352,7 +353,9 @@ function App() {
         ? 'Your maximum session duration was reached. Sign in again to continue.'
         : reason === 'revoked'
           ? 'Your session could not be verified. Please sign in again.'
-          : '';
+          : reason === 'deactivated'
+            ? 'This account has been deactivated. Contact the Admissions Office if you need access restored.'
+            : '';
     // Remove the authenticated UI immediately. Network sign-out can take time;
     // the local guard must not wait for token revocation to complete.
     setState((previous) => createFreshState(devicePreferencesOf(previous)));
@@ -609,6 +612,12 @@ function App() {
       }
       lastValidationAtRef.current = Date.now();
       if (!active) return;
+      const accountStatus = await getProfileAccountStatus(user.id);
+      if (!active) return;
+      if (accountStatus.deactivated) {
+        await endSession('deactivated', user.id);
+        return;
+      }
       const profileResult = await getUserProfile(user.id);
       if (!active) return;
       const profile = profileResult.profile;
@@ -1050,6 +1059,11 @@ function App() {
     });
 
     if (authResult.success) {
+      const accountStatus = authResult.user?.id ? await getProfileAccountStatus(authResult.user.id) : { deactivated: false };
+      if (accountStatus.deactivated) {
+        await signOutFromSupabase();
+        return { success: false, message: 'This account has been deactivated. Contact the Admissions Office if you need access restored.' };
+      }
       const sessionStartedAt = Date.now();
       const sessionActivity = authResult.user?.id
         ? startSessionActivity({ ownerId: authResult.user.id, startedAt: sessionStartedAt, lastActivityAt: sessionStartedAt })
@@ -2905,6 +2919,7 @@ function App() {
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
+      { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsHead },
     ]
     : [];
 
@@ -3294,6 +3309,13 @@ function App() {
               resultsReleases={state.resultsReleases || []}
               academicPrograms={activeAcademicPrograms}
               interviewWorkspace={interviewWorkspace}
+            />
+          )}
+
+          {isAdmissionsHead && state.activeView === 'admin-accounts' && (
+            <AdminAccountsPage
+              academicPrograms={activeAcademicPrograms}
+              currentUserId={state.authUser?.id || ''}
             />
           )}
 

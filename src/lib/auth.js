@@ -240,11 +240,10 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
     }
 
     const metadata = authUser.user_metadata || {};
-    const role = metadata.role === 'osa_admin'
-      ? 'admissions_office'
-      : ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'].includes(metadata.role)
-        ? metadata.role
-        : 'student';
+    // Only ever a student. `user_metadata` is writable by the signed-in user, so it
+    // cannot name a role; staff and reviewer roles come from an invitation the
+    // Admissions Office Head records (20261051000000_account_provisioning.sql).
+    const role = 'student';
     const fullName = metadata.full_name?.trim() || authUser.email?.split('@')[0] || 'ScholarPath user';
 
     const { error: profileEnsureError } = await supabase
@@ -371,6 +370,27 @@ export const getProfileReviewScope = async (userId) => {
     };
   } catch {
     return empty;
+  }
+};
+
+// A deactivated staff or reviewer account keeps its profile but holds no role
+// (current_profile_role() answers null for it). `deactivated_at` comes from
+// 20261051000000_account_provisioning.sql, so it is read in its own tolerant query:
+// a project with the migration pending signs in as before. Never add it to
+// getUserProfile's select.
+export const getProfileAccountStatus = async (userId) => {
+  if (!hasSupabaseConfig || !supabase || !userId) return { deactivated: false };
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('deactivated_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return { deactivated: false };
+    return { deactivated: Boolean(data.deactivated_at) };
+  } catch {
+    return { deactivated: false };
   }
 };
 
