@@ -1,10 +1,11 @@
-import { Award, Gavel, SendHorizontal } from 'lucide-react';
+import { Award, ChevronDown, Gavel, SendHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
-import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
-import { downloadApplicantSummaryCsv, getApprovalQueue, getFinalCheckHints, getReleaseGroups } from '../../lib/admissionsOffice';
+import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../../components/ui';
+import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue, getFinalCheckHints, getReleaseGroups } from '../../lib/admissionsOffice';
+import { getActorRoleLabel } from '../../lib/applicationRequirements';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import { fmtDate } from '../../lib/formatters';
@@ -34,6 +35,7 @@ export default function AdminResultsRelease({
   const [checked, setChecked] = useState({});
   const [busyScholarship, setBusyScholarship] = useState('');
   const [feedback, setFeedback] = useState(null);
+  const [expandedReleases, setExpandedReleases] = useState({});
   const programIndex = useMemo(() => buildProgramScopeIndex(academicPrograms), [academicPrograms]);
   const approvalLevels = interviewWorkspace?.approvalLevels || [];
   const awaitingSchool = useMemo(() => getApprovalQueue(applications), [applications]);
@@ -53,10 +55,33 @@ export default function AdminResultsRelease({
       : onChangeApplication?.(applicationId, status, options)
   );
 
-  const exportFinalList = () => downloadApplicantSummaryCsv(finalList, {
+  const exportOptions = (source) => ({
     scopeOf: (entry) => getApplicationScope(entry, programIndex),
-    recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id))?.label || '',
-  }, 'Applicant_summary_final_list.csv');
+    recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id)),
+    source: { exportedBy: getActorRoleLabel(role), ...source },
+  });
+
+  const exportFinalList = () => downloadApplicantSummary(finalList, exportOptions({
+    origin: 'Final check and release › Final check by scholarship',
+    contents: 'Every approved and released application, all scholarships. Approved cases are still awaiting their scholarship’s release.',
+    releasedIds: resultsReleases.flatMap((release) => release.applicationIds || []),
+  }), getApplicantSummaryFileName('final_check'));
+
+  const releaseApplications = (release) => {
+    const ids = new Set(release.applicationIds || []);
+    return applications.filter((entry) => ids.has(entry.id));
+  };
+
+  const exportRelease = (release, covered) => {
+    const title = titleById[release.scholarshipId] || 'Scholarship';
+    downloadApplicantSummary(covered, exportOptions({
+      origin: 'Final check and release › Released results',
+      contents: `Every application covered by the results released on ${fmtDate(release.releasedAt)}: ${release.acceptedCount} of ${release.applicantCount} accepted.`,
+      scholarship: title,
+      releasedAt: release.releasedAt,
+      releasedIds: release.applicationIds || [],
+    }), getApplicantSummaryFileName(title, 'released'));
+  };
 
   const releaseGroup = async (group) => {
     setBusyScholarship(group.scholarshipId);
@@ -98,7 +123,7 @@ export default function AdminResultsRelease({
         >{feedback.message}</p>
       ) : null}
 
-      <Card title="Final check by scholarship" action={<Button type="button" variant="secondary" disabled={!finalList.length} onClick={exportFinalList}>Export to Excel</Button>}>
+      <Card title="Final check by scholarship" action={<ExportButton disabled={!finalList.length} onClick={exportFinalList} />}>
         <div className="grid gap-4">
           {groups.length ? groups.map((group) => {
             const allChecked = group.approved.every((entry) => checked[entry.id]);
@@ -194,12 +219,62 @@ export default function AdminResultsRelease({
       {releasedHistory.length ? (
         <Card title="Released results">
           <ul className="m-0 grid gap-2 p-0">
-            {releasedHistory.map((release) => (
-              <li key={release.id} className="flex flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface px-3 py-2 text-sm">
-                <span>{titleById[release.scholarshipId] || 'Scholarship'}</span>
-                <span className="text-xs text-app-muted">{release.acceptedCount} of {release.applicantCount} accepted · {fmtDate(release.releasedAt)}</span>
-              </li>
-            ))}
+            {releasedHistory.map((release) => {
+              const title = titleById[release.scholarshipId] || 'Scholarship';
+              const covered = releaseApplications(release);
+              const open = Boolean(expandedReleases[release.id]);
+              const acceptedList = covered.filter((entry) => entry.status !== 'Rejected').length;
+              const stillOpen = Math.max(0, (release.applicantCount || 0) - covered.length);
+              const panelId = `release-${release.id}`;
+              return (
+                <li key={release.id} className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
+                  <button
+                    type="button"
+                    className="disclosure-action flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-0 bg-transparent px-3 py-2.5 text-left transition hover:bg-app-card/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                    aria-expanded={open}
+                    aria-controls={panelId}
+                    onClick={() => setExpandedReleases((previous) => ({ ...previous, [release.id]: !previous[release.id] }))}
+                  >
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-app-border bg-app-card text-app-muted">
+                      <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-app-text">{title}</span>
+                    <span className="flex flex-wrap items-center gap-2 text-xs text-app-muted">
+                      <StatusBadge tone="success">{release.acceptedCount} of {release.applicantCount} accepted</StatusBadge>
+                      <span>{fmtDate(release.releasedAt)}</span>
+                    </span>
+                  </button>
+                  {open ? (
+                    <div id={panelId} className="grid gap-2 border-t border-app-border bg-app-card/40 px-3 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <p className="m-0 text-xs text-app-muted">
+                          {covered.length
+                            ? `${acceptedList} accepted · ${covered.length - acceptedList} not accepted${stillOpen ? ` · ${stillOpen} still in progress at release` : ''}`
+                            : 'The covered applications are not loaded in this session.'}
+                        </p>
+                        <ExportButton disabled={!covered.length} onClick={() => exportRelease(release, covered)} />
+                      </div>
+                      {covered.length ? (
+                        <ul className="m-0 grid max-h-[320px] list-none gap-1.5 overflow-y-auto p-0 pr-1">
+                          {covered.map((entry) => {
+                            const accepted = entry.status !== 'Rejected';
+                            return (
+                              <li key={entry.id} className="flex min-w-0 flex-col items-start gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                                <div className="min-w-0 [overflow-wrap:anywhere]">
+                                  <strong className="block text-sm font-semibold">{entry.studentName}</strong>
+                                  <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'}</span>
+                                </div>
+                                <StatusBadge tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : 'Not accepted'}</StatusBadge>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         </Card>
       ) : null}

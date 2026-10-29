@@ -1,3 +1,4 @@
+import { Download } from 'lucide-react';
 import { useRef } from 'react';
 
 const clsx = (...values) => values.flat(Infinity).filter(Boolean).join(' ');
@@ -12,6 +13,22 @@ export const buttonClasses = {
 
 export function Button({ variant = 'secondary', className = '', children, ...props }) {
   return <button className={clsx(buttonClasses.base, buttonClasses[variant], className)} {...props}>{children}</button>;
+}
+
+// The compact export action for the staff pages (Final check, released results,
+// Department Review). `.disclosure-action` keeps it out of the shell's 40px page
+// button palette, so it stays a small, quiet control.
+export function ExportButton({ className = '', children = 'Export to Excel', ...props }) {
+  return (
+    <button
+      type="button"
+      className={clsx('disclosure-action inline-flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-xs font-semibold text-app-text transition hover:border-blue-500/50 hover:bg-blue-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50', className)}
+      {...props}
+    >
+      <Download className="h-3.5 w-3.5" aria-hidden="true" />
+      {children}
+    </button>
+  );
 }
 
 // Decorative warning glyph for actions that need a confirmation. The caller sets

@@ -3,11 +3,11 @@ import { CalendarClock, ClipboardCheck, Layers, SendHorizontal, UserCheck } from
 import AdminPageHeader from '../components/AdminPageHeader';
 import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
-import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
+import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isInterviewerRole } from '../lib/reviewScope';
-import { areEndorsementRecordsVisible, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { downloadApplicantSummaryCsv } from '../lib/admissionsOffice';
+import { areEndorsementRecordsVisible, describeApplicantAcademic, getActorRoleLabel, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
+import { downloadApplicantSummary, getApplicantSummaryFileName } from '../lib/admissionsOffice';
 import { getLatestPanelRecommendation } from '../lib/interview';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 
@@ -71,10 +71,15 @@ export default function DepartmentReviewView({
       : onChangeApplication?.(applicationId, status, options)
   );
 
-  const exportSummary = () => downloadApplicantSummaryCsv(decidedInScope, {
+  const exportSummary = () => downloadApplicantSummary(decidedInScope, {
     scopeOf: (entry) => getApplicationScope(entry, programIndex),
-    recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id))?.label || '',
-  }, `Applicant_summary_${(getReviewScopeLabel(profile) || 'scope').replace(/[^A-Za-z0-9]+/g, '_')}.csv`);
+    recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id)),
+    source: {
+      origin: `${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace › Recommendations`,
+      contents: 'Every recommended, approved, and released application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',
+      exportedBy: `${profile.fullName ? `${profile.fullName}, ` : ''}${getActorRoleLabel(role)}${getReviewScopeLabel(profile) ? ` (${getReviewScopeLabel(profile)})` : ''}`,
+    },
+  }, getApplicantSummaryFileName(getReviewScopeLabel(profile) || 'scope', 'recommendations'));
 
   const renderInterviewRow = (entry) => {
     const onPanel = panelApplicationIds.has(entry.id);
@@ -151,7 +156,7 @@ export default function DepartmentReviewView({
               );
             }) : <EmptyState title="No recommendations awaiting your approval" description="Recommendations your school routes to your level appear here." />}
           </div>
-          <Button className="mt-3" type="button" variant="secondary" disabled={!decidedInScope.length} onClick={exportSummary}>Export to Excel</Button>
+          <ExportButton className="mt-3" disabled={!decidedInScope.length} onClick={exportSummary}>Export recommended and decided cases</ExportButton>
         </Card>
       ) : null}
 
