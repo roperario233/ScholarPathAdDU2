@@ -123,7 +123,9 @@ function RoleScopeFields({ draft, onChange, hierarchy, errors = {}, idPrefix }) 
   );
 }
 
-function InviteAccountCard({ hierarchy, programs, onInvite }) {
+// The invitation form lives in a dialog the Head opens from the page header, so
+// the account list stays the first thing on the page.
+function InviteAccountDialog({ hierarchy, programs, onInvite, onClose }) {
   const [draft, setDraft] = useState(EMPTY_INVITATION_DRAFT);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
@@ -143,7 +145,7 @@ function InviteAccountCard({ hierarchy, programs, onInvite }) {
       setSubmitError(result.error);
       return;
     }
-    setDraft(EMPTY_INVITATION_DRAFT);
+    onClose();
   };
 
   const update = (next) => {
@@ -152,8 +154,9 @@ function InviteAccountCard({ hierarchy, programs, onInvite }) {
   };
 
   return (
-    <Card title="Invite an account" action={<StatusBadge tone="info">Sign-in claims the role</StatusBadge>}>
+    <ModalShell title="Invite an account" onClose={busy ? undefined : onClose} className="w-[min(720px,100%)]">
       <form className="grid gap-4" onSubmit={handleSubmit} noValidate>
+        <p className="m-0 text-xs text-app-muted">Sign-in claims the role: it applies when the person first signs in with the invited address.</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Email address" error={errors.email} hint="The address the person will sign in with. A personal Gmail address works." required={!draft.email.trim()}>
             <input
@@ -180,11 +183,14 @@ function InviteAccountCard({ hierarchy, programs, onInvite }) {
         </div>
         {submitError && <p className="text-sm text-rose-300" role="alert">{submitError}</p>}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-app-muted">The invitation is open for 30 days. Nothing is emailed: tell the person to sign in with this address.</p>
-          <Button variant="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Send invitation'}</Button>
+          <p className="m-0 min-w-0 flex-1 text-xs text-app-muted">The invitation is open for 30 days. Nothing is emailed: tell the person to sign in with this address.</p>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button type="button" onClick={onClose} disabled={busy}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Send invitation'}</Button>
+          </div>
         </div>
       </form>
-    </Card>
+    </ModalShell>
   );
 }
 
@@ -298,7 +304,9 @@ export function AccountsWorkspace({
         title="Accounts"
         description="Invite Admissions Office and academic reviewer accounts. The role is assigned when the person signs in with the invited address."
         badge={`${summary.active} active`}
-      />
+      >
+        <Button type="button" variant="primary" onClick={() => setDialog({ action: 'invite' })}>Invite an account</Button>
+      </AdminPageHeader>
 
       {missing && (
         <div className={`${bannerClasses.error} w-full rounded-xl border px-3 py-3 text-sm`} role="alert">
@@ -318,8 +326,6 @@ export function AccountsWorkspace({
         <StatCard icon={Clock3} tone="warning" label="Expired" value={summary.expired} note="Renew or revoke" />
         <StatCard icon={UserX} tone="neutral" label="Deactivated" value={summary.deactivated} note="Role removed, history kept" />
       </section>
-
-      <InviteAccountCard hierarchy={hierarchy} programs={programs} onInvite={onInvite} />
 
       <Card title="Accounts" action={<StatusBadge>{visibleRows.length} shown</StatusBadge>}>
         <div className="mb-4 grid gap-3 sm:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]">
@@ -356,7 +362,7 @@ export function AccountsWorkspace({
         ) : (
           <EmptyState
             title={rows.length ? 'No accounts match these filters' : 'No staff or reviewer accounts yet'}
-            description={rows.length ? 'Clear the search or filters to see every account.' : 'Invite the first account above.'}
+            description={rows.length ? 'Clear the search or filters to see every account.' : 'Use Invite an account to add the first one.'}
           />
         )}
       </Card>
@@ -378,6 +384,9 @@ export function AccountsWorkspace({
         )}
       </Card>
 
+      {dialog?.action === 'invite' && (
+        <InviteAccountDialog hierarchy={hierarchy} programs={programs} onInvite={onInvite} onClose={closeDialog} />
+      )}
       {dialog?.action === 'change' && (
         <ChangeScopeDialog
           row={dialog.row}

@@ -1,4 +1,4 @@
-import { Clock, Inbox, UserCheck, Users, X } from 'lucide-react';
+import { ChevronDown, Clock, Inbox, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
@@ -80,6 +80,7 @@ export default function AdminIntakePool({
   const [reviewTab, setReviewTab] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [pickingUpId, setPickingUpId] = useState(null);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const today = useMemo(() => new Date(), []);
 
   const unclaimed = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
@@ -137,7 +138,12 @@ export default function AdminIntakePool({
     openReview(applicationId);
   };
 
-  const coverageLabel = INTAKE_POOL_COVERAGE.find((option) => option.value === filters.coverage)?.label || 'Unclaimed';
+  // The filters behind "More filters" that differ from their defaults, so a
+  // collapsed panel still says it is narrowing the list.
+  const moreFilterCount = ['stage', 'scholarshipId', 'school', 'department', 'sort']
+    .filter((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]).length;
+
+  const coverageLabel =INTAKE_POOL_COVERAGE.find((option) => option.value === filters.coverage)?.label || 'Unclaimed';
 
   const renderRow = (entry) => {
     const officers = getCaseOfficers(caseOfficers, entry.id);
@@ -234,19 +240,11 @@ export default function AdminIntakePool({
           title="Find a case"
           action={<StatusBadge tone={filtered.length ? 'info' : 'neutral'}>{filtered.length} in view</StatusBadge>}
         >
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] sm:items-end">
             <FormField label="Coverage">
               <select value={filters.coverage} onChange={(event) => updateFilter({ coverage: event.target.value })}>
                 {INTAKE_POOL_COVERAGE.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Stage">
-              <select value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
-                <option value="all">All stages</option>
-                {INTAKE_POOL_STAGE_OPTIONS.map((status) => (
-                  <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
                 ))}
               </select>
             </FormField>
@@ -257,6 +255,27 @@ export default function AdminIntakePool({
                 placeholder="Student, program, scholarship"
                 onChange={(event) => updateFilter({ query: event.target.value })}
               />
+            </FormField>
+            <Button
+              type="button"
+              aria-expanded={showMoreFilters}
+              aria-controls="intake-more-filters"
+              onClick={() => setShowMoreFilters((open) => !open)}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                More filters{moreFilterCount ? ` (${moreFilterCount})` : ''}
+                <ChevronDown size={16} aria-hidden="true" className={showMoreFilters ? 'rotate-180 transition-transform' : 'transition-transform'} />
+              </span>
+            </Button>
+          </div>
+          <div id="intake-more-filters" hidden={!showMoreFilters} className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <FormField label="Stage">
+              <select value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
+                <option value="all">All stages</option>
+                {INTAKE_POOL_STAGE_OPTIONS.map((status) => (
+                  <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
+                ))}
+              </select>
             </FormField>
             <FormField label="Scholarship">
               <select value={filters.scholarshipId} onChange={(event) => updateFilter({ scholarshipId: event.target.value })}>

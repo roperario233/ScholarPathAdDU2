@@ -23,11 +23,12 @@ const render = (props = {}) => renderToStaticMarkup(
 );
 
 describe('AccountsWorkspace', () => {
-  it('shows the title, the totals, the invitation form, and the account list', () => {
+  it('shows the title, the totals, the invite button, and the account list', () => {
     const html = render();
     expect(html).toContain('Accounts');
-    expect(html).toContain('Invite an account');
-    expect(html).toContain('Send invitation');
+    // The invitation form opens in a dialog, so only its button is on the page.
+    expect(html).toContain('>Invite an account</button>');
+    expect(html).not.toContain('Send invitation');
     expect(html).toContain('Dean Cruz');
     expect(html).toContain('open@example.com');
     // Active 2 (Head, Dean) · Invited 1 · Expired 1 · Deactivated 1.
@@ -71,7 +72,7 @@ describe('AccountsWorkspace', () => {
     expect(html).toContain('No staff or reviewer accounts yet');
   });
 
-  it('lists the provisionable roles in the form', () => {
+  it('lists the provisionable roles in the role filter', () => {
     const html = render();
     expect(html).toContain('Admissions Office Staff');
     expect(html).toContain('Admissions Office Head');

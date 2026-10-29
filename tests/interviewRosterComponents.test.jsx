@@ -234,7 +234,7 @@ describe('AdminCalendar', () => {
   it('reserves office planning entries for the Admissions Office Head', () => {
     const staff = renderToStaticMarkup(<AdminCalendar {...officeProps({ officeCalendarEntries: officeEntries() })} />);
     expect(staff).not.toContain('Office planning entries');
-    expect(staff).not.toContain('Add to calendar');
+    expect(staff).not.toContain('Add office entry');
     const head = renderToStaticMarkup(
       <AdminCalendar
         {...officeProps({
@@ -246,7 +246,9 @@ describe('AdminCalendar', () => {
       />,
     );
     expect(head).toContain('Office planning entries');
-    expect(head).toContain('Add to calendar');
+    // The entry form opens in a dialog from this button.
+    expect(head).toContain('>Add office entry<');
+    expect(head).not.toContain('Add to calendar');
     expect(head).toContain('Upcoming entries');
   });
 });

@@ -1,20 +1,44 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import RequiredDocumentsEditor from '../../components/RequiredDocumentsEditor';
 import ApprovalLevelsCard from '../../components/ApprovalLevelsCard';
-import { Button, Card, FormField, StatusBadge } from '../../components/ui';
+import { Button, Card, FormField, ModalShell, StatusBadge } from '../../components/ui';
 import { getInternalCatalogEntries } from '../../lib/admissionsOffice';
 import { ADDU_INTERNAL_PROGRAM_TITLES, WORKING_SCHOLAR_ELIGIBLE_DEGREES, isAdduInternalProgram } from '../../lib/eligibility';
 import { normalizeRequirements } from '../../lib/applicationRequirements';
 
 // Catalog management is its own route: publishing an AdDU internal scholarship
-// never shares a screen with the review queue or the announcement composer.
+// never shares a screen with the review queue or the announcement composer. The
+// publish/edit form is long, so it opens in a dialog from the tracked-programs
+// list instead of sitting open on the page.
 export default function AdminScholarshipCatalog({ scholarships = [], onSaveScholarship, onDirtyChange, approvalLevels = [], academicPrograms = [], onSaveApprovalLevel, onDeleteApprovalLevel }) {
   const [catalogError, setCatalogError] = useState('');
-  const [editingScholarship, setEditingScholarship] = useState(null);
+  // `null` keeps the dialog closed; `{ scholarship: null }` is a new program.
+  const [editor, setEditor] = useState(null);
+  const dirtyRef = useRef(false);
   const internalScholarships = useMemo(() => getInternalCatalogEntries(scholarships), [scholarships]);
+  const editingScholarship = editor?.scholarship || null;
 
-  const markDirty = () => onDirtyChange?.(true);
+  const markDirty = () => {
+    dirtyRef.current = true;
+    onDirtyChange?.(true);
+  };
+
+  const openEditor = (scholarship = null) => {
+    dirtyRef.current = false;
+    onDirtyChange?.(false);
+    setCatalogError('');
+    setEditor({ scholarship });
+  };
+
+  const closeEditor = ({ force = false } = {}) => {
+    // The dialog's form is uncontrolled, so closing it discards what was typed.
+    if (!force && dirtyRef.current && !window.confirm('Discard your unsaved scholarship changes?')) return;
+    dirtyRef.current = false;
+    onDirtyChange?.(false);
+    setCatalogError('');
+    setEditor(null);
+  };
 
   const saveScholarshipFromForm = async (event) => {
     event.preventDefault();
@@ -64,16 +88,7 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
       requiredDocuments,
     };
     const saved = await onSaveScholarship(scholarship);
-    if (saved) {
-      setEditingScholarship(null);
-      onDirtyChange?.(false);
-    }
-  };
-
-  const startEditingScholarship = (scholarship) => {
-    onDirtyChange?.(false);
-    setEditingScholarship(null);
-    window.requestAnimationFrame(() => setEditingScholarship(scholarship));
+    if (saved) closeEditor({ force: true });
   };
 
   return (
@@ -85,8 +100,46 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
       />
 
       <section className="grid gap-4">
-        <Card title="Publish or update a program" action={<StatusBadge tone="info">Catalog management</StatusBadge>}>
-          <form key={editingScholarship?.id || 'new-scholarship'} className="grid gap-4" onChange={markDirty} onSubmit={saveScholarshipFromForm}>
+        <Card
+          title="Tracked AdDU internal programs"
+          action={(
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <StatusBadge tone="info">Catalog management</StatusBadge>
+              <Button type="button" variant="primary" onClick={() => openEditor()}>Publish a program</Button>
+            </div>
+          )}
+        >
+          <div className="grid max-h-[360px] gap-2 overflow-y-auto">
+            {internalScholarships.map((entry) => (
+              <article key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface p-3">
+                <div className="min-w-0">
+                  <strong className="block truncate text-sm text-app-text">{entry.title}</strong>
+                  <span className="text-xs text-app-muted">{entry.ruleFamily} · {entry.isActive === false ? 'Inactive' : 'Active'}</span>
+                </div>
+                <Button type="button" onClick={() => openEditor(entry)}>Edit</Button>
+              </article>
+            ))}
+            {!internalScholarships.length && <p className="m-0 text-sm text-app-muted">No tracked AdDU internal programs are loaded from Supabase.</p>}
+          </div>
+        </Card>
+      </section>
+
+      {onSaveApprovalLevel ? (
+        <ApprovalLevelsCard
+          approvalLevels={approvalLevels}
+          academicPrograms={academicPrograms}
+          onSave={onSaveApprovalLevel}
+          onDelete={onDeleteApprovalLevel}
+        />
+      ) : null}
+
+      {editor ? (
+        <ModalShell
+          title={editingScholarship ? 'Update a program' : 'Publish a program'}
+          onClose={() => closeEditor()}
+          className="w-[min(880px,100%)]"
+        >
+          <form className="grid gap-4" onChange={markDirty} onSubmit={saveScholarshipFromForm}>
             <FormField label="Scholarship title" hint="Pick one of the three tracked titles.">
               <input name="scholarshipTitle" required list="addu-track-titles" defaultValue={editingScholarship?.title || ''} placeholder="Grant-in-Aid (GIA)" />
               <datalist id="addu-track-titles">
@@ -136,44 +189,12 @@ export default function AdminScholarshipCatalog({ scholarships = [], onSaveSchol
             </div>
             <RequiredDocumentsEditor scholarship={editingScholarship} onDirty={markDirty} />
             {catalogError ? <p className="form-error m-0" role="alert">{catalogError}</p> : null}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" onClick={() => closeEditor()}>Cancel</Button>
               <Button variant="primary" type="submit">{editingScholarship ? 'Save scholarship changes' : 'Publish scholarship'}</Button>
-              {editingScholarship && (
-                <Button
-                  type="button"
-                  onClick={() => {
-                    setEditingScholarship(null);
-                    onDirtyChange?.(false);
-                  }}
-                >
-                  Cancel edit
-                </Button>
-              )}
             </div>
           </form>
-          <div className="mt-5 grid max-h-[360px] gap-2 overflow-y-auto border-t border-app-border pt-4">
-            <h4 className="m-0 text-sm font-bold text-app-text">Tracked AdDU internal programs</h4>
-            {internalScholarships.map((entry) => (
-              <article key={entry.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border bg-app-surface p-3">
-                <div className="min-w-0">
-                  <strong className="block truncate text-sm text-app-text">{entry.title}</strong>
-                  <span className="text-xs text-app-muted">{entry.ruleFamily} · {entry.isActive === false ? 'Inactive' : 'Active'}</span>
-                </div>
-                <Button type="button" onClick={() => startEditingScholarship(entry)}>Edit</Button>
-              </article>
-            ))}
-            {!internalScholarships.length && <p className="m-0 text-sm text-app-muted">No tracked AdDU internal programs are loaded from Supabase.</p>}
-          </div>
-        </Card>
-      </section>
-
-      {onSaveApprovalLevel ? (
-        <ApprovalLevelsCard
-          approvalLevels={approvalLevels}
-          academicPrograms={academicPrograms}
-          onSave={onSaveApprovalLevel}
-          onDelete={onDeleteApprovalLevel}
-        />
+        </ModalShell>
       ) : null}
     </div>
   );

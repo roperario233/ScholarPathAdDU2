@@ -3,7 +3,7 @@ import AdminPageHeader from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import InterviewLocationsModal from '../../components/InterviewLocationsModal';
 import MonthCalendar, { CalendarLegend, getCalendarMarkTone } from '../../components/MonthCalendar';
-import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
+import { Button, Card, EmptyState, FormField, ModalShell, StatusBadge } from '../../components/ui';
 import {
   DECISION_STAGES,
   OFFICE_ENTRY_KINDS,
@@ -156,6 +156,15 @@ export default function AdminCalendar({
   const [venuesOpen, setVenuesOpen] = useState(false);
   const [markFilter, setMarkFilter] = useState('all');
   const [entryError, setEntryError] = useState('');
+  const [entryDialogOpen, setEntryDialogOpen] = useState(false);
+  const openEntryDialog = () => {
+    setEntryError('');
+    setEntryDialogOpen(true);
+  };
+  const closeEntryDialog = () => {
+    setEntryError('');
+    setEntryDialogOpen(false);
+  };
 
   const entries = getInterviewEntries(applications);
   const upcoming = getUpcomingInterviews(applications, { now });
@@ -243,6 +252,7 @@ export default function AdminCalendar({
     if (result?.ok) {
       form.reset();
       setEntryError('');
+      setEntryDialogOpen(false);
       return;
     }
     setEntryError(result?.error || 'The entry could not be saved.');
@@ -367,38 +377,55 @@ export default function AdminCalendar({
       </section>
 
       {onAddOfficeEntry ? (
-        <Card title="Office planning entries" action={<StatusBadge tone="info">Admissions Office Head</StatusBadge>}>
-          <div className="grid gap-5 md:grid-cols-2">
-            <form className="grid content-start gap-3" onSubmit={handleAddEntry}>
-              <FormField label="Title">
-                <input name="officeEntryTitle" placeholder="Verification window closes" />
-              </FormField>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <FormField label="Date">
-                  <input type="date" name="officeEntryDate" min={todayKey} />
-                </FormField>
-                <FormField label="Type">
-                  <select name="officeEntryKind" defaultValue="office">
-                    {OFFICE_ENTRY_KINDS.map((kind) => (
-                      <option key={kind} value={kind}>{getOfficeEntryKindLabel(kind)}</option>
-                    ))}
-                  </select>
-                </FormField>
-              </div>
-              <FormField label="Notes" hint="Optional. Shown on the calendar and in the day agenda.">
-                <textarea name="officeEntryNotes" rows="3" placeholder="What the office needs to finish by this date." />
-              </FormField>
-              {entryError ? <p className="m-0 text-sm text-rose-600 dark:text-rose-300">{entryError}</p> : null}
-              <Button variant="primary" type="submit">Add to calendar</Button>
-            </form>
-            <div className="grid content-start gap-2">
-              <p className={AGENDA_HEADING_CLASS}>Upcoming entries</p>
-              {officeUpcoming.length
-                ? officeUpcoming.map((entry) => <AgendaOfficeEntry key={entry.id} entry={entry} onDelete={handleDeleteEntry} />)
-                : <EmptyState title="No office entries yet" />}
+        <Card
+          title="Office planning entries"
+          action={(
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <StatusBadge tone="info">Admissions Office Head</StatusBadge>
+              <Button type="button" variant="primary" onClick={openEntryDialog}>Add office entry</Button>
             </div>
+          )}
+        >
+          <div className="grid content-start gap-2">
+            <p className={AGENDA_HEADING_CLASS}>Upcoming entries</p>
+            {entryError && !entryDialogOpen ? <p className="m-0 text-sm text-rose-600 dark:text-rose-300" role="alert">{entryError}</p> : null}
+            {officeUpcoming.length ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                {officeUpcoming.map((entry) => <AgendaOfficeEntry key={entry.id} entry={entry} onDelete={handleDeleteEntry} />)}
+              </div>
+            ) : <EmptyState title="No office entries yet" />}
           </div>
         </Card>
+      ) : null}
+
+      {entryDialogOpen && onAddOfficeEntry ? (
+        <ModalShell title="Add office entry" onClose={closeEntryDialog} className="w-[min(560px,100%)]">
+          <form className="grid content-start gap-3" onSubmit={handleAddEntry}>
+            <FormField label="Title">
+              <input name="officeEntryTitle" placeholder="Verification window closes" autoFocus />
+            </FormField>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Date">
+                <input type="date" name="officeEntryDate" min={todayKey} />
+              </FormField>
+              <FormField label="Type">
+                <select name="officeEntryKind" defaultValue="office">
+                  {OFFICE_ENTRY_KINDS.map((kind) => (
+                    <option key={kind} value={kind}>{getOfficeEntryKindLabel(kind)}</option>
+                  ))}
+                </select>
+              </FormField>
+            </div>
+            <FormField label="Notes" hint="Optional. Shown on the calendar and in the day agenda.">
+              <textarea name="officeEntryNotes" rows="3" placeholder="What the office needs to finish by this date." />
+            </FormField>
+            {entryError ? <p className="m-0 text-sm text-rose-600 dark:text-rose-300" role="alert">{entryError}</p> : null}
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" onClick={closeEntryDialog}>Cancel</Button>
+              <Button variant="primary" type="submit">Add to calendar</Button>
+            </div>
+          </form>
+        </ModalShell>
       ) : null}
 
       {selected && (
