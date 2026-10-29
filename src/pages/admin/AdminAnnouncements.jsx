@@ -24,7 +24,7 @@ export default function AdminAnnouncements({ announcements = [], onCreateAnnounc
       </AdminPageHeader>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <Card title="Publish an update" action={<StatusBadge tone="info">SOP step 1</StatusBadge>}>
+        <Card title="Publish an update">
           <form className="grid gap-4" onSubmit={onCreateAnnouncement}>
             <FormField label="Audience">
               <select name="announcementAudience">
