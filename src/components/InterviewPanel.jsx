@@ -5,7 +5,10 @@ import ReasonModal from './ReasonModal';
 import InterviewLocationsModal from './InterviewLocationsModal';
 import { fmtDate } from '../lib/formatters';
 import { getStandingRequirements } from '../lib/profile';
-import { buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isReviewerRole } from '../lib/reviewScope';
+import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isReviewerRole } from '../lib/reviewScope';
+import { getInterviewSchedulers } from '../lib/admissionsOffice';
+import { getStageActionLabel } from '../lib/constants';
+import HeadOverrideNotice from './HeadOverrideNotice';
 import {
   DEFAULT_INTERVIEW_INSTRUCTIONS,
   INTERVIEW_DURATIONS,
@@ -575,6 +578,24 @@ function ScheduleHistory({ history, nameById }) {
   );
 }
 
+// Consultation 2: the interviewers of the applicant's school and cluster schedule
+// the interview. The Head keeps an override, so the tab says plainly that using
+// it is stepping in, and names who is expected to do it.
+function ScheduleOverrideNotice({ application, workspace }) {
+  const schedulers = getInterviewSchedulers(
+    application,
+    workspace.staffDirectory || [],
+    buildProgramScopeIndex(workspace.academicPrograms || []),
+  );
+  return (
+    <HeadOverrideNotice>
+      {schedulers.length
+        ? `The school's interviewers schedule this: ${schedulers.map((person) => `${person.fullName || REVIEW_ROLE_LABELS[person.role]}, ${REVIEW_ROLE_LABELS[person.role]}`).join('; ')}.`
+        : 'No interviewer covers this school or cluster yet. Add one on Accounts, or step in here.'}
+    </HeadOverrideNotice>
+  );
+}
+
 /**
  * The Interview tab of ApplicationReviewModal (SOP step 5).
  *
@@ -656,6 +677,7 @@ export default function InterviewPanel({
 
   return (
     <div className="grid gap-4">
+      {isHead && canCoordinate ? <ScheduleOverrideNotice application={application} workspace={workspace} /> : null}
       {feedback ? (
         <p
           className={`m-0 rounded-[14px] border px-3 py-2 text-sm ${feedback.tone === 'error' ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200' : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'}`}
@@ -726,7 +748,7 @@ export default function InterviewPanel({
             <h4 className={sectionHeading}>{application.status === 'Endorsed' ? 'Schedule the interview' : 'New schedule'}</h4>
             <p className="m-0 text-xs text-app-muted">
               {application.status === 'Endorsed'
-                ? 'Confirm with Schedule interview in the action bar. Applicant and panel are notified.'
+                ? `Confirm with ${getStageActionLabel('Interview', role)} in the action bar. Applicant and panel are notified.`
                 : 'Saving a new schedule notifies the applicant and panel.'}
             </p>
           </div>

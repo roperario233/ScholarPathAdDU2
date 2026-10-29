@@ -39,7 +39,8 @@ const describeOtherCategories = (others = [], counts = {}) => (
 );
 
 // The interviewers of the applicant's school and cluster schedule the interview
-// (Consultation 2); the Head can step in. Staff read the board without acting.
+// (Consultation 2); the Head can step in, but it is flagged as an override rather
+// than the intended flow. Staff read the board without acting.
 function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
   return (
     <article className={getCaseCardClass('warning')}>
@@ -76,13 +77,15 @@ function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-        <p className="m-0 min-w-0 flex-1 text-xs text-app-muted">
-          {isHead
-            ? 'The Head can schedule in their place.'
-            : 'Read-only for Admissions Office Staff.'}
-        </p>
+        {isHead ? (
+          <p className="m-0 min-w-0 flex-1 text-xs font-semibold text-amber-700 dark:text-amber-200">
+            Not the intended flow: the interviewers above schedule this. Step in only if needed.
+          </p>
+        ) : (
+          <p className="m-0 min-w-0 flex-1 text-xs text-app-muted">Read-only for Admissions Office Staff.</p>
+        )}
         <Button type="button" onClick={() => onOpen(application.id)}>
-          {isHead ? 'Schedule as Head' : 'View case'}
+          {isHead ? 'Schedule as Head (override)' : 'View case'}
         </Button>
       </div>
     </article>
@@ -157,7 +160,9 @@ export default function AdminInterviews({
     <div className="grid content-start gap-5 self-start">
       <AdminPageHeader
         title="Interview schedule"
-        description="Interviews scheduled by each school, and any panel or room clashes."
+        description={isHead
+          ? 'Interviews are scheduled by each school’s interviewers. You can step in, but it is not the intended flow.'
+          : 'Interviews scheduled by each school, and any panel or room clashes.'}
       >
         {conflicts.length ? (
           <AdminHeaderTile

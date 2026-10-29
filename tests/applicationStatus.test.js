@@ -284,6 +284,14 @@ describe('transition map completeness', () => {
     expect(getStageActionLabel('For Verification', 'department_chair')).toBe('Continue to verification');
     expect(getStageActionLabel('For Verification', 'admissions_office')).toBe('Continue to verification');
     expect(getStageActionLabel('Interview', 'admissions_office')).toBe('Schedule interview');
+    expect(getStageActionLabel('Interview', 'interviewer')).toBe('Schedule interview');
+    expect(getStageActionLabel('Interview', 'admissions_head')).toBe('Schedule as Head (override)');
+    expect(getStageActionLabel('Recommended', 'admissions_head')).toBe('Recommend as Head (override)');
+    expect(getStageActionLabel('Approved', 'admissions_head')).toBe('Approve as Head (override)');
+    // Only the Head's own moves keep the plain verb: release is the Head's job.
+    expect(getStageActionLabel('Released', 'admissions_head')).toBe('Release results');
+    expect(getStageActionLabel('Approved', 'department_chair')).toBe('Approve');
+    expect(getStageActionLabel('Recommended', 'interviewer')).toBe('Recommend for approval');
   });
 
   it('gives every status a student-facing next step', () => {

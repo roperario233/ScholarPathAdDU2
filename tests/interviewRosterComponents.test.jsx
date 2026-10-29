@@ -176,7 +176,8 @@ describe('AdminInterviews', () => {
 
   it('offers the Head the override and shows a count on every category', () => {
     const html = renderToStaticMarkup(<AdminInterviews {...officeProps({ role: 'admissions_head' })} initialFilter="needs-scheduling" />);
-    expect(html).toContain('Schedule as Head');
+    expect(html).toContain('Schedule as Head (override)');
+    expect(html).toContain('Not the intended flow');
     ['Upcoming', 'Needs scheduling', 'Cancelled', 'All interviews'].forEach((label) => {
       expect(html).toMatch(new RegExp(`${label}<span[^>]*>\\d+</span>`));
     });

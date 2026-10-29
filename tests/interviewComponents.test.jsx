@@ -106,7 +106,11 @@ describe('ApplicationReviewModal Interview tab', () => {
   it('opens the schedule form for the Admissions Office Head at Endorsed, with the panel limited to the applicant’s school', () => {
     const html = render({ application: application(), role: 'admissions_head', interviewWorkspace: workspace() });
     expect(html).toContain('id="review-tab-interview"');
-    expect(html).toContain('Schedule due');
+    // The Head's scheduling is an override: no "due" alert, a visible notice, and
+    // an override-labelled button instead of the interviewer's plain one.
+    expect(html).not.toContain('Schedule due');
+    expect(html).toContain('Interviewer schedules');
+    expect(html).toContain('Head override — not the intended flow');
     expect(html).toContain('Schedule the interview');
     // Plain-language panel rule, with each Chair's school named in the picker.
     expect(html).toContain('Applicants are interviewed by a panel from the school that offers their program — <strong class="text-app-text">School of Engineering and Architecture (SEA)</strong>.');
@@ -116,7 +120,19 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(html).not.toContain('Carla Lim');
     // The old footer fields are gone; the action bar keeps one Schedule button.
     expect(html).not.toContain('Panel / school');
-    expect(buttonLabels(html).filter((label) => label === 'Schedule interview')).toHaveLength(1);
+    expect(buttonLabels(html).filter((label) => label === 'Schedule as Head (override)')).toHaveLength(1);
+    expect(buttonLabels(html)).not.toContain('Schedule interview');
+  });
+
+  it('shows no override notice to an interviewer in scope', () => {
+    const html = render({
+      application: application(),
+      role: 'interviewer',
+      initialTab: 'interview',
+      interviewWorkspace: workspace({ viewerId: 'interviewer-sea', canCoordinate: () => true }),
+    });
+    expect(html).not.toContain('Head override');
+    expect(html).toContain('Schedule due');
   });
 
   it('names the first program choice for an incoming first-year applicant', () => {
@@ -218,10 +234,26 @@ describe('ApplicationReviewModal Interview tab', () => {
     });
     expect(html).not.toContain('The panel must record the applicant as attended first.');
     expect(html).not.toContain('Outcome due');
-    const pending = buttonMarkup(html, 'Recommend for approval');
+    // The Head's version of the move is an override and says so.
+    const pending = buttonMarkup(html, 'Recommend as Head \\(override\\)');
     expect(pending).not.toContain('disabled=""');
     expect(pending).not.toContain('title="No interview outcome recorded');
     expect(pending).not.toContain('<svg');
+    expect(html).toContain('Head override — not the intended flow.');
+    expect(html).toContain('The interview panel records the recommendation.');
+  });
+
+  it('flags the Head’s approval as an override of the school’s approving level', () => {
+    const html = render({
+      application: application({ status: 'Recommended', interview: { ...pastInterview, state: 'cancelled', revision: 2, calendar: null } }),
+      role: 'admissions_head',
+      interviewWorkspace: workspace(),
+    });
+    expect(buttonLabels(html)).toContain('Approve as Head (override)');
+    expect(buttonLabels(html)).not.toContain('Approve');
+    expect(html).toContain('Head override — not the intended flow.');
+    // No approval_levels row for the school, so the default approver is named.
+    expect(html).toContain('The school&#x27;s Chairperson approves or rejects this.');
   });
   it('still offers the calendar repair after the recommendation waived the interview', () => {
     // The waiver cancels the schedule while the application is at Interview. If
