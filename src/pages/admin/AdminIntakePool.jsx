@@ -1,7 +1,8 @@
-import { CheckCircle2, ChevronDown, Clock, Inbox, UserCheck, Users, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock, Inbox, Search, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import FilterChips from '../../components/FilterChips';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { describeApplicantAcademic } from '../../lib/applicationRequirements';
@@ -143,7 +144,16 @@ export default function AdminIntakePool({
   const moreFilterCount = ['stage', 'scholarshipId', 'school', 'department', 'sort']
     .filter((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]).length;
 
-  const coverageLabel =INTAKE_POOL_COVERAGE.find((option) => option.value === filters.coverage)?.label || 'Unclaimed';
+  // How many cases each coverage holds under the other filters at their defaults,
+  // so a chip says what is behind it before it is opened.
+  const coverageCounts = useMemo(() => Object.fromEntries(
+    INTAKE_POOL_COVERAGE.map((option) => [
+      option.value,
+      filterIntakePool(applications, caseOfficers, { coverage: option.value }, today).length,
+    ]),
+  ), [applications, caseOfficers, today]);
+  const hasActiveFilters = Object.keys(DEFAULT_INTAKE_POOL_FILTERS)
+    .some((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]);
 
   const renderRow = (entry) => {
     const officers = getCaseOfficers(caseOfficers, entry.id);
@@ -250,22 +260,39 @@ export default function AdminIntakePool({
           title="Find a case"
           action={<StatusBadge tone={filtered.length ? 'info' : 'neutral'}>{filtered.length} in view</StatusBadge>}
         >
-          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] sm:items-end">
-            <FormField label="Coverage">
-              <select value={filters.coverage} onChange={(event) => updateFilter({ coverage: event.target.value })}>
-                {INTAKE_POOL_COVERAGE.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Search">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <FilterChips
+              name="intake-coverage"
+              legend="Coverage"
+              value={filters.coverage}
+              onChange={(coverage) => updateFilter({ coverage })}
+              options={INTAKE_POOL_COVERAGE.map((option) => ({
+                ...option,
+                count: coverageCounts[option.value],
+                alert: option.value === 'unclaimed' && coverageCounts.unclaimed > 0,
+              }))}
+            />
+            <label className="flex min-h-10 items-center gap-2 text-sm font-semibold text-app-text">
+              <input
+                type="checkbox"
+                checked={filters.waitingOverDays > 0}
+                onChange={(event) => updateFilter({ waitingOverDays: event.target.checked ? WAITING_THRESHOLD_DAYS : 0 })}
+              />
+              Waiting over {WAITING_THRESHOLD_DAYS} days
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 basis-56">
+              <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted" />
               <input
                 type="search"
                 value={filters.query}
-                placeholder="Student, program, scholarship"
+                placeholder="Search student, program, scholarship"
+                aria-label="Search applications"
+                className="min-h-10 py-2 pl-9 text-sm"
                 onChange={(event) => updateFilter({ query: event.target.value })}
               />
-            </FormField>
+            </div>
             <Button
               type="button"
               aria-expanded={showMoreFilters}
@@ -277,63 +304,48 @@ export default function AdminIntakePool({
                 <ChevronDown size={16} aria-hidden="true" className={showMoreFilters ? 'rotate-180 transition-transform' : 'transition-transform'} />
               </span>
             </Button>
+            {hasActiveFilters ? <Button type="button" variant="ghost" onClick={resetFilters}>Reset</Button> : null}
           </div>
-          <div id="intake-more-filters" hidden={!showMoreFilters} className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <FormField label="Stage">
-              <select value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
+          <div id="intake-more-filters" hidden={!showMoreFilters} className="mt-3 grid gap-2 border-t border-app-border pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <FormField label="Stage" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
                 <option value="all">All stages</option>
                 {INTAKE_POOL_STAGE_OPTIONS.map((status) => (
                   <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
                 ))}
               </select>
             </FormField>
-            <FormField label="Scholarship">
-              <select value={filters.scholarshipId} onChange={(event) => updateFilter({ scholarshipId: event.target.value })}>
+            <FormField label="Scholarship" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.scholarshipId} onChange={(event) => updateFilter({ scholarshipId: event.target.value })}>
                 <option value="all">All scholarships</option>
                 {facets.scholarships.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </FormField>
-            <FormField label="School">
-              <select value={filters.school} onChange={(event) => updateFilter({ school: event.target.value })}>
+            <FormField label="School" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.school} onChange={(event) => updateFilter({ school: event.target.value })}>
                 <option value="all">All schools</option>
                 {facets.schools.map((school) => (
                   <option key={school} value={school}>{school}</option>
                 ))}
               </select>
             </FormField>
-            <FormField label="Department">
-              <select value={filters.department} onChange={(event) => updateFilter({ department: event.target.value })}>
+            <FormField label="Department" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.department} onChange={(event) => updateFilter({ department: event.target.value })}>
                 <option value="all">All departments</option>
                 {facets.departments.map((department) => (
                   <option key={department} value={department}>{department}</option>
                 ))}
               </select>
             </FormField>
-            <FormField label="Sort">
-              <select value={filters.sort} onChange={(event) => updateFilter({ sort: event.target.value })}>
+            <FormField label="Sort" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.sort} onChange={(event) => updateFilter({ sort: event.target.value })}>
                 {INTAKE_POOL_SORTS.map((option) => (
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </FormField>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
-            <label className="flex min-h-10 items-center gap-2 text-sm font-semibold text-app-text">
-              <input
-                type="checkbox"
-                checked={filters.waitingOverDays > 0}
-                onChange={(event) => updateFilter({ waitingOverDays: event.target.checked ? WAITING_THRESHOLD_DAYS : 0 })}
-              />
-              Waiting over {WAITING_THRESHOLD_DAYS} days
-            </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-app-muted">
-                {coverageLabel} · {filtered.length} of {unclaimed.length + taken.length} open
-              </span>
-              <Button type="button" variant="ghost" onClick={resetFilters}>Reset filters</Button>
-            </div>
           </div>
         </Card>
       </section>
