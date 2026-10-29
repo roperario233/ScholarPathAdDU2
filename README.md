@@ -11,6 +11,41 @@ A React + Vite and Supabase webapp for our ScholarPath AdDU capstone.
 - Department chair review view
 - My Profile editing for every role (personal, academic, household, eligibility background, and account security details)
 
+## Student support inbox
+
+The in-app **Support inbox** lets an authenticated student message the Admissions
+Office and receive replies inside ScholarPath. One continuous conversation is kept
+per student. Both Admissions Office Staff and the Admissions Office Head can answer
+from the **Support inbox** route in the office workspace. Academic reviewers have
+no access to support conversations. Messages are text-only, limited to 2,000
+characters, and refreshed every 15 seconds while the student chat is open or the
+office inbox route is active. An office reply adds an in-app notification, respecting
+the student's in-app notification preference. This is human live chat, not an AI
+assistant; the AI feature remains deferred.
+
+Apply `/supabase/migrations/20261053000000_add_support_inbox.sql` to the Supabase
+project before enabling the inbox. The same table, RLS, and trigger definitions are
+included in `supabase/schema.sql` for fresh projects. The browser reports when the
+migration is not yet available; the rest of the app continues to work. There is no
+email/SMS alert to the office in this first phase, so an office agent needs to keep
+the Support inbox route open to see new student messages.
+
+The previous tawk.to widget remains an optional fallback. The default channel is
+`inbox`; set `VITE_SUPPORT_CHANNEL=tawk` to use the student-only tawk.to widget
+instead. For that fallback, the configured property and widget ids are:
+
+```dotenv
+VITE_SUPPORT_CHANNEL=tawk
+VITE_TAWK_PROPERTY_ID=6ae2c9732afdd33474271165
+VITE_TAWK_WIDGET_ID=1k62u5r7a
+```
+
+The tawk widget is free live chat and not AI. If using it, the signed-in student's
+profile name and email are shared with tawk.to but are not cryptographically
+verified with Secure Mode. Set `VITE_SUPPORT_CHANNEL=inbox` (or remove it) to use
+the in-app inbox. Vite reads environment variables at build time; restart the dev
+server or rebuild and redeploy after changing them.
+
 ## Authentication redirect configuration
 
 Google sign-in, password reset links, and account confirmation emails all return

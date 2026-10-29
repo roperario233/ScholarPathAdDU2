@@ -92,6 +92,27 @@ const toAcademicProgram = (row) => ({
 });
 
 const toAnnouncement = (row) => ({ ...row, createdAt: row.created_at });
+const toSupportThread = (row) => ({
+  id: row.id,
+  studentId: row.student_id,
+  status: row.status,
+  lastMessageAt: row.last_message_at,
+  lastMessageBy: row.last_message_by,
+  studentLastReadAt: row.student_last_read_at,
+  officeLastReadAt: row.office_last_read_at,
+  studentUnreadCount: row.student_unread_count || 0,
+  officeUnreadCount: row.office_unread_count || 0,
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+});
+const toSupportMessage = (row) => ({
+  id: row.id,
+  threadId: row.thread_id,
+  senderId: row.sender_id,
+  senderRole: row.sender_role,
+  body: row.body,
+  createdAt: row.created_at,
+});
 const toCustomDeadline = (row) => ({
   id: row.id,
   title: row.title,
@@ -422,6 +443,8 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
       ? resultsReleasesResult.data.map(toResultsRelease)
       : [],
     resultsReleasesReady: !resultsReleasesResult.error,
+    // The separate support inbox hydrates after the base workspace and tolerates
+    // its migration being applied later than the app build.
     // Pending-migration tolerance, like custom_deadlines: an unavailable table
     // yields an empty office calendar instead of failing the whole workspace.
     officeCalendarEntries: !officeEntriesResult.error && Array.isArray(officeEntriesResult.data)
@@ -553,6 +576,98 @@ export const createSupabaseReviewComment = async ({ applicationId, authorId, aut
     body,
   }).select('*').single();
   return { ...result, data: result.data ? toReviewComment(result.data) : null };
+};
+
+// Student support conversations. The database policies determine the visible
+// rows; caller-provided ids are only filters, never an authorization boundary.
+export const loadSupabaseSupportInbox = async ({ role, userId, selectedThreadId = '', markRead = false }) => {
+  if (!ensureReady()) return { success: false, ready: false, error: { message: 'Supabase is not configured.' } };
+  const isOffice = role === 'admissions_office' || role === 'admissions_head';
+  if (!isOffice && role !== 'student') return { success: false, ready: true, threads: [], messages: [], students: {} };
+
+  const threadQuery = supabase.from('support_threads').select('*')
+    .order('last_message_at', { ascending: true, nullsFirst: true });
+  const threadResult = isOffice ? await threadQuery : await threadQuery.eq('student_id', userId).maybeSingle();
+  if (threadResult.error) {
+    return { success: false, ready: false, error: threadResult.error };
+  }
+  const rows = isOffice ? (threadResult.data || []) : (threadResult.data ? [threadResult.data] : []);
+  const threads = rows.map(toSupportThread);
+  const ids = threads.map((thread) => thread.id);
+  const visibleThreadId = selectedThreadId && ids.includes(selectedThreadId)
+    ? selectedThreadId
+    : (ids[0] || '');
+
+  let messages = [];
+  if (visibleThreadId) {
+    const messageQuery = supabase.from('support_messages').select('*').eq('thread_id', visibleThreadId).order('created_at', { ascending: true });
+    const messageResult = await messageQuery;
+    if (messageResult.error) return { success: false, ready: true, error: messageResult.error, threads, messages: [], students: {} };
+    messages = (messageResult.data || []).map(toSupportMessage);
+  }
+
+  if (markRead && visibleThreadId) {
+    const readResult = await supabase.rpc('mark_support_thread_read', { p_thread_id: visibleThreadId });
+    if (!readResult.error) {
+      const now = new Date().toISOString();
+      const readThread = threads.find((thread) => thread.id === visibleThreadId);
+      if (readThread) {
+        if (isOffice) {
+          readThread.officeLastReadAt = now;
+          readThread.officeUnreadCount = 0;
+        } else {
+          readThread.studentLastReadAt = now;
+          readThread.studentUnreadCount = 0;
+        }
+      }
+    }
+  }
+
+  let students = {};
+  if (isOffice && rows.length) {
+    const studentIds = [...new Set(rows.map((row) => row.student_id))];
+    const profilesResult = await supabase.from('profiles').select('user_id, full_name, degree_program, department').in('user_id', studentIds);
+    if (!profilesResult.error) {
+      students = Object.fromEntries((profilesResult.data || []).map((profile) => [profile.user_id, {
+        fullName: profile.full_name || 'Student',
+        degreeProgram: profile.degree_program || '',
+        department: profile.department || '',
+      }]));
+    }
+  }
+
+  return { success: true, ready: true, threads, messages, students, selectedThreadId: visibleThreadId };
+};
+
+export const sendSupabaseSupportMessage = async ({ threadId, body }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  let targetThreadId = threadId;
+  if (!targetThreadId) {
+    const threadResult = await supabase.rpc('get_or_create_support_thread');
+    if (threadResult.error) return { data: null, error: threadResult.error };
+    targetThreadId = threadResult.data?.id;
+  }
+  if (!targetThreadId) return { data: null, error: { message: 'Your support thread could not be opened.' } };
+  const result = await supabase.from('support_messages').insert({ thread_id: targetThreadId, body }).select('*').single();
+  return { data: result.data ? toSupportMessage(result.data) : null, threadId: targetThreadId, error: result.error };
+};
+
+export const markSupabaseSupportThreadRead = async (threadId) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc('mark_support_thread_read', { p_thread_id: threadId });
+  return { error };
+};
+
+export const loadSupabaseNotifications = async (userId) => {
+  if (!ensureReady() || !userId) return { notifications: [], error: { message: 'Supabase is not configured.' } };
+  const { data, error } = await supabase.from('notifications').select('*').eq('profile_id', userId).order('created_at', { ascending: false });
+  return { notifications: error ? [] : (data || []).map(toNotification), error };
+};
+
+export const setSupabaseSupportThreadStatus = async (threadId, status) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc('set_support_thread_status', { p_thread_id: threadId, p_status: status });
+  return { error };
 };
 
 // Interview locations are managed by the Admissions Office Head; RLS refuses
