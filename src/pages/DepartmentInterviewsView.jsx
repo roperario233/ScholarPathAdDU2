@@ -72,6 +72,7 @@ export default function DepartmentInterviewsView({
       <AdminPageHeader
         label={`${REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} interviews`}
         title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} interview panel`}
+        description="Schedule interviews and record your notes for applicants in your scope."
         badge={`${panelUpcoming.length} on your panel`}
       />
 

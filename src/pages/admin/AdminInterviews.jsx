@@ -92,6 +92,7 @@ export default function AdminInterviews({
     <div className="grid content-start gap-5 self-start">
       <AdminPageHeader
         title="Interview schedule"
+        description="Interviews scheduled by each school, and any panel or room clashes."
         badge={`${upcoming.length} upcoming`}
         badgeTone={upcoming.length ? 'info' : 'neutral'}
       />

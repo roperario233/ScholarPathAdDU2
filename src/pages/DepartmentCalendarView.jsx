@@ -190,6 +190,7 @@ export default function DepartmentCalendarView({
       <AdminPageHeader
         label={`${REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} calendar`}
         title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} calendar`}
+        description="Interviews in your scope, scholarship deadlines, and office dates."
         badge={`${panelUpcoming.length} on your panel`}
       />
 
