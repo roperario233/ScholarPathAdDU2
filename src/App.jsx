@@ -16,7 +16,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseWorkspace, markSupabaseNotificationRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseTestEmail, sendSupabaseTestSms, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -46,6 +46,12 @@ import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isReviewerRole } from './lib/reviewScope';
+import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
+import { countUnreadSupportMessages, isSupportInboxChannel, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
+import StudentSupportChat from './components/StudentSupportChat';
+import AdminSupportInboxPage from './pages/admin/AdminSupportInbox';
+
+const SUPPORT_INBOX_CHANNEL_ENABLED = isSupportInboxChannel();
 
 const roleLabels = {
   student: 'Student',
@@ -285,6 +291,9 @@ const persistCustomDeadline = async (deadline, ownerId) => {
 
 function App() {
   const [state, setState] = useState(createInitialState);
+  const supportChatVisitorRef = useRef(null);
+  const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loading: false });
+  const [isStudentSupportOpen, setIsStudentSupportOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   // theme: 'dark' | 'light' — persisted in state
   const [isBooting, setIsBooting] = useState(true);
@@ -357,6 +366,7 @@ function App() {
     setState((previous) => createFreshState(devicePreferencesOf(previous)));
     setProfileOnboarding(null);
     setIsSupabaseWorkspaceLoaded(false);
+    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: true, loading: false });
     setDeadlineSync(null);
     setAvatarPreview({ path: '', url: '' });
     setFinancial(emptyFinancialState);
@@ -406,6 +416,97 @@ function App() {
     root.classList.toggle('theme-light', state.theme === 'light');
     root.classList.toggle('dark', state.theme !== 'light');
   }, [state.theme]);
+
+  useEffect(() => {
+    supportChatVisitorRef.current = getSupportChatVisitor({
+      fullName: state.authUser?.fullName,
+      email: state.authUser?.email,
+    });
+  }, [state.authUser?.fullName, state.authUser?.email]);
+
+  useEffect(() => {
+    if (!SUPPORT_INBOX_CHANNEL_ENABLED) {
+      // tawk.to remains an optional fallback while the in-app inbox is default.
+      if (state.isAuthenticated && state.viewerRole === 'student') {
+        syncSupportChat({
+          role: state.viewerRole,
+          ownerId: state.authUser?.id || '',
+          visitor: supportChatVisitorRef.current,
+        });
+      } else {
+        teardownSupportChat();
+      }
+      return undefined;
+    }
+    teardownSupportChat();
+    return undefined;
+  }, [state.isAuthenticated, state.viewerRole, state.authUser?.id]);
+
+  useEffect(() => {
+    if (SUPPORT_INBOX_CHANNEL_ENABLED || !state.isAuthenticated || state.viewerRole !== 'student' || !state.authUser?.id) return;
+    syncSupportChat({
+      role: state.viewerRole,
+      ownerId: state.authUser.id,
+      visitor: getSupportChatVisitor({ fullName: state.authUser.fullName, email: state.authUser.email }),
+    });
+  }, [state.isAuthenticated, state.viewerRole, state.authUser?.id, state.authUser?.fullName, state.authUser?.email]);
+
+  useEffect(() => {
+    if (!SUPPORT_INBOX_CHANNEL_ENABLED || !isSupabaseWorkspaceLoaded || !state.isAuthenticated || !state.authUser?.id) {
+      return undefined;
+    }
+    const office = state.viewerRole === 'admissions_office' || state.viewerRole === 'admissions_head';
+    if (!office && state.viewerRole !== 'student') return undefined;
+    let active = true;
+    let refreshing = false;
+
+    const refreshInbox = async () => {
+      if (refreshing || document.visibilityState === 'hidden') return;
+      refreshing = true;
+      const selectedThreadId = supportInbox.selectedThreadId;
+      if (state.activeView === 'admin-support') {
+        setSupportInbox((previous) => ({ ...previous, loading: true }));
+      }
+      try {
+        const result = await loadSupabaseSupportInbox({
+          role: state.viewerRole,
+          userId: state.authUser.id,
+          selectedThreadId,
+          markRead: (!office && isStudentSupportOpen)
+            || (office && state.activeView === 'admin-support' && Boolean(selectedThreadId)),
+        });
+        if (!active) return;
+        setSupportInbox((previous) => ({
+          threads: result.threads || [],
+          messages: result.messages || [],
+          students: result.students || previous.students,
+          selectedThreadId: result.selectedThreadId || selectedThreadId || '',
+          ready: result.ready,
+          loading: false,
+        }));
+        if (!office) {
+          const notificationResult = await loadSupabaseNotifications(state.authUser.id);
+          if (active && !notificationResult.error) {
+            updateState((previous) => ({
+              notifications: mergeNotifications(previous.notifications, notificationResult.notifications, { ownerId: state.authUser.id }),
+            }));
+          }
+        }
+      } catch {
+        if (active) setSupportInbox((previous) => ({ ...previous, ready: false, loading: false }));
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    refreshInbox();
+    const shouldPoll = office ? state.activeView === 'admin-support' : isStudentSupportOpen;
+    const timer = shouldPoll ? window.setInterval(refreshInbox, SUPPORT_OPEN_POLL_MS) : null;
+    return () => {
+      active = false;
+      if (timer) window.clearInterval(timer);
+    };
+  }, [isSupabaseWorkspaceLoaded, state.isAuthenticated, state.viewerRole, state.authUser?.id, state.activeView, supportInbox.selectedThreadId, isStudentSupportOpen]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsBooting(false), 250);
@@ -877,6 +978,63 @@ function App() {
   const scholarshipCatalog = isSupabaseWorkspaceLoaded && state.scholarships?.length
     ? getAdduInternalPrograms(state.scholarships)
     : [];
+
+  const supportThread = supportInbox.threads.find((thread) => thread.studentId === state.authUser?.id) || null;
+  const supportStudentMessages = supportThread
+    ? supportInbox.messages.filter((message) => message.threadId === supportThread.id)
+    : [];
+  const supportStudentUnreadCount = countUnreadSupportMessages(supportThread, supportStudentMessages, 'student');
+  const refreshSupportInbox = async (selectedThreadId = supportInbox.selectedThreadId) => {
+    if (!state.authUser?.id) return { error: { message: 'Sign in again to use the support inbox.' } };
+    const result = await loadSupabaseSupportInbox({ role: state.viewerRole, userId: state.authUser.id, selectedThreadId });
+    if (result.success) {
+      setSupportInbox((previous) => ({
+        threads: result.threads || [],
+        messages: result.messages || [],
+        students: result.students || previous.students,
+        selectedThreadId: result.selectedThreadId || '',
+        ready: result.ready,
+        loading: false,
+      }));
+    } else {
+      setSupportInbox((previous) => ({ ...previous, ready: result.ready, loading: false }));
+    }
+    return result;
+  };
+  const sendSupportMessage = async (threadId, body) => {
+    const result = await sendSupabaseSupportMessage({ threadId, body });
+    if (result.error) return result;
+    await refreshSupportInbox(result.threadId || threadId);
+    if (state.viewerRole === 'student') {
+      const notificationsResult = await loadSupabaseNotifications(state.authUser?.id);
+      if (!notificationsResult.error) {
+        updateState((previous) => ({
+          notifications: mergeNotifications(previous.notifications, notificationsResult.notifications, { ownerId: state.authUser?.id }),
+        }));
+      }
+    }
+    return result;
+  };
+  const markSupportThreadRead = async (threadId) => {
+    const result = await markSupabaseSupportThreadRead(threadId);
+    if (!result.error) {
+      setSupportInbox((previous) => ({
+        ...previous,
+        threads: previous.threads.map((thread) => thread.id !== threadId ? thread : {
+          ...thread,
+          ...(state.viewerRole === 'student'
+            ? { studentLastReadAt: new Date().toISOString(), studentUnreadCount: 0 }
+            : { officeLastReadAt: new Date().toISOString(), officeUnreadCount: 0 }),
+        }),
+      }));
+    }
+    return result;
+  };
+  const updateSupportThreadStatus = async (threadId, status) => {
+    const result = await setSupabaseSupportThreadStatus(threadId, status);
+    if (!result.error) await refreshSupportInbox(threadId);
+    return result;
+  };
 
   const eligibleScholarships = useMemo(() => rankScholarships(studentMatchProfile, scholarshipCatalog), [studentMatchProfile, scholarshipCatalog]);
   const filteredScholarships = useMemo(
@@ -2843,6 +3001,7 @@ function App() {
       { view: 'admin-review', label: 'Review queue', visible: isAdmissionsHead },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
+      { view: 'admin-support', label: 'Support inbox', visible: true },
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
@@ -3371,8 +3530,37 @@ function App() {
               onDismissSyncFeedback={() => setDeadlineSync(null)}
             />
           )}
+
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-support' && (
+            <AdminSupportInboxPage
+              threads={supportInbox.threads}
+              messages={supportInbox.messages}
+              students={supportInbox.students}
+              selectedThreadId={supportInbox.selectedThreadId}
+              role={state.viewerRole}
+              loading={supportInbox.loading}
+              ready={supportInbox.ready}
+              onSelectThread={(threadId) => {
+                setSupportInbox((previous) => ({ ...previous, selectedThreadId: threadId }));
+              }}
+              onSend={sendSupportMessage}
+              onMarkRead={markSupportThreadRead}
+              onSetStatus={updateSupportThreadStatus}
+            />
+          )}
         </section>
       </main>
+      {state.isAuthenticated && state.viewerRole === 'student' && SUPPORT_INBOX_CHANNEL_ENABLED && (
+        <StudentSupportChat
+          thread={supportThread}
+          messages={supportStudentMessages}
+          unreadCount={supportStudentUnreadCount}
+          ready={supportInbox.ready}
+          onSend={(body) => sendSupportMessage(supportThread?.id || '', body)}
+          onMarkRead={markSupportThreadRead}
+          onOpenChange={setIsStudentSupportOpen}
+        />
+      )}
     </div>
   );
 }
