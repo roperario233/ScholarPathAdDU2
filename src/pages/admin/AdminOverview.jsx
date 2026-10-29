@@ -111,6 +111,7 @@ export default function AdminOverview({ applications = [], documents = [], caseO
           ? 'Verify documents, forward cases to the interviewers, then check and release the results.'
           : 'A read-only view of the office\'s open applications.'}
         badge={isHead ? 'Final check and release' : 'Read-only'}
+        featured
       />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
