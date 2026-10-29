@@ -1134,3 +1134,81 @@ export const invokeSupabaseInterviewEvent = (body) => invokeEmailFunction('manag
 // Browser retry for the document-verification notification; the database
 // trigger (20261021000001) is the primary sender and owns the SMS channel.
 export const notifySupabaseDocumentVerification = (documentId) => invokeEmailFunction('notify-document-verification', { documentId });
+// Account provisioning (the Admissions Office Head's Accounts page; see
+// 20261051000000_account_provisioning.sql). Every write is an RPC that re-checks
+// the caller, so a non-Head session is refused by the database, not just the UI.
+// A project that has not applied the migration answers `missing: true`.
+const toAccountProfile = (row) => ({
+  userId: row.user_id,
+  fullName: row.full_name || '',
+  email: row.email || '',
+  role: row.role,
+  department: row.department || '',
+  reviewSchool: row.review_school || '',
+  reviewCluster: row.review_cluster || '',
+  reviewDepartment: row.review_department || '',
+  deactivatedAt: row.deactivated_at || null,
+  createdAt: row.created_at || null,
+});
+
+const toAccountInvitation = (row) => ({
+  id: row.id,
+  email: row.email,
+  fullName: row.full_name || '',
+  role: row.role,
+  reviewSchool: row.review_school || '',
+  reviewCluster: row.review_cluster || '',
+  reviewDepartment: row.review_department || '',
+  homeSchool: row.home_school || '',
+  invitedAt: row.invited_at,
+  expiresAt: row.expires_at,
+  claimedAt: row.claimed_at || null,
+  revokedAt: row.revoked_at || null,
+});
+
+const toProvisioningLogEntry = (row) => ({
+  id: row.id,
+  action: row.action,
+  actorId: row.actor_id || null,
+  actorRole: row.actor_role || '',
+  targetUserId: row.target_user_id || null,
+  targetEmail: row.target_email || '',
+  role: row.role || '',
+  reason: row.reason || '',
+  createdAt: row.created_at,
+});
+
+export const loadSupabaseAccounts = async () => {
+  if (!ensureReady()) return { success: false, missing: false, error: { message: 'Supabase is not configured.' } };
+  const [profiles, invitations, log] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('user_id, full_name, email, role, department, review_school, review_cluster, review_department, deactivated_at, created_at')
+      .neq('role', 'student')
+      .order('full_name', { ascending: true }),
+    supabase.from('account_invitations').select('*').order('invited_at', { ascending: false }),
+    supabase.from('account_provisioning_log').select('*').order('created_at', { ascending: false }).limit(25),
+  ]);
+  const failure = profiles.error || invitations.error || log.error;
+  if (failure) return { success: false, missing: isMissingTableError(failure) || failure.code === '42703', error: failure };
+  return {
+    success: true,
+    missing: false,
+    profiles: (profiles.data || []).map(toAccountProfile),
+    invitations: (invitations.data || []).map(toAccountInvitation),
+    log: (log.data || []).map(toProvisioningLogEntry),
+  };
+};
+
+const runAccountRpc = async (name, args) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc(name, args);
+  return { error: error || null };
+};
+
+export const inviteSupabaseAccount = (args) => runAccountRpc('invite_account', args);
+export const renewSupabaseAccountInvitation = (invitationId) => runAccountRpc('renew_account_invitation', { p_invitation_id: invitationId });
+export const revokeSupabaseAccountInvitation = (invitationId, reason) => runAccountRpc('revoke_account_invitation', { p_invitation_id: invitationId, p_reason: reason });
+export const updateSupabaseAccountScope = (userId, args) => runAccountRpc('update_account_scope', { p_user_id: userId, ...args });
+export const deactivateSupabaseAccount = (userId, reason) => runAccountRpc('deactivate_account', { p_user_id: userId, p_reason: reason });
+export const reactivateSupabaseAccount = (userId) => runAccountRpc('reactivate_account', { p_user_id: userId });

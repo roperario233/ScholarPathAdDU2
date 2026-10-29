@@ -2,7 +2,8 @@ import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from '.
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 import { isAdduInternalProgram } from './eligibility';
 import { findAcademicProgram } from './academicPrograms';
-import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole } from './reviewScope';
+import { buildXlsx, columnName, downloadBytes } from './xlsxWriter';
+import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
 
 // The Admissions Office workspace is split into one route per function
 // (dashboard, application review, catalog management, results release, and
@@ -338,67 +339,219 @@ export const buildAcceptedApplicantsReport = (applications = []) => {
 };
 
 // The applicant summary the office and finance work in (Consultation 2, #2): one
-// row per application with the course, the year level, and the household income
-// the student certified. Exported as CSV with a UTF-8 byte-order mark, which
-// Excel opens directly, so no spreadsheet library is needed. Every value comes
-// from the frozen profile snapshot (falling back to the loaded profile), which
-// any role that can read the application already sees, so the export never
-// depends on the office-only household-finance tables.
+// row per application, exported as a real .xlsx workbook (`xlsxWriter.js`, no
+// spreadsheet dependency). The sheet opens with a block that says where it was
+// exported from, what it holds, when, and by whom, so a file saved in a folder
+// months later still explains itself; a second sheet defines every column. Every
+// value comes from the frozen profile snapshot (falling back to the loaded
+// profile), which any role that can read the application already sees, so the
+// export never depends on the office-only household-finance tables. A rejection
+// reason is staff-only and is never exported (Consultation 2, #8).
+const MANILA_DAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' });
+
+// An Excel date serial for the Manila calendar day of `value`, or null.
+const toExcelDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const [year, month, day] = MANILA_DAY.format(date).split('-').map(Number);
+  return (Date.UTC(year, month - 1, day) - Date.UTC(1899, 11, 30)) / 86400000;
+};
+
+// When the application last moved into `status`: the append-only status log
+// first, then the browser-written timeline for rows that predate it.
+const getStatusEventAt = (entry, status) => {
+  const logged = asList(entry.statusLog).filter((event) => event.toStatus === status);
+  if (logged.length) return logged[logged.length - 1].at || null;
+  const timeline = asList(entry.timeline).filter((event) => event.stage === status);
+  return timeline.length ? timeline[timeline.length - 1].at || null : null;
+};
+
+const readRecommendation = (value) => (typeof value === 'string' ? { label: value } : value || {});
+
+// What the case came to, in words a finance reader does not need the SOP for. A
+// decided application stays "held" until its scholarship's results are released.
+const describeSummaryResult = (entry, releasedIds) => {
+  const released = releasedIds.has(entry.id);
+  if (entry.status === 'Released') return { text: 'Accepted — released', style: 'good' };
+  if (entry.status === 'Approved') return { text: 'Approved — awaiting release', style: 'good' };
+  if (entry.status === 'Rejected') return { text: released ? 'Not accepted — released' : 'Not accepted — held until release', style: 'bad' };
+  if (entry.status === 'Recommended') return { text: 'Recommended — awaiting the school’s approval', style: 'pending' };
+  return { text: `In progress — ${getApplicationStatusLabel(entry.status)}`, style: 'pending' };
+};
+
+const numberOrNull = (value) => {
+  if (value == null || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
+const academicOf = (entry) => {
+  const academic = entry.profileSnapshot?.academic;
+  if (academic?.value != null && academic.value !== '') return { label: academic.label || 'Academic record', value: numberOrNull(academic.value) };
+  if (entry.studentQpi != null && entry.studentQpi !== '') return { label: 'QPI', value: numberOrNull(entry.studentQpi) };
+  return { label: '', value: null };
+};
+
+const dateCell = (value) => ({ value: toExcelDate(value), type: 'date', style: 'date' });
+
+// Column definitions: [heading, width, read(entry, ctx) => value | cell].
 const APPLICANT_SUMMARY_COLUMNS = [
-  ['Applicant', (entry) => entry.profileSnapshot?.fullName || entry.studentName || ''],
-  ['Student number', (entry) => entry.profileSnapshot?.studentNumber || ''],
-  ['School', (entry, ctx) => ctx.scope(entry).school || entry.studentSchool || ''],
-  ['Cluster', (entry, ctx) => ctx.scope(entry).cluster || ''],
-  ['Department', (entry, ctx) => ctx.scope(entry).department || ''],
-  ['Program', (entry) => findAcademicProgram(entry.studentProgram)?.label || entry.studentProgram || ''],
-  ['Year level', (entry) => entry.profileSnapshot?.yearStandingLabel || ''],
-  ['Academic record', (entry) => {
-    const academic = entry.profileSnapshot?.academic;
-    if (academic?.value != null && academic.value !== '') return `${academic.label || 'Academic record'} ${academic.value}`;
-    return entry.studentQpi != null && entry.studentQpi !== '' ? `QPI ${entry.studentQpi}` : '';
+  ['No.', 6, (entry, ctx) => ({ value: ctx.index + 1, style: 'integer' })],
+  ['Applicant', 28, (entry) => entry.profileSnapshot?.fullName || entry.studentName || ''],
+  ['Student number', 15, (entry) => entry.profileSnapshot?.studentNumber || ''],
+  ['Scholarship', 26, (entry) => entry.scholarshipTitle || ''],
+  ['Result', 32, (entry, ctx) => {
+    const result = describeSummaryResult(entry, ctx.releasedIds);
+    return { value: result.text, style: result.style };
   }],
-  ['Annual household income (PHP)', (entry) => {
-    const value = entry.profileSnapshot?.householdIncome?.value ?? entry.studentHouseholdIncome;
-    return value == null || value === '' ? '' : String(Number(value));
-  }],
-  ['Scholarship', (entry) => entry.scholarshipTitle || ''],
-  ['Interview recommendation', (entry, ctx) => ctx.recommendation(entry)],
-  ['Status', (entry) => getApplicationStatusLabel(entry.status)],
-  ['Release reference', (entry) => entry.release?.reference || ''],
+  ['Application stage', 18, (entry) => getApplicationStatusLabel(entry.status)],
+  ['Interview recommendation', 24, (entry, ctx) => readRecommendation(ctx.recommendation(entry)).label || ''],
+  ['Recommended by', 22, (entry, ctx) => readRecommendation(ctx.recommendation(entry)).authorName || ''],
+  ['School', 30, (entry, ctx) => ctx.scope(entry).school || entry.studentSchool || ''],
+  ['Cluster', 18, (entry, ctx) => ctx.scope(entry).cluster || ''],
+  ['Department', 28, (entry, ctx) => ctx.scope(entry).department || ''],
+  ['Program', 32, (entry) => findAcademicProgram(entry.studentProgram)?.label || entry.studentProgram || ''],
+  ['Year level', 18, (entry) => entry.profileSnapshot?.yearStandingLabel || ''],
+  ['Academic measure', 16, (entry) => academicOf(entry).label],
+  ['Academic value', 11, (entry) => ({ value: academicOf(entry).value, style: 'number' })],
+  ['Annual household income (PHP)', 17, (entry) => ({
+    value: numberOrNull(entry.profileSnapshot?.householdIncome?.value ?? entry.studentHouseholdIncome),
+    style: 'integer',
+  })],
+  ['Email', 28, (entry) => entry.profileSnapshot?.personal?.email || ''],
+  ['Mobile number', 16, (entry) => entry.profileSnapshot?.personal?.phone || ''],
+  ['Submitted', 13, (entry) => dateCell(entry.submittedAt)],
+  ['Recommended on', 13, (entry) => dateCell(getStatusEventAt(entry, 'Recommended'))],
+  ['School decision on', 13, (entry) => dateCell(getStatusEventAt(entry, 'Approved') || getStatusEventAt(entry, 'Rejected'))],
+  ['Released on', 13, (entry, ctx) => dateCell(getStatusEventAt(entry, 'Released') || (ctx.releasedIds.has(entry.id) ? ctx.releasedAt : null))],
+  ['Release reference', 20, (entry) => entry.release?.reference || ''],
 ];
 
-// Excel reads a UTF-8 CSV correctly only with a byte-order mark (U+FEFF).
-const BYTE_ORDER_MARK = String.fromCharCode(0xfeff);
-
-const csvCell = (value) => {
-  const text = String(value ?? '');
-  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+const COLUMN_NOTES = {
+  Result: 'What the case came to. A decided application is held until the Admissions Office Head releases its scholarship’s results; students see “Under deliberation” until then.',
+  'Application stage': 'The workflow stage as the app shows it (For Interview is the stage after document verification).',
+  'Interview recommendation': 'The latest recommendation level recorded by the interview panel. Staff-only; students never see it.',
+  'Recommended by': 'The panel member who recorded that recommendation.',
+  School: 'School, Cluster, Department, and Program are resolved from the applicant’s degree program.',
+  'Academic measure': 'QPI for an enrolled student, the senior high school general average for an incoming first-year.',
+  'Academic value': 'Self-reported at submission and frozen in the profile snapshot. Not Registrar-verified.',
+  'Annual household income (PHP)': 'Self-reported at submission and frozen in the profile snapshot. Not Registrar-verified.',
+  'Recommended on': 'Manila date the interview panel’s recommendation was sent to the school.',
+  'School decision on': 'Manila date the approving level approved or did not accept the case.',
+  'Released on': 'Manila date the scholarship’s results were released.',
 };
 
-export const buildApplicantSummaryCsv = (applications = [], { scopeOf, recommendationOf } = {}) => {
+const summaryCountsLine = (list, releasedIds) => {
+  const accepted = list.filter((entry) => ['Approved', 'Released'].includes(entry.status)).length;
+  const notAccepted = list.filter((entry) => entry.status === 'Rejected').length;
+  const inProgress = list.length - accepted - notAccepted;
+  const released = list.filter((entry) => releasedIds.has(entry.id) || entry.status === 'Released').length;
+  return [
+    `${list.length} applicant${list.length === 1 ? '' : 's'}`,
+    accepted ? `${accepted} accepted` : '',
+    notAccepted ? `${notAccepted} not accepted` : '',
+    inProgress ? `${inProgress} awaiting a decision` : '',
+    released ? `${released} released` : '',
+  ].filter(Boolean).join(' · ');
+};
+
+// `source` says where the rows came from, so the file explains itself:
+//   { origin: 'Final check and release › Released results',
+//     contents: 'Every application covered by this release',
+//     scholarship, releasedAt, releasedIds, exportedBy, now }
+// Every field is optional; a missing line is left out of the header block.
+export const buildApplicantSummarySheets = (applications = [], { scopeOf, recommendationOf, source = {} } = {}) => {
+  const list = asList(applications);
+  const releasedIds = source.releasedIds instanceof Set ? source.releasedIds : new Set(asList(source.releasedIds));
   const ctx = {
     scope: (entry) => (typeof scopeOf === 'function' ? scopeOf(entry) : null) || {},
-    recommendation: (entry) => (typeof recommendationOf === 'function' ? recommendationOf(entry) : '') || '',
+    recommendation: (entry) => (typeof recommendationOf === 'function' ? recommendationOf(entry) : null) || {},
+    releasedIds,
+    releasedAt: source.releasedAt || null,
   };
-  const rows = [
-    APPLICANT_SUMMARY_COLUMNS.map(([label]) => label),
-    ...asList(applications).map((entry) => APPLICANT_SUMMARY_COLUMNS.map(([, read]) => read(entry, ctx))),
-  ];
-  return `${BYTE_ORDER_MARK}${rows.map((row) => row.map(csvCell).join(',')).join('\r\n')}\r\n`;
+  const columnCount = APPLICANT_SUMMARY_COLUMNS.length;
+  const lastColumn = columnName(columnCount - 1);
+  const exportedOn = (source.now instanceof Date ? source.now : new Date())
+    .toLocaleString('en-PH', { timeZone: 'Asia/Manila', dateStyle: 'long', timeStyle: 'short' });
+
+  const meta = [
+    ['Exported from', source.origin],
+    ['What this sheet holds', source.contents],
+    ['Scholarship', source.scholarship],
+    ['Exported on', `${exportedOn} (Asia/Manila)${source.exportedBy ? ` by ${source.exportedBy}` : ''}`],
+    ['Totals', summaryCountsLine(list, releasedIds)],
+  ].filter(([, value]) => value);
+
+  const blanks = (count, style) => Array.from({ length: count }, () => ({ value: '', style }));
+  const titleRow = [{ value: 'ScholarPath AdDU — Applicant summary', style: 'title' }, ...blanks(columnCount - 1, 'title')];
+  const metaRows = meta.map(([label, value]) => [
+    { value: label, style: 'metaLabel' }, ...blanks(1, 'metaLabel'),
+    { value, style: 'metaValue' }, ...blanks(columnCount - 3, 'metaValue'),
+  ]);
+  const headerRow = APPLICANT_SUMMARY_COLUMNS.map(([label]) => ({ value: label, style: 'header' }));
+  // An answer the student never gave, a recommendation not yet recorded, or a
+  // date the case has not reached reads "N/A" instead of a blank cell, so a gap
+  // in the sheet is never mistaken for a missing export.
+  const dataRows = list.map((entry, index) => APPLICANT_SUMMARY_COLUMNS.map(([, , read]) => {
+    const cell = read(entry, { ...ctx, index });
+    const spec = { style: 'text', ...(cell && typeof cell === 'object' ? cell : { value: cell }) };
+    const blank = spec.value == null || String(spec.value).trim() === '' || (typeof spec.value === 'number' && !Number.isFinite(spec.value));
+    return blank ? { value: 'N/A', type: 'text', style: 'na' } : spec;
+  }));
+  const headerRowNumber = 1 + metaRows.length + 2;
+  const rows = [titleRow, ...metaRows, [], headerRow, ...dataRows];
+
+  const applicants = {
+    name: 'Applicants',
+    rows,
+    columnWidths: APPLICANT_SUMMARY_COLUMNS.map(([, width]) => width),
+    rowHeights: { 1: 30, [headerRowNumber]: 34 },
+    merges: [
+      `A1:${lastColumn}1`,
+      ...metaRows.flatMap((_, index) => [`A${index + 2}:B${index + 2}`, `C${index + 2}:${lastColumn}${index + 2}`]),
+    ],
+    freeze: { row: headerRowNumber, column: 2 },
+    autoFilter: `A${headerRowNumber}:${lastColumn}${Math.max(rows.length, headerRowNumber)}`,
+  };
+
+  const about = {
+    name: 'About',
+    rows: [
+      [{ value: 'About this export', style: 'heading' }, ''],
+      [{ value: 'The Applicants sheet lists one row per application. Use the filter arrows on its header row to narrow it by scholarship, result, school, or program.', style: 'note' }, ''],
+      [{ value: 'Reasons for a decision are never exported. A non-acceptance is a general notice, and the interview and deliberation notes stay confidential to the Admissions Office and the reviewers.', style: 'note' }, ''],
+      [],
+      [{ value: 'Column', style: 'header' }, { value: 'What it means', style: 'header' }],
+      ...APPLICANT_SUMMARY_COLUMNS.map(([label]) => [
+        { value: label, style: 'text' },
+        { value: COLUMN_NOTES[label] || 'As entered by the student at submission.', style: 'text' },
+      ]),
+    ],
+    columnWidths: [30, 100],
+    rowHeights: { 2: 32, 3: 32 },
+    merges: ['A2:B2', 'A3:B3'],
+  };
+  return [applicants, about];
 };
+
+export const buildApplicantSummaryWorkbook = (applications = [], options = {}) => (
+  buildXlsx(buildApplicantSummarySheets(applications, options), options.source?.now instanceof Date ? options.source.now : new Date())
+);
 
 // Saves the summary in the browser. Kept beside the builder so every page that
 // offers the export names the file the same way.
-export const downloadApplicantSummaryCsv = (applications, options = {}, fileName = 'Applicant_summary.csv') => {
-  if (typeof document === 'undefined') return;
-  const url = URL.createObjectURL(new Blob([buildApplicantSummaryCsv(applications, options)], { type: 'text/csv;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+export const downloadApplicantSummary = (applications, options = {}, fileName = 'Applicant_summary.xlsx') => {
+  downloadBytes(buildApplicantSummaryWorkbook(applications, options), fileName);
+};
+
+// A file name that says what is inside: Applicant_summary_<parts>_<yyyy-mm-dd>.xlsx
+export const getApplicantSummaryFileName = (...parts) => {
+  const safe = parts
+    .filter(Boolean)
+    .map((part) => String(part).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, ''))
+    .filter(Boolean);
+  return `Applicant_summary_${[...safe, MANILA_DAY.format(new Date())].join('_')}.xlsx`;
 };
 
 // The Head's final check before release (Consultation 2, #13): a sibling who is
@@ -458,6 +611,18 @@ export const getRoutedInterviewers = (application, staffDirectory = [], programI
   .filter((entry) => isInterviewerRole(entry.role))
   .filter((entry) => isApplicationInReviewerScope(application, getReviewerScope(entry), programIndex))
   .sort((left, right) => String(left.fullName || '').localeCompare(String(right.fullName || '')));
+
+// Who may schedule an applicant's interview (App.jsx `canCoordinateInterview`):
+// any scoped reviewer whose level covers the applicant. The routed interviewers
+// come first because the case reaches them automatically; a Dean, Assistant Dean,
+// or Chairperson in scope can also schedule. The Head's override is not listed.
+export const getInterviewSchedulers = (application, staffDirectory = [], programIndex = new Map()) => asList(staffDirectory)
+  .filter((entry) => isReviewerRole(entry.role))
+  .filter((entry) => isApplicationInReviewerScope(application, getReviewerScope(entry), programIndex))
+  .sort((left, right) => (
+    Number(isInterviewerRole(right.role)) - Number(isInterviewerRole(left.role))
+    || String(left.fullName || '').localeCompare(String(right.fullName || ''))
+  ));
 
 // Each interviewer's open interview work: the cases in scope that wait for, or
 // sit in, the interview stage. Read-only, like the officer workload.

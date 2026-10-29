@@ -6,3 +6,4 @@ export const fmtDate = (value) => {
   return date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 };
 export const toPercent = (value) => `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+export const plural = (count, singular, pluralForm = `${singular}s`) => `${count} ${count === 1 ? singular : pluralForm}`;

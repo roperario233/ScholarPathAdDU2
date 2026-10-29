@@ -1,8 +1,9 @@
+import { CheckCircle2, ChevronDown, Clock, Inbox, Search, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
-import { StatCard } from '../../components/pageParts';
+import FilterChips from '../../components/FilterChips';
+import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { describeApplicantAcademic } from '../../lib/applicationRequirements';
 import {
@@ -24,7 +25,7 @@ import {
 } from '../../lib/admissionsOffice';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
 import { buildProgramScopeIndex } from '../../lib/reviewScope';
-import { fmtDate } from '../../lib/formatters';
+import { fmtDate, plural } from '../../lib/formatters';
 
 const PAGE_SIZE = 20;
 const WAITING_THRESHOLD_DAYS = 7;
@@ -80,6 +81,7 @@ export default function AdminIntakePool({
   const [reviewTab, setReviewTab] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [pickingUpId, setPickingUpId] = useState(null);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const today = useMemo(() => new Date(), []);
 
   const unclaimed = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
@@ -137,7 +139,21 @@ export default function AdminIntakePool({
     openReview(applicationId);
   };
 
-  const coverageLabel = INTAKE_POOL_COVERAGE.find((option) => option.value === filters.coverage)?.label || 'Unclaimed';
+  // The filters behind "More filters" that differ from their defaults, so a
+  // collapsed panel still says it is narrowing the list.
+  const moreFilterCount = ['stage', 'scholarshipId', 'school', 'department', 'sort']
+    .filter((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]).length;
+
+  // How many cases each coverage holds under the other filters at their defaults,
+  // so a chip says what is behind it before it is opened.
+  const coverageCounts = useMemo(() => Object.fromEntries(
+    INTAKE_POOL_COVERAGE.map((option) => [
+      option.value,
+      filterIntakePool(applications, caseOfficers, { coverage: option.value }, today).length,
+    ]),
+  ), [applications, caseOfficers, today]);
+  const hasActiveFilters = Object.keys(DEFAULT_INTAKE_POOL_FILTERS)
+    .some((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]);
 
   const renderRow = (entry) => {
     const officers = getCaseOfficers(caseOfficers, entry.id);
@@ -151,7 +167,7 @@ export default function AdminIntakePool({
     ));
     const routedTo = getRoutedInterviewers(entry, staffDirectory, programIndex);
     return (
-      <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
+      <article key={entry.id} className={getCaseCardClass(days != null && days >= WAITING_THRESHOLD_DAYS ? 'warning' : getStatusTone(entry.status))}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
           <div className="w-full min-w-0 flex-1">
             <h3>{entry.studentName}</h3>
@@ -187,15 +203,25 @@ export default function AdminIntakePool({
   };
 
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Application intake pool"
         description={isHead
           ? 'Every open application in one list, oldest submission first. Pick up a case to verify its documents.'
           : 'Every open application in one list, oldest submission first. Read-only for Admissions Office Staff.'}
-        badge={`${unclaimed.length} unclaimed`}
-        badgeTone={unclaimed.length ? 'warning' : 'success'}
-      />
+      >
+        {unclaimed.length ? (
+          <AdminHeaderTile
+            icon={Inbox}
+            tone={oldestWait != null && oldestWait >= WAITING_THRESHOLD_DAYS ? 'warning' : 'info'}
+            label="Unclaimed"
+            title={plural(unclaimed.length, 'application')}
+            note={oldestWait == null ? 'Nobody has picked these up yet.' : `The oldest has waited ${plural(oldestWait, 'day')}.`}
+          />
+        ) : (
+          <AdminHeaderTile icon={CheckCircle2} tone="success" label="Unclaimed" title="Nothing waiting" note="Every open case has an officer." />
+        )}
+      </AdminPageHeader>
 
       {feedback?.message && (
         <div
@@ -223,10 +249,10 @@ export default function AdminIntakePool({
       )}
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Unclaimed submissions" value={unclaimed.filter((entry) => entry.status === 'Submitted').length} note="Nobody has opened these yet" />
-        <StatCard label="Oldest waiting" value={oldestWait == null ? '—' : `${oldestWait}d`} note="First come, first served" />
-        <StatCard label="In progress, no officer" value={unclaimedInProgress.length} note="Moving without an officer" />
-        <StatCard label="With officers" value={taken.length} note="Taken and discoverable below" />
+        <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimed.filter((entry) => entry.status === 'Submitted').length} note="Nobody has opened these yet" />
+        <StatCard icon={Clock} tone="danger" label="Oldest waiting" value={oldestWait == null ? '—' : `${oldestWait}d`} note="First come, first served" />
+        <StatCard icon={Users} tone="info" label="In progress, no officer" value={unclaimedInProgress.length} note="Moving without an officer" />
+        <StatCard icon={UserCheck} tone="success" label="With officers" value={taken.length} note="Taken and discoverable below" />
       </section>
 
       <section>
@@ -234,63 +260,18 @@ export default function AdminIntakePool({
           title="Find a case"
           action={<StatusBadge tone={filtered.length ? 'info' : 'neutral'}>{filtered.length} in view</StatusBadge>}
         >
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <FormField label="Coverage">
-              <select value={filters.coverage} onChange={(event) => updateFilter({ coverage: event.target.value })}>
-                {INTAKE_POOL_COVERAGE.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Stage">
-              <select value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
-                <option value="all">All stages</option>
-                {INTAKE_POOL_STAGE_OPTIONS.map((status) => (
-                  <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Search">
-              <input
-                type="search"
-                value={filters.query}
-                placeholder="Student, program, scholarship"
-                onChange={(event) => updateFilter({ query: event.target.value })}
-              />
-            </FormField>
-            <FormField label="Scholarship">
-              <select value={filters.scholarshipId} onChange={(event) => updateFilter({ scholarshipId: event.target.value })}>
-                <option value="all">All scholarships</option>
-                {facets.scholarships.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="School">
-              <select value={filters.school} onChange={(event) => updateFilter({ school: event.target.value })}>
-                <option value="all">All schools</option>
-                {facets.schools.map((school) => (
-                  <option key={school} value={school}>{school}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Department">
-              <select value={filters.department} onChange={(event) => updateFilter({ department: event.target.value })}>
-                <option value="all">All departments</option>
-                {facets.departments.map((department) => (
-                  <option key={department} value={department}>{department}</option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Sort">
-              <select value={filters.sort} onChange={(event) => updateFilter({ sort: event.target.value })}>
-                {INTAKE_POOL_SORTS.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
-              </select>
-            </FormField>
-          </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <FilterChips
+              name="intake-coverage"
+              legend="Coverage"
+              value={filters.coverage}
+              onChange={(coverage) => updateFilter({ coverage })}
+              options={INTAKE_POOL_COVERAGE.map((option) => ({
+                ...option,
+                count: coverageCounts[option.value],
+                alert: option.value === 'unclaimed' && coverageCounts.unclaimed > 0,
+              }))}
+            />
             <label className="flex min-h-10 items-center gap-2 text-sm font-semibold text-app-text">
               <input
                 type="checkbox"
@@ -299,12 +280,72 @@ export default function AdminIntakePool({
               />
               Waiting over {WAITING_THRESHOLD_DAYS} days
             </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-xs text-app-muted">
-                {coverageLabel} · {filtered.length} of {unclaimed.length + taken.length} open
-              </span>
-              <Button type="button" variant="ghost" onClick={resetFilters}>Reset filters</Button>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 basis-56">
+              <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted" />
+              <input
+                type="search"
+                value={filters.query}
+                placeholder="Search student, program, scholarship"
+                aria-label="Search applications"
+                className="min-h-10 py-2 pl-9 text-sm"
+                onChange={(event) => updateFilter({ query: event.target.value })}
+              />
             </div>
+            <Button
+              type="button"
+              aria-expanded={showMoreFilters}
+              aria-controls="intake-more-filters"
+              onClick={() => setShowMoreFilters((open) => !open)}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                More filters{moreFilterCount ? ` (${moreFilterCount})` : ''}
+                <ChevronDown size={16} aria-hidden="true" className={showMoreFilters ? 'rotate-180 transition-transform' : 'transition-transform'} />
+              </span>
+            </Button>
+            {hasActiveFilters ? <Button type="button" variant="ghost" onClick={resetFilters}>Reset</Button> : null}
+          </div>
+          <div id="intake-more-filters" hidden={!showMoreFilters} className="mt-3 grid gap-2 border-t border-app-border pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <FormField label="Stage" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
+                <option value="all">All stages</option>
+                {INTAKE_POOL_STAGE_OPTIONS.map((status) => (
+                  <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Scholarship" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.scholarshipId} onChange={(event) => updateFilter({ scholarshipId: event.target.value })}>
+                <option value="all">All scholarships</option>
+                {facets.scholarships.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="School" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.school} onChange={(event) => updateFilter({ school: event.target.value })}>
+                <option value="all">All schools</option>
+                {facets.schools.map((school) => (
+                  <option key={school} value={school}>{school}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Department" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.department} onChange={(event) => updateFilter({ department: event.target.value })}>
+                <option value="all">All departments</option>
+                {facets.departments.map((department) => (
+                  <option key={department} value={department}>{department}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Sort" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={filters.sort} onChange={(event) => updateFilter({ sort: event.target.value })}>
+                {INTAKE_POOL_SORTS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </FormField>
           </div>
         </Card>
       </section>
@@ -347,7 +388,7 @@ export default function AdminIntakePool({
             {interviewerWorkload.length ? (
               <ul className="m-0 grid gap-2 p-0">
                 {interviewerWorkload.map((interviewer) => (
-                  <li key={interviewer.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
+                  <li key={interviewer.userId} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface p-3 transition hover:-translate-y-px hover:shadow-card">
                     <span className="min-w-0 text-sm font-semibold text-app-text">{interviewer.fullName}</span>
                     <span className="text-xs text-app-muted">
                       {interviewer.scopeLabel || 'Scope not assigned'} · {interviewer.cases} open interview case{interviewer.cases === 1 ? '' : 's'}
@@ -371,7 +412,7 @@ export default function AdminIntakePool({
             {workload.length ? (
               <ul className="m-0 grid gap-2 p-0">
                 {workload.map((officer) => (
-                  <li key={officer.officerId || officer.officerName} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
+                  <li key={officer.officerId || officer.officerName} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface p-3 transition hover:-translate-y-px hover:shadow-card">
                     <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
                     <span className="text-xs text-app-muted">
                       {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'} · {officer.cases} open case{officer.cases === 1 ? '' : 's'}

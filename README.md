@@ -23,7 +23,7 @@ office inbox route is active. An office reply adds an in-app notification, respe
 the student's in-app notification preference. This is human live chat, not an AI
 assistant; the AI feature remains deferred.
 
-Apply `/supabase/migrations/20261051000000_add_support_inbox.sql` to the Supabase
+Apply `/supabase/migrations/20261053000000_add_support_inbox.sql` to the Supabase
 project before enabling the inbox. The same table, RLS, and trigger definitions are
 included in `supabase/schema.sql` for fresh projects. The browser reports when the
 migration is not yet available; the rest of the app continues to work. There is no

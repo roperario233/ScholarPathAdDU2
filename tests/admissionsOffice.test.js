@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { crc32 } from '../src/lib/xlsxWriter';
 import {
   buildAcceptedApplicantsReport,
-  buildApplicantSummaryCsv,
+  buildApplicantSummarySheets,
+  buildApplicantSummaryWorkbook,
+  getApplicantSummaryFileName,
   filterIntakePool,
   getFinalCheckHints,
   getReleaseGroups,
@@ -479,36 +482,121 @@ describe('filterIntakePool', () => {
 
 
 // Consultation 2, #2: the office and finance work in Excel.
-describe('buildApplicantSummaryCsv', () => {
-  it('writes a UTF-8 CSV with course, year level, and income, escaping names', () => {
-    const csv = buildApplicantSummaryCsv([
-      application({
-        id: 'csv-1',
-        studentName: 'Cruz, Ada "Ads"',
-        studentProgram: 'BS Computer Science',
-        scholarshipTitle: 'Grant-in-Aid (GIA)',
-        status: 'Approved',
-        profileSnapshot: {
-          fullName: 'Cruz, Ada "Ads"',
-          studentNumber: '2024-0001',
-          yearStandingLabel: 'Incoming 2nd year',
-          academic: { label: 'QPI', value: 3.4 },
-          householdIncome: { value: 180000 },
-        },
-      }),
-    ], {
-      scopeOf: () => ({ school: 'School of Arts and Sciences (SAS)', cluster: 'Computer Studies', department: 'Computer Science Department' }),
-      recommendationOf: () => 'Highly recommended',
+const readStoredZip = (bytes) => {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const files = {};
+  let offset = 0;
+  while (view.getUint32(offset, true) === 0x04034b50) {
+    const crc = view.getUint32(offset + 14, true);
+    const size = view.getUint32(offset + 18, true);
+    const nameLength = view.getUint16(offset + 26, true);
+    const name = new TextDecoder().decode(bytes.subarray(offset + 30, offset + 30 + nameLength));
+    const data = bytes.subarray(offset + 30 + nameLength, offset + 30 + nameLength + size);
+    expect(crc32(data)).toBe(crc);
+    files[name] = new TextDecoder().decode(data);
+    offset += 30 + nameLength + size;
+  }
+  return files;
+};
+
+describe('applicant summary workbook', () => {
+  const NOW = new Date('2026-10-29T07:12:00Z');
+  const approved = application({
+    id: 'sum-1',
+    studentName: 'Cruz, Ada "Ads" <3',
+    studentProgram: 'BS Computer Science',
+    scholarshipTitle: 'Grant-in-Aid (GIA)',
+    status: 'Approved',
+    submittedAt: '2026-10-01T02:00:00Z',
+    statusLog: [
+      { toStatus: 'Recommended', at: '2026-10-20T01:00:00Z' },
+      { toStatus: 'Approved', at: '2026-10-25T16:30:00Z' },
+    ],
+    profileSnapshot: {
+      fullName: 'Cruz, Ada "Ads" <3',
+      studentNumber: '2024-0001',
+      yearStandingLabel: 'Incoming 2nd year',
+      academic: { label: 'QPI', value: 3.4 },
+      householdIncome: { value: 180000 },
+      personal: { email: 'ada@example.com', phone: '09171234567' },
+    },
+  });
+  const rejected = application({ id: 'sum-2', studentName: 'Reyes, Ben', status: 'Rejected', scholarshipTitle: 'Grant-in-Aid (GIA)' });
+  const options = {
+    scopeOf: () => ({ school: 'School of Arts and Sciences (SAS)', cluster: 'Computer Studies', department: 'Computer Science Department' }),
+    recommendationOf: (entry) => (entry.id === 'sum-1' ? { label: 'Highly recommended', authorName: 'Prof. Santos' } : null),
+    source: {
+      origin: 'Final check and release › Released results',
+      contents: 'Every application covered by this release',
+      scholarship: 'Grant-in-Aid (GIA)',
+      releasedAt: '2026-10-28T03:00:00Z',
+      releasedIds: ['sum-2'],
+      exportedBy: 'Admissions Office Head',
+      now: NOW,
+    },
+  };
+
+  it('says where the sheet was exported from, what it holds, and when', () => {
+    const [applicants] = buildApplicantSummarySheets([approved, rejected], options);
+    const text = applicants.rows.flat().map((cell) => (cell && typeof cell === 'object' ? cell.value : cell)).join('|');
+    expect(text).toContain('ScholarPath AdDU — Applicant summary');
+    expect(text).toContain('Final check and release › Released results');
+    expect(text).toContain('Every application covered by this release');
+    expect(text).toContain('October 29, 2026');
+    expect(text).toContain('by Admissions Office Head');
+    expect(text).toContain('2 applicants · 1 accepted · 1 not accepted · 1 released');
+  });
+
+  it('lists one row per application with the course, year level, income, result, and dates', () => {
+    const [applicants] = buildApplicantSummarySheets([approved, rejected], options);
+    const headerIndex = applicants.rows.findIndex((row) => row[0]?.value === 'No.');
+    const header = applicants.rows[headerIndex].map((cell) => cell.value);
+    const first = Object.fromEntries(header.map((label, index) => [label, applicants.rows[headerIndex + 1][index].value]));
+    const second = Object.fromEntries(header.map((label, index) => [label, applicants.rows[headerIndex + 2][index].value]));
+    expect(first).toMatchObject({
+      'No.': 1,
+      Applicant: 'Cruz, Ada "Ads" <3',
+      'Student number': '2024-0001',
+      Result: 'Approved — awaiting release',
+      'Interview recommendation': 'Highly recommended',
+      'Recommended by': 'Prof. Santos',
+      Cluster: 'Computer Studies',
+      'Year level': 'Incoming 2nd year',
+      'Academic measure': 'QPI',
+      'Academic value': 3.4,
+      'Annual household income (PHP)': 180000,
+      Email: 'ada@example.com',
     });
-    expect(csv.startsWith('﻿')).toBe(true);
-    const [header, row] = csv.slice(1).trim().split('\r\n');
-    expect(header).toContain('Year level');
-    expect(header).toContain('Annual household income (PHP)');
-    expect(row).toContain('"Cruz, Ada ""Ads"""');
-    expect(row).toContain('Incoming 2nd year');
-    expect(row).toContain('180000');
-    expect(row).toContain('Highly recommended');
-    expect(row).toContain('Computer Studies');
+    // 2026-10-25T16:30Z is already 26 Oct in Manila (UTC+8).
+    expect(first['School decision on'] - first['Recommended on']).toBe(6);
+    expect(second.Result).toBe('Not accepted — released');
+    // Anything the case has no answer for reads N/A instead of a blank cell.
+    expect(second['Student number']).toBe('N/A');
+    expect(second['Annual household income (PHP)']).toBe('N/A');
+    expect(second['Interview recommendation']).toBe('N/A');
+    expect(second['Recommended on']).toBe('N/A');
+    expect(first['Release reference']).toBe('N/A');
+    expect(second['Released on']).toBeGreaterThan(0);
+    expect(applicants.autoFilter).toMatch(/^A\d+:W\d+$/);
+  });
+
+  it('writes a valid .xlsx package with escaped text and an About sheet', () => {
+    const files = readStoredZip(buildApplicantSummaryWorkbook([approved, rejected], options));
+    expect(Object.keys(files)).toEqual(expect.arrayContaining([
+      '[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml',
+      'xl/worksheets/sheet1.xml', 'xl/worksheets/sheet2.xml',
+    ]));
+    expect(files['xl/workbook.xml']).toContain('name="Applicants"');
+    expect(files['xl/workbook.xml']).toContain('name="About"');
+    expect(files['xl/worksheets/sheet1.xml']).toContain('Cruz, Ada &quot;Ads&quot; &lt;3');
+    expect(files['xl/worksheets/sheet1.xml']).toContain('state="frozen"');
+    expect(files['xl/worksheets/sheet2.xml']).toContain('Reasons for a decision are never exported');
+  });
+
+  it('tolerates an empty list and names the file for what it holds', () => {
+    const [applicants] = buildApplicantSummarySheets(undefined);
+    expect(applicants.rows.some((row) => row[0]?.value === 'No.')).toBe(true);
+    expect(getApplicantSummaryFileName('School of Arts & Sciences', 'recommendations')).toMatch(/^Applicant_summary_School_of_Arts_Sciences_recommendations_\d{4}-\d{2}-\d{2}\.xlsx$/);
   });
 });
 

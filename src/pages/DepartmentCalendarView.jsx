@@ -1,4 +1,6 @@
+import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { useState } from 'react';
+import { CalendarClock } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import MonthCalendar, { CalendarLegend } from '../components/MonthCalendar';
 import { getInterviewStateTone } from '../components/InterviewRoster';
@@ -22,6 +24,7 @@ import {
   getInterviewMarksByDate,
   getInterviewsForDate,
   getManilaTodayKey,
+  getNextInterviewTile,
   getPanelApplicationIds,
   getUpcomingInterviews,
 } from '../lib/interviewRoster';
@@ -186,13 +189,18 @@ export default function DepartmentCalendarView({
 
   return (
     <div className="grid content-start gap-5 self-start">
-      <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-        <div className="page-title-copy">
-          <span className="page-section-label">{REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} calendar</span>
-          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} calendar</h2>
-        </div>
-        <StatusBadge tone="info">{panelUpcoming.length} on your panel</StatusBadge>
-      </section>
+      <AdminPageHeader
+        label={`${REVIEW_ROLE_LABELS[profile.role] || 'Reviewer'} calendar`}
+        title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} calendar`}
+        description="Interviews in your scope, scholarship deadlines, and office dates."
+      >
+        <AdminHeaderTile
+          icon={CalendarClock}
+          {...(panelUpcoming.length || !departmentUpcoming.length
+            ? getNextInterviewTile(panelUpcoming, { label: 'Next on your panel', emptyNote: 'Interviews you sit on appear here.' })
+            : getNextInterviewTile(departmentUpcoming, { label: 'Next in your scope' }))}
+        />
+      </AdminPageHeader>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
         <Card

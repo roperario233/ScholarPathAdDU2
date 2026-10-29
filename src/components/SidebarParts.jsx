@@ -1,6 +1,6 @@
 import {
   Award, Bell, CalendarClock, CalendarDays, ClipboardCheck, ClipboardList, Compass, FolderOpen,
-  GraduationCap, Inbox, LayoutDashboard, LibraryBig, ListChecks, Megaphone, Settings, UserRound, Users, Vault,
+  GraduationCap, Inbox, LayoutDashboard, LibraryBig, ListChecks, Megaphone, Settings, UserCog, UserRound, Users, Vault,
 } from 'lucide-react';
 import ProfileAvatar from './ProfileAvatar';
 
@@ -20,6 +20,7 @@ const NAV_ICONS = {
   'admin-release': Award,
   'admin-catalog': LibraryBig,
   'admin-announcements': Megaphone,
+  'admin-accounts': UserCog,
   review: ClipboardCheck,
   'chair-interviews': Users,
   'chair-calendar': CalendarDays,
@@ -101,14 +102,36 @@ function GlanceTile({ icon: Icon, label, value, tone, highlight = false }) {
   );
 }
 
-// The quick-glance numbers: three equal tiles instead of a stack of rows.
-export function SidebarStats({ programs, deadlines, unread }) {
+const GLANCE_BLUE = 'bg-blue-500/15 text-blue-600 dark:text-blue-200';
+const GLANCE_AMBER = 'bg-amber-500/15 text-amber-700 dark:text-amber-300';
+const GLANCE_GREEN = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300';
+
+// Icon and tone per quick-glance key; the sidebar's role decides which keys it gets.
+const GLANCE_VISUALS = {
+  programs: { icon: GraduationCap, tone: GLANCE_BLUE },
+  deadlines: { icon: CalendarClock, tone: GLANCE_AMBER },
+  intake: { icon: Inbox, tone: GLANCE_BLUE },
+  verify: { icon: ClipboardCheck, tone: GLANCE_AMBER },
+  release: { icon: Award, tone: GLANCE_GREEN },
+  interviews: { icon: CalendarDays, tone: GLANCE_BLUE },
+  cases: { icon: ClipboardList, tone: GLANCE_BLUE },
+  schedule: { icon: CalendarClock, tone: GLANCE_AMBER },
+  approve: { icon: ListChecks, tone: GLANCE_GREEN },
+};
+
+// The quick-glance numbers: equal tiles instead of a stack of rows. `items` is
+// `{ key, label, value }[]`; an unread-alerts tile turns rose while anything is unread.
+export function SidebarStats({ items = [] }) {
   return (
     <section aria-label="At a glance">
       <div className="grid grid-cols-3 gap-2">
-        <GlanceTile icon={GraduationCap} label="Programs" value={programs} tone="bg-blue-500/15 text-blue-600 dark:text-blue-200" />
-        <GlanceTile icon={CalendarClock} label="Open deadlines" value={deadlines} tone="bg-amber-500/15 text-amber-700 dark:text-amber-300" />
-        <GlanceTile icon={Bell} label="Unread alerts" value={unread} highlight={unread > 0} tone={unread > 0 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-slate-500/15 text-app-muted'} />
+        {items.map(({ key, label, value }) => {
+          if (key === 'unread') {
+            return <GlanceTile key={key} icon={Bell} label={label} value={value} highlight={value > 0} tone={value > 0 ? 'bg-rose-500/15 text-rose-600 dark:text-rose-300' : 'bg-slate-500/15 text-app-muted'} />;
+          }
+          const visual = GLANCE_VISUALS[key] || GLANCE_VISUALS.cases;
+          return <GlanceTile key={key} icon={visual.icon} label={label} value={value} tone={visual.tone} />;
+        })}
       </div>
     </section>
   );

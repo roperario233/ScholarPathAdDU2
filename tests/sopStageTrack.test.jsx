@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { SopStageTrack } from '../src/components/ApplicationParts';
 
-// Eight labelled pills (the retired endorsement hand-off is gone) wrapped onto
-// several lines inside the review-modal header on a phone, so below `sm` the track becomes a segmented bar under a position
-// caption. The stage names must survive in the markup for assistive tech.
+// Eight labelled stages sit under their bars from `sm` up; below it the track is
+// the bars alone under a position caption. The stage names must survive in the
+// markup for assistive tech.
 describe('SopStageTrack', () => {
   const stageNames = [
     'Submitted',
@@ -32,7 +32,7 @@ describe('SopStageTrack', () => {
   it('marks exactly one stage as the current step', () => {
     const markup = renderToStaticMarkup(<SopStageTrack status="Recommended" />);
     expect((markup.match(/aria-current="step"/g) || []).length).toBe(1);
-    expect(markup).toMatch(/aria-current="step"[^>]*><span[^>]*>Recommended</);
+    expect(markup).toMatch(/aria-current="step"[\s\S]*?>Recommended<\/span>/);
   });
 
   it('keeps the neutral badge for a status outside the Standard Procedure track', () => {

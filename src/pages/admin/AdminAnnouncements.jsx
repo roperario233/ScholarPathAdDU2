@@ -1,20 +1,30 @@
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
+import { Megaphone } from 'lucide-react';
 import { AnnouncementItem } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
+import { fmtDate, plural } from '../../lib/formatters';
 
 // Office communications are their own route: the composer and the published
 // history stay separate from the review queue and the catalog form.
 export default function AdminAnnouncements({ announcements = [], onCreateAnnouncement }) {
+  const latest = [...announcements].sort((left, right) => new Date(right.createdAt || 0) - new Date(left.createdAt || 0))[0];
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Office announcements"
         description="Publish application windows, answers to inquiries, and program updates."
-        badge={`${announcements.length} published`}
-      />
+      >
+        <AdminHeaderTile
+          icon={Megaphone}
+          label="Published"
+          title={plural(announcements.length, 'announcement')}
+          note={latest ? `Latest: ${latest.title} · ${fmtDate(latest.createdAt)}` : 'Publish the first update below.'}
+          tone={announcements.length ? 'info' : 'neutral'}
+        />
+      </AdminPageHeader>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <Card title="Publish an update" action={<StatusBadge tone="info">SOP step 1</StatusBadge>}>
+        <Card title="Publish an update">
           <form className="grid gap-4" onSubmit={onCreateAnnouncement}>
             <FormField label="Audience">
               <select name="announcementAudience">

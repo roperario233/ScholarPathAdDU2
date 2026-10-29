@@ -128,7 +128,23 @@ const stageActionLabels = {
   Rejected: 'Reject…',
 };
 
-export const getStageActionLabel = (status) => stageActionLabels[status] || status;
+// Scheduling and the recommendation belong to the interviewers of the applicant's
+// scope, and the approval to the school's approving level (Consultation 2). The
+// Head can still make those moves, so the Head's button says it is an override
+// rather than the usual next step. Authority is unchanged.
+const headOverrideLabels = {
+  Interview: 'Schedule as Head (override)',
+  Recommended: 'Recommend as Head (override)',
+  Approved: 'Approve as Head (override)',
+};
+
+export const isHeadOverrideAction = (status, role) => (
+  role === 'admissions_head' && Object.prototype.hasOwnProperty.call(headOverrideLabels, status)
+);
+
+export const getStageActionLabel = (status, role) => (
+  isHeadOverrideAction(status, role) ? headOverrideLabels[status] : stageActionLabels[status] || status
+);
 
 // The one sentence a student is told when an application is rejected (FORM
 // 230-SCH affidavit clause 6: the results and the minutes of the deliberations
@@ -228,6 +244,7 @@ export const pageViewKeys = [
   'admin-catalog',
   'admin-release',
   'admin-announcements',
+  'admin-accounts',
   'review',
   'chair-calendar',
   'chair-interviews',

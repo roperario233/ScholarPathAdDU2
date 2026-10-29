@@ -7,8 +7,9 @@ import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureD
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
 import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
-import { getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
-import { isCaseOfficer } from './lib/admissionsOffice';
+import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
+import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
+import { getUpcomingInterviews } from './lib/interviewRoster';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getAttestedValue, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, isComparableAttribute, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
@@ -35,6 +36,7 @@ import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
+import AdminAccountsPage from './pages/admin/AdminAccounts';
 import AdminCalendarPage from './pages/admin/AdminCalendar';
 import AdminInterviewsPage from './pages/admin/AdminInterviews';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
@@ -45,7 +47,7 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
-import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isReviewerRole } from './lib/reviewScope';
+import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
 import { countUnreadSupportMessages, isSupportInboxChannel, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
 import StudentSupportChat from './components/StudentSupportChat';
@@ -360,7 +362,9 @@ function App() {
         ? 'Your maximum session duration was reached. Sign in again to continue.'
         : reason === 'revoked'
           ? 'Your session could not be verified. Please sign in again.'
-          : '';
+          : reason === 'deactivated'
+            ? 'This account has been deactivated. Contact the Admissions Office if you need access restored.'
+            : '';
     // Remove the authenticated UI immediately. Network sign-out can take time;
     // the local guard must not wait for token revocation to complete.
     setState((previous) => createFreshState(devicePreferencesOf(previous)));
@@ -709,6 +713,12 @@ function App() {
       }
       lastValidationAtRef.current = Date.now();
       if (!active) return;
+      const accountStatus = await getProfileAccountStatus(user.id);
+      if (!active) return;
+      if (accountStatus.deactivated) {
+        await endSession('deactivated', user.id);
+        return;
+      }
       const profileResult = await getUserProfile(user.id);
       if (!active) return;
       const profile = profileResult.profile;
@@ -1122,6 +1132,64 @@ function App() {
     unreadNotifications.length,
   ]);
 
+  // The sidebar's quick-glance tiles follow the account's role. A student keeps the
+  // catalog overview; each office lane and each reviewer sees its own workload, read
+  // through the same selectors as the pages the numbers summarize.
+  const sidebarStats = useMemo(() => {
+    const role = state.viewerRole;
+    const applications = state.applications || [];
+    const unread = { key: 'unread', label: 'Unread alerts', value: unreadNotifications.length };
+    if (isAdmissionsReviewerRole(role)) {
+      const isHead = isAdmissionsHeadRole(role);
+      return [
+        { key: 'intake', label: 'Intake pool', value: getIntakePool(applications, state.caseOfficers).length },
+        { key: 'verify', label: 'Files to verify', value: getDocumentsAwaitingReview(applications, state.documents).length },
+        isHead
+          ? { key: 'release', label: 'Final check', value: getReleaseQueue(applications).approved.length }
+          : { key: 'interviews', label: 'Interviews', value: getUpcomingInterviews(applications).length },
+      ];
+    }
+    if (isReviewerRole(role)) {
+      const reviewerProfile = { ...currentProfile, role };
+      const scoped = getScopedQueue(applications, reviewerProfile, activeAcademicPrograms);
+      const programIndex = buildProgramScopeIndex(activeAcademicPrograms);
+      const interviews = { key: 'interviews', label: 'Interviews', value: getUpcomingInterviews(scoped).length };
+      if (isInterviewerRole(role)) {
+        return [
+          { key: 'schedule', label: 'To schedule', value: scoped.filter((entry) => entry.status === 'Endorsed').length },
+          interviews,
+          unread,
+        ];
+      }
+      return [
+        { key: 'cases', label: 'Cases in scope', value: scoped.filter((entry) => !['Draft', 'Released', 'Rejected'].includes(entry.status)).length },
+        {
+          key: 'approve',
+          label: 'To approve',
+          value: scoped.filter((entry) => entry.status === 'Recommended'
+            && isApproverForApplication(entry, reviewerProfile, state.approvalLevels || [], programIndex)).length,
+        },
+        interviews,
+      ];
+    }
+    return [
+      { key: 'programs', label: 'Programs', value: scholarshipCatalog.length },
+      { key: 'deadlines', label: 'Open deadlines', value: activeDeadlineCount },
+      unread,
+    ];
+  }, [
+    state.viewerRole,
+    state.applications,
+    state.caseOfficers,
+    state.documents,
+    state.approvalLevels,
+    currentProfile,
+    activeAcademicPrograms,
+    scholarshipCatalog.length,
+    activeDeadlineCount,
+    unreadNotifications.length,
+  ]);
+
   // Navigating to the vault clears any upload preset; the My Profile links pass
   // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
@@ -1149,6 +1217,11 @@ function App() {
     });
 
     if (authResult.success) {
+      const accountStatus = authResult.user?.id ? await getProfileAccountStatus(authResult.user.id) : { deactivated: false };
+      if (accountStatus.deactivated) {
+        await signOutFromSupabase();
+        return { success: false, message: 'This account has been deactivated. Contact the Admissions Office if you need access restored.' };
+      }
       const sessionStartedAt = Date.now();
       const sessionActivity = authResult.user?.id
         ? startSessionActivity({ ownerId: authResult.user.id, startedAt: sessionStartedAt, lastActivityAt: sessionStartedAt })
@@ -3005,6 +3078,7 @@ function App() {
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
+      { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsHead },
     ]
     : [];
 
@@ -3190,7 +3264,7 @@ function App() {
           {renderNavigation('my-4')}
 
           <div className="border-t border-app-border pt-4">
-            <SidebarStats programs={stats.totalPrograms} deadlines={activeDeadlineCount} unread={stats.unreadNotifications} />
+            <SidebarStats items={sidebarStats} />
           </div>
         </aside>
 
@@ -3394,6 +3468,13 @@ function App() {
               resultsReleases={state.resultsReleases || []}
               academicPrograms={activeAcademicPrograms}
               interviewWorkspace={interviewWorkspace}
+            />
+          )}
+
+          {isAdmissionsHead && state.activeView === 'admin-accounts' && (
+            <AdminAccountsPage
+              academicPrograms={activeAcademicPrograms}
+              currentUserId={state.authUser?.id || ''}
             />
           )}
 

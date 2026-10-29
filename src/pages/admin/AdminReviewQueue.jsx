@@ -1,9 +1,9 @@
+import { CheckCircle2, ClipboardList, FileCheck2, FileSearch, Inbox, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { X } from 'lucide-react';
-import AdminPageHeader from '../../components/AdminPageHeader';
+import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { SopStageTrack } from '../../components/ApplicationParts';
-import { StatCard } from '../../components/pageParts';
+import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
 import {
@@ -14,7 +14,7 @@ import {
   getSubmissionWaitDays,
 } from '../../lib/admissionsOffice';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
-import { fmtDate } from '../../lib/formatters';
+import { fmtDate, plural } from '../../lib/formatters';
 
 // SOP steps 2-6 for the Admissions Office, as each officer sees it: the cases the
 // signed-in account has opened. The office-wide list lives in the intake pool's
@@ -85,15 +85,34 @@ export default function AdminReviewQueue({
   };
 
   return (
-    <div className="grid gap-5">
+    <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Review queue"
         description={isHead
           ? 'The cases you opened, through every stage you decide.'
           : 'The cases you opened. Pick up more from the intake pool.'}
-        badge={`${myQueue.length} in your queue`}
-        badgeTone={myQueue.length ? 'warning' : 'success'}
-      />
+      >
+        {myQueue.length ? (
+          <AdminHeaderTile
+            icon={ClipboardList}
+            tone="warning"
+            label="Your queue"
+            title={`${plural(myQueue.length, 'case')} in progress`}
+            note={blockingDocuments.length
+              ? `${plural(blockingDocuments.length, 'document')} to verify.`
+              : 'No document waits on you right now.'}
+          />
+        ) : (
+          <AdminHeaderTile
+            icon={CheckCircle2}
+            tone="success"
+            label="Your queue"
+            title="Your queue is clear"
+            note={intakePool.length ? `${plural(intakePool.length, 'case')} waiting in the intake pool.` : 'Nothing is waiting in the intake pool.'}
+            onClick={intakePool.length && onOpenWorkspace ? () => onOpenWorkspace('admin-intake') : undefined}
+          />
+        )}
+      </AdminPageHeader>
 
       {feedback?.message && (
         <div
@@ -122,10 +141,10 @@ export default function AdminReviewQueue({
 
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="In my review queue" value={myQueue.length} note="Cases you opened" />
-        <StatCard label="Unclaimed submissions" value={unclaimedSubmissions} note="Waiting in the intake pool" />
-        <StatCard label="Documents awaiting verification" value={blockingDocuments.length} note="Files in your queue" />
-        <StatCard label="For verification" value={awaitingVerification.length} note="Awaiting document decisions" />
+        <StatCard icon={ClipboardList} tone="info" label="In my review queue" value={myQueue.length} note="Cases you opened" />
+        <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimedSubmissions} note="Waiting in the intake pool" />
+        <StatCard icon={FileSearch} tone="warning" label="Documents awaiting verification" value={blockingDocuments.length} note="Files in your queue" />
+        <StatCard icon={FileCheck2} tone="success" label="For verification" value={awaitingVerification.length} note="Awaiting document decisions" />
       </section>
 
       <section className="grid gap-4">
@@ -156,7 +175,7 @@ export default function AdminReviewQueue({
                 officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName
               ));
               return (
-                <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
+                <article key={entry.id} className={getCaseCardClass(getStatusTone(entry.status))}>
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
                     <div className="min-w-0 w-full flex-1">
                       <h3>{entry.studentName}</h3>

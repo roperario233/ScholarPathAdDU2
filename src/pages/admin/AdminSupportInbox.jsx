@@ -57,7 +57,7 @@ export default function AdminSupportInbox({
       />
       {!ready && (
         <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm text-app-text" role="status">
-          The support inbox tables are unavailable. Apply migration `20261051000000_add_support_inbox.sql` to enable this workspace.
+          The support inbox tables are unavailable. Apply migration `20261053000000_add_support_inbox.sql` to enable this workspace.
         </div>
       )}
       <section className="grid min-h-[60vh] gap-4 lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)]">

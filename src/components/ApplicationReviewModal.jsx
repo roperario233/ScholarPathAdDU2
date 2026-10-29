@@ -6,11 +6,12 @@ import VerifyDocumentModal from './VerifyDocumentModal';
 import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, SopStageTrack, StatusHistoryList } from './ApplicationParts';
 import ApplicationPrintButton from './ApplicationPrintSheet';
 import { FinancialDetailsNotice, useApplicationFinancialSections } from './ApplicationFinancialDetails';
-import { isReviewerRole } from '../lib/reviewScope';
+import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApproverRoleForApplication, isReviewerRole } from '../lib/reviewScope';
+import HeadOverrideNotice from './HeadOverrideNotice';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
-import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isHeadOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
@@ -424,8 +425,12 @@ export default function ApplicationReviewModal({
     ...(interviewUnlocked ? [{
       key: 'interview',
       label: 'Interview',
-      badge: canCoordinateInterview && application.status === 'Endorsed' ? 'Schedule due' : null,
-      alert: canCoordinateInterview && application.status === 'Endorsed',
+      // An interviewer's scheduling is due work; for the Head it is the
+      // interviewer's step, so the tab says so instead of raising an alert.
+      badge: canCoordinateInterview && application.status === 'Endorsed'
+        ? (isAdmissionsHead ? 'Interviewer schedules' : 'Schedule due')
+        : null,
+      alert: canCoordinateInterview && application.status === 'Endorsed' && !isAdmissionsHead,
     }] : []),
     // The forwarding record and the internal thread. It sits beside History
     // because both are the case's record rather than a stage's work; it appears
@@ -454,6 +459,27 @@ export default function ApplicationReviewModal({
     && (status !== 'Interview' || canCoordinateInterview)
   ));
   const canReject = nextStatuses.includes('Rejected');
+  // The recommendation belongs to the panel and the approval to the school's
+  // approving level (Consultation 2); the Head's version of either move is an
+  // override, so the footer says who the move normally belongs to. Scheduling is
+  // flagged in the Interview tab.
+  const headOverrideNote = (() => {
+    if (!isAdmissionsHead) return '';
+    if (forwardStatuses.includes('Recommended')) return 'The interview panel records the recommendation.';
+    if (forwardStatuses.includes('Approved')) {
+      const approver = interviewWorkspace
+        ? getApproverRoleForApplication(
+          application,
+          interviewWorkspace.approvalLevels || [],
+          buildProgramScopeIndex(interviewWorkspace.academicPrograms || []),
+        )
+        : '';
+      return approver
+        ? `The school's ${REVIEW_ROLE_LABELS[approver] || 'approving level'} approves or rejects this.`
+        : 'The school’s approving level approves or rejects this.';
+    }
+    return '';
+  })();
   const showDeliberationField = nextStatuses.includes('Recommended');
   // An interviewer's recommendation carries one of the five recommendation levels
   // (Consultation 2, #7), recorded with an evaluation note in the Interview tab.
@@ -579,11 +605,11 @@ export default function ApplicationReviewModal({
     <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-review-modal">
       <header className="grid shrink-0 gap-2 pb-2">
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-          <div className="min-w-0 w-full">
+          <div className="min-w-0 w-full sm:w-auto sm:flex-1">
             <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
             <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentSchool || 'School on file'}</p>
           </div>
-          <StatusBadge tone={statusTone(application.status)}>{getApplicationStatusLabel(application.status)}</StatusBadge>
+          <StatusBadge tone={statusTone(application.status)} className="shrink-0 whitespace-nowrap">{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
         {sopStageIndex(application.status) != null ? <SopStageTrack status={application.status} /> : null}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-app-muted">
@@ -865,6 +891,8 @@ export default function ApplicationReviewModal({
           </p>
         ) : null}
 
+        {headOverrideNote ? <HeadOverrideNotice>{headOverrideNote}</HeadOverrideNotice> : null}
+
         {nextStatuses.length ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2">
@@ -886,13 +914,16 @@ export default function ApplicationReviewModal({
               })}
               {forwardStatuses.map((status, index) => {
                 const reason = blockReasonFor(status);
+                // The Head's scheduling is a step-in, not the intended flow, so it
+                // never takes the primary treatment and explains itself on hover.
+                const isOverride = isHeadOverrideAction(status, role);
                 return (
                   <Button
                     key={status}
                     type="button"
-                    variant={index === forwardStatuses.length - 1 ? 'primary' : 'secondary'}
+                    variant={index === forwardStatuses.length - 1 && !isOverride ? 'primary' : 'secondary'}
                     disabled={Boolean(reason) || actionBusy}
-                    title={reason || undefined}
+                    title={reason || (isOverride ? 'Not the intended flow: use only to step in for the interviewers or the school.' : undefined)}
                     aria-describedby={reason ? `review-block-${status}` : undefined}
                     onClick={() => runAction(status)}
                   >

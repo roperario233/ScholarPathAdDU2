@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { StatCard } from '../components/pageParts';
+import { CalendarClock, CheckCircle2, ClipboardCheck, Layers, SendHorizontal, UserCheck } from 'lucide-react';
+import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
+import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
-import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
+import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isInterviewerRole } from '../lib/reviewScope';
-import { areEndorsementRecordsVisible, describeApplicantAcademic, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { downloadApplicantSummaryCsv } from '../lib/admissionsOffice';
+import { areEndorsementRecordsVisible, describeApplicantAcademic, getActorRoleLabel, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
+import { downloadApplicantSummary, getApplicantSummaryFileName } from '../lib/admissionsOffice';
 import { getLatestPanelRecommendation } from '../lib/interview';
-import { fmtCurrency, fmtDate } from '../lib/formatters';
+import { fmtCurrency, fmtDate, plural } from '../lib/formatters';
 
 const queueTone = (status) => {
   if (['Approved', 'Released'].includes(status)) return 'success';
@@ -69,16 +71,21 @@ export default function DepartmentReviewView({
       : onChangeApplication?.(applicationId, status, options)
   );
 
-  const exportSummary = () => downloadApplicantSummaryCsv(decidedInScope, {
+  const exportSummary = () => downloadApplicantSummary(decidedInScope, {
     scopeOf: (entry) => getApplicationScope(entry, programIndex),
-    recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id))?.label || '',
-  }, `Applicant_summary_${(getReviewScopeLabel(profile) || 'scope').replace(/[^A-Za-z0-9]+/g, '_')}.csv`);
+    recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id)),
+    source: {
+      origin: `${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace › Recommendations`,
+      contents: 'Every recommended, approved, and released application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',
+      exportedBy: `${profile.fullName ? `${profile.fullName}, ` : ''}${getActorRoleLabel(role)}${getReviewScopeLabel(profile) ? ` (${getReviewScopeLabel(profile)})` : ''}`,
+    },
+  }, getApplicantSummaryFileName(getReviewScopeLabel(profile) || 'scope', 'recommendations'));
 
   const renderInterviewRow = (entry) => {
     const onPanel = panelApplicationIds.has(entry.id);
     const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
     return (
-      <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+      <article key={entry.id} className={getCaseCardClass('warning')}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full">
             <h3 className="truncate">{entry.studentName}</h3>
@@ -103,27 +110,55 @@ export default function DepartmentReviewView({
   };
 
   return (
-    <div className="grid gap-5">
-      <section className="page-title-bar flex flex-col items-start justify-between gap-4 rounded-app border bg-app-card p-5 shadow-app backdrop-blur md:flex-row md:items-center">
-        <div className="page-title-copy">
-          <span className="page-section-label">{REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace</span>
-          <h2>{getReviewScopeLabel(profile) || 'Review scope unassigned'} applicants</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">
-            {isInterviewer
+    <div className="grid content-start gap-5">
+      <AdminPageHeader
+        label={`${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace`}
+        title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} applicants`}
+        description={isInterviewer
               ? 'Applicants in your scope reach you once the Admissions Office has verified their documents. Schedule the interview, record your recommendation level, then send the recommendation to the school.'
               : 'Interview the applicants in your scope or follow the interviewer’s work, and decide the recommendations your school routes to you. Document verification and release stay with the Admissions Office Head.'}
-          </p>
-        </div>
-        <StatusBadge tone="info">{queue.length} in scope</StatusBadge>
-      </section>
+      >
+        {awaitingApproval.length ? (
+          <AdminHeaderTile
+            icon={ClipboardCheck}
+            tone="warning"
+            label="Needs your approval"
+            title={`${plural(awaitingApproval.length, 'recommendation')} to decide`}
+            note={`${plural(queue.length, 'applicant')} in your scope.`}
+          />
+        ) : awaitingInterview.length ? (
+          <AdminHeaderTile
+            icon={CalendarClock}
+            tone="warning"
+            label="Needs an interview"
+            title={`${plural(awaitingInterview.length, 'applicant')} waiting`}
+            note={`${plural(queue.length, 'applicant')} in your scope.`}
+          />
+        ) : panelInterviews.length ? (
+          <AdminHeaderTile
+            icon={UserCheck}
+            label="On your panel"
+            title={plural(panelInterviews.length, 'interview in progress', 'interviews in progress')}
+            note="Record the recommendation after each one."
+          />
+        ) : (
+          <AdminHeaderTile
+            icon={CheckCircle2}
+            tone="success"
+            label="Your scope"
+            title="Nothing waiting on you"
+            note={`${plural(queue.length, 'applicant')} in your scope.`}
+          />
+        )}
+      </AdminPageHeader>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Waiting for an interview" value={awaitingInterview.length} />
-        <StatCard label="Interviews on your panel" value={panelInterviews.length} />
+        <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
+        <StatCard icon={UserCheck} tone="info" label="Interviews on your panel" value={panelInterviews.length} />
         {isInterviewer
-          ? <StatCard label="Recommendations sent" value={decidedInScope.length} />
-          : <StatCard label="Awaiting your approval" value={awaitingApproval.length} />}
-        <StatCard label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
+          ? <StatCard icon={SendHorizontal} tone="success" label="Recommendations sent" value={decidedInScope.length} />
+          : <StatCard icon={ClipboardCheck} tone="warning" label="Awaiting your approval" value={awaitingApproval.length} />}
+        <StatCard icon={Layers} tone="neutral" label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
       </section>
 
       {!isInterviewer ? (
@@ -135,7 +170,7 @@ export default function DepartmentReviewView({
             {awaitingApproval.length ? awaitingApproval.map((entry) => {
               const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
               return (
-                <article key={entry.id} className="grid gap-2 rounded-[18px] border border-app-border bg-app-surface p-4">
+                <article key={entry.id} className={getCaseCardClass('warning')}>
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
                     <div className="min-w-0 w-full">
                       <h3 className="truncate">{entry.studentName}</h3>
@@ -153,7 +188,7 @@ export default function DepartmentReviewView({
               );
             }) : <EmptyState title="No recommendations awaiting your approval" description="Recommendations your school routes to your level appear here." />}
           </div>
-          <Button className="mt-3" type="button" variant="secondary" disabled={!decidedInScope.length} onClick={exportSummary}>Export to Excel</Button>
+          <ExportButton className="mt-3" disabled={!decidedInScope.length} onClick={exportSummary}>Export recommended and decided cases</ExportButton>
         </Card>
       ) : null}
 
@@ -173,7 +208,7 @@ export default function DepartmentReviewView({
           {queue.length ? queue.map((entry) => {
             const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
             return (
-              <article key={entry.id} className="grid gap-3 rounded-[18px] border border-app-border bg-app-surface p-4 shadow-sm">
+              <article key={entry.id} className={getCaseCardClass(queueTone(entry.status))}>
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
                   <div className="min-w-0 w-full">
                     <h3 className="truncate">{entry.studentName}</h3>

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from 'react';
-import { Camera, Clock } from 'lucide-react';
+import { Camera, CheckCircle2, Circle, CircleDot, Clock } from 'lucide-react';
 import { Button, StatusBadge } from './ui';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
@@ -22,11 +22,32 @@ import { fmtDate } from '../lib/formatters';
 // application differently.
 
 // Standard Procedure stage track, shown on each Admissions Office queue entry and
-// in the staff review modal header. Nine labelled pills wrapped into three lines
-// on a phone and crowded the review header, so below the `sm` breakpoint the track
-// becomes a segmented progress bar under a caption naming the position; the status
-// badge beside the applicant already names the current stage. The stage names stay
-// in the markup for assistive tech, so the list reads the same at every width.
+// in the staff review modal header. Like the application-form progress strip, each
+// stage is a bar with its label underneath: emerald once passed, blue for the
+// current stage, a neutral bar for what is still ahead. Below the `sm` breakpoint
+// the labels would not fit under eight bars, so the track shows the bars alone
+// under a caption naming the position; the status badge beside the applicant
+// already names the current stage. The stage names stay in the markup for
+// assistive tech, so the list reads the same at every width.
+const STAGE_BAR_TONES = {
+  done: 'bg-emerald-500',
+  current: 'bg-sky-500 dark:bg-sky-400',
+  upcoming: 'bg-app-border',
+};
+
+const STAGE_LABEL_TONES = {
+  done: 'font-semibold text-emerald-800 dark:text-emerald-300',
+  current: 'font-bold text-app-text',
+  upcoming: 'font-medium text-app-muted',
+};
+
+function StageIcon({ tone }) {
+  const props = { size: 13, 'aria-hidden': 'true', className: 'hidden shrink-0 md:block' };
+  if (tone === 'done') return <CheckCircle2 {...props} className={`${props.className} text-emerald-600 dark:text-emerald-400`} />;
+  if (tone === 'current') return <CircleDot {...props} className={`${props.className} text-sky-600 dark:text-sky-300`} />;
+  return <Circle {...props} className={`${props.className} text-app-muted/70`} />;
+}
+
 export function SopStageTrack({ status }) {
   const currentIndex = sopStageIndex(status);
   if (currentIndex == null) {
@@ -39,26 +60,22 @@ export function SopStageTrack({ status }) {
       <span className="text-[11px] font-semibold text-app-muted sm:hidden">
         Standard Procedure stage {currentIndex + 1} of {sopStages.length}
       </span>
-      <ol className="flex min-w-0 gap-1 sm:flex-wrap" aria-label="Standard Procedure stage track">
+      <ol className="m-0 grid min-w-0 list-none auto-cols-fr grid-flow-col gap-1 p-0 sm:gap-2.5" aria-label="Standard Procedure stage track">
         {sopStages.map((stage, index) => {
-          const isDone = index < currentIndex;
-          const isCurrent = index === currentIndex;
-          // The phone bar is filled, so it uses a solid tone; the labelled pill
-          // colours are scoped to `sm` so the two treatments never fight over the
-          // same utility.
-          const fill = isDone ? 'bg-emerald-400/50' : isCurrent ? 'bg-sky-400/75' : 'bg-app-border';
-          const pill = isDone
-            ? 'sm:border-emerald-400/30 sm:bg-emerald-400/10 sm:text-emerald-300'
-            : isCurrent
-              ? 'sm:border-ateneo-strong/50 sm:bg-ateneo/15 sm:text-ateneo-strong sm:dark:border-blue-400/50 sm:dark:bg-blue-500/15 sm:dark:text-sky-200'
-              : 'sm:border-app-border sm:bg-app-surface sm:text-app-muted';
+          const tone = index < currentIndex ? 'done' : index === currentIndex ? 'current' : 'upcoming';
+          const label = getApplicationStatusLabel(stage);
           return (
             <li
               key={stage}
-              aria-current={isCurrent ? 'step' : undefined}
-              className={`h-1.5 min-w-0 flex-1 rounded-full border border-transparent ${fill} ${pill} sm:h-auto sm:flex-none sm:px-2 sm:py-0.5 sm:text-[10px] sm:font-semibold`}
+              aria-current={tone === 'current' ? 'step' : undefined}
+              className="grid min-w-0 gap-1.5"
+              title={label}
             >
-              <span className="sr-only sm:not-sr-only">{getApplicationStatusLabel(stage)}</span>
+              <span className={`h-1.5 rounded-full ${STAGE_BAR_TONES[tone]}`} aria-hidden="true" />
+              <span className="sr-only sm:not-sr-only sm:flex sm:min-w-0 sm:items-center sm:gap-1 text-[11px] leading-tight">
+                <StageIcon tone={tone} />
+                <span className={`min-w-0 sm:truncate ${STAGE_LABEL_TONES[tone]}`}>{label}</span>
+              </span>
             </li>
           );
         })}

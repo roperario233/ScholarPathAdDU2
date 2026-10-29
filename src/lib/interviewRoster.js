@@ -10,6 +10,7 @@
 //     predates structured scheduling; it is readable history, not a slot.
 import {
   DEFAULT_INTERVIEW_DURATION,
+  formatInterviewDateShort,
   getInterviewDateKey,
   getInterviewEndsAt,
   isStructuredInterview,
@@ -110,6 +111,21 @@ export const getUpcomingInterviews = (applications = [], { now = new Date(), day
   return getInterviewEntries(applications)
     .filter((entry) => entry.live && entry.state === 'scheduled' && entry.endsAt && entry.endsAt >= start
       && (!limit || entry.startsAtDate <= limit));
+};
+
+// The header tile for the earliest interview in a list of upcoming entries:
+// the applicant, the Manila date and start time, and where it is held. The page
+// supplies the icon and the label, so the same line serves the office and the Chair.
+export const getNextInterviewTile = (upcoming = [], { label = 'Next interview', emptyNote = 'Scheduled interviews appear here.' } = {}) => {
+  const next = [...asList(upcoming)].sort(byStart)[0];
+  if (!next) return { label, title: 'No interviews scheduled', note: emptyNote, tone: 'neutral' };
+  const where = next.mode === 'online' ? 'Online' : next.locationLabel;
+  return {
+    label,
+    title: next.studentName,
+    note: `${formatInterviewDateShort(next.startsAt)} · ${where}`,
+    tone: 'info',
+  };
 };
 
 export const getInterviewsForDate = (entries = [], dateKey = '') => asList(entries)
