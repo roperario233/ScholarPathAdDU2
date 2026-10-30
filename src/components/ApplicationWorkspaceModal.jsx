@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, FolderOpen } from 'lucide-react';
 import { Button, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
 import DocumentPreviewModal from './DocumentPreviewModal';
@@ -244,6 +244,8 @@ export default function ApplicationWorkspaceModal({
   onClose,
 }) {
   const [step, setStep] = useState(0);
+  const stepContentRef = useRef(null);
+  const previousStepRef = useRef(step);
   // A draft started before statements existed falls back to the profile essay.
   const [savedStatement, setSavedStatement] = useState(() => application.statement || profile?.essay || '');
   const [statement, setStatement] = useState(savedStatement);
@@ -365,6 +367,16 @@ export default function ApplicationWorkspaceModal({
   };
 
   const current = STEPS[step].key;
+  useEffect(() => {
+    if (previousStepRef.current === step) return;
+    previousStepRef.current = step;
+    const target = stepContentRef.current;
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || typeof target.scrollTo !== 'function') target.scrollTop = 0;
+    else target.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
+
   // Requirements still open that a non-reverted vault file could satisfy.
   const vaultReadyCount = readiness.requirements.filter((requirement) => (
     !['attached', 'verified'].includes(requirement.state)
@@ -374,7 +386,7 @@ export default function ApplicationWorkspaceModal({
   return (
     <>
       <ModalShell title={application.scholarshipTitle} onClose={handleClose} className="application-detail-modal !w-[min(1080px,100%)] !max-h-[min(92vh,920px)] max-sm:!max-h-[calc(100dvh-1.5rem)]">
-        <div className="application-detail-modal-body grid content-start gap-4">
+        <div ref={stepContentRef} className="application-detail-modal-body grid content-start gap-4">
           <p className="m-0 text-sm text-app-muted">
             Application workspace · Deadline {fmtDate(scholarship?.deadline)} · {readiness.attachedCount} of {readiness.requiredCount} required documents attached
           </p>

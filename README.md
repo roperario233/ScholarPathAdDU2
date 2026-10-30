@@ -13,22 +13,38 @@ A React + Vite and Supabase webapp for our ScholarPath AdDU capstone.
 
 ## Student support inbox
 
-The in-app **Support inbox** lets an authenticated student message the Admissions
-Office and receive replies inside ScholarPath. One continuous conversation is kept
-per student. Both Admissions Office Staff and the Admissions Office Head can answer
-from the **Support inbox** route in the office workspace. Academic reviewers have
-no access to support conversations. Messages are text-only, limited to 2,000
-characters, and refreshed every 15 seconds while the student chat is open or the
-office inbox route is active. An office reply adds an in-app notification, respecting
-the student's in-app notification preference. This is human live chat, not an AI
-assistant; the AI feature remains deferred.
+The in-app **Support inbox** gives students a deterministic, client-side ScholarPath
+Assistant for common scholarship, document, office-hours, and application questions.
+The assistant distinguishes general catalog information from eligibility-verdict
+questions, uses the loaded catalog and the student's own application records, and
+does not make eligibility or award decisions. A student can choose **Talk to a live agent** at any
+time, and sensitive questions are routed to the Admissions Office. One continuous
+conversation is kept per student. Both Admissions Office Staff and the Admissions
+Office Head can answer from the office **Support inbox**; academic reviewers have
+no access to conversations. The assistant stops replying after the student requests
+a live agent or an office account replies. The app displays office availability from
+an office-session heartbeat and weekday office hours (Philippine time); availability
+is best-effort, and students can still leave a message when no officer is online.
+Messages are text-only, limited to 2,000 characters, and refreshed every 15 seconds
+while the conversation is open or every 60 seconds in the background. Assistant
+replies are persisted so the Admissions Office can see context. Notifications are
+generic in-app alerts and respect each recipient's in-app preference.
 
-Apply `/supabase/migrations/20261053000000_add_support_inbox.sql` to the Supabase
-project before enabling the inbox. The same table, RLS, and trigger definitions are
-included in `supabase/schema.sql` for fresh projects. The browser reports when the
-migration is not yet available; the rest of the app continues to work. There is no
-email/SMS alert to the office in this first phase, so an office agent needs to keep
-the Support inbox route open to see new student messages.
+This deterministic assistant is a prototype support addition outside the current
+manuscript scope. It has no provider/API key and makes no LLM calls. Set
+`VITE_SUPPORT_ASSISTANT=false` to disable automated replies while retaining the
+live-agent inbox. The optional tawk.to channel remains separate and unchanged.
+
+Apply `/supabase/migrations/20261051000000_add_support_inbox.sql`,
+`/supabase/migrations/20261052000002_notify_support_office_reply.sql`, and
+`/supabase/migrations/20261053000001_add_support_assistant.sql` plus
+`/supabase/migrations/20261054000000_harden_support_assistant_escalation.sql` to the
+Supabase project before enabling the assistant, availability, and live-agent
+escalation. The
+same definitions are included in `supabase/schema.sql` for fresh projects. The
+browser reports when a required support migration is not available; the rest of the
+app continues to work. Office notifications are in-app only; there is no email/SMS
+alert for support messages.
 
 The previous tawk.to widget remains an optional fallback. The default channel is
 `inbox`; set `VITE_SUPPORT_CHANNEL=tawk` to use the student-only tawk.to widget

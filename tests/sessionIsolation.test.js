@@ -29,6 +29,7 @@ describe('createFreshState (sign-out reset)', () => {
     ownerId: 'user-a',
     theme: 'dark',
     hasLoggedInBefore: true,
+    studentSupportHintSeen: true,
     rememberMe: true,
     savedEmail: 'student-a@addu.edu.ph',
     savedRole: 'student',
@@ -82,6 +83,7 @@ describe('createFreshState (sign-out reset)', () => {
 
     expect(next.theme).toBe('dark');
     expect(next.hasLoggedInBefore).toBe(true);
+    expect(next.studentSupportHintSeen).toBe(true);
   });
 
   it('resets the previous user\'s remember-me identity', () => {
@@ -97,6 +99,7 @@ describe('createFreshState (sign-out reset)', () => {
 
     expect(next.theme).toBe('light');
     expect(next.hasLoggedInBefore).toBe(false);
+    expect(next.studentSupportHintSeen).toBe(false);
     expect(next.ownerId).toBeNull();
   });
 });

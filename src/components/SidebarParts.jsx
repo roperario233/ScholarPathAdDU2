@@ -58,6 +58,15 @@ export function SidebarNav({ items, activeView, onNavigate, className = '' }) {
               <Icon size={16} />
             </span>
             <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{item.label}</span>
+            {Number(item.badge) > 0 && (
+              <span
+                className="shrink-0 rounded-full bg-rose-500 px-2 py-0.5 text-xs font-extrabold leading-5 text-white"
+                aria-label={`${item.badge} unread support message${Number(item.badge) === 1 ? '' : 's'}`}
+                title={`${item.badge} unread support message${Number(item.badge) === 1 ? '' : 's'}`}
+              >
+                {Number(item.badge) > 99 ? '99+' : item.badge}
+              </span>
+            )}
           </button>
         );
       })}

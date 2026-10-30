@@ -1,11 +1,3 @@
--- ---------------------------------------------------------------------------
--- In-app student support inbox for the Admissions Office.
--- Students can read and write only their own continuous thread. Both Admissions
--- Office lanes can read every thread and reply. Academic reviewers have no
--- support-table policies. Messages are append-only and their identity is stamped
--- from the authenticated profile instead of trusted from browser input.
--- ---------------------------------------------------------------------------
-
 create table if not exists public.support_threads (
   id uuid primary key default gen_random_uuid(),
   student_id uuid not null unique references public.profiles(user_id) on delete cascade,

@@ -47,12 +47,16 @@ export default function SupportConversation({
     <div className={`grid min-h-0 grid-rows-[minmax(0,1fr)_auto] gap-3 ${className}`}>
       <div className="grid min-h-40 content-start gap-3 overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-3 sm:min-h-64 sm:p-4" aria-live="polite" aria-label="Support conversation">
         {messages.length ? messages.map((message) => {
-          const own = viewer === 'student' ? message.senderRole === 'student' : message.senderRole !== 'student';
+          const own = viewer === 'student'
+            ? message.senderRole === 'student'
+            : ['admissions_office', 'admissions_head'].includes(message.senderRole);
           const label = message.senderRole === 'student' ? (studentName || 'You')
+            : message.senderRole === 'assistant' ? 'ScholarPath Assistant'
             : message.senderRole === 'admissions_head' ? 'Admissions Office Head'
               : 'Admissions Office Staff';
+          const assistant = message.senderRole === 'assistant';
           return (
-            <article key={message.id} className={`max-w-[90%] rounded-2xl border p-3 ${own ? 'ml-auto border-blue-500/25 bg-blue-500/10' : 'mr-auto border-app-border bg-app-card'}`}>
+            <article key={message.id} className={`max-w-[90%] rounded-2xl border p-3 ${own ? 'ml-auto border-blue-500/25 bg-blue-500/10' : assistant ? 'mr-auto border-violet-500/25 bg-violet-500/5' : 'mr-auto border-app-border bg-app-card'}`}>
               <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-xs text-app-muted">
                 <strong className="text-app-text">{label}</strong>
                 <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>

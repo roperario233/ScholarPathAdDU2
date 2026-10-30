@@ -125,7 +125,9 @@ export default function ProfileView({
 
   const showSectionContent = () => {
     const target = sectionContentRef.current;
-    if (target && target.getBoundingClientRect().top < 0) target.scrollIntoView({ block: 'start' });
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ block: 'start', behavior: reduceMotion ? 'auto' : 'smooth' });
   };
 
   const openSection = (key) => {
