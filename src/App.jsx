@@ -3,6 +3,7 @@ import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
 import { mergeNotifications } from './lib/notificationMerge';
+import { mergeWorkspaceRefresh, WORKSPACE_REFRESH_INTERVAL_MS } from './lib/workspaceRefresh';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
@@ -519,6 +520,49 @@ function App() {
       if (timer) window.clearInterval(timer);
     };
   }, [isSupabaseWorkspaceLoaded, state.isAuthenticated, state.viewerRole, state.authUser?.id, state.activeView, supportInbox.selectedThreadId, isStudentSupportOpen]);
+
+  // Keep applications, decisions, schedules, and staff-only case notes current
+  // across sessions without requiring a browser reload. Refresh on tab return as
+  // well as periodically while visible; the workspace loader still applies the
+  // signed-in account's Supabase row-level security policies.
+  useEffect(() => {
+    const ownerId = state.authUser?.id;
+    if (!isSupabaseWorkspaceLoaded || !state.isAuthenticated || !ownerId) return undefined;
+
+    let active = true;
+    let refreshing = false;
+    const role = state.viewerRole;
+    const department = state.authUser?.department || '';
+
+    const refreshWorkspace = async () => {
+      if (!active || refreshing || document.visibilityState === 'hidden') return;
+      refreshing = true;
+      try {
+        const workspace = await loadSupabaseWorkspace({ role, userId: ownerId, department });
+        if (!active || !workspace.success) return;
+        updateState((previous) => mergeWorkspaceRefresh(previous, workspace, ownerId));
+      } catch {
+        // Keep the last successful view on transient network failures; the next
+        // visible refresh will retry without interrupting the user's work.
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshWorkspace();
+    };
+
+    const timer = window.setInterval(refreshWorkspace, WORKSPACE_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', refreshWorkspace);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWorkspace);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isSupabaseWorkspaceLoaded, state.isAuthenticated, state.viewerRole, state.authUser?.id, state.authUser?.department]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsBooting(false), 250);
