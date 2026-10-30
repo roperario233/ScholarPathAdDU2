@@ -45,36 +45,57 @@ export default function RequiredDocumentsEditor({ scholarship, onDirty }) {
         {items.map((item, index) => {
           const addable = documentTypeOptions.filter((option) => !item.documentTypes.includes(option.value));
           return (
-            <li key={item.id} className="grid gap-2 rounded-xl border border-app-border bg-app-surface p-3">
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                <input
+            <li key={item.id} className="grid gap-3 rounded-xl border border-app-border bg-app-surface p-3">
+              <div className="flex items-start justify-between gap-3">
+                <span className="pt-0.5 text-xs font-semibold uppercase tracking-wide text-app-muted">Requirement {index + 1}</span>
+                <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => remove(item.id)} aria-label={`Remove requirement ${index + 1}`}>Remove</Button>
+              </div>
+              <label className="grid min-w-0 content-start gap-1">
+                <span className="text-xs font-semibold text-app-muted">Label shown to students</span>
+                <textarea
+                  rows="2"
                   value={item.label}
                   onChange={(event) => update(item.id, { label: event.target.value })}
-                  placeholder="Requirement label, e.g. Certificate of Good Moral Character"
-                  aria-label={`Requirement ${index + 1} label`}
+                  placeholder="e.g. Certificate of Good Moral Character"
+                  className="resize-y !py-2.5 !text-sm"
                 />
-                <select value={item.standing} onChange={(event) => update(item.id, { standing: event.target.value })} aria-label={`Requirement ${index + 1} applies to`}>
-                  {REQUIREMENT_STANDINGS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="grid min-w-0 content-start gap-1">
+                  <span className="text-xs font-semibold text-app-muted">Applies to</span>
+                  <select value={item.standing} onChange={(event) => update(item.id, { standing: event.target.value })} className="!py-2.5 !text-sm">
+                    {REQUIREMENT_STANDINGS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+                <label className="grid min-w-0 content-start gap-1">
+                  <span className="text-xs font-semibold text-app-muted">Accepted document types</span>
+                  <select
+                    value=""
+                    className="!py-2.5 !text-sm"
+                    onChange={(event) => { if (event.target.value) update(item.id, { documentTypes: [...item.documentTypes, event.target.value] }); }}
+                  >
+                    <option value="">{item.documentTypes.length ? 'Add another accepted type…' : 'Choose an accepted document type…'}</option>
+                    {addable.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {item.documentTypes.map((type) => (
-                  <span key={type} className="inline-flex items-center gap-1 rounded-full border border-app-border bg-app-card px-2.5 py-1 text-xs text-app-text">
-                    {getDocumentTypeLabel(type)}
-                    <button type="button" className="ml-1 text-app-muted hover:text-app-text" aria-label={`Remove ${getDocumentTypeLabel(type)}`} onClick={() => update(item.id, { documentTypes: item.documentTypes.filter((value) => value !== type) })}>×</button>
-                  </span>
-                ))}
-                <select
-                  value=""
-                  className="min-w-0 flex-1 sm:max-w-[16rem]"
-                  onChange={(event) => { if (event.target.value) update(item.id, { documentTypes: [...item.documentTypes, event.target.value] }); }}
-                  aria-label={`Add an accepted document type to requirement ${index + 1}`}
-                >
-                  <option value="">{item.documentTypes.length ? 'Add another accepted type…' : 'Choose an accepted document type…'}</option>
-                  {addable.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-                <Button type="button" variant="ghost" className="!min-h-9 !px-3 !py-1 !text-xs" onClick={() => remove(item.id)}>Remove</Button>
-              </div>
+              {item.documentTypes.length ? (
+                <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
+                  {item.documentTypes.map((type) => (
+                    <li key={type} className="inline-flex max-w-full items-center gap-1 rounded-full border border-app-border bg-app-card py-1 pl-3 pr-1.5 text-xs text-app-text">
+                      <span className="min-w-0 [overflow-wrap:anywhere]">{getDocumentTypeLabel(type)}</span>
+                      <button
+                        type="button"
+                        className="grid h-5 w-5 shrink-0 place-items-center rounded-full text-app-muted hover:bg-app-surface hover:text-app-text"
+                        aria-label={`Remove ${getDocumentTypeLabel(type)}`}
+                        onClick={() => update(item.id, { documentTypes: item.documentTypes.filter((value) => value !== type) })}
+                      >×</button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="m-0 text-xs font-semibold text-amber-600">Choose at least one accepted document type, or this item is left out when you save.</p>
+              )}
             </li>
           );
         })}

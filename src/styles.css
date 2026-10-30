@@ -767,6 +767,20 @@ main article > .flex > :last-child {
   overflow-y: auto;
 }
 
+/* `align-items: center` clips the top of a dialog taller than the viewport,
+   because the overflow above the scroll origin can never be scrolled to (the
+   catalog editor lost its title and Close button this way). Start-aligning and
+   giving the panel automatic block margins still centers a dialog that fits and
+   lets a tall one scroll as a whole, heading included. */
+.modal-overlay {
+  align-items: flex-start;
+}
+
+.modal-overlay > section,
+.modal-overlay > div {
+  margin-block: auto;
+}
+
 /* The first-login academic profile modal is taller than the viewport once the
    onboarding essentials are shown. Left-aligned + auto margins let it center
    when it fits and scroll as one unit (heading included) when it does not,
