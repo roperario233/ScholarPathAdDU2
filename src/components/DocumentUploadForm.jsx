@@ -159,7 +159,6 @@ export default function DocumentUploadForm({ profile = null, onUpload, onUploade
             <small className="field-hint">PDF, JPG, or PNG | up to 10 MB</small>
           </label>
         )}
-        <p className="field-hint m-0">The Admissions Office and your Department Chair can view these files to verify them.</p>
         <div className="flex flex-wrap items-center justify-between gap-3">
           {documentType ? <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p> : null}
           <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>
