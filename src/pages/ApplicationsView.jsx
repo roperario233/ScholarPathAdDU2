@@ -7,7 +7,7 @@ import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
-import { buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
+import { applyLiveVerificationsToSnapshot, buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationLiveAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
@@ -85,11 +85,17 @@ export default function ApplicationsView({
     family: entry.profileSnapshot?.family || profile?.familyDetails || {},
   });
 
+  // The frozen snapshot with its badges read from the attached files now, so a
+  // file the Admissions Office verified after submission stops reading Pending.
+  const liveSnapshotFor = (entry) => (entry.profileSnapshot
+    ? applyLiveVerificationsToSnapshot(entry.profileSnapshot, getApplicationLiveAttributeVerifications(entry, documents, { profile }))
+    : null);
+
   // The printable application: the frozen snapshot once submitted, otherwise the
   // current profile exactly as a submission would freeze it.
   const printSheetFor = (entry, readiness) => ({
     application: entry,
-    snapshot: entry.profileSnapshot || buildProfileSnapshot(profile, getApplicationAttributeVerifications(entry, documents, profile)),
+    snapshot: liveSnapshotFor(entry) || buildProfileSnapshot(profile, getApplicationAttributeVerifications(entry, documents, profile)),
     financialSections: financialSectionsFor(entry),
     statement: entry.statement,
     applicantPhoto: getApplicantPhotoDocument(entry, documents),
@@ -251,7 +257,7 @@ export default function ApplicationsView({
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
-              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} applicantPhoto={getApplicantPhotoDocument(selected, documents)} onPreviewPhoto={setPreview} extraSections={financialSectionsFor(selected)} /></Panel>
+              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={liveSnapshotFor(selected)} applicantPhoto={getApplicantPhotoDocument(selected, documents)} onPreviewPhoto={setPreview} extraSections={financialSectionsFor(selected)} /></Panel>
               <Panel className="grid gap-2">
                 <h3 className={sectionHeading}>Status history</h3>
                 {/* The student sees the actor's role (their profile read is scoped

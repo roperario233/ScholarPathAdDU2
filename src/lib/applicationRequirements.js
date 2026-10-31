@@ -435,6 +435,27 @@ export const getApplicationLiveAttributeVerifications = (application, documents 
   });
 };
 
+// The snapshot with each badge replaced by its live value, for the staff review
+// surface. A badge frozen at submit reads Pending forever, because the Admissions
+// Office decides the files afterwards; the values stay the frozen ones. An answer
+// the live derivation has no entry for keeps its frozen badge.
+export const applyLiveVerificationsToSnapshot = (snapshot, live) => {
+  if (!snapshot || !live) return snapshot;
+  const swap = (entry, key) => (entry && live[key] ? { ...entry, verification: live[key] } : entry);
+  const swapMap = (map) => (map ? Object.fromEntries(Object.entries(map).map(([key, badge]) => [key, live[key] || badge])) : map);
+  const { academic, householdIncome, citizenship, eligibility, background, address, family } = snapshot;
+  return {
+    ...snapshot,
+    ...(academic ? { academic: swap(academic, academic.credential) } : {}),
+    ...(householdIncome ? { householdIncome: swap(householdIncome, 'householdIncome') } : {}),
+    ...(citizenship ? { citizenship: swap(citizenship, 'citizenship') } : {}),
+    ...(eligibility ? { eligibility: { ...eligibility, academicStanding: swap(eligibility.academicStanding, 'academicStanding'), honorsRank: swap(eligibility.honorsRank, 'honorsRank') } } : {}),
+    ...(background ? { background: { ...background, ipCommunity: swap(background.ipCommunity, 'ipCommunity'), pwd: swap(background.pwd, 'pwd'), employed: swap(background.employed, 'employed') } } : {}),
+    ...(address ? { address: { ...address, ...(address.verification ? { verification: swapMap(address.verification) } : {}) } } : {}),
+    ...(family ? { family: { ...family, ...(family.verification ? { verification: swapMap(family.verification) } : {}) } } : {}),
+  };
+};
+
 // A declared or attested answer, phrased for the student and the reviewers.
 const PROOF_VALUE_OPTIONS = {
   academicStanding: () => academicStandingOptions,
