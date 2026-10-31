@@ -306,7 +306,10 @@ export default function AdminResultsRelease({
                                   <strong className="block text-sm font-semibold">{entry.studentName}</strong>
                                   <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'}</span>
                                 </div>
-                                <StatusBadge tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : 'Not accepted'}</StatusBadge>
+                                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                  <StatusBadge tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : 'Not accepted'}</StatusBadge>
+                                  <Button type="button" variant="secondary" onClick={() => setOpenId(entry.id)}>View case</Button>
+                                </div>
                               </li>
                             );
                           })}
