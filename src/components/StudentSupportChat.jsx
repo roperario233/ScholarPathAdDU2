@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { MessageCircle, X } from 'lucide-react';
 import SupportConversation from './SupportConversation';
-import { Button, StatusBadge } from './ui';
-import { getSupportAvailabilityLabel } from '../lib/supportMessages';
+import { Button, StatusBadge } from './ui';import { getSupportAvailabilityLabel } from '../lib/supportMessages';
 import { SUPPORT_QUICK_REPLIES } from '../lib/supportAssistant';
 
 export default function StudentSupportChat({ thread = null, messages = [], unreadCount = 0, ready = true, showHint = false, assistantEnabled = true, assistantReady = null, availability = {}, initialOpen = false, onSend, onRequestLiveAgent, onMarkRead, onOpenChange, onDismissHint }) {
@@ -63,69 +62,83 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
         </aside>
       )}
       {open && (
-        <section className="fixed bottom-20 left-3 z-20 flex max-h-[min(75dvh,42rem)] w-[min(28rem,calc(100vw-1.5rem))] flex-col gap-3 rounded-app border border-app-border bg-app-card p-4 shadow-2xl sm:bottom-24 sm:left-5 sm:p-5" aria-label="Admissions Office support chat">
-          <header className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="m-0 text-lg font-bold text-app-text">{assistantActive ? 'ScholarPath Assistant' : 'Admissions Office'}</h2>
-              <p className="m-0 mt-1 text-xs text-app-muted">{assistantActive ? 'Ask about scholarships, documents, or application steps.' : 'Send a message or read the office’s reply here.'}</p>
+        <section className="fixed bottom-20 left-3 z-20 flex max-h-[min(80dvh,40rem)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-2xl dark:bg-[#0a1c3a] sm:bottom-24 sm:left-5" aria-label="Admissions Office support chat">
+          <header className="flex items-center gap-3 bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-3 text-white">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15">
+              <MessageCircle size={20} aria-hidden="true" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="m-0 truncate text-base font-bold text-white">{assistantActive ? 'ScholarPath Assistant' : 'Admissions Office'}</h2>
+              {assistantReady !== false && (
+                <p className="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-white/85">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${availability.online ? 'bg-emerald-400' : 'bg-slate-300'}`} aria-hidden="true" />
+                  <span className="truncate">{getSupportAvailabilityLabel(availability)}</span>
+                </p>
+              )}
             </div>
-            <Button type="button" variant="ghost" className="!min-h-9 !min-w-9 !p-2" onClick={toggle} aria-label="Close support chat">
+            <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-full text-white hover:bg-white/15 focus:outline-none focus:ring-4 focus:ring-white/30" onClick={toggle} aria-label="Close support chat">
               <X size={18} aria-hidden="true" />
-            </Button>
+            </button>
           </header>
-          {assistantReady !== false && <StatusBadge tone={availability.online ? 'success' : 'neutral'}>{getSupportAvailabilityLabel(availability)}</StatusBadge>}
-          {!ready ? (
-            <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text" role="status">
-              The support inbox is not available yet. Please try again later or contact the Admissions Office directly.
-            </div>
-          ) : (
-            <SupportConversation
-              messages={messages}
-              viewer="student"
-              onSend={onSend}
-              className="min-h-0 flex-1"
-            />
-          )}
-          {ready && (
-            <div className="grid gap-2">
-              {assistantActive
-                ? <p className="m-0 text-xs text-app-muted">The assistant gives general guidance, not eligibility or award decisions. Your conversation is visible to Admissions Office Staff and the Admissions Office Head.</p>
-                : humanActive
-                  ? <p className="m-0 text-xs text-app-muted">This conversation is with the Admissions Office. A staff member can reply here.</p>
-                  : <p className="m-0 text-xs text-app-muted">Automated replies are not available right now. You can leave a message for Admissions Office Staff.</p>}
-              {assistantActive && messages.length === 0 && (
-                <div className="flex flex-wrap gap-2" aria-label="Suggested support questions">
-                  {SUPPORT_QUICK_REPLIES.map((suggestion) => (
-                    <button key={suggestion} type="button" className="rounded-full border border-app-border bg-app-surface px-3 py-2 text-xs font-semibold text-app-text hover:border-blue-500/40" onClick={() => onSend?.(suggestion)}>
-                      {suggestion}
+          <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
+            {!ready ? (
+              <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text" role="status">
+                The support inbox is not available yet. Please try again later or contact the Admissions Office directly.
+              </div>
+            ) : (
+              <SupportConversation
+                messages={messages}
+                viewer="student"
+                onSend={onSend}
+                className="min-h-0 flex-1"
+                suggestions={assistantActive && messages.length === 0 ? (
+                  <div className="flex flex-wrap gap-2" aria-label="Suggested support questions">
+                    {SUPPORT_QUICK_REPLIES.map((suggestion) => (
+                      <button key={suggestion} type="button" className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-semibold text-app-text hover:border-blue-500/40" onClick={() => onSend?.(suggestion)}>
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              />
+            )}
+            {ready && (
+              <div className="grid gap-1.5 border-t border-app-border pt-3">
+                <div className="flex items-center justify-between gap-3">
+                  {thread?.escalatedAt ? (
+                    <StatusBadge tone="warning">Live-agent request sent</StatusBadge>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={handoffBusy}
+                      className="text-xs font-bold text-ateneo underline-offset-2 hover:underline disabled:opacity-60 dark:text-sky-200"
+                      onClick={async () => {
+                        setHandoffBusy(true);
+                        setHandoffError('');
+                        const result = await onRequestLiveAgent?.();
+                        if (result?.error) setHandoffError(result.error.message || 'Your request could not be sent.');
+                        setHandoffBusy(false);
+                      }}
+                    >
+                      {handoffBusy ? 'Connecting…' : 'Talk to a live agent'}
                     </button>
-                  ))}
+                  )}
+                  {thread?.status === 'Closed' && <span className="text-xs text-app-muted">Sending a message reopens this thread.</span>}
                 </div>
-              )}
-              {thread?.escalatedAt ? (
-                <StatusBadge tone="warning">Live-agent request sent. The Admissions Office will reply here.</StatusBadge>
-              ) : (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={handoffBusy}
-                  className="w-full"
-                  onClick={async () => {
-                    setHandoffBusy(true);
-                    setHandoffError('');
-                    const result = await onRequestLiveAgent?.();
-                    if (result?.error) setHandoffError(result.error.message || 'Your request could not be sent.');
-                    setHandoffBusy(false);
-                  }}
-                >
-                  {handoffBusy ? 'Connecting…' : 'Talk to a live agent'}
-                </Button>
-              )}
-              {!availability.online && !thread?.escalatedAt && <p className="m-0 text-xs text-app-muted">Leave a message and an Admissions Office staff member will reply when available.</p>}
-              {handoffError && <p className="m-0 text-xs text-rose-600 dark:text-rose-300" role="alert">{handoffError}</p>}
-            </div>
-          )}
-          {thread?.status === 'Closed' && <StatusBadge tone="neutral">Office closed this thread; sending a message reopens it.</StatusBadge>}
+                <p className="m-0 text-[11px] leading-snug text-app-muted">
+                  {thread?.escalatedAt
+                    ? 'The Admissions Office will reply here.'
+                    : assistantActive
+                      ? 'The assistant gives general guidance, not eligibility or award decisions. Your conversation is visible to Admissions Office Staff and the Admissions Office Head.'
+                      : humanActive
+                        ? 'This conversation is with the Admissions Office. A staff member can reply here.'
+                        : 'Automated replies are not available right now. You can leave a message for Admissions Office Staff.'}
+                  {!availability.online && !thread?.escalatedAt && ' Staff will reply when available.'}
+                </p>
+                {handoffError && <p className="m-0 text-xs text-rose-600 dark:text-rose-300" role="alert">{handoffError}</p>}
+              </div>
+            )}
+          </div>
         </section>
       )}
       <button
