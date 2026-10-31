@@ -602,7 +602,17 @@ export default function ApplicationReviewModal({
 
   return (
     <>
-    <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-review-modal">
+    <ModalShell
+      title={application.scholarshipTitle}
+      onClose={onClose}
+      className="application-review-modal"
+      header={(
+        <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle}</h2>
+          <div className="shrink-0"><Button variant="secondary" type="button" onClick={onClose}>Close</Button></div>
+        </div>
+      )}
+    >
       <header className="grid shrink-0 gap-2 pb-2">
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full sm:w-auto sm:flex-1">
