@@ -27,6 +27,7 @@ import {
   MAX_SIBLING_ROWS,
   NAME_PART_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
+  RELIGION_OTHER_MAX_LENGTH,
   SCHOOL_FIELD_MAX_LENGTH,
   applicantStatusOptions,
   applyApplicantStatus,
@@ -720,6 +721,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       fullName: asText(profile.fullName),
       phone: asText(profile.phone),
       religion: asText(profile.religion),
+      religionOther: asText(profile.religionOther),
       civilStatus: asText(profile.civilStatus),
       birthdate: asText(profile.birthdate),
       sexAtBirth: asText(profile.sexAtBirth),
@@ -791,7 +793,12 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField fieldKey="phone" label="Mobile number" hint={isStudent ? 'Needed to apply. Also used for SMS reminders.' : 'Optional. Used for SMS reminders.'} error={errors.phone} required={need.has('phone')}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
-        {isStudent && <SelectField fieldKey="religion" label="Religion" hint="Needed to apply." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} required={need.has('religion')} />}
+        {isStudent && <SelectField fieldKey="religion" label="Religion" hint="Needed to apply." value={values.religion} onChange={(value) => update({ religion: value }, ['religionOther'])} options={religionOptions} error={errors.religion} required={need.has('religion')} />}
+        {isStudent && values.religion === 'Other' && (
+          <FormField label="Religion you follow" hint="Name the religion you recorded as Other." error={errors.religionOther}>
+            <input className={controlClass} value={values.religionOther} onChange={(event) => update({ religionOther: event.target.value.slice(0, RELIGION_OTHER_MAX_LENGTH) })} maxLength={RELIGION_OTHER_MAX_LENGTH} aria-invalid={Boolean(errors.religionOther)} />
+          </FormField>
+        )}
         {isStudent && <SelectField fieldKey="civilStatus" label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} required={need.has('civilStatus')} />}
         {isStudent && <FormField fieldKey="birthdate" label="Birthdate" hint="Needed to apply." error={errors.birthdate} required={need.has('birthdate')}><input className={controlClass} type="date" max={todayInputValue()} value={values.birthdate} onChange={(event) => update({ birthdate: event.target.value })} autoComplete="bday" aria-invalid={Boolean(errors.birthdate)} /></FormField>}
         {isStudent && <SelectField fieldKey="sexAtBirth" label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} required={need.has('sexAtBirth')} />}

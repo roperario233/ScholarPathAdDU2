@@ -55,6 +55,10 @@ export const PROFILE_DETAIL_KEYS = [
   'middleName',
   'lastName',
   'religion',
+  // FORM 230-SCH asks for a religion; an "Other" answer names it, exactly as
+  // "where you stay while studying" records `housingOther`. Both stay descriptive
+  // only — the Smart Eligibility Checker never reads either one.
+  'religionOther',
   'civilStatus',
   'completeAddress',
   'country',
@@ -663,16 +667,33 @@ export const hsStrandOptions = [
 // Personal information options. Religion and civil status are descriptive only;
 // they are never read by the Smart Eligibility Checker. FORM 230-SCH asks every
 // applicant for a religion (writing NA when it does not apply), so "prefer not to
-// say" is a recorded answer instead of the blank the field starts on.
+// say" is a recorded answer instead of the blank the field starts on. The list
+// covers the Christian denominations and faiths a Philippine applicant is most
+// likely to record; "Other" is the one answer the student names in
+// `religionOther`, so an unlisted faith is never misreported.
 export const religionOptions = [
   { value: '', label: 'Select' },
   { value: 'Prefer not to say', label: 'Prefer not to say' },
   { value: 'Roman Catholic', label: 'Roman Catholic' },
-  { value: 'Protestant', label: 'Protestant' },
+  { value: 'Iglesia Filipina Independiente (Aglipayan)', label: 'Iglesia Filipina Independiente (Aglipayan)' },
   { value: 'Iglesia ni Cristo', label: 'Iglesia ni Cristo' },
+  { value: 'Protestant', label: 'Protestant' },
+  { value: 'Evangelical / Born Again Christian', label: 'Evangelical / Born Again Christian' },
+  { value: 'Baptist', label: 'Baptist' },
+  { value: 'Methodist', label: 'Methodist' },
+  { value: 'Seventh-day Adventist', label: 'Seventh-day Adventist' },
+  { value: "Jehovah's Witnesses", label: "Jehovah's Witnesses" },
+  { value: 'The Church of Jesus Christ of Latter-day Saints', label: 'The Church of Jesus Christ of Latter-day Saints' },
+  { value: 'United Church of Christ in the Philippines', label: 'United Church of Christ in the Philippines' },
+  { value: 'Orthodox Christian', label: 'Orthodox Christian' },
   { value: 'Islam', label: 'Islam' },
   { value: 'Buddhism', label: 'Buddhism' },
   { value: 'Hinduism', label: 'Hinduism' },
+  { value: 'Judaism', label: 'Judaism' },
+  { value: 'Sikhism', label: 'Sikhism' },
+  { value: 'Taoism', label: 'Taoism' },
+  { value: 'Indigenous or traditional belief', label: 'Indigenous or traditional belief' },
+  { value: 'No religion / atheist / agnostic', label: 'No religion / atheist / agnostic' },
   { value: 'Other', label: 'Other' },
 ];
 
@@ -828,6 +849,8 @@ export const getShsFinancialAid = (previousGrants = []) => (
 );
 
 export const PRONOUNS_MAX_LENGTH = 40;
+// The free-text name of a religion recorded as "Other" (see `religionOptions`).
+export const RELIGION_OTHER_MAX_LENGTH = 80;
 export const SCHOOL_FIELD_MAX_LENGTH = 100;
 export const AWARDS_MAX_LENGTH = 500;
 export const MAX_SIBLING_ROWS = 15;
@@ -1086,6 +1109,7 @@ export const validatePersonalSection = (form = {}) => {
     fullName: validateFullName(form.fullName),
     phone: validateMobileNumber(form.phone),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
+    religionOther: validateText(form.religionOther, { max: RELIGION_OTHER_MAX_LENGTH, message: `Keep this within ${RELIGION_OTHER_MAX_LENGTH} characters.` }),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
     birthdate: validateOptionalDate(form.birthdate, { label: 'your birthdate' }),
     sexAtBirth: oneOf(form.sexAtBirth || '', sexAtBirthOptions, 'Choose an option.'),
@@ -1094,6 +1118,13 @@ export const validatePersonalSection = (form = {}) => {
       ? { value: essay, error: `Keep your default statement/essay within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
+  // "Other" is the one religion answer that has to be named, exactly as "where you
+  // stay while studying" asks for its own text. The field is hidden for every other
+  // choice, so a leftover answer is cleared on save instead of being kept unseen.
+  if (result.values.religion === 'Other' && !result.values.religionOther && !result.errors.religionOther) {
+    result.errors.religionOther = 'Name the religion.';
+  }
+  result.values.religionOther = result.values.religion === 'Other' ? result.values.religionOther : '';
   // The name parts are what FORM 230-SCH prints (Last, First, Middle), so once
   // they are filled in they become the display name and `profiles.full_name`
   // never disagrees with them. A profile that only holds the single name keeps

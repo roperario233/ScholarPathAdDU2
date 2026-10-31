@@ -339,7 +339,7 @@ describe('profile snapshot', () => {
       hsStrand: 'STEM',
     });
     expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
-    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: 'she/her', email: 'ana.reyes@example.com', phone: '0917 123 4567' });
+    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', religionOther: '', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: 'she/her', email: 'ana.reyes@example.com', phone: '0917 123 4567' });
     expect(snapshot.address).toEqual({
       completeAddress: 'Roxas Ave, Davao City',
       residingAddress: 'Roxas Ave, Davao City',
@@ -382,6 +382,14 @@ describe('profile snapshot', () => {
     expect(snapshot.aid.previousGrants).toEqual([{ type: 'Government', name: 'CHED', status: 'applied', institution: 'CHED XI' }]);
   });
 
+  it('freezes the religion the student recorded, including an "Other" answer', () => {
+    expect(buildProfileSnapshot(fullProfile).personal).toMatchObject({ religion: 'Roman Catholic', religionOther: '' });
+    const other = buildProfileSnapshot({ ...fullProfile, religion: 'Other', religionOther: ' Baha’i ' });
+    expect(other.personal).toMatchObject({ religion: 'Other', religionOther: 'Baha’i' });
+    // A leftover name never rides along with a religion that is already listed.
+    expect(buildProfileSnapshot({ ...fullProfile, religion: 'Islam', religionOther: 'Baha’i' }).personal.religionOther).toBe('');
+  });
+
   it('adds the strand and ranked program choices only for an incoming first-year', () => {
     expect(buildProfileSnapshot(fullProfile).eligibility).not.toHaveProperty('programChoices');
     const incoming = buildProfileSnapshot({ ...incomingProfile, programChoice2: 'BS Accountancy' });
@@ -409,6 +417,16 @@ describe('profile snapshot sections', () => {
     expect(rows['Sex assigned at birth'].value).toBe('Female');
     expect(rows['School last attended'].value).toBe('Davao Senior High School, Davao City, Davao del Sur');
     expect(rows['Willing to render community service'].value).toBe('Yes');
+  });
+
+  it('prints an "Other" religion with the name the student gave', () => {
+    const { sections } = getProfileSnapshotSections(buildProfileSnapshot({ ...continuingProfile, religion: 'Other', religionOther: 'Iglesia Filipina Independiente (Aglipayan)' }));
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row.value]));
+    expect(rows.Religion).toBe('Other · Iglesia Filipina Independiente (Aglipayan)');
+    // An older snapshot without the key keeps the plain option label.
+    expect(getProfileSnapshotSections(buildProfileSnapshot(continuingProfile)).sections
+      .flatMap((section) => section.rows)
+      .find((row) => row.label === 'Religion').value).toBe('Roman Catholic');
   });
 
   it('lists siblings, household members and grants as labelled rows', () => {

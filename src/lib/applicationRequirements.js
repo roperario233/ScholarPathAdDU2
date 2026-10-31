@@ -793,6 +793,11 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       lastName: asText(profile.lastName),
       civilStatus: asText(profile.civilStatus),
       religion: asText(profile.religion),
+      // The name given when the religion answer is "Other", frozen beside the
+      // answer it completes (see `housingOther` in the address group below). The
+      // row renders the two joined, so an older snapshot without the key is
+      // unaffected.
+      religionOther: profile.religion === 'Other' ? asText(profile.religionOther) : '',
       birthdate: asText(profile.birthdate),
       sexAtBirth: asText(profile.sexAtBirth),
       pronouns: asText(profile.pronouns),
@@ -964,7 +969,7 @@ export const getProfileSnapshotSections = (snapshot) => {
           ...(personal.pronouns ? [row('Preferred pronouns', personal.pronouns)] : []),
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
-        row('Religion', optionLabel(religionOptions, personal.religion)),
+        row('Religion', [optionLabel(religionOptions, personal.religion), personal.religionOther].filter(Boolean).join(' · ')),
         ...(personal.email ? [row('Email address', personal.email)] : []),
         ...(personal.phone ? [row('Contact number', personal.phone)] : []),
         row('Complete address', address.completeAddress, address.verification?.completeAddress),

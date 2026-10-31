@@ -198,13 +198,26 @@ describe('section validators', () => {
   it('normalizes personal information and requires a full name', () => {
     const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
+    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', religion: 'Roman Catholic', religionOther: '', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
 
     expect(validatePersonalSection({ fullName: 'A' }).errors).toMatchObject({
       fullName: expect.any(String),
     });
     // An unknown religion or civil status is rejected.
     expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Jedi', civilStatus: 'Single' }).errors.religion).toBeTruthy();
+  });
+
+  it('names an "Other" religion and clears the name for every other choice', () => {
+    // The option list carries the faiths the field offers, so a newly added one
+    // validates without a second rule set.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Seventh-day Adventist' }).errors.religion).toBeFalsy();
+    // "Other" is the only answer that needs the student to name it.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Other' }).errors.religionOther).toBe('Name the religion.');
+    const named = validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Other', religionOther: '  Baha’i  ' });
+    expect(named.errors).toEqual({});
+    expect(named.values).toMatchObject({ religion: 'Other', religionOther: 'Baha’i' });
+    // The input is hidden for another choice, so a leftover answer never rides along.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Islam', religionOther: 'Baha’i' }).values.religionOther).toBe('');
   });
 
   it('keeps paragraph breaks in the statement/essay and enforces the cap', () => {

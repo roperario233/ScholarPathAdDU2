@@ -34,4 +34,18 @@ describe('My Profile personal information', () => {
     expect(html).toContain('class="readonly-control"');
     expect(html).toContain('Reyes, Ana');
   });
+
+  it('offers the expanded religion list and asks an "Other" answer to be named', () => {
+    const html = render({});
+    expect(html).toContain('Seventh-day Adventist');
+    expect(html).toContain('Jehovah');
+    expect(html).toContain('No religion / atheist / agnostic');
+    // The free-text field appears only for "Other", so the select's own label is
+    // the one thing both renderings share.
+    expect(render({ religion: 'Other', religionOther: 'Baha’i' })).toContain('Religion you follow');
+    expect(render({ religion: 'Other', religionOther: 'Baha’i' })).toContain('Baha’i');
+    expect(render({ religion: 'Islam' })).not.toContain('Religion you follow');
+    // Staff answer only their name and mobile number.
+    expect(render({}, 'admissions_office')).not.toContain('Religion you follow');
+  });
 });
