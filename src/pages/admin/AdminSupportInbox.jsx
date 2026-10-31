@@ -61,9 +61,9 @@ export default function AdminSupportInbox({
           The support inbox tables are unavailable. Apply migration `20261053000000_add_support_inbox.sql` to enable this workspace.
         </div>
       )}
-      <section className="grid min-h-[60vh] gap-4 lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)]">
-        <Card title="Student conversations" action={<StatusBadge tone={unreadTotal ? 'warning' : 'neutral'}>{summaries.length} total</StatusBadge>} className="min-w-0">
-          <div className="grid max-h-[65vh] content-start gap-2 overflow-y-auto pr-1">
+      <section className="grid gap-4 lg:h-[72vh] lg:min-h-[32rem] lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+        <Card title="Student conversations" action={<StatusBadge tone={unreadTotal ? 'warning' : 'neutral'}>{summaries.length} total</StatusBadge>} className="flex min-h-0 min-w-0 flex-col">
+          <div className="grid max-h-[40vh] min-h-0 content-start gap-2 overflow-y-auto pr-1 lg:max-h-none lg:flex-1">
             <StatusBadge tone={availability.online ? 'success' : 'neutral'}>{getSupportAvailabilityLabel(availability)}</StatusBadge>
             {summaries.length ? summaries.map((thread) => (
               <button
@@ -92,11 +92,11 @@ export default function AdminSupportInbox({
         <Card
           title={selectedThread ? selectedStudent?.fullName || 'Student conversation' : 'Conversation'}
           action={selectedThread && <StatusBadge tone={selectedThread.status === 'Open' ? 'success' : 'neutral'}>{selectedThread.status}</StatusBadge>}
-          className="grid min-h-0 min-w-0 content-start"
+          className="flex min-h-0 min-w-0 flex-col"
         >
           {selectedThread ? (
-            <div className="grid min-h-[55vh] content-start gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm">
+            <div className="flex h-[34rem] min-h-0 flex-col gap-3 lg:h-auto lg:flex-1">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm">
                 <div className="min-w-0">
                   <p className="m-0 text-app-text">{selectedStudent?.degreeProgram || 'Program not listed'}</p>
                   <p className="m-0 text-xs text-app-muted">{selectedStudent?.department || 'School not listed'}</p>
@@ -106,7 +106,7 @@ export default function AdminSupportInbox({
                 </Button>
               </div>
               {selectedThread.escalatedAt && (
-                <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text">
+                <div className="shrink-0 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text">
                   <strong>{selectedThread.awaitingAgent ? 'Awaiting live agent reply' : 'Live-agent request'}</strong>
                   <p className="mb-0 mt-1 text-xs text-app-muted">The student requested Admissions Office help. Review the assistant transcript and reply directly below.</p>
                 </div>
@@ -117,7 +117,7 @@ export default function AdminSupportInbox({
                 viewer={role}
                 studentName={selectedStudent?.fullName || 'Student'}
                 onSend={(body) => onSend?.(selectedThread.id, body)}
-                className="min-h-0"
+                className="min-h-0 flex-1"
               />
             </div>
           ) : (
