@@ -3289,9 +3289,9 @@ function App() {
         <div className="min-w-0 flex-1">
           <div className="flex max-w-full items-center gap-2 sm:gap-3">
             <img src={logoImage} alt="Ateneo de Davao University logo" className="h-11 w-11 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-12 min-[400px]:w-12 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
-            <div className="min-w-0 font-display text-base/[0.95] font-bold tracking-wide text-app-text min-[375px]:text-lg/[0.95] min-[390px]:text-xl/[0.95] min-[400px]:text-2xl/[0.95] sm:text-3xl/none lg:text-4xl/none">
+            <div className="min-w-0 font-sans text-base/[0.95] font-bold tracking-wide text-app-text min-[375px]:text-lg/[0.95] min-[390px]:text-xl/[0.95] min-[400px]:text-2xl/[0.95] sm:text-3xl/none lg:text-4xl/none">
               <span className="block truncate sm:inline">ScholarPath</span>{' '}
-              <span className="block truncate text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
+              <span className="block truncate font-display text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
             </div>
           </div>
         </div>
