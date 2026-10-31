@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import SupportConversation from '../../components/SupportConversation';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
-import { buildSupportThreadSummary, countUnreadSupportMessages, sortSupportThreads } from '../../lib/supportMessages';
+import { buildSupportThreadSummary, countUnreadSupportMessages, getSupportAvailabilityLabel, sortSupportThreads } from '../../lib/supportMessages';
 
 const formatThreadTime = (value) => {
   if (!value || Number.isNaN(Date.parse(value))) return 'No messages';
@@ -17,6 +17,7 @@ export default function AdminSupportInbox({
   role = 'admissions_office',
   loading = false,
   ready = true,
+  availability = {},
   onSelectThread,
   onSend,
   onMarkRead,
@@ -30,7 +31,7 @@ export default function AdminSupportInbox({
       unreadCount: countUnreadSupportMessages(thread, threadMessages, 'office'),
     }, students[thread.studentId]);
   }), [threads, messages, students]);
-  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) || summaries[0] || null;
+  const selectedThread = summaries.find((thread) => thread.id === selectedThreadId) || summaries[0] || null;
   const selectedMessages = messages.filter((message) => message.threadId === selectedThread?.id);
   const selectedStudent = selectedThread
     ? students[selectedThread.studentId] || summaries.find((thread) => thread.id === selectedThread.id)
@@ -52,7 +53,7 @@ export default function AdminSupportInbox({
     <div className="grid gap-5">
       <AdminPageHeader
         title="Support inbox"
-        description="Reply to student questions here. Admissions Office Staff and the Admissions Office Head share this inbox."
+        description="Assistant transcripts and student requests for live-agent help appear here. Both Admissions Office lanes share this inbox."
         badge={`${unreadTotal} unread`}
       />
       {!ready && (
@@ -63,6 +64,7 @@ export default function AdminSupportInbox({
       <section className="grid min-h-[60vh] gap-4 lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)]">
         <Card title="Student conversations" action={<StatusBadge tone={unreadTotal ? 'warning' : 'neutral'}>{summaries.length} total</StatusBadge>} className="min-w-0">
           <div className="grid max-h-[65vh] content-start gap-2 overflow-y-auto pr-1">
+            <StatusBadge tone={availability.online ? 'success' : 'neutral'}>{getSupportAvailabilityLabel(availability)}</StatusBadge>
             {summaries.length ? summaries.map((thread) => (
               <button
                 key={thread.id}
@@ -72,7 +74,10 @@ export default function AdminSupportInbox({
               >
                 <span className="flex min-w-0 items-center justify-between gap-2">
                   <strong className="min-w-0 truncate text-sm text-app-text">{thread.studentName}</strong>
-                  {thread.unreadCount > 0 && <StatusBadge tone="warning">{thread.unreadCount} new</StatusBadge>}
+                  <span className="flex shrink-0 items-center gap-1">
+                    {thread.awaitingAgent && <StatusBadge tone="warning">Awaiting live agent</StatusBadge>}
+                    {thread.unreadCount > 0 && <StatusBadge tone="warning">{thread.unreadCount} new</StatusBadge>}
+                  </span>
                 </span>
                 <span className="truncate text-xs text-app-muted">{thread.studentProgram || thread.studentSchool || 'Student applicant'}</span>
                 <span className="flex items-center justify-between gap-2 text-xs text-app-muted">
@@ -100,6 +105,12 @@ export default function AdminSupportInbox({
                   {selectedThread.status === 'Closed' ? 'Reopen conversation' : 'Close conversation'}
                 </Button>
               </div>
+              {selectedThread.escalatedAt && (
+                <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text">
+                  <strong>{selectedThread.awaitingAgent ? 'Awaiting live agent reply' : 'Live-agent request'}</strong>
+                  <p className="mb-0 mt-1 text-xs text-app-muted">The student requested Admissions Office help. Review the assistant transcript and reply directly below.</p>
+                </div>
+              )}
               {statusError && <p className="m-0 text-sm text-rose-600 dark:text-rose-300" role="alert">{statusError}</p>}
               <SupportConversation
                 messages={selectedMessages}

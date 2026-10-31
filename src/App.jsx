@@ -3,6 +3,7 @@ import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, storageKey } from './lib/appState';
 import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
 import { mergeNotifications } from './lib/notificationMerge';
+import { mergeWorkspaceRefresh, WORKSPACE_REFRESH_INTERVAL_MS } from './lib/workspaceRefresh';
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
@@ -17,7 +18,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -49,11 +50,13 @@ import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
-import { countUnreadSupportMessages, isSupportInboxChannel, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
+import { countUnreadSupportMessages, getSupportUnreadTotal, isSupportInboxChannel, mergeSupportInboxState, SUPPORT_BACKGROUND_POLL_MS, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
+import { replyFor, shouldAssistantReply } from './lib/supportAssistant';
 import StudentSupportChat from './components/StudentSupportChat';
 import AdminSupportInboxPage from './pages/admin/AdminSupportInbox';
 
 const SUPPORT_INBOX_CHANNEL_ENABLED = isSupportInboxChannel();
+const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT ?? 'true').trim().toLowerCase() !== 'false';
 
 const roleLabels = {
   student: 'Student',
@@ -228,6 +231,7 @@ const mergeCustomDeadlines = (localDeadlines, serverDeadlines, ownerId) => {
 const devicePreferencesOf = (state) => ({
   theme: state.theme,
   hasLoggedInBefore: state.hasLoggedInBefore,
+  studentSupportHintSeen: state.studentSupportHintSeen,
 });
 
 // FORM 230-SCH financial details are sensitive and office-only, so they live in
@@ -294,7 +298,7 @@ const persistCustomDeadline = async (deadline, ownerId) => {
 function App() {
   const [state, setState] = useState(createInitialState);
   const supportChatVisitorRef = useRef(null);
-  const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loading: false });
+  const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
   const [isStudentSupportOpen, setIsStudentSupportOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   // theme: 'dark' | 'light' — persisted in state
@@ -370,7 +374,7 @@ function App() {
     setState((previous) => createFreshState(devicePreferencesOf(previous)));
     setProfileOnboarding(null);
     setIsSupabaseWorkspaceLoaded(false);
-    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: true, loading: false });
+    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
     setDeadlineSync(null);
     setAvatarPreview({ path: '', url: '' });
     setFinancial(emptyFinancialState);
@@ -472,29 +476,31 @@ function App() {
         setSupportInbox((previous) => ({ ...previous, loading: true }));
       }
       try {
+        const conversationOpen = office ? state.activeView === 'admin-support' : isStudentSupportOpen;
         const result = await loadSupabaseSupportInbox({
           role: state.viewerRole,
           userId: state.authUser.id,
           selectedThreadId,
-          markRead: (!office && isStudentSupportOpen)
-            || (office && state.activeView === 'admin-support' && Boolean(selectedThreadId)),
+          includeMessages: conversationOpen,
+          markRead: conversationOpen && (!office || Boolean(selectedThreadId)),
         });
         if (!active) return;
+        let availability = supportInbox.availability;
+        if (office) {
+          await touchSupabaseOfficeSupportPresence();
+        }
+        const availabilityResult = await getSupabaseAdmissionsOfficeAvailability();
+        if (!availabilityResult.error && availabilityResult.data) availability = availabilityResult.data;
         setSupportInbox((previous) => ({
-          threads: result.threads || [],
-          messages: result.messages || [],
-          students: result.students || previous.students,
-          selectedThreadId: result.selectedThreadId || selectedThreadId || '',
-          ready: result.ready,
-          loading: false,
+          ...mergeSupportInboxState(previous, result),
+          availability,
+          assistantReady: previous.assistantReady,
         }));
-        if (!office) {
-          const notificationResult = await loadSupabaseNotifications(state.authUser.id);
-          if (active && !notificationResult.error) {
-            updateState((previous) => ({
-              notifications: mergeNotifications(previous.notifications, notificationResult.notifications, { ownerId: state.authUser.id }),
-            }));
-          }
+        const notificationResult = await loadSupabaseNotifications(state.authUser.id);
+        if (active && !notificationResult.error) {
+          updateState((previous) => ({
+            notifications: mergeNotifications(previous.notifications, notificationResult.notifications, { ownerId: state.authUser.id }),
+          }));
         }
       } catch {
         if (active) setSupportInbox((previous) => ({ ...previous, ready: false, loading: false }));
@@ -504,13 +510,59 @@ function App() {
     };
 
     refreshInbox();
-    const shouldPoll = office ? state.activeView === 'admin-support' : isStudentSupportOpen;
-    const timer = shouldPoll ? window.setInterval(refreshInbox, SUPPORT_OPEN_POLL_MS) : null;
+    const conversationOpen = office ? state.activeView === 'admin-support' : isStudentSupportOpen;
+    const timer = window.setInterval(
+      refreshInbox,
+      conversationOpen ? SUPPORT_OPEN_POLL_MS : SUPPORT_BACKGROUND_POLL_MS,
+    );
     return () => {
       active = false;
       if (timer) window.clearInterval(timer);
     };
   }, [isSupabaseWorkspaceLoaded, state.isAuthenticated, state.viewerRole, state.authUser?.id, state.activeView, supportInbox.selectedThreadId, isStudentSupportOpen]);
+
+  // Keep applications, decisions, schedules, and staff-only case notes current
+  // across sessions without requiring a browser reload. Refresh on tab return as
+  // well as periodically while visible; the workspace loader still applies the
+  // signed-in account's Supabase row-level security policies.
+  useEffect(() => {
+    const ownerId = state.authUser?.id;
+    if (!isSupabaseWorkspaceLoaded || !state.isAuthenticated || !ownerId) return undefined;
+
+    let active = true;
+    let refreshing = false;
+    const role = state.viewerRole;
+    const department = state.authUser?.department || '';
+
+    const refreshWorkspace = async () => {
+      if (!active || refreshing || document.visibilityState === 'hidden') return;
+      refreshing = true;
+      try {
+        const workspace = await loadSupabaseWorkspace({ role, userId: ownerId, department });
+        if (!active || !workspace.success) return;
+        updateState((previous) => mergeWorkspaceRefresh(previous, workspace, ownerId));
+      } catch {
+        // Keep the last successful view on transient network failures; the next
+        // visible refresh will retry without interrupting the user's work.
+      } finally {
+        refreshing = false;
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshWorkspace();
+    };
+
+    const timer = window.setInterval(refreshWorkspace, WORKSPACE_REFRESH_INTERVAL_MS);
+    window.addEventListener('focus', refreshWorkspace);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      window.removeEventListener('focus', refreshWorkspace);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [isSupabaseWorkspaceLoaded, state.isAuthenticated, state.viewerRole, state.authUser?.id, state.authUser?.department]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setIsBooting(false), 250);
@@ -994,17 +1046,19 @@ function App() {
     ? supportInbox.messages.filter((message) => message.threadId === supportThread.id)
     : [];
   const supportStudentUnreadCount = countUnreadSupportMessages(supportThread, supportStudentMessages, 'student');
+  const showSupportChatHint = state.isAuthenticated
+    && state.viewerRole === 'student'
+    && SUPPORT_INBOX_CHANNEL_ENABLED
+    && !state.studentSupportHintSeen
+    && !profileOnboarding;
+  const dismissSupportChatHint = () => updateState({ studentSupportHintSeen: true });
   const refreshSupportInbox = async (selectedThreadId = supportInbox.selectedThreadId) => {
     if (!state.authUser?.id) return { error: { message: 'Sign in again to use the support inbox.' } };
     const result = await loadSupabaseSupportInbox({ role: state.viewerRole, userId: state.authUser.id, selectedThreadId });
     if (result.success) {
       setSupportInbox((previous) => ({
-        threads: result.threads || [],
-        messages: result.messages || [],
-        students: result.students || previous.students,
-        selectedThreadId: result.selectedThreadId || '',
-        ready: result.ready,
-        loading: false,
+        ...mergeSupportInboxState(previous, result),
+        availability: previous.availability,
       }));
     } else {
       setSupportInbox((previous) => ({ ...previous, ready: result.ready, loading: false }));
@@ -1014,7 +1068,38 @@ function App() {
   const sendSupportMessage = async (threadId, body) => {
     const result = await sendSupabaseSupportMessage({ threadId, body });
     if (result.error) return result;
-    await refreshSupportInbox(result.threadId || threadId);
+    const activeThreadId = result.threadId || threadId;
+    await refreshSupportInbox(activeThreadId);
+    if (state.viewerRole === 'student') {
+      const latestInbox = await loadSupabaseSupportInbox({ role: 'student', userId: state.authUser.id, selectedThreadId: activeThreadId });
+      const latestThread = latestInbox.threads?.find((thread) => thread.id === activeThreadId) || supportThread;
+      const studentMessage = (latestInbox.messages || []).find((message) => message.id === result.data?.id) || result.data;
+      if (studentMessage && SUPPORT_ASSISTANT_ENABLED && supportInbox.assistantReady !== false && shouldAssistantReply({ thread: latestThread, messages: latestInbox.messages || [], replyingToId: studentMessage.id })) {
+        const assistantReply = replyFor({ message: body, context: {
+          profile: studentMatchProfile,
+          scholarships: scholarshipCatalog,
+          applications: studentApplications,
+          documents: studentDocuments,
+          availability: supportInbox.availability,
+        } });
+        const assistantWrite = await postSupabaseAssistantSupportMessage({ threadId: activeThreadId, body: assistantReply.body, replyingToId: studentMessage.id });
+        if (assistantWrite.error) {
+          setSupportInbox((previous) => ({ ...previous, assistantReady: false }));
+          await escalateSupabaseSupportThread(activeThreadId);
+        } else {
+          setSupportInbox((previous) => ({ ...previous, assistantReady: true }));
+          if (assistantReply.kind === 'escalate') await escalateSupabaseSupportThread(activeThreadId);
+        }
+        await refreshSupportInbox(activeThreadId);
+        if (isStudentSupportOpen) await markSupportThreadRead(activeThreadId);
+      } else if (studentMessage && (!SUPPORT_ASSISTANT_ENABLED || supportInbox.assistantReady === false)) {
+        await escalateSupabaseSupportThread(activeThreadId);
+      } else if (result.data?.id && !studentMessage && latestThread?.assistantEnabled !== false && !latestThread?.escalatedAt) {
+        // A successful student write must never be left without either an automated
+        // response or an office notification, even if the follow-up read failed.
+        await escalateSupabaseSupportThread(activeThreadId);
+      }
+    }
     if (state.viewerRole === 'student') {
       const notificationsResult = await loadSupabaseNotifications(state.authUser?.id);
       if (!notificationsResult.error) {
@@ -1025,9 +1110,24 @@ function App() {
     }
     return result;
   };
+  const requestLiveAgent = async () => {
+    let threadId = supportThread?.id || '';
+    if (!threadId) {
+      const created = await getOrCreateSupabaseSupportThread();
+      if (created.error) return created;
+      threadId = created.data?.id || '';
+    }
+    if (!threadId) return { error: { message: 'The support conversation could not be opened.' } };
+    const result = await escalateSupabaseSupportThread(threadId);
+    if (!result.error) await refreshSupportInbox(threadId);
+    return result;
+  };
   const markSupportThreadRead = async (threadId) => {
     const result = await markSupabaseSupportThreadRead(threadId);
     if (!result.error) {
+      const sourcePrefix = state.viewerRole === 'student'
+        ? `support-reply-${threadId}-`
+        : `support-message-${threadId}-`;
       setSupportInbox((previous) => ({
         ...previous,
         threads: previous.threads.map((thread) => thread.id !== threadId ? thread : {
@@ -1036,6 +1136,13 @@ function App() {
             ? { studentLastReadAt: new Date().toISOString(), studentUnreadCount: 0 }
             : { officeLastReadAt: new Date().toISOString(), officeUnreadCount: 0 }),
         }),
+      }));
+      updateState((previous) => ({
+        notifications: previous.notifications.map((notification) => (
+          (notification.source_key || notification.sourceKey)?.startsWith(sourcePrefix)
+            ? { ...notification, status: 'Read' }
+            : notification
+        )),
       }));
     }
     return result;
@@ -3074,7 +3181,7 @@ function App() {
       { view: 'admin-review', label: 'Review queue', visible: isAdmissionsHead },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
-      { view: 'admin-support', label: 'Support inbox', visible: true },
+      { view: 'admin-support', label: 'Support inbox', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsHead },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
@@ -3177,7 +3284,7 @@ function App() {
       )}
       {/* A solid bar that bleeds past the page padding to the screen edges. On a
           phone the title stacks as a two-line lockup and the buttons compact so the
-          bigger logo and title still sit beside the avatar, bell, menu, and logout. */}
+          bigger logo and title still sit beside the avatar, theme toggle, bell, menu, and logout. */}
       <header className="app-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
         <div className="min-w-0 flex-1">
           <div className="flex max-w-full items-center gap-2 sm:gap-3">
@@ -3205,6 +3312,17 @@ function App() {
               </span>
             </button>
           )}
+          <button
+            type="button"
+            className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:h-11 sm:w-11"
+            onClick={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+            aria-label={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+            title={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+          >
+            <span className="theme-toggle-icon" aria-hidden="true">
+              {state.theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
+            </span>
+          </button>
           <NotificationDropdown
             notifications={visibleNotifications}
             announcements={state.announcements}
@@ -3241,18 +3359,6 @@ function App() {
           </aside>
         </>
       )}
-
-      <button
-        type="button"
-        className="fixed bottom-4 left-4 z-30 inline-flex h-11 w-11 items-center justify-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:bottom-5 sm:left-5"
-        onClick={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
-        aria-label={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-        title={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
-      >
-        <span className="theme-toggle-icon" aria-hidden="true">
-          {state.theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
-        </span>
-      </button>
 
       <main className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         {/* Floats beside long pages from `lg`. It never scrolls on its own: when it is
@@ -3621,6 +3727,7 @@ function App() {
               role={state.viewerRole}
               loading={supportInbox.loading}
               ready={supportInbox.ready}
+              availability={supportInbox.availability}
               onSelectThread={(threadId) => {
                 setSupportInbox((previous) => ({ ...previous, selectedThreadId: threadId }));
               }}
@@ -3637,9 +3744,15 @@ function App() {
           messages={supportStudentMessages}
           unreadCount={supportStudentUnreadCount}
           ready={supportInbox.ready}
+          assistantEnabled={SUPPORT_ASSISTANT_ENABLED}
+          assistantReady={supportInbox.assistantReady}
+          availability={supportInbox.availability}
+          onRequestLiveAgent={requestLiveAgent}
+          showHint={showSupportChatHint}
           onSend={(body) => sendSupportMessage(supportThread?.id || '', body)}
           onMarkRead={markSupportThreadRead}
           onOpenChange={setIsStudentSupportOpen}
+          onDismissHint={dismissSupportChatHint}
         />
       )}
     </div>

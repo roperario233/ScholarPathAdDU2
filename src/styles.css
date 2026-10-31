@@ -730,7 +730,7 @@ main article > .flex > :last-child {
 .theme-light .calendar-cell.has-deadline {
   background: rgba(0, 51, 160, 0.08);
   border-color: rgba(0, 51, 160, 0.25);
-  color: rgba(0, 51, 160, 1);
+  color: #0033a1;
 }
 
 .theme-light .calendar-cell.has-deadline:hover {

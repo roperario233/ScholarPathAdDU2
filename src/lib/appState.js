@@ -87,6 +87,7 @@ const createDefaultState = () => ({
   lastSessionActivityAt: null,
   isAuthenticated: false,
   hasLoggedInBefore: false,
+  studentSupportHintSeen: false,
   showFirstLoginWelcome: false,
   authUser: null,
   rememberMe: false,
@@ -195,6 +196,7 @@ export const createInitialState = () => {
     theme: stored.theme ?? 'light',
     authUser,
     hasLoggedInBefore: stored.hasLoggedInBefore ?? defaults.hasLoggedInBefore,
+    studentSupportHintSeen: stored.studentSupportHintSeen ?? defaults.studentSupportHintSeen,
     showFirstLoginWelcome: stored.showFirstLoginWelcome ?? defaults.showFirstLoginWelcome,
     rememberMe: stored.rememberMe ?? defaults.rememberMe,
     savedEmail: stored.savedEmail ?? defaults.savedEmail,
@@ -255,7 +257,7 @@ export const createInitialState = () => {
 // Only non-identifying values belong here. The "remember me" email and role are
 // the previous user's data, so they reset with the rest of the session instead
 // of staying prefilled on a shared testing machine (RA 10173).
-export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore'];
+export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore', 'studentSupportHintSeen'];
 
 // A fresh state for sign-out: every session-scoped slice resets to its default
 // (including `ownerId`), while the caller's device preferences carry over.
