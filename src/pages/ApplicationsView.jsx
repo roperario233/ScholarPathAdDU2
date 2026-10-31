@@ -205,7 +205,20 @@ export default function ApplicationsView({
     </Card>
 
     {selected && selectedReadiness && (
-      <ModalShell title={selected.scholarshipTitle} onClose={() => setSelectedId(null)} className="application-detail-modal">
+      <ModalShell
+        title={selected.scholarshipTitle}
+        onClose={() => setSelectedId(null)}
+        className="application-detail-modal"
+        header={(
+          <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+            <h2 className="m-0 min-w-0 flex-1">{selected.scholarshipTitle}</h2>
+            <div className="flex shrink-0 items-center gap-2">
+              {selectedReadiness.route === 'external' ? null : <ApplicationPrintButton sheet={printSheetFor(selected, selectedReadiness)} />}
+              <Button variant="secondary" type="button" onClick={() => setSelectedId(null)}>Close</Button>
+            </div>
+          </div>
+        )}
+      >
         <div className="application-detail-modal-body grid content-start gap-4">
           <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted"><span><strong>Status</strong> {selectedReadiness.route === 'external' ? 'Tracked' : getApplicationStatusLabel(selected.status)}</span><span><strong>Submitted</strong> {selected.submittedAt ? fmtDate(selected.submittedAt) : 'Not yet'}</span>{selected.certifiedAt ? <span><strong>Certified</strong> {fmtDate(selected.certifiedAt)}</span> : null}</div>
           {selectedReadiness.route !== 'external' && getApplicationStatusGuidance(selected.status) ? (
@@ -239,7 +252,6 @@ export default function ApplicationsView({
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
               <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={selected.profileSnapshot} applicantPhoto={getApplicantPhotoDocument(selected, documents)} onPreviewPhoto={setPreview} extraSections={financialSectionsFor(selected)} /></Panel>
-              <div><ApplicationPrintButton sheet={printSheetFor(selected, selectedReadiness)} /></div>
               <Panel className="grid gap-2">
                 <h3 className={sectionHeading}>Status history</h3>
                 {/* The student sees the actor's role (their profile read is scoped
