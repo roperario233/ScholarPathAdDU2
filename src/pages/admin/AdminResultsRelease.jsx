@@ -10,8 +10,8 @@ import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApp
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import { fmtDate, plural } from '../../lib/formatters';
 
-// The Admissions Office Head's last step (Consultation 2, #13): the school
-// approves, then the Head checks each approved case for a sibling already on a
+// The Admissions Office Admin's last step (Consultation 2, #13): the school
+// approves, then the Admin checks each approved case for a sibling already on a
 // grant or another pending case, and releases one scholarship's results to every
 // applicant at the same time. Until then the student sees "Under deliberation";
 // releasing notifies the accepted applicants and sends everyone else the general
@@ -21,7 +21,7 @@ export default function AdminResultsRelease({
   documents = [],
   students = {},
   scholarships = [],
-  role = 'admissions_head',
+  role = 'admissions_admin',
   onChangeApplication,
   onRejectApplication,
   onApproveApplication,
@@ -47,7 +47,7 @@ export default function AdminResultsRelease({
   const titleById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title]));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
 
-  // The review surface offers the Head's override at Recommended and the final
+  // The review surface offers the Admin's override at Recommended and the final
   // check's Reject at Approved; every other move stays with the role map.
   const handleStatusChange = (applicationId, status, options) => (
     status === 'Approved'

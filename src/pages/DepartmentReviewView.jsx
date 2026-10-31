@@ -23,7 +23,7 @@ const queueTone = (status) => {
 // Applications reach it automatically by the applicant's program. Any of them
 // may schedule and run the interview of an applicant in scope; only the level
 // configured for the applicant's school approves the recommendation. Document
-// verification and release stay with the Admissions Office Head.
+// verification and release stay with the Admissions Office Admin.
 export default function DepartmentReviewView({
   profile,
   queue,
@@ -116,7 +116,7 @@ export default function DepartmentReviewView({
         title={`${getReviewScopeLabel(profile) || 'Review scope unassigned'} applicants`}
         description={isInterviewer
               ? 'Applicants in your scope reach you once the Admissions Office has verified their documents. Schedule the interview, record your recommendation level, then send the recommendation to the school.'
-              : 'Interview the applicants in your scope or follow the interviewer’s work, and decide the recommendations your school routes to you. Document verification and release stay with the Admissions Office Head.'}
+              : 'Interview the applicants in your scope or follow the interviewer’s work, and decide the recommendations your school routes to you. Document verification and release stay with the Admissions Office Admin.'}
       >
         {awaitingApproval.length ? (
           <AdminHeaderTile
@@ -220,7 +220,7 @@ export default function DepartmentReviewView({
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
                   <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
                     {verified}/{total || 0} linked documents verified
-                    {!ready ? ` · ${outstanding} with the Admissions Office Head` : ''}
+                    {!ready ? ` · ${outstanding} with the Admissions Office Admin` : ''}
                   </span>
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" onClick={() => openCase(entry)}>Open review</Button>

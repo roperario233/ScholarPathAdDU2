@@ -135,7 +135,7 @@ const createDefaultState = () => ({
   caseOfficers: [],
   caseOfficersReady: true,
   // SOP step 5 interview data (staff only): the visible staff accounts for the
-  // panel picker, the Head-managed venues, the active panel members, and the
+  // panel picker, the Admin-managed venues, the active panel members, and the
   // private evaluation notes. A student session always keeps these empty.
   staffDirectory: [],
   interviewLocations: [],
@@ -148,7 +148,7 @@ const createDefaultState = () => ({
   // SOP step 7 routing (which ladder level approves for a school or cluster),
   // read by staff sessions only.
   approvalLevels: [],
-  // The scholarship results the Head has released. A student's Approved or
+  // The scholarship results the Admin has released. A student's Approved or
   // Rejected result reads "Under deliberation" until a release covers it;
   // `resultsReleasesReady` is false while the release migration is pending, so
   // nothing is held that the project could not release.
@@ -167,16 +167,23 @@ export const createInitialState = () => {
     return defaults;
   }
 
-  // Session state key. `admissions_head` is the approval lane; the legacy
+  // Session state key. `admissions_admin` is the approval lane; the legacy
   // combined `admissions_office` value is the staff lane, so a saved session
   // keeps working after the split.
-  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'];
-  const migrateRole = (role) => role === 'osa_admin' ? 'admissions_office' : role;
+  const ROLE_KEYS = ['student', 'admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer'];
+  const migrateRole = (role) => {
+    if (role === 'osa_admin') return 'admissions_office';
+    // `admissions_head` was the earlier name of the Admissions Office Admin lane,
+    // so a session saved before the rename keeps its role instead of landing on
+    // the student default.
+    if (role === 'admissions_head') return 'admissions_admin';
+    return role;
+  };
   const viewerRole = migrateRole(stored.viewerRole);
   const savedRole = migrateRole(stored.savedRole);
   // A retired or unknown view key would render an empty page, so the stored
   // value is validated against the routes the app can actually render.
-  // The Endorsement route was retired at Consultation 2 (the Head now forwards a
+  // The Endorsement route was retired at Consultation 2 (the Admin now forwards a
   // verified case to interview), so a session saved on it lands on the office
   // Dashboard instead.
   const activeView = stored.activeView === 'eligibility'

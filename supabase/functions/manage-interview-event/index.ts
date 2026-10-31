@@ -25,7 +25,7 @@
 // browser can explain what to fix.
 //
 // Deployed with verify_jwt disabled like the other functions; only a signed-in
-// Admissions Office Staff or Head account may call it.
+// Admissions Office Staff or Admin account may call it.
 // Secrets: GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET,
 // GOOGLE_CALENDAR_REFRESH_TOKEN, GOOGLE_CALENDAR_ID (default primary).
 
@@ -95,10 +95,10 @@ Deno.serve(async (req) => {
     payload = {};
   }
 
-  // The Admissions Office (the Head coordinates; Staff only read, but `status` and
+  // The Admissions Office (the Admin coordinates; Staff only read, but `status` and
   // `verify` stay open to them) or a scoped reviewer of this applicant.
   const callerRole = callerProfile?.role;
-  const isOffice = ['admissions_office', 'admissions_head'].includes(callerRole);
+  const isOffice = ['admissions_office', 'admissions_admin'].includes(callerRole);
   let allowed = isOffice;
   if (!allowed && SCOPED_REVIEWER_ROLES.includes(callerRole)) {
     const action = String(payload?.action ?? '');

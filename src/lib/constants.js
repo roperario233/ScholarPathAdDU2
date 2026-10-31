@@ -6,10 +6,10 @@ export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For V
 // Standard Procedure for Scholarship Applications stage sequence (SOP steps 3-8),
 // as the Admissions Office runs it since Consultation 2. Step 2 (Submission) maps
 // to `Submitted`, step 3 (Document Verification) to `For Verification`, the
-// Head's forward to the interviewer (the former step-4 endorsement) to `Endorsed`
+// Admin's forward to the interviewer (the former step-4 endorsement) to `Endorsed`
 // (shown "For Interview"), step 5 (Interview) to `Interview`, the interviewer's
 // recommendation to `Recommended`, the school's approval to `Approved`, and the
-// Head's release to `Released`. `For Endorsement` survives only on rows handed
+// Admin's release to `Released`. `For Endorsement` survives only on rows handed
 // off before the change; sopStageIndex() places it with verification.
 export const sopStages = ['Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
 
@@ -28,31 +28,31 @@ const nextStatusMap = {
 };
 
 // Stage authority follows the process the Admissions Office described at
-// Consultation 2 (Oct 27): the Head verifies every file and forwards the case to
+// Consultation 2 (Oct 27): the Admin verifies every file and forwards the case to
 // the interviewer, an interviewer (or a ladder account in scope that runs the
 // interview itself) schedules and recommends, the school's approving level
-// approves, and the Head does the final check and releases. Staff keep a
+// approves, and the Admin does the final check and releases. Staff keep a
 // read-only office view. App.jsx's changeApplicationStatus guard, the review
 // modal's action bar, and the database trigger
 // (20261050000001_lane_transitions_by_flow_role.sql) all read this one map.
-export const ADMISSIONS_OFFICE_ROLES = ['admissions_office', 'admissions_head'];
+export const ADMISSIONS_OFFICE_ROLES = ['admissions_office', 'admissions_admin'];
 
-// The Head's own decisions: the final check before release (Approved), plus the
+// The Admin's own decisions: the final check before release (Approved), plus the
 // legacy endorsement rows still waiting at For Endorsement.
 export const ADMISSIONS_APPROVAL_STATUSES = ['Approved'];
-export const ADMISSIONS_HEAD_DECISION_STATUSES = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', ...ADMISSIONS_APPROVAL_STATUSES];
+export const ADMISSIONS_ADMIN_DECISION_STATUSES = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', ...ADMISSIONS_APPROVAL_STATUSES];
 
 export const isAdmissionsStaffRole = (role) => role === 'admissions_office';
-export const isAdmissionsHeadRole = (role) => role === 'admissions_head';
+export const isAdmissionsAdminRole = (role) => role === 'admissions_admin';
 export const isAdmissionsReviewerRole = (role) => ADMISSIONS_OFFICE_ROLES.includes(role);
 
 const roleNextStatusMap = {
   // Read-only: Staff are not part of the application process any more.
   admissions_office: {},
-  admissions_head: {
+  admissions_admin: {
     Submitted: ['Under Review', 'For Verification', 'Rejected'],
     'Under Review': ['For Verification', 'Rejected'],
-    // Once every file is Verified the Head forwards the case straight to the
+    // Once every file is Verified the Admin forwards the case straight to the
     // interviewer; the separate endorsement hand-off is retired.
     'For Verification': ['Endorsed', 'Rejected'],
     // Legacy rows handed off before the change can still leave the stage.
@@ -92,7 +92,7 @@ export const getNextApplicationStatuses = (status, role, context = {}) => {
 export const AUTOMATIC_STAGE_STATUSES = ['Under Review'];
 
 // The stages that can still take a case officer. Opening an application in the
-// Admissions Office workspace joins the Head to the case, and joining is the one
+// Admissions Office workspace joins the Admin to the case, and joining is the one
 // status move that can start the review (Submitted -> Under Review). Routing to
 // interviewers is derived from the applicant's scope, so the roster is only the
 // office's own record of who opened a case. Mirrors the status list in
@@ -119,7 +119,7 @@ const stageActionLabels = {
   'Under Review': 'Mark under review',
   'For Verification': 'Continue to verification',
   'For Endorsement': 'Send to endorsement',
-  // The Head forwards a verified case to the interviewers of its scope.
+  // The Admin forwards a verified case to the interviewers of its scope.
   Endorsed: 'Forward to interview',
   Interview: 'Schedule interview',
   Recommended: 'Recommend for approval',
@@ -130,20 +130,20 @@ const stageActionLabels = {
 
 // Scheduling and the recommendation belong to the interviewers of the applicant's
 // scope, and the approval to the school's approving level (Consultation 2). The
-// Head can still make those moves, so the Head's button says it is an override
+// Admin can still make those moves, so the Admin's button says it is an override
 // rather than the usual next step. Authority is unchanged.
-const headOverrideLabels = {
-  Interview: 'Schedule as Head (override)',
-  Recommended: 'Recommend as Head (override)',
-  Approved: 'Approve as Head (override)',
+const adminOverrideLabels = {
+  Interview: 'Schedule as Admin (override)',
+  Recommended: 'Recommend as Admin (override)',
+  Approved: 'Approve as Admin (override)',
 };
 
-export const isHeadOverrideAction = (status, role) => (
-  role === 'admissions_head' && Object.prototype.hasOwnProperty.call(headOverrideLabels, status)
+export const isAdminOverrideAction = (status, role) => (
+  role === 'admissions_admin' && Object.prototype.hasOwnProperty.call(adminOverrideLabels, status)
 );
 
 export const getStageActionLabel = (status, role) => (
-  isHeadOverrideAction(status, role) ? headOverrideLabels[status] : stageActionLabels[status] || status
+  isAdminOverrideAction(status, role) ? adminOverrideLabels[status] : stageActionLabels[status] || status
 );
 
 // The one sentence a student is told when an application is rejected (FORM
@@ -177,7 +177,7 @@ const applicationStatusGuidance = {
 };
 
 // Results reach every applicant of a scholarship at the same time (Consultation
-// 2, #8 and #13): until the Admissions Office Head releases them, an Approved
+// 2, #8 and #13): until the Admissions Office Admin releases them, an Approved
 // application and a Rejected one both read "Under deliberation" on the student's
 // own surfaces, and no notice is sent. A Rejected application is unmasked once a
 // `results_releases` row covers it. This is a display hold: the stored status
@@ -253,14 +253,14 @@ export const pageViewKeys = [
 ];
 
 // The open office queue. Staff read it without acting; `Recommended` waits on the
-// school's approver and `Approved` sits in the Head's release lane.
+// school's approver and `Approved` sits in the Admin's release lane.
 export const ADMISSIONS_REVIEW_EXCLUDED_STATUSES = ['Draft', 'Approved', 'Released', 'Rejected'];
 export const ADMISSIONS_STAFF_EXCLUDED_STATUSES = [...ADMISSIONS_REVIEW_EXCLUDED_STATUSES, 'Recommended'];
 
 // The role-aware "applications to review" count shown on the dashboard.
 //   - Student: their own live applications (not Rejected or Approved).
 //   - Admissions Office Staff: the open office queue, read-only.
-//   - Admissions Office Head: verification, legacy endorsement, and the final
+//   - Admissions Office Admin: verification, legacy endorsement, and the final
 //     check before release.
 //   - Interviewer: the in-scope cases waiting for, or in, the interview.
 //   - Chairperson / Assistant Dean / Dean: the in-scope interview work plus the
@@ -272,8 +272,8 @@ export const countApplicationsToReview = (applications = [], { role, studentId, 
     return list.filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status)).length;
   }
 
-  if (isAdmissionsHeadRole(role)) {
-    return list.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
+  if (isAdmissionsAdminRole(role)) {
+    return list.filter((entry) => ADMISSIONS_ADMIN_DECISION_STATUSES.includes(entry.status)).length;
   }
 
   if (isReviewerRole(role)) {

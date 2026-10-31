@@ -45,7 +45,7 @@ describe('support inbox derivations', () => {
   it('uses the persisted unread count and otherwise derives it from the reader timestamp', () => {
     const messages = [
       { senderRole: 'student', createdAt: '2026-10-29T10:00:00Z' },
-      { senderRole: 'admissions_head', createdAt: '2026-10-29T11:00:00Z' },
+      { senderRole: 'admissions_admin', createdAt: '2026-10-29T11:00:00Z' },
       { senderRole: 'admissions_office', createdAt: '2026-10-29T12:00:00Z' },
     ];
     expect(countUnreadSupportMessages({ studentUnreadCount: 2 }, messages, 'student')).toBe(2);
@@ -73,7 +73,7 @@ describe('support inbox derivations', () => {
     })).toMatchObject({
       studentName: 'A Student', studentProgram: 'BS Biology', studentSchool: 'SON', status: 'Open',
     });
-    expect(describeSupportSender({ senderRole: 'admissions_head' })).toBe('Admissions Office Head');
+    expect(describeSupportSender({ senderRole: 'admissions_admin' })).toBe('Admissions Office Admin');
     expect(describeSupportSender({ senderRole: 'admissions_office' })).toBe('Admissions Office Staff');
     expect(describeSupportSender({ senderRole: 'assistant' })).toBe('ScholarPath Assistant');
   });

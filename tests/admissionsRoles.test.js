@@ -3,7 +3,7 @@ import {
   ADMISSIONS_APPROVAL_STATUSES,
   ADMISSIONS_OFFICE_ROLES,
   getNextApplicationStatuses,
-  isAdmissionsHeadRole,
+  isAdmissionsAdminRole,
   isAdmissionsReviewerRole,
   isAdmissionsStaffRole,
 } from '../src/lib/constants';
@@ -23,18 +23,18 @@ const application = (overrides = {}) => ({
 });
 
 // The Admissions Office is one office with two lanes. Since Consultation 2 the
-// Head verifies, forwards, and releases, and Staff only read. These tests pin the
+// Admin verifies, forwards, and releases, and Staff only read. These tests pin the
 // boundary so a later refactor cannot quietly hand Staff a stage move again.
 describe('Admissions Office lane predicates', () => {
-  it('separates Staff from the Head', () => {
+  it('separates Staff from the Admin', () => {
     expect(isAdmissionsStaffRole('admissions_office')).toBe(true);
-    expect(isAdmissionsStaffRole('admissions_head')).toBe(false);
-    expect(isAdmissionsHeadRole('admissions_head')).toBe(true);
-    expect(isAdmissionsHeadRole('admissions_office')).toBe(false);
+    expect(isAdmissionsStaffRole('admissions_admin')).toBe(false);
+    expect(isAdmissionsAdminRole('admissions_admin')).toBe(true);
+    expect(isAdmissionsAdminRole('admissions_office')).toBe(false);
     expect(isAdmissionsReviewerRole('admissions_office')).toBe(true);
-    expect(isAdmissionsReviewerRole('admissions_head')).toBe(true);
+    expect(isAdmissionsReviewerRole('admissions_admin')).toBe(true);
     expect(isAdmissionsReviewerRole('department_chair')).toBe(false);
-    expect(ADMISSIONS_OFFICE_ROLES).toEqual(['admissions_office', 'admissions_head']);
+    expect(ADMISSIONS_OFFICE_ROLES).toEqual(['admissions_office', 'admissions_admin']);
   });
 });
 
@@ -44,14 +44,14 @@ describe('Admissions Office lane authority', () => {
       .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_office')).toEqual([]));
   });
 
-  it('gives the Head every preparation stage', () => {
+  it('gives the Admin every preparation stage', () => {
     ['Submitted', 'Under Review', 'For Verification', 'Endorsed', 'Interview']
-      .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_head').length).toBeGreaterThan(0));
+      .forEach((status) => expect(getNextApplicationStatuses(status, 'admissions_admin').length).toBeGreaterThan(0));
   });
 
-  it('keeps the Head approval override and gives the Head the final check', () => {
-    expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
-    expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released', 'Rejected']);
+  it('keeps the Admin approval override and gives the Admin the final check', () => {
+    expect(getNextApplicationStatuses('Recommended', 'admissions_admin')).toEqual(['Approved', 'Rejected']);
+    expect(getNextApplicationStatuses('Approved', 'admissions_admin')).toEqual(['Released', 'Rejected']);
     expect(ADMISSIONS_APPROVAL_STATUSES).toEqual(['Approved']);
   });
 });
@@ -65,19 +65,19 @@ describe('Admissions Office lane queues', () => {
     application({ id: 'released', status: 'Released' }),
   ];
 
-  it('keeps the Head decision queue out of the Staff review queue', () => {
+  it('keeps the Admin decision queue out of the Staff review queue', () => {
     expect(getReviewQueue(applications).map((entry) => entry.id)).toEqual(['submitted', 'verification']);
   });
 
-  it('gives the Head the approval queue', () => {
+  it('gives the Admin the approval queue', () => {
     expect(getApprovalQueue(applications).map((entry) => entry.id)).toEqual(['recommended']);
   });
 });
 
 describe('Admissions Office actor labels', () => {
-  it('distinguishes Staff verification from Head approval in the status history', () => {
+  it('distinguishes Staff verification from Admin approval in the status history', () => {
     expect(describeStatusActor({ actorRole: 'admissions_office', actorName: 'Ben Reyes' }, true)).toBe('Ben Reyes');
     expect(describeStatusActor({ actorRole: 'admissions_office', actorName: null }, true)).toBe('Admissions Office Staff');
-    expect(describeStatusActor({ actorRole: 'admissions_head', actorName: null }, true)).toBe('Admissions Office Head');
+    expect(describeStatusActor({ actorRole: 'admissions_admin', actorName: null }, true)).toBe('Admissions Office Admin');
   });
 });

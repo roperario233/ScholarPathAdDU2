@@ -8,7 +8,7 @@ import { getStandingRequirements } from '../lib/profile';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isReviewerRole } from '../lib/reviewScope';
 import { getInterviewSchedulers } from '../lib/admissionsOffice';
 import { getStageActionLabel } from '../lib/constants';
-import HeadOverrideNotice from './HeadOverrideNotice';
+import AdminOverrideNotice from './AdminOverrideNotice';
 import {
   DEFAULT_INTERVIEW_INSTRUCTIONS,
   INTERVIEW_DURATIONS,
@@ -31,7 +31,7 @@ const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-ap
 const fieldError = 'text-xs text-rose-700 dark:text-rose-200';
 const roleLabels = {
   admissions_office: 'Admissions Office Staff',
-  admissions_head: 'Admissions Office Head',
+  admissions_admin: 'Admissions Office Admin',
   dean: 'Dean',
   assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',
@@ -199,7 +199,7 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
           </div>
           {!activeLocations.length ? (
             <span className="text-xs text-app-muted">
-              {canManageLocations ? 'Add the first location to schedule an on-site interview.' : 'No locations yet. Ask the Admissions Office Head to add one.'}
+              {canManageLocations ? 'Add the first location to schedule an on-site interview.' : 'No locations yet. Ask the Admissions Office Admin to add one.'}
             </span>
           ) : null}
           <label className="grid content-start gap-1">
@@ -579,7 +579,7 @@ function ScheduleHistory({ history, nameById }) {
 }
 
 // Consultation 2: the interviewers of the applicant's school and cluster schedule
-// the interview. The Head keeps an override, so the tab says plainly that using
+// the interview. The Admin keeps an override, so the tab says plainly that using
 // it is stepping in, and names who is expected to do it.
 function ScheduleOverrideNotice({ application, workspace }) {
   const schedulers = getInterviewSchedulers(
@@ -588,11 +588,11 @@ function ScheduleOverrideNotice({ application, workspace }) {
     buildProgramScopeIndex(workspace.academicPrograms || []),
   );
   return (
-    <HeadOverrideNotice>
+    <AdminOverrideNotice>
       {schedulers.length
         ? `The school's interviewers schedule this: ${schedulers.map((person) => `${person.fullName || REVIEW_ROLE_LABELS[person.role]}, ${REVIEW_ROLE_LABELS[person.role]}`).join('; ')}.`
         : 'No interviewer covers this school or cluster yet. Add one on Accounts, or step in here.'}
-    </HeadOverrideNotice>
+    </AdminOverrideNotice>
   );
 }
 
@@ -624,12 +624,12 @@ export default function InterviewPanel({
   const [feedback, setFeedback] = useState(null);
   const [locationsOpen, setLocationsOpen] = useState(false);
 
-  const isOffice = role === 'admissions_office' || role === 'admissions_head';
+  const isOffice = role === 'admissions_office' || role === 'admissions_admin';
   // Consultation 2: the interviewer schedules its own interviews, and a
   // Chairperson, Assistant Dean, or Dean whose scope covers the applicant may run
-  // the interview itself. The Head keeps the office override; Staff only read.
-  const isHead = role === 'admissions_head';
-  const mayCoordinate = workspace.canCoordinate ? Boolean(workspace.canCoordinate(application)) : isHead;
+  // the interview itself. The Admin keeps the office override; Staff only read.
+  const isAdmin = role === 'admissions_admin';
+  const mayCoordinate = workspace.canCoordinate ? Boolean(workspace.canCoordinate(application)) : isAdmin;
   const interview = application.interview || null;
   const structured = isStructuredInterview(interview);
   const panel = (workspace.panelists || []).filter((row) => row.applicationId === application.id && !row.removedAt);
@@ -638,7 +638,7 @@ export default function InterviewPanel({
   const nameById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
   const roleById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']));
   const canCoordinate = mayCoordinate && ['Endorsed', 'Interview'].includes(application.status);
-  const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isHead || isPanelist);
+  const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isAdmin || isPanelist);
   // Repair is a recovery action, so it only appears when Google and the record
   // actually disagree: a cancelled interview whose event survived, a scheduled
   // interview with no event, or an online interview whose event has no link. The
@@ -677,7 +677,7 @@ export default function InterviewPanel({
 
   return (
     <div className="grid gap-4">
-      {isHead && canCoordinate ? <ScheduleOverrideNotice application={application} workspace={workspace} /> : null}
+      {isAdmin && canCoordinate ? <ScheduleOverrideNotice application={application} workspace={workspace} /> : null}
       {feedback ? (
         <p
           className={`m-0 rounded-[14px] border px-3 py-2 text-sm ${feedback.tone === 'error' ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200' : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'}`}

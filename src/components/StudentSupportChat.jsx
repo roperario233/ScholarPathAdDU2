@@ -129,7 +129,7 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
                   {thread?.escalatedAt
                     ? 'The Admissions Office will reply here.'
                     : assistantActive
-                      ? 'The assistant gives general guidance, not eligibility or award decisions. Your conversation is visible to Admissions Office Staff and the Admissions Office Head.'
+                      ? 'The assistant gives general guidance, not eligibility or award decisions. Your conversation is visible to Admissions Office Staff and the Admissions Office Admin.'
                       : humanActive
                         ? 'This conversation is with the Admissions Office. A staff member can reply here.'
                         : 'Automated replies are not available right now. You can leave a message for Admissions Office Staff.'}

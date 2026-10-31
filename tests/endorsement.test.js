@@ -34,14 +34,14 @@ const statusLogFor = (applicationStatus = 'For Endorsement') => [
     toStatus: 'For Endorsement',
     actorRole: 'admissions_office',
     actorName: 'Ben Reyes',
-    reason: 'Sent for endorsement. The Admissions Office Head now decides it.',
+    reason: 'Sent for endorsement. The Admissions Office Admin now decides it.',
     at: '2026-10-01T00:00:00.000Z',
   },
   ...(applicationStatus === 'Endorsed'
     ? [{
       id: 'log-endorsed',
       toStatus: 'Endorsed',
-      actorRole: 'admissions_head',
+      actorRole: 'admissions_admin',
       actorName: 'Mia Santos',
       reason: 'Endorsed after central review.',
       at: '2026-10-04T00:00:00.000Z',
@@ -55,7 +55,7 @@ describe('endorsement record and timing', () => {
 
     expect(handoff).toMatchObject({
       actor: 'Ben Reyes',
-      note: 'Sent for endorsement. The Admissions Office Head now decides it.',
+      note: 'Sent for endorsement. The Admissions Office Admin now decides it.',
     });
   });
 
@@ -136,7 +136,7 @@ describe('endorsement queues', () => {
     },
   ];
 
-  it('lists only the cases awaiting the Head decision, oldest hand-off first', () => {
+  it('lists only the cases awaiting the Admin decision, oldest hand-off first', () => {
     const queue = getEndorsementQueue([
       application({ id: 'later', statusLog: handoffLog('2026-10-05T00:00:00.000Z') }),
       application({ id: 'earlier', statusLog: handoffLog('2026-10-01T00:00:00.000Z') }),
@@ -168,7 +168,7 @@ describe('endorsement queues', () => {
         {
           id: `log-endorsed-${id}`,
           toStatus: 'Endorsed',
-          actorRole: 'admissions_head',
+          actorRole: 'admissions_admin',
           actorName: 'Mia Santos',
           reason: 'Endorsed after central review.',
           at,

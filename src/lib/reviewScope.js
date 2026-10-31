@@ -139,7 +139,7 @@ export const getScopedQueue = (applications = [], profile = {}, programs = []) =
 // reviewer, the Dean of its school the least.
 export const getPanelCandidateLevel = (staffEntry = {}, application = {}, programIndex = new Map()) => {
   const role = staffEntry.role || '';
-  if (role === 'admissions_office' || role === 'admissions_head') return 'office';
+  if (role === 'admissions_office' || role === 'admissions_admin') return 'office';
   if (!isReviewerRole(role)) return null;
   const scope = getReviewerScope(staffEntry);
   if (!isApplicationInReviewerScope(application, scope, programIndex)) return null;

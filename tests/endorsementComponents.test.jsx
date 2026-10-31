@@ -66,12 +66,12 @@ describe('EndorsementCasePanel', () => {
     expect(html).not.toContain('Endorsement checklist');
   });
 
-  it('points the Head at the action bar instead of rendering the forward button', () => {
+  it('points the Admin at the action bar instead of rendering the forward button', () => {
     const html = renderToStaticMarkup(
       <EndorsementCasePanel
         application={application({ status: 'For Verification', statusLog: [] })}
         documents={documents}
-        role="admissions_head"
+        role="admissions_admin"
       />,
     );
 
@@ -115,13 +115,13 @@ describe('EndorsementCasePanel', () => {
 });
 
 describe('ApplicationReviewModal endorsement tab', () => {
-  it('opens the Endorsement tab with the simplified record and thread for the Head', () => {
+  it('opens the Endorsement tab with the simplified record and thread for the Admin', () => {
     const html = renderToStaticMarkup(
       <ApplicationReviewModal
         application={application()}
         scholarship={scholarship}
         documents={documents}
-        role="admissions_head"
+        role="admissions_admin"
         initialTab="endorsement"
         onClose={() => undefined}
         onStatusChange={() => ({ ok: true })}
@@ -142,7 +142,7 @@ describe('ApplicationReviewModal endorsement tab', () => {
     expect(html).toContain('Forwarding record');
     expect(html).toContain('All attached files are verified.');
     expect(html).not.toContain('Endorsement checklist');
-    // One action surface only: the Head's forward button renders once.
+    // One action surface only: the Admin's forward button renders once.
     expect(buttonLabels(html).filter((label) => label === 'Forward to interview')).toHaveLength(1);
   });
 
@@ -162,9 +162,9 @@ describe('ApplicationReviewModal endorsement tab', () => {
 
     expect(html).toContain('id="review-tab-endorsement"');
     expect(buttonLabels(html).filter((label) => label === 'Forward to interview')).toHaveLength(0);
-    // The forward to interview is the Head's, so the Chair is told who holds it
+    // The forward to interview is the Admin's, so the Chair is told who holds it
     // rather than offered a button.
-    expect(html).toContain('The Admissions Office Head verifies the documents before the interview.');
+    expect(html).toContain('The Admissions Office Admin verifies the documents before the interview.');
   });
 
   it('keeps the Endorsement tab hidden until the case reaches endorsement', () => {

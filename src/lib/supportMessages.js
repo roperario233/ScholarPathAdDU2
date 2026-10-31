@@ -23,8 +23,8 @@ export const isTawkSupportChannel = (env = import.meta.env) => (
 );
 
 export const sortSupportThreads = (threads = []) => [...threads].sort((a, b) => {
-  const aEscalated = Boolean(a.escalatedAt && !['admissions_office', 'admissions_head'].includes(a.lastMessageBy));
-  const bEscalated = Boolean(b.escalatedAt && !['admissions_office', 'admissions_head'].includes(b.lastMessageBy));
+  const aEscalated = Boolean(a.escalatedAt && !['admissions_office', 'admissions_admin'].includes(a.lastMessageBy));
+  const bEscalated = Boolean(b.escalatedAt && !['admissions_office', 'admissions_admin'].includes(b.lastMessageBy));
   if (aEscalated !== bEscalated) return aEscalated ? -1 : 1;
   const aTime = Date.parse(a.lastMessageAt || a.createdAt || 0) || 0;
   const bTime = Date.parse(b.lastMessageAt || b.createdAt || 0) || 0;
@@ -53,7 +53,7 @@ export const getSupportUnreadTotal = (threads = [], viewer = 'student', messages
 export const describeSupportSender = (message, studentName = '') => {
   if (message?.senderRole === 'student') return studentName || 'You';
   if (message?.senderRole === 'assistant') return 'ScholarPath Assistant';
-  if (message?.senderRole === 'admissions_head') return 'Admissions Office Head';
+  if (message?.senderRole === 'admissions_admin') return 'Admissions Office Admin';
   if (message?.senderRole === 'admissions_office') return 'Admissions Office Staff';
   return 'Support';
 };
@@ -69,7 +69,7 @@ export const buildSupportThreadSummary = (thread, student = {}) => ({
   lastMessageBy: thread.lastMessageBy || '',
   unreadCount: Number(thread.unreadCount || 0),
   escalatedAt: thread.escalatedAt || null,
-  awaitingAgent: Boolean(thread.escalatedAt && !['admissions_office', 'admissions_head'].includes(thread.lastMessageBy)),
+  awaitingAgent: Boolean(thread.escalatedAt && !['admissions_office', 'admissions_admin'].includes(thread.lastMessageBy)),
 });
 
 export const normalizeSupportMessageBody = (value) => String(value || '').trim().slice(0, SUPPORT_MESSAGE_MAX_LENGTH);

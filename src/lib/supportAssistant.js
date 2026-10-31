@@ -139,8 +139,8 @@ export const replyFor = ({ message, context = {} } = {}) => {
 export const shouldAssistantReply = ({ thread, messages = [], replyingToId = '', assistantEnabled = true } = {}) => {
   if (!assistantEnabled || thread?.assistantEnabled === false) return false;
   if (thread?.escalatedAt) return false;
-  if (thread?.lastMessageBy === 'admissions_office' || thread?.lastMessageBy === 'admissions_head') return false;
-  if (messages.some((message) => ['admissions_office', 'admissions_head'].includes(message.senderRole))) return false;
+  if (thread?.lastMessageBy === 'admissions_office' || thread?.lastMessageBy === 'admissions_admin') return false;
+  if (messages.some((message) => ['admissions_office', 'admissions_admin'].includes(message.senderRole))) return false;
   if (!replyingToId) return true;
   return !messages.some((message) => message.senderRole === 'assistant' && message.replyingToId === replyingToId);
 };

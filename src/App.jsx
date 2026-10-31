@@ -7,7 +7,7 @@ import { mergeWorkspaceRefresh, WORKSPACE_REFRESH_INTERVAL_MS } from './lib/work
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
-import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsHeadRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
+import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
 import { getUpcomingInterviews } from './lib/interviewRoster';
@@ -61,7 +61,7 @@ const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT
 const roleLabels = {
   student: 'Student',
   admissions_office: 'Admissions Office Staff',
-  admissions_head: 'Admissions Office Head',
+  admissions_admin: 'Admissions Office Admin',
   // The academic reviewer ladder: Dean (school), Assistant Dean (cluster), and
   // Chairperson (department). The level configured for a school approves; any of
   // them in scope may also run an interview.
@@ -133,11 +133,11 @@ const identitySubtitle = (name, ...parts) => {
 };
 
 // The Admissions Office is two lanes: `admissions_office` (Staff) prepares a
-// case and `admissions_head` decides it. The retired `osa_admin` value and any
+// case and `admissions_admin` decides it. The retired `osa_admin` value and any
 // unknown value resolve to the staff lane / student respectively.
 const normalizeRole = (role) => {
   if (role === 'osa_admin') return 'admissions_office';
-  return ['student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'].includes(role) ? role : 'student';
+  return ['student', 'admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer'].includes(role) ? role : 'student';
 };
 
 // Both Admissions Office lanes land on the office Dashboard (the `admin` route).
@@ -463,7 +463,7 @@ function App() {
     if (!SUPPORT_INBOX_CHANNEL_ENABLED || !isSupabaseWorkspaceLoaded || !state.isAuthenticated || !state.authUser?.id) {
       return undefined;
     }
-    const office = state.viewerRole === 'admissions_office' || state.viewerRole === 'admissions_head';
+    const office = state.viewerRole === 'admissions_office' || state.viewerRole === 'admissions_admin';
     if (!office && state.viewerRole !== 'student') return undefined;
     let active = true;
     let refreshing = false;
@@ -1247,11 +1247,11 @@ function App() {
     const applications = state.applications || [];
     const unread = { key: 'unread', label: 'Unread alerts', value: unreadNotifications.length };
     if (isAdmissionsReviewerRole(role)) {
-      const isHead = isAdmissionsHeadRole(role);
+      const isAdmin = isAdmissionsAdminRole(role);
       return [
         { key: 'intake', label: 'Intake pool', value: getIntakePool(applications, state.caseOfficers).length },
         { key: 'verify', label: 'Files to verify', value: getDocumentsAwaitingReview(applications, state.documents).length },
-        isHead
+        isAdmin
           ? { key: 'release', label: 'Final check', value: getReleaseQueue(applications).approved.length }
           : { key: 'interviews', label: 'Interviews', value: getUpcomingInterviews(applications).length },
       ];
@@ -1866,7 +1866,7 @@ function App() {
     if (status === 'Rejected'
       && application.status === 'Interview'
       && application.interview?.calendar?.eventId
-      && (isAdmissionsHeadRole(state.viewerRole) || isReviewerRole(state.viewerRole))) {
+      && (isAdmissionsAdminRole(state.viewerRole) || isReviewerRole(state.viewerRole))) {
       invokeSupabaseInterviewEvent({
         action: 'cancel',
         applicationId,
@@ -1915,8 +1915,8 @@ function App() {
   // (Submitted -> Under Review), so the student notification fires from here.
   const joinCaseReview = async (applicationId) => {
     // Staff keep a read-only view: opening a case records nothing and starts no
-    // review. The Head opens a case into review.
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
+    // review. The Admin opens a case into review.
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
       return { ok: true, joined: false };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
@@ -2006,12 +2006,12 @@ function App() {
   };
 
 
-  // The Head forwards a verified case to the interviewers of the applicant's
+  // The Admin forwards a verified case to the interviewers of the applicant's
   // school (the former SOP step-4 endorsement, now part of verification). A legacy
   // row still waiting at For Endorsement leaves that stage the same way.
   const endorseApplication = async (applicationId, note = '') => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office Head can forward an application to interview.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can forward an application to interview.' };
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || !['For Verification', 'For Endorsement'].includes(application.status)) {
@@ -2024,7 +2024,7 @@ function App() {
       return { error: 'Every attached document must be Verified before endorsement.' };
     }
     const record = {
-      reviewedBy: currentProfile.fullName || 'Admissions Office Head',
+      reviewedBy: currentProfile.fullName || 'Admissions Office Admin',
       decision: 'Endorsed',
       note: note || "Documents verified. Forwarded to the interviewers of the applicant's school.",
       decidedAt: new Date().toISOString().slice(0, 10),
@@ -2073,7 +2073,7 @@ function App() {
   };
 
   // SOP step 5 — Interview of applicants. The Admissions Office (Staff and
-  // Head) coordinates the interview: mode, location, time, meeting link,
+  // Admin) coordinates the interview: mode, location, time, meeting link,
   // reschedules, and the Endorsed → Interview → Recommended moves. SOP 5a draws
   // the panel from the school where the applicant's program belongs, so the
   // panel is the applicant's Department Chair(s) plus typed faculty guests, and a
@@ -2084,7 +2084,7 @@ function App() {
     row.applicationId === applicationId && !row.removedAt && row.profileId && row.profileId === currentProfile.id
   ));
   // Consultation 2: an interviewer schedules its own interviews, and a ladder
-  // account in scope may run the interview itself in a small program. The Head
+  // account in scope may run the interview itself in a small program. The Admin
   // keeps the office override; Staff only read.
   const reviewerProfile = { ...currentProfile, role: state.viewerRole };
   const isInViewerScope = (application) => (
@@ -2092,7 +2092,7 @@ function App() {
     && getScopedQueue([application], reviewerProfile, activeAcademicPrograms).length > 0
   );
   const canCoordinateInterview = (application) => Boolean(application)
-    && (isAdmissionsHeadRole(state.viewerRole) || isInViewerScope(application));
+    && (isAdmissionsAdminRole(state.viewerRole) || isInViewerScope(application));
   // The case facts a scoped reviewer's stage moves depend on (constants.js
   // getNextApplicationStatuses): only a panel member recommends, and only the
   // level configured for the applicant's school approves.
@@ -2202,7 +2202,7 @@ function App() {
   const scheduleInterview = async (applicationId, draft) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!canCoordinateInterview(application)) {
-      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Head, can schedule this interview.' };
+      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Admin, can schedule this interview.' };
     }
     if (!application || application.status !== 'Endorsed') {
       return { error: 'This application is not awaiting an interview.' };
@@ -2232,7 +2232,7 @@ function App() {
   const rescheduleInterview = async (applicationId, draft, reason = '') => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!canCoordinateInterview(application)) {
-      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Head, can reschedule this interview.' };
+      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Admin, can reschedule this interview.' };
     }
     if (!application || application.status !== 'Interview' || !isStructuredInterview(application.interview)) {
       return { error: 'This interview cannot be rescheduled.' };
@@ -2288,7 +2288,7 @@ function App() {
   const cancelInterview = async (applicationId, reason = '') => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!canCoordinateInterview(application)) {
-      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Head, can cancel this interview.' };
+      return { error: 'Only an interviewer whose scope covers this applicant, or the Admissions Office Admin, can cancel this interview.' };
     }
     if (!application || application.status !== 'Interview' || !isStructuredInterview(application.interview)
       || !['scheduled', 'no_show'].includes(application.interview.state)) {
@@ -2309,7 +2309,7 @@ function App() {
   const resyncInterviewCalendar = async (applicationId) => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!canCoordinateInterview(application)) {
-      return { error: 'Only the interviewer of this applicant or the Admissions Office Head can repair a calendar event.' };
+      return { error: 'Only the interviewer of this applicant or the Admissions Office Admin can repair a calendar event.' };
     }
     if (!application || !isStructuredInterview(application.interview)) {
       return { error: 'This application has no interview schedule to repair.' };
@@ -2361,9 +2361,9 @@ function App() {
   };
 
   const addInterviewNote = async (applicationId, { body, recommendationLevel = null, rating = null } = {}) => {
-    const allowed = isAdmissionsHeadRole(state.viewerRole)
+    const allowed = isAdmissionsAdminRole(state.viewerRole)
       || (isReviewerRole(state.viewerRole) && isPanelistOn(applicationId));
-    if (!allowed) return { error: 'Only the interview panel or the Admissions Office Head can add an evaluation note.' };
+    if (!allowed) return { error: 'Only the interview panel or the Admissions Office Admin can add an evaluation note.' };
     const trimmed = String(body || '').trim();
     if (!trimmed) return { error: 'Write the evaluation note first.' };
     if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
@@ -2395,10 +2395,10 @@ function App() {
     return { ok: true };
   };
 
-  // Venues for on-site interviews are managed by the Admissions Office Head.
+  // Venues for on-site interviews are managed by the Admissions Office Admin.
   const saveInterviewLocation = async (location) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office Head can manage interview locations.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can manage interview locations.' };
     }
     if (!String(location?.name || '').trim()) return { error: 'Enter the location name.' };
     if (!isSupabaseWorkspaceLoaded) {
@@ -2442,9 +2442,9 @@ function App() {
     onReschedule: rescheduleInterview,
     onCancel: cancelInterview,
     onAddNote: addInterviewNote,
-    onSaveLocation: isAdmissionsHeadRole(state.viewerRole) ? saveInterviewLocation : undefined,
+    onSaveLocation: isAdmissionsAdminRole(state.viewerRole) ? saveInterviewLocation : undefined,
     // Who may schedule this applicant's interview (an interviewer or ladder
-    // account in scope, or the Head), and the case facts the action bar reads.
+    // account in scope, or the Admin), and the case facts the action bar reads.
     canCoordinate: canCoordinateInterview,
     stageContextFor,
     approvalLevels: state.approvalLevels || [],
@@ -2466,14 +2466,14 @@ function App() {
       return { error: 'This application is not awaiting a recommendation.' };
     }
     if (!getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application)).includes('Recommended')) {
-      return { error: 'Only a member of this interview panel, or the Admissions Office Head, can record the recommendation.' };
+      return { error: 'Only a member of this interview panel, or the Admissions Office Admin, can record the recommendation.' };
     }
     // An interviewer's recommendation carries one of the five recommendation
     // levels (Consultation 2, #7), recorded with an evaluation note first.
     const panelRecommendation = getLatestPanelRecommendation(
       (state.interviewNotes || []).filter((entry) => entry.applicationId === applicationId),
     );
-    if (!isAdmissionsHeadRole(state.viewerRole) && !panelRecommendation) {
+    if (!isAdmissionsAdminRole(state.viewerRole) && !panelRecommendation) {
       return { error: 'Record a recommendation level with an evaluation note in the Interview tab first.' };
     }
     let base = application;
@@ -2491,7 +2491,7 @@ function App() {
     const nextStatus = decision === 'Approved' ? 'Approved' : decision === 'Rejected' ? 'Rejected' : 'Recommended';
     const actorLabel = roleLabels[state.viewerRole] || 'Reviewer';
     const record = {
-      decidedBy: isAdmissionsHeadRole(state.viewerRole)
+      decidedBy: isAdmissionsAdminRole(state.viewerRole)
         ? 'School Scholarship Sub-committee'
         : `${currentProfile.fullName || actorLabel} (${actorLabel})`,
       decision: nextStatus === 'Recommended' ? 'Recommended' : nextStatus,
@@ -2512,7 +2512,7 @@ function App() {
 
   // SOP step 7 — the school's approving level (approval_levels: a Dean, an
   // Assistant Dean, or a Chairperson, defaulting to the Chairperson) approves the
-  // interviewer's recommendation. The Head keeps an override.
+  // interviewer's recommendation. The Admin keeps an override.
   const approveApplication = (applicationId, note = '') => {
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Recommended') {
@@ -2527,10 +2527,10 @@ function App() {
     });
   };
 
-  // SOP step 8 — the Head releases the approved result to the applicant.
+  // SOP step 8 — the Admin releases the approved result to the applicant.
   const releaseApplicationResults = (applicationId) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return Promise.resolve({ error: 'Only the Admissions Office Head can release results.' });
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return Promise.resolve({ error: 'Only the Admissions Office Admin can release results.' });
     }
     const application = state.applications.find((entry) => entry.id === applicationId);
     if (!application || application.status !== 'Approved') {
@@ -2551,15 +2551,15 @@ function App() {
   };
 
   // Results reach every applicant of a scholarship at the same time (Consultation
-  // 2, #8 and #13). After the Head's final check, the remaining approved cases
+  // 2, #8 and #13). After the Admin's final check, the remaining approved cases
   // are released one by one (each Released notice goes out as usual), then the
   // release is recorded with the number of applicants and the number accepted.
   // Recording it unmasks the held Rejected results and sends their general
   // letter: the results_releases insert trigger is the primary sender and this
   // browser call the retry.
   const releaseScholarshipResults = async (scholarshipId) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office Head can release results.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can release results.' };
     }
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the results could not be released.' };
@@ -2582,10 +2582,10 @@ function App() {
   };
 
   // SOP step 7 routing: which ladder level approves for a school or cluster.
-  // Managed by the Head; an unset scope defaults to the Chairperson.
+  // Managed by the Admin; an unset scope defaults to the Chairperson.
   const saveApprovalLevel = async (level) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office Head can change the approving levels.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can change the approving levels.' };
     }
     const school = String(level?.school || '').trim();
     const cluster = String(level?.cluster || '').trim();
@@ -2618,8 +2618,8 @@ function App() {
   };
 
   const deleteApprovalLevel = async (levelId) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { error: 'Only the Admissions Office Head can change the approving levels.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can change the approving levels.' };
     }
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the approving level could not be removed.' };
@@ -2645,10 +2645,10 @@ function App() {
   // notify-document-verification, which the database trigger calls; the browser
   // call below is a retry for the idempotent channels.
   const changeDocumentStatus = async (documentId, verificationStatus, rejectionReason = '') => {
-    // Reviewing a vault file belongs to the Admissions Office Head (Consultation
+    // Reviewing a vault file belongs to the Admissions Office Admin (Consultation
     // 2): Staff and the interviewers read the files but never decide them.
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      const message = 'Only the Admissions Office Head can verify a document or revert it for resubmission.';
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      const message = 'Only the Admissions Office Admin can verify a document or revert it for resubmission.';
       window.alert(message);
       return { error: message };
     }
@@ -2825,7 +2825,7 @@ function App() {
 
   const addAnnouncement = (event) => {
     event.preventDefault();
-    if (!isAdmissionsHeadRole(state.viewerRole)) return;
+    if (!isAdmissionsAdminRole(state.viewerRole)) return;
     const formData = new FormData(event.currentTarget);
     const title = String(formData.get('announcementTitle') || '').trim();
     const body = String(formData.get('announcementBody') || '').trim();
@@ -2852,12 +2852,12 @@ function App() {
 
   // Office planning entries on the office calendar (verification windows, release
   // target dates, internal meetings). They are dates only: they do not create
-  // notifications or deliveries. The Head publishes and removes them; both office
+  // notifications or deliveries. The Admin publishes and removes them; both office
   // lanes and Department Chairs read them, and a student session never loads the
   // slice, so there is nothing to filter on the student side.
   const addOfficeCalendarEntry = async ({ title, entryDate, kind, notes } = {}) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { ok: false, error: 'Only the Admissions Office Head can add office calendar entries.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { ok: false, error: 'Only the Admissions Office Admin can add office calendar entries.' };
     }
     const cleanTitle = String(title || '').trim();
     if (!cleanTitle || !entryDate) {
@@ -2881,7 +2881,7 @@ function App() {
     const { error } = await createSupabaseOfficeCalendarEntry({ ...entry, createdBy: state.authUser?.id });
     if (error) {
       // Drop the optimistic row so the calendar never shows an entry the database
-      // refused (for example when the caller is not the Head lane).
+      // refused (for example when the caller is not the Admin lane).
       setState((previous) => ({
         ...previous,
         officeCalendarEntries: (previous.officeCalendarEntries || []).filter((item) => item.id !== entry.id),
@@ -2892,8 +2892,8 @@ function App() {
   };
 
   const deleteOfficeCalendarEntry = async (entryId) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      return { ok: false, error: 'Only the Admissions Office Head can remove office calendar entries.' };
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { ok: false, error: 'Only the Admissions Office Admin can remove office calendar entries.' };
     }
     const previousEntry = (state.officeCalendarEntries || []).find((item) => item.id === entryId);
     if (!previousEntry) {
@@ -2915,8 +2915,8 @@ function App() {
   };
 
   const saveScholarship = async (scholarship) => {
-    if (!isAdmissionsHeadRole(state.viewerRole)) {
-      window.alert('Only the Admissions Office Head can publish catalog entries.');
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      window.alert('Only the Admissions Office Admin can publish catalog entries.');
       return false;
     }
     if (!isAdduInternalProgram(scholarship)) {
@@ -3169,23 +3169,23 @@ function App() {
     .filter((entry) => entry.status !== 'Draft');
 
   // The Admissions Office workspace is split into one route per function. Both
-  // lanes read the Dashboard and the review queue; only the Head manages the
+  // lanes read the Dashboard and the review queue; only the Admin manages the
   // catalog, announcements, and the approval/release decisions.
-  const isAdmissionsHead = isAdmissionsHeadRole(state.viewerRole);
+  const isAdmissionsAdmin = isAdmissionsAdminRole(state.viewerRole);
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Dashboard', visible: true },
       { view: 'admin-intake', label: 'Intake pool', visible: true },
       // Staff keep a read-only office view; the personal review queue is the
-      // Head's, because only the Head opens a case into review.
-      { view: 'admin-review', label: 'Review queue', visible: isAdmissionsHead },
+      // Admin's, because only the Admin opens a case into review.
+      { view: 'admin-review', label: 'Review queue', visible: isAdmissionsAdmin },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
       { view: 'admin-support', label: 'Support inbox', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
-      { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsHead },
-      { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsHead },
-      { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsHead },
-      { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsHead },
+      { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsAdmin },
+      { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsAdmin },
+      { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsAdmin },
+      { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsAdmin },
     ]
     : [];
 
@@ -3194,7 +3194,7 @@ function App() {
   // Dashboard. Staff keep "My Profile" at the end of their list.
   const profilePageLabel = state.viewerRole === 'student' ? 'Application Form' : 'My Profile';
 
-  // Dashboard belongs to the student only: each staff, head, and Chair role has
+  // Dashboard belongs to the student only: each staff, Admin, and Chair role has
   // its own landing workspace (the office Dashboard, or Department Review).
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: state.viewerRole === 'student' },
@@ -3518,8 +3518,8 @@ function App() {
               onReleaseResults={releaseApplicationResults}
               onChangeDocument={changeDocumentStatus}
               officeCalendarEntries={state.officeCalendarEntries || []}
-              onAddOfficeEntry={isAdmissionsHeadRole(state.viewerRole) ? addOfficeCalendarEntry : undefined}
-              onDeleteOfficeEntry={isAdmissionsHeadRole(state.viewerRole) ? deleteOfficeCalendarEntry : undefined}
+              onAddOfficeEntry={isAdmissionsAdminRole(state.viewerRole) ? addOfficeCalendarEntry : undefined}
+              onDeleteOfficeEntry={isAdmissionsAdminRole(state.viewerRole) ? deleteOfficeCalendarEntry : undefined}
             />
           )}
 
@@ -3548,7 +3548,7 @@ function App() {
             />
           )}
 
-          {isAdmissionsHead && state.activeView === 'admin-catalog' && (
+          {isAdmissionsAdmin && state.activeView === 'admin-catalog' && (
             <AdminScholarshipCatalogPage
               scholarships={state.scholarships || []}
               onSaveScholarship={saveScholarship}
@@ -3560,7 +3560,7 @@ function App() {
             />
           )}
 
-          {isAdmissionsHead && state.activeView === 'admin-release' && (
+          {isAdmissionsAdmin && state.activeView === 'admin-release' && (
             <AdminResultsReleasePage
               applications={state.applications}
               documents={state.documents}
@@ -3577,14 +3577,14 @@ function App() {
             />
           )}
 
-          {isAdmissionsHead && state.activeView === 'admin-accounts' && (
+          {isAdmissionsAdmin && state.activeView === 'admin-accounts' && (
             <AdminAccountsPage
               academicPrograms={activeAcademicPrograms}
               currentUserId={state.authUser?.id || ''}
             />
           )}
 
-          {isAdmissionsHead && state.activeView === 'admin-announcements' && (
+          {isAdmissionsAdmin && state.activeView === 'admin-announcements' && (
             <AdminAnnouncementsPage
               announcements={state.announcements}
               onCreateAnnouncement={addAnnouncement}

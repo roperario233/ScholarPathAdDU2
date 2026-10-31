@@ -16,7 +16,7 @@ import {
   groupInterviewsByDate,
 } from '../../lib/interviewRoster';
 import { getInterviewSchedulers } from '../../lib/admissionsOffice';
-import { isAdmissionsHeadRole } from '../../lib/constants';
+import { isAdmissionsAdminRole } from '../../lib/constants';
 import { findRosterConflicts, formatInterviewDateShort } from '../../lib/interview';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getReviewScopeLabel } from '../../lib/reviewScope';
 import { plural } from '../../lib/formatters';
@@ -39,9 +39,9 @@ const describeOtherCategories = (others = [], counts = {}) => (
 );
 
 // The interviewers of the applicant's school and cluster schedule the interview
-// (Consultation 2); the Head can step in, but it is flagged as an override rather
+// (Consultation 2); the Admin can step in, but it is flagged as an override rather
 // than the intended flow. Staff read the board without acting.
-function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
+function ScheduleRow({ application, schedulers = [], isAdmin = false, onOpen }) {
   return (
     <article className={getCaseCardClass('warning')}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
@@ -72,12 +72,12 @@ function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
           </ul>
         ) : (
           <p className="m-0 text-sm text-amber-700 dark:text-amber-200">
-            No interviewer covers this school or cluster yet. Add one on Accounts{isHead ? '' : ' (Admissions Office Head)'}.
+            No interviewer covers this school or cluster yet. Add one on Accounts{isAdmin ? '' : ' (Admissions Office Admin)'}.
           </p>
         )}
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-        {isHead ? (
+        {isAdmin ? (
           <p className="m-0 min-w-0 flex-1 text-xs font-semibold text-amber-700 dark:text-amber-200">
             Not the intended flow: the interviewers above schedule this. Step in only if needed.
           </p>
@@ -85,7 +85,7 @@ function ScheduleRow({ application, schedulers = [], isHead = false, onOpen }) {
           <p className="m-0 min-w-0 flex-1 text-xs text-app-muted">Read-only for Admissions Office Staff.</p>
         )}
         <Button type="button" onClick={() => onOpen(application.id)}>
-          {isHead ? 'Schedule as Head (override)' : 'View case'}
+          {isAdmin ? 'Schedule as Admin (override)' : 'View case'}
         </Button>
       </div>
     </article>
@@ -116,7 +116,7 @@ export default function AdminInterviews({
   onLeaveCase,
 }) {
   const now = new Date();
-  const isHead = isAdmissionsHeadRole(role);
+  const isAdmin = isAdmissionsAdminRole(role);
   const staffDirectory = useMemo(() => interviewWorkspace?.staffDirectory || [], [interviewWorkspace?.staffDirectory]);
   const programIndex = useMemo(
     () => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []),
@@ -160,7 +160,7 @@ export default function AdminInterviews({
     <div className="grid content-start gap-5 self-start">
       <AdminPageHeader
         title="Interview schedule"
-        description={isHead
+        description={isAdmin
           ? 'Interviews are scheduled by each school’s interviewers. You can step in, but it is not the intended flow.'
           : 'Interviews scheduled by each school, and any panel or room clashes.'}
       >
@@ -213,7 +213,7 @@ export default function AdminInterviews({
                 key={entry.id}
                 application={entry}
                 schedulers={getInterviewSchedulers(entry, staffDirectory, programIndex)}
-                isHead={isHead}
+                isAdmin={isAdmin}
                 onOpen={setSelectedId}
               />
             )) : <EmptyState title="Nothing to schedule" description={describeOtherCategories(otherWithItems, counts)} />

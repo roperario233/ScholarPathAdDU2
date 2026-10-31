@@ -42,7 +42,7 @@ describe('reviewer scope ladder', () => {
     expect(isReviewerRole('department_chair')).toBe(true);
     // The Admissions Office lanes read everything and never scope by level.
     expect(isReviewerRole('admissions_office')).toBe(false);
-    expect(isReviewerRole('admissions_head')).toBe(false);
+    expect(isReviewerRole('admissions_admin')).toBe(false);
     expect(isReviewerRole('student')).toBe(false);
   });
 
@@ -144,7 +144,7 @@ describe('panel candidate levels (SOP 5a)', () => {
     // The SEA Dean is outside this SAS applicant's scope.
     expect(getPanelCandidateLevel(dean, applicant, index)).toBe(null);
     expect(getPanelCandidateLevel({ role: 'admissions_office' }, applicant, index)).toBe('office');
-    expect(getPanelCandidateLevel({ role: 'admissions_head' }, applicant, index)).toBe('office');
+    expect(getPanelCandidateLevel({ role: 'admissions_admin' }, applicant, index)).toBe('office');
   });
 
   it('returns null for a reviewer outside the applicant’s scope', () => {

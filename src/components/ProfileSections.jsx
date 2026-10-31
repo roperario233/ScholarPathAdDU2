@@ -290,12 +290,12 @@ const assignmentNote = {
   department_chair: 'Your department and its degree programs. Managed by the Admissions Office.',
   interviewer: 'The applicants of your assigned school, cluster, or department reach you automatically. Managed by the Admissions Office.',
   admissions_office: 'A read-only view of the office workspace.',
-  admissions_head: 'Document verification, forwarding to interview, the final check, release, catalog, and announcements.',
+  admissions_admin: 'Document verification, forwarding to interview, the final check, release, catalog, and announcements.',
 };
 
 // Both Admissions Office lanes belong to the central office, so the read-only
 // field reads "Office" for either of them.
-const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'admissions_head';
+const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'admissions_admin';
 
 // The year standing decides which answers an application reads, so the
 // overview says which credential the student is matched on.

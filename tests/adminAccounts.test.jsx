@@ -6,7 +6,7 @@ const NOW = new Date('2026-10-29T00:00:00.000Z').getTime();
 const SAS = 'School of Arts and Sciences (SAS)';
 
 const profiles = [
-  { userId: 'head-1', role: 'admissions_head', fullName: 'Head Reyes', email: 'head@example.com' },
+  { userId: 'admin-1', role: 'admissions_admin', fullName: 'Admin Reyes', email: 'admin@example.com' },
   { userId: 'dean-1', role: 'dean', fullName: 'Dean Cruz', email: 'dean@example.com', reviewSchool: SAS },
   { userId: 'chair-1', role: 'department_chair', fullName: 'Chair Lim', email: 'chair@example.com', department: SAS, reviewDepartment: 'Computer Science Department', deactivatedAt: '2026-10-10T00:00:00.000Z' },
 ];
@@ -19,7 +19,7 @@ const log = [
 ];
 
 const render = (props = {}) => renderToStaticMarkup(
-  <AccountsWorkspace profiles={profiles} invitations={invitations} log={log} currentUserId="head-1" now={NOW} {...props} />,
+  <AccountsWorkspace profiles={profiles} invitations={invitations} log={log} currentUserId="admin-1" now={NOW} {...props} />,
 );
 
 describe('AccountsWorkspace', () => {
@@ -31,7 +31,7 @@ describe('AccountsWorkspace', () => {
     expect(html).not.toContain('Send invitation');
     expect(html).toContain('Dean Cruz');
     expect(html).toContain('open@example.com');
-    // Active 2 (Head, Dean) · Invited 1 · Expired 1 · Deactivated 1.
+    // Active 2 (Admin, Dean) · Invited 1 · Expired 1 · Deactivated 1.
     expect(html).toContain('2 active');
   });
 
@@ -45,9 +45,9 @@ describe('AccountsWorkspace', () => {
     expect(html).toContain('Reactivate');
   });
 
-  it('never offers the signed-in Head an action on their own row', () => {
+  it('never offers the signed-in Admin an action on their own row', () => {
     const html = render({ profiles: [profiles[0]], invitations: [] });
-    expect(html).toContain('Head Reyes');
+    expect(html).toContain('Admin Reyes');
     expect(html).not.toContain('>Deactivate</button>');
     expect(html).not.toContain('>Change role or scope</button>');
   });
@@ -75,7 +75,7 @@ describe('AccountsWorkspace', () => {
   it('lists the provisionable roles in the role filter', () => {
     const html = render();
     expect(html).toContain('Admissions Office Staff');
-    expect(html).toContain('Admissions Office Head');
+    expect(html).toContain('Admissions Office Admin');
     expect(html).toContain('Chairperson');
     expect(html).toContain('Interviewer');
   });

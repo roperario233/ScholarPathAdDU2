@@ -20,7 +20,7 @@ questions, uses the loaded catalog and the student's own application records, an
 does not make eligibility or award decisions. A student can choose **Talk to a live agent** at any
 time, and sensitive questions are routed to the Admissions Office. One continuous
 conversation is kept per student. Both Admissions Office Staff and the Admissions
-Office Head can answer from the office **Support inbox**; academic reviewers have
+Office Admin can answer from the office **Support inbox**; academic reviewers have
 no access to conversations. The assistant stops replying after the student requests
 a live agent or an office account replies. The app displays office availability from
 an office-session heartbeat and weekday office hours (Philippine time); availability
@@ -290,27 +290,42 @@ is not a substitute: it hides the files without freeing the space.
 ## Admissions Office workspace
 
 The Admissions Office is one office with two accountability lanes. **Admissions
-Office Staff** (`admissions_office`) prepare a case and **Admissions Office Head**
-(`admissions_head`) has full office authority: the Head can run every Staff stage
+Office Staff** (`admissions_office`) prepare a case and **Admissions Office Admin**
+(`admissions_admin`) has full office authority: the Admin can run every Staff stage
 and also decides endorsement, approval, and release. Both lanes share the overview
-and the review queue; only the Head sees the endorsement, approval/release,
+and the review queue; only the Admin sees the endorsement, approval/release,
 catalog, and announcement pages.
+
+The lane was renamed from **Admissions Office Head** (`admissions_head`) to
+**Admissions Office Admin** (`admissions_admin`) in
+`supabase/migrations/20261055000000_rename_admissions_head_to_admissions_admin.sql`.
+That migration is a pure rename: it moves the stored role value in every column
+that holds it, rewrites the copy the app and its triggers already wrote (timeline
+notes, the endorsement reviewer label, status-log reasons, notification rows),
+renames the `is_admissions_admin()` / `require_admissions_admin()` helpers and the
+policies named after the lane, and rewrites the function bodies that compare the
+role literal. Apply it together with the client build and the redeployed
+`notify-application-status`, `notify-document-verification`,
+`notify-interview-update`, and `manage-interview-event` functions, because they
+all read `profiles.role`; the database refuses the old value once it is applied.
+A browser session saved before the rename is carried over by
+`src/lib/appState.js`.
 
 | Route | Page | Lane | What it covers |
 | --- | --- | --- | --- |
 | `admin` | Overview | Both | Role-scoped metrics, links into each accessible workspace, and the recent application activity feed |
-| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying attached documents or reverting one for resubmission, the hand-off for endorsement (the Head records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
-| `admin-endorsement` | Endorsement | Head | SOP step 4: the cases the Staff handed over that await the endorsement decision, with the hand-off record, document readiness, waiting age against the 5-day target, the case officers who prepared the case, and the recorded-decisions history; each row opens the shared review surface on its Endorsement tab |
-| `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Head manages the saved venues, from the calendar page |
-| `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Head's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Head's venue manager and planning-entry form live here |
-| `admin-release` | Recommendation and results release | Head | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
-| `admin-catalog` | Scholarship catalog | Head | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
-| `admin-announcements` | Announcements | Head | Publishing office updates and reviewing the published list |
+| `admin-review` | Review queue | Both | SOP steps 2–6: starting a review, verifying attached documents or reverting one for resubmission, the hand-off for endorsement (the Admin records the decision), coordinating interviews (panel from the applicant's school, SOP 5a), and the sub-committee recommendation |
+| `admin-endorsement` | Endorsement | Admin | SOP step 4: the cases the Staff handed over that await the endorsement decision, with the hand-off record, document readiness, waiting age against the 5-day target, the case officers who prepared the case, and the recorded-decisions history; each row opens the shared review surface on its Endorsement tab |
+| `admin-interviews` | Interview schedule | Both | SOP step 5 operations: endorsed applicants awaiting a schedule, upcoming interviews grouped by Manila date, and roster-level panelist/room clashes. Scheduling, rescheduling, cancellation, and repair still open the shared review surface; only the Admin manages the saved venues, from the calendar page |
+| `admin-calendar` | Office calendar | Both | One month view of the SOP step-5 interviews, the AdDU scholarship deadlines the office publishes, the decisions the office recorded (endorsement, recommendation, approval, release), and the Admin's office planning entries, with mark-kind filters, a Today jump, and a grouped day agenda; the Admin's venue manager and planning-entry form live here |
+| `admin-release` | Recommendation and results release | Admin | SOP steps 7–8: approving recommendations, releasing approved results, and exporting the accepted list |
+| `admin-catalog` | Scholarship catalog | Admin | Publishing and editing AdDU internal catalog entries and the documents each entry requires; leaving with unsaved input asks before discarding |
+| `admin-announcements` | Announcements | Admin | Publishing office updates and reviewing the published list |
 
 Stage authority is role-scoped: Staff may move an application through
 `Submitted`, `Under Review`, `For Verification`, and `For Endorsement` (the
 hand-off), and on through `Endorsed` → `Interview` → `Recommended`, but cannot
-endorse, approve, or release. The Head can perform all of those Staff moves and
+endorse, approve, or release. The Admin can perform all of those Staff moves and
 also records the endorsement (`For Endorsement` → `Endorsed`) and
 `Recommended → Approved → Released`. The same rule is repeated in the database
 (`enforce_admissions_office_lane_transitions`) and in the role-scoped transition
@@ -331,7 +346,7 @@ office's planning dates; its agenda groups those layers, with the Chair's own
 panel work first. The interviews page lists the Chair's panel work with a link
 into the review modal's Interview tab, where the Chair records evaluation notes.
 Scheduling, rescheduling, and cancellation stay with the Admissions Office, and
-only its Head publishes or removes a planning entry, so the Chair pages never
+only its Admin publishes or removes a planning entry, so the Chair pages never
 offer those controls, and the Department Chair still sees only their own
 department. Attendance is not tracked: an interview is scheduled or cancelled,
 and recording the recommendation closes a live schedule.
@@ -345,10 +360,10 @@ these seeded credentials:
 | Role | Email | Password | Lands on |
 | --- | --- | --- | --- |
 | Admissions Office Staff | `john67.admissions@gmail.com` | `john6767` | Admissions Office overview and review queue |
-| Admissions Office Head | `samantha.headadmissions@gmail.com` | `scholarpath67` | Admissions Office overview, approval/release, catalog, and announcements |
+| Admissions Office Admin | `samantha.headadmissions@gmail.com` | `scholarpath67` | Admissions Office overview, approval/release, catalog, and announcements |
 | Dean (SEA) | `miguel.chair.sea@gmail.com` | `scholarpath67` | School Review and interview panel (every department in the School of Engineering and Architecture) |
 | Admissions Office Staff (earlier seed) | `scholarpath.admissions@gmail.com` | `Admissions@2026` | Admissions Office review queue |
-| Admissions Office Head (earlier seed) | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
+| Admissions Office Admin (earlier seed) | `scholarpath.admissionshead@gmail.com` | `AdmissionsHead@2026` | Admissions Office overview |
 | Assistant Dean (Computer Studies) | `ogs@addu.edu.ph` | — | Cluster Review (the Computer Studies cluster inside the School of Arts and Sciences) |
 | Chairperson (IT & IS Department) | `scholarpath.chair@gmail.com` | `Chair@2026` | Department Review (the Information Technology and Information Systems Department) |
 
@@ -370,7 +385,7 @@ changing only the auth identity leaves delivery pointed at the previous mailbox.
 
 To provision or reset an account, create the auth user with a confirmed
 email address, then set the role and department on the matching `profiles` row.
-The Admissions Office Head shares the Office of Admissions department with the
+The Admissions Office Admin shares the Office of Admissions department with the
 Staff lane; the role value, not the department, decides what the account may do:
 
 ```sql
@@ -379,7 +394,7 @@ set role = 'admissions_office', department = 'Office of Admissions'
 where email = 'john67.admissions@gmail.com';
 
 update public.profiles
-set role = 'admissions_head', department = 'Office of Admissions'
+set role = 'admissions_admin', department = 'Office of Admissions'
 where email = 'samantha.headadmissions@gmail.com';
 
 update public.profiles
@@ -394,7 +409,7 @@ set role = 'admissions_office', department = 'Office of Admissions'
 where email = 'scholarpath.admissions@gmail.com';
 
 update public.profiles
-set role = 'admissions_head', department = 'Office of Admissions'
+set role = 'admissions_admin', department = 'Office of Admissions'
 where email = 'scholarpath.admissionshead@gmail.com';
 
 update public.profiles
@@ -438,7 +453,7 @@ or `department`). `profiles.department` stays the school label for every role, w
 is also what the SOP 5a panel heading and the sidebar show. Sign-in resolves the role
 from `profiles.role` first (`profiles.role` -> `user_metadata.role` -> `student`),
 so a role change only takes effect once this row is updated. The Admissions
-Office Staff and Head routes, and the Department Review view, appear in the
+Office Staff and Admin routes, and the Department Review view, appear in the
 sidebar only for those roles.
 
 

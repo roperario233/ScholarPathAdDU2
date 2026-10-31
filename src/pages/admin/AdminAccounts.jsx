@@ -123,7 +123,7 @@ function RoleScopeFields({ draft, onChange, hierarchy, errors = {}, idPrefix }) 
   );
 }
 
-// The invitation form lives in a dialog the Head opens from the page header, so
+// The invitation form lives in a dialog the Admin opens from the page header, so
 // the account list stays the first thing on the page.
 function InviteAccountDialog({ hierarchy, programs, onInvite, onClose }) {
   const [draft, setDraft] = useState(EMPTY_INVITATION_DRAFT);

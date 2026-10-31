@@ -1,7 +1,7 @@
 import ApplicationCommentThread from './ApplicationCommentThread';
 import { Panel } from './ui';
 import { getDocumentVerificationReadiness } from '../lib/applicationRequirements';
-import { isAdmissionsHeadRole } from '../lib/constants';
+import { isAdmissionsAdminRole } from '../lib/constants';
 import {
   getApplicationComments,
   getEndorsementAgeDays,
@@ -35,9 +35,9 @@ export default function EndorsementCasePanel({
 
   // Whether this role has a decision to take right now. The button itself lives
   // in the action bar; this only points the reviewer at it. Endorsement is the
-  // Admissions Office Head's decision; Staff only hand the case off.
+  // Admissions Office Admin's decision; Staff only hand the case off.
   const canDecide = Boolean(
-    isAdmissionsHeadRole(role) && ['For Verification', 'For Endorsement'].includes(application.status),
+    isAdmissionsAdminRole(role) && ['For Verification', 'For Endorsement'].includes(application.status),
   );
   const decisionHint = 'Forward the application to interview from the action bar below.';
   const blockedReason = documentsReady
@@ -60,7 +60,7 @@ export default function EndorsementCasePanel({
             <p className="m-0 text-sm text-app-muted">
               {application.status === 'For Verification'
                 ? 'Not forwarded to interview yet.'
-                : 'No separate hand-off: the Admissions Office Head forwarded the verified case.'}
+                : 'No separate hand-off: the Admissions Office Admin forwarded the verified case.'}
             </p>
           )}
           {record ? (

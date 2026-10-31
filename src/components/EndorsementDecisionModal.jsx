@@ -15,7 +15,7 @@ export default function EndorsementDecisionModal({
 }) {
   const [note, setNote] = useState('');
   const isHandoff = mode === 'handoff';
-  // Since Consultation 2 the Head's decision is the forward to interview: the
+  // Since Consultation 2 the Admin's decision is the forward to interview: the
   // verified case goes straight to the interviewers of the applicant's school.
   const title = isHandoff ? 'Send for endorsement' : 'Forward to interview';
   const confirmLabel = isHandoff ? 'Send for endorsement' : 'Forward to interview';
@@ -49,7 +49,7 @@ export default function EndorsementDecisionModal({
             maxLength={2000}
             onChange={(event) => setNote(event.target.value)}
             placeholder={isHandoff
-              ? 'Tell the Head what was verified.'
+              ? 'Tell the Admin what was verified.'
               : 'What the interviewer should know about the verified case.'}
           />
         </label>

@@ -1,7 +1,7 @@
 import { describeStatusActor } from './applicationRequirements';
 
 // Endorsement is SOP step 4: the Admissions Office Staff hand a fully verified
-// application to the Admissions Office Head, who records the decision. The
+// application to the Admissions Office Admin, who records the decision. The
 // Department Chair keeps read-only department visibility. The review modal's
 // Endorsement tab only needs the hand-off/decision record, the internal
 // comments, and the timing; stage authority still lives in App.jsx.
@@ -85,7 +85,7 @@ export const getApplicationComments = (reviewComments = [], applicationId) => (
     .sort((left, right) => new Date(left.createdAt || 0) - new Date(right.createdAt || 0))
 );
 
-// --- The Head's SOP step-4 queue ---------------------------------------------
+// --- The Admin's SOP step-4 queue ---------------------------------------------
 // A hand-off is the only way into the endorsement stage, so the queue is ordered
 // by that event (oldest first) rather than by the status-change time. An
 // application that predates the append-only status log falls back to its
@@ -108,14 +108,14 @@ const decisionTime = (application) => eventTime(
 
 const byId = (left, right) => String(left?.id || '').localeCompare(String(right?.id || ''));
 
-// The cases the Admissions Office Staff handed over that still await the Head's
+// The cases the Admissions Office Staff handed over that still await the Admin's
 // decision, first come first served, with a stable tie-break so the list never
 // reshuffles between renders.
 export const getEndorsementQueue = (applications = []) => asList(applications)
   .filter((entry) => entry?.status === 'For Endorsement')
   .sort((left, right) => (handoffTime(left) - handoffTime(right)) || byId(left, right));
 
-// The endorsement trail: cases the Head already decided (SOP step 4 complete),
+// The endorsement trail: cases the Admin already decided (SOP step 4 complete),
 // newest decision first. The recorded note and reviewer live on
 // applications.endorsement, which the Endorsement tab renders read-only.
 export const getEndorsedApplications = (applications = []) => asList(applications)

@@ -90,6 +90,6 @@ describe('deterministic Support assistant', () => {
     expect(shouldAssistantReply({ thread: { escalatedAt: 'now', assistantEnabled: true }, messages: [studentMessage], replyingToId: 'student-msg' })).toBe(false);
     expect(shouldAssistantReply({ thread: { assistantEnabled: false }, messages: [studentMessage], replyingToId: 'student-msg' })).toBe(false);
     expect(shouldAssistantReply({ thread: {}, messages: [studentMessage, { senderRole: 'assistant', replyingToId: 'student-msg' }], replyingToId: 'student-msg' })).toBe(false);
-    expect(shouldAssistantReply({ thread: {}, messages: [studentMessage, { senderRole: 'admissions_head' }], replyingToId: 'student-msg' })).toBe(false);
+    expect(shouldAssistantReply({ thread: {}, messages: [studentMessage, { senderRole: 'admissions_admin' }], replyingToId: 'student-msg' })).toBe(false);
   });
 });

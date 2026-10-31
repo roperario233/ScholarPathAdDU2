@@ -11,18 +11,18 @@
 // the database caller presents the shared REMINDER_CRON_SECRET rather than a
 // JWT (the platform-level JWT check rejects service role keys). Authorization is
 // enforced here instead: the caller must present the cron secret, or be an
-// Admissions Office Staff or Head account, the Department Chair responsible for
+// Admissions Office Staff or Admin account, the Department Chair responsible for
 // the student's department, or the student who owns the application (which
 // covers a self-service submission). A repeated call is idempotent via the
 // source key.
 //
 // Results are held (Consultation 2, #8 and #13): an Approved or Rejected status
-// sends the student nothing. The Admissions Office Head releases a scholarship's
+// sends the student nothing. The Admissions Office Admin releases a scholarship's
 // results in one batch; the accepted applicants hear through the normal
 // Released notice, and the `results-release` mode below sends every covered,
 // non-accepted applicant the general letter with the number of applicants and
 // the number accepted (the results_releases insert trigger is its primary
-// caller, the Head's browser the retry).
+// caller, the Admin's browser the retry).
 //
 // A record is written to notification_email_log keyed by
 // `application-status-<applicationId>-<status>` so a repeated save never
@@ -215,7 +215,7 @@ Deno.serve(async (req) => {
     payload = {};
   }
 
-  // The batch results release: only the database trigger or the Head.
+  // The batch results release: only the database trigger or the Admin.
   if (payload?.mode === 'results-release') {
     const releaseId = String(payload?.releaseId ?? '').trim();
     if (!releaseId) return json({ error: 'releaseId is required' }, 400);
@@ -225,8 +225,8 @@ Deno.serve(async (req) => {
         .select('role')
         .eq('user_id', callerUserId)
         .maybeSingle();
-      if (releaseCaller?.role !== 'admissions_head') {
-        return json({ error: 'Only the Admissions Office Head can release results' }, 403);
+      if (releaseCaller?.role !== 'admissions_admin') {
+        return json({ error: 'Only the Admissions Office Admin can release results' }, 403);
       }
     }
     return sendResultsReleaseLetters({ supabaseAdmin, releaseId, isTrustedDatabaseCaller, env: Deno.env.toObject() });
@@ -266,8 +266,8 @@ Deno.serve(async (req) => {
 
   const callerRole = callerProfile?.role;
   // Both Admissions Office lanes can trigger the retry: Staff write the earlier
-  // stages, the Head writes approval and release.
-  const isAdmissionsOffice = ['admissions_office', 'admissions_head', 'osa_admin'].includes(callerRole);
+  // stages, the Admin writes approval and release.
+  const isAdmissionsOffice = ['admissions_office', 'admissions_admin', 'osa_admin'].includes(callerRole);
   // A scoped reviewer (interviewer or ladder account) whose scope covers the
   // applicant, e.g. the interviewer's browser retrying after a recommendation.
   const isOwningChair = SCOPED_REVIEWER_ROLES.includes(callerRole)
@@ -281,7 +281,7 @@ Deno.serve(async (req) => {
   const status = application.status;
   // The outcome waits for the scholarship's batch release.
   if (HELD_STATUSES.includes(status)) {
-    return json({ ok: true, sent: false, held: true, reason: 'Results are sent when the Admissions Office Head releases them' });
+    return json({ ok: true, sent: false, held: true, reason: 'Results are sent when the Admissions Office Admin releases them' });
   }
   const sourceKey = `application-status-${application.id}-${status}`;
 
@@ -331,8 +331,8 @@ Deno.serve(async (req) => {
     databaseActorRole = logRow?.actor_role ?? null;
   }
 
-  const officeActorLabel = (role) => (role === 'admissions_head'
-    ? 'the Admissions Office Head'
+  const officeActorLabel = (role) => (role === 'admissions_admin'
+    ? 'the Admissions Office Admin'
     : 'the Admissions Office Staff');
   const actorLabel = isOwner
     ? 'your submission'
@@ -340,7 +340,7 @@ Deno.serve(async (req) => {
       ? officeActorLabel(callerRole)
       : isOwningChair
         ? 'your school'
-        : databaseActorRole === 'admissions_office' || databaseActorRole === 'admissions_head'
+        : databaseActorRole === 'admissions_office' || databaseActorRole === 'admissions_admin'
           ? officeActorLabel(databaseActorRole)
           : SCOPED_REVIEWER_ROLES.includes(databaseActorRole)
             ? 'your school'

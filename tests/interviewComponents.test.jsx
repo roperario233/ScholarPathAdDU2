@@ -103,14 +103,14 @@ describe('ApplicationReviewModal default tab', () => {
 });
 
 describe('ApplicationReviewModal Interview tab', () => {
-  it('opens the schedule form for the Admissions Office Head at Endorsed, with the panel limited to the applicant’s school', () => {
-    const html = render({ application: application(), role: 'admissions_head', interviewWorkspace: workspace() });
+  it('opens the schedule form for the Admissions Office Admin at Endorsed, with the panel limited to the applicant’s school', () => {
+    const html = render({ application: application(), role: 'admissions_admin', interviewWorkspace: workspace() });
     expect(html).toContain('id="review-tab-interview"');
-    // The Head's scheduling is an override: no "due" alert, a visible notice, and
+    // The Admin's scheduling is an override: no "due" alert, a visible notice, and
     // an override-labelled button instead of the interviewer's plain one.
     expect(html).not.toContain('Schedule due');
     expect(html).toContain('Interviewer schedules');
-    expect(html).toContain('Head override — not the intended flow');
+    expect(html).toContain('Admin override — not the intended flow');
     expect(html).toContain('Schedule the interview');
     // Plain-language panel rule, with each Chair's school named in the picker.
     expect(html).toContain('Applicants are interviewed by a panel from the school that offers their program — <strong class="text-app-text">School of Engineering and Architecture (SEA)</strong>.');
@@ -120,7 +120,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(html).not.toContain('Carla Lim');
     // The old footer fields are gone; the action bar keeps one Schedule button.
     expect(html).not.toContain('Panel / school');
-    expect(buttonLabels(html).filter((label) => label === 'Schedule as Head (override)')).toHaveLength(1);
+    expect(buttonLabels(html).filter((label) => label === 'Schedule as Admin (override)')).toHaveLength(1);
     expect(buttonLabels(html)).not.toContain('Schedule interview');
   });
 
@@ -131,7 +131,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       initialTab: 'interview',
       interviewWorkspace: workspace({ viewerId: 'interviewer-sea', canCoordinate: () => true }),
     });
-    expect(html).not.toContain('Head override');
+    expect(html).not.toContain('Admin override');
     expect(html).toContain('Schedule due');
   });
 
@@ -140,7 +140,7 @@ describe('ApplicationReviewModal Interview tab', () => {
       application: application({
         profileSnapshot: { version: 2, yearStanding: 'incoming-1st', yearStandingLabel: 'Incoming 1st year', department: SEA },
       }),
-      role: 'admissions_head',
+      role: 'admissions_admin',
       interviewWorkspace: workspace(),
     });
     expect(html).toContain('a panel from the school that offers their first program choice');
@@ -185,9 +185,9 @@ describe('ApplicationReviewModal Interview tab', () => {
   });
 
   it('is not shown before endorsement or without interview data', () => {
-    expect(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_head', interviewWorkspace: workspace() }))
+    expect(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_admin', interviewWorkspace: workspace() }))
       .not.toContain('id="review-tab-interview"');
-    expect(render({ application: application(), role: 'admissions_head' })).not.toContain('id="review-tab-interview"');
+    expect(render({ application: application(), role: 'admissions_admin' })).not.toContain('id="review-tab-interview"');
   });
 
   it('lets a Chair on the panel read the schedule and add notes without attendance controls', () => {
@@ -229,29 +229,29 @@ describe('ApplicationReviewModal Interview tab', () => {
     // and no waiver dialog: App.jsx closes a live schedule as part of the move.
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
-      role: 'admissions_head',
+      role: 'admissions_admin',
       interviewWorkspace: workspace(),
     });
     expect(html).not.toContain('The panel must record the applicant as attended first.');
     expect(html).not.toContain('Outcome due');
-    // The Head's version of the move is an override and says so.
-    const pending = buttonMarkup(html, 'Recommend as Head \\(override\\)');
+    // The Admin's version of the move is an override and says so.
+    const pending = buttonMarkup(html, 'Recommend as Admin \\(override\\)');
     expect(pending).not.toContain('disabled=""');
     expect(pending).not.toContain('title="No interview outcome recorded');
     expect(pending).not.toContain('<svg');
-    expect(html).toContain('Head override — not the intended flow.');
+    expect(html).toContain('Admin override — not the intended flow.');
     expect(html).toContain('The interview panel records the recommendation.');
   });
 
-  it('flags the Head’s approval as an override of the school’s approving level', () => {
+  it('flags the Admin’s approval as an override of the school’s approving level', () => {
     const html = render({
       application: application({ status: 'Recommended', interview: { ...pastInterview, state: 'cancelled', revision: 2, calendar: null } }),
-      role: 'admissions_head',
+      role: 'admissions_admin',
       interviewWorkspace: workspace(),
     });
-    expect(buttonLabels(html)).toContain('Approve as Head (override)');
+    expect(buttonLabels(html)).toContain('Approve as Admin (override)');
     expect(buttonLabels(html)).not.toContain('Approve');
-    expect(html).toContain('Head override — not the intended flow.');
+    expect(html).toContain('Admin override — not the intended flow.');
     // No approval_levels row for the school, so the default approver is named.
     expect(html).toContain('The school&#x27;s Chairperson approves or rejects this.');
   });
@@ -269,7 +269,7 @@ describe('ApplicationReviewModal Interview tab', () => {
           calendar: { provider: 'google', eventId: 'evt-1', htmlLink: '', removedAt: null },
         },
       }),
-      role: 'admissions_head',
+      role: 'admissions_admin',
       initialTab: 'interview',
       interviewWorkspace: workspace({ calendarConfigured: true, onRepairCalendar: () => ({ ok: true }) }),
     });
@@ -284,7 +284,7 @@ describe('ApplicationReviewModal Interview tab', () => {
 describe('ApplicationReviewModal interview recommendation levels', () => {
   const atInterview = () => render({
     application: application({ status: 'Interview', interview: pastInterview }),
-    role: 'admissions_head',
+    role: 'admissions_admin',
     initialTab: 'interview',
     interviewWorkspace: workspace(),
   });
@@ -303,7 +303,7 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
   it('states the panel’s latest recommendation beside the deliberation action', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
-      role: 'admissions_head',
+      role: 'admissions_admin',
       interviewWorkspace: workspace({
         notes: [{
           id: 'n-1',
@@ -347,7 +347,7 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
   it('keeps an earlier note’s rating visible as a legacy record', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
-      role: 'admissions_head',
+      role: 'admissions_admin',
       initialTab: 'interview',
       interviewWorkspace: workspace({
         notes: [{ id: 'n-1', applicationId: 'app-1', authorName: 'Ana Reyes', authorRole: 'department_chair', rating: 4, body: 'Clear goals.', createdAt: '2026-01-05T02:00:00.000Z' }],

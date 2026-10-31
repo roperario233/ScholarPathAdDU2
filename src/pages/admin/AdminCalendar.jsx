@@ -35,7 +35,7 @@ import { getApplicationStatusLabel } from '../../lib/constants';
 import { fmtDate } from '../../lib/formatters';
 
 // SOP step 5 plus the office's own planning: interviews, the in-scope catalog
-// deadlines, the recorded stage decisions, and the Admissions Office Head's
+// deadlines, the recorded stage decisions, and the Admissions Office Admin's
 // planning entries on one month view. Opening an interview or a decision opens
 // the shared review surface; the calendar itself never writes a stage.
 const LEGEND = [
@@ -368,7 +368,7 @@ export default function AdminCalendar({
           title="Office planning entries"
           action={(
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <StatusBadge tone="info">Admissions Office Head</StatusBadge>
+              <StatusBadge tone="info">Admissions Office Admin</StatusBadge>
               <Button type="button" variant="primary" onClick={openEntryDialog}>Add office entry</Button>
             </div>
           )}

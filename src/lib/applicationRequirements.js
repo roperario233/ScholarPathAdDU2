@@ -615,7 +615,7 @@ export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Inter
 export const ENDORSEMENT_BLOCKED_STATUSES = ENDORSEMENT_STAGE_STATUSES;
 
 // SOP step 4 (endorsement) starts when the Admissions Office Staff hand the case
-// to the Head for the endorsement decision. Until `For Endorsement` the stage has
+// to the Admin for the endorsement decision. Until `For Endorsement` the stage has
 // not begun, so the review surface keeps its Endorsement tab hidden instead of
 // restating the action bar; the tab stays readable through the later stages.
 export const areEndorsementRecordsVisible = (status) => ENDORSEMENT_STAGE_STATUSES.includes(status);
@@ -696,7 +696,7 @@ export const isApplicationVerifiedForEndorsement = (application, documents = [])
 // or `system`). Kept here (not in a component) so it is unit-testable.
 const ACTOR_ROLE_LABELS = {
   admissions_office: 'Admissions Office Staff',
-  admissions_head: 'Admissions Office Head',
+  admissions_admin: 'Admissions Office Admin',
   dean: 'Dean',
   assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',

@@ -51,13 +51,13 @@ const other = application({
 });
 
 describe('AdminIntakePool', () => {
-  it('lists only the unclaimed cases by default, with the Head’s pickup action', () => {
+  it('lists only the unclaimed cases by default, with the Admin’s pickup action', () => {
     const html = renderToStaticMarkup(
       <AdminIntakePool
         applications={[application(), other]}
         caseOfficers={[caseOfficer({ applicationId: 'app-2', officerId: 'officer-b', officerName: 'Ben Reyes' })]}
         currentUserId="officer-a"
-        role="admissions_head"
+        role="admissions_admin"
       />,
     );
 
@@ -92,7 +92,7 @@ describe('AdminIntakePool', () => {
       <AdminIntakePool
         applications={[application({ studentProgram: 'BS Computer Science' })]}
         currentUserId="officer-a"
-        role="admissions_head"
+        role="admissions_admin"
         interviewWorkspace={{ staffDirectory, academicPrograms: programs }}
       />,
     );
@@ -103,13 +103,13 @@ describe('AdminIntakePool', () => {
     expect(routed).toContain('Interviewer workload');
   });
 
-  it('keeps taken cases discoverable and reports officer workload to the Head', () => {
+  it('keeps taken cases discoverable and reports officer workload to the Admin', () => {
     const html = renderToStaticMarkup(
       <AdminIntakePool
         applications={[application(), other]}
         caseOfficers={[caseOfficer({ applicationId: 'app-2', officerId: 'officer-b', officerName: 'Ben Reyes' })]}
         currentUserId="officer-a"
-        role="admissions_head"
+        role="admissions_admin"
       />,
     );
 
@@ -164,7 +164,7 @@ describe('ApplicationReviewModal case officers', () => {
       application={application({ status: 'Under Review' })}
       scholarship={scholarship}
       documents={[]}
-      role="admissions_head"
+      role="admissions_admin"
       initialTab="history"
       currentUserId="officer-a"
       onClose={() => undefined}

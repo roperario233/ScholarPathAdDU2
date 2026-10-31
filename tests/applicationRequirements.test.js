@@ -738,14 +738,14 @@ describe('describeStatusActor', () => {
 
   it('falls back to the humanized role for staff when the name cannot be resolved', () => {
     expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office Staff');
-    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: null }), true)).toBe('Admissions Office Head');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_admin', actorName: null }), true)).toBe('Admissions Office Admin');
     expect(describeStatusActor(logRow({ actorRole: 'department_chair', actorName: null }), true)).toBe('Department Chair');
     expect(describeStatusActor(logRow({ actorRole: 'student', actorName: null }), true)).toBe('Student');
   });
 
   it('shows the role (never the name) for a student', () => {
     expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office Staff');
-    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: 'Ada Cruz' }))).toBe('Admissions Office Head');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_admin', actorName: 'Ada Cruz' }))).toBe('Admissions Office Admin');
   });
 
   it('labels an automated move as System', () => {
@@ -780,10 +780,10 @@ describe('describeDocumentDecision', () => {
     expect(describeDocumentDecision(verified)).toBe(`Verified by Admissions Office Staff · ${on}`);
   });
 
-  it('labels the Head lane and a rejection', () => {
-    const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_head', reviewedByName: 'Ada Cruz' };
+  it('labels the Admin lane and a rejection', () => {
+    const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_admin', reviewedByName: 'Ada Cruz' };
     expect(describeDocumentDecision(rejected, { showName: true }))
-      .toBe(`Reverted for resubmission by Ada Cruz · Admissions Office Head · ${on}`);
+      .toBe(`Reverted for resubmission by Ada Cruz · Admissions Office Admin · ${on}`);
   });
 
   it('treats a reset file as awaiting review', () => {

@@ -1,6 +1,6 @@
-// Account provisioning (the Admissions Office Head's Accounts page).
+// Account provisioning (the Admissions Office Admin's Accounts page).
 //
-// The Head invites a staff or reviewer account by email; the database assigns the
+// The Admin invites a staff or reviewer account by email; the database assigns the
 // role when a confirmed account with that address signs in
 // (supabase/migrations/20261051000000_account_provisioning.sql). This module is the
 // browser side of that: which scope fields a role needs, the draft validation that
@@ -11,7 +11,7 @@ import { getReviewScopeLabel, REVIEW_ROLE_LABELS } from './reviewScope';
 
 export const ACCOUNT_ROLE_LABELS = {
   admissions_office: 'Admissions Office Staff',
-  admissions_head: 'Admissions Office Head',
+  admissions_admin: 'Admissions Office Admin',
   ...REVIEW_ROLE_LABELS,
 };
 
@@ -22,7 +22,7 @@ export const INTERVIEWER_SCOPE_LEVELS = [
   { value: 'department', label: 'A department' },
 ];
 
-// The roles the Head can provision, in the order the picker lists them. `levels`
+// The roles the Admin can provision, in the order the picker lists them. `levels`
 // are the hierarchy fields the role needs; the interviewer's depend on its level.
 export const PROVISIONABLE_ROLES = [
   {
@@ -31,8 +31,8 @@ export const PROVISIONABLE_ROLES = [
     summary: 'Read-only view of the intake pool, interviews, and calendar. Does not verify, forward, approve, or release.',
   },
   {
-    value: 'admissions_head',
-    label: ACCOUNT_ROLE_LABELS.admissions_head,
+    value: 'admissions_admin',
+    label: ACCOUNT_ROLE_LABELS.admissions_admin,
     summary: 'Verifies documents, forwards cases to interview, does the final check, releases results, and manages the catalog and accounts.',
   },
   {
@@ -57,7 +57,7 @@ export const PROVISIONABLE_ROLES = [
   },
 ];
 
-export const isOfficeAccountRole = (role) => role === 'admissions_office' || role === 'admissions_head';
+export const isOfficeAccountRole = (role) => role === 'admissions_office' || role === 'admissions_admin';
 
 export const getProvisionableRole = (role) => PROVISIONABLE_ROLES.find((entry) => entry.value === role) || null;
 
@@ -106,7 +106,7 @@ export const EMPTY_INVITATION_DRAFT = {
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 // Mirrors the checks in `invite_account()` / `normalize_provisioned_scope()`, so the
-// Head sees the problem next to the field instead of as a database error.
+// Admin sees the problem next to the field instead of as a database error.
 export const validateInvitationDraft = (draft = {}, programs = []) => {
   const errors = {};
   const email = String(draft.email || '').trim();
@@ -262,7 +262,7 @@ export const filterAccountRows = (rows = [], { query = '', role = '', status = '
   });
 };
 
-// Which actions an account row offers the signed-in Head. The Head cannot change or
+// Which actions an account row offers the signed-in Admin. The Admin cannot change or
 // deactivate their own account (the database refuses it too).
 export const getAccountActions = (row, { currentUserId } = {}) => {
   if (row.kind === 'invitation') return ['renew', 'revoke'];

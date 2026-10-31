@@ -140,7 +140,7 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
 
 // The student Dashboard: the three AdDU internal grants first, each with its
 // explanation and requirements, then one action into Scholarship Explorer.
-// Staff, head, and Department Chair roles have their own landing workspaces (the
+// Staff, Admin, and Department Chair roles have their own landing workspaces (the
 // Admissions Office Dashboard and Department Review), so this page is never
 // rendered for them.
 export default function DashboardView({ profile, isFirstLogin, scholarships, onOpenExplorer }) {

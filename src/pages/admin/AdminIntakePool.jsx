@@ -23,7 +23,7 @@ import {
   getTakenCases,
   getUnclaimedInProgress,
 } from '../../lib/admissionsOffice';
-import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
+import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { buildProgramScopeIndex } from '../../lib/reviewScope';
 import { fmtDate, plural } from '../../lib/formatters';
 
@@ -39,7 +39,7 @@ const waitLabel = (days) => {
 // The Intake pool is the office's master list of open applications. Each case
 // is routed to the interviewers of the applicant's school and cluster the moment
 // it is submitted (Consultation 2, #12), and each row says who that is, or warns
-// that nobody covers the cluster yet. The Head picks a case up to start its
+// that nobody covers the cluster yet. The Admin picks a case up to start its
 // review (Submitted -> Under Review) and verify its documents; Staff read the
 // list without acting.
 export default function AdminIntakePool({
@@ -65,15 +65,15 @@ export default function AdminIntakePool({
   onJoinCase,
   onLeaveCase,
 }) {
-  const isHead = isAdmissionsHeadRole(role);
+  const isAdmin = isAdmissionsAdminRole(role);
   const staffDirectory = useMemo(() => interviewWorkspace?.staffDirectory || [], [interviewWorkspace?.staffDirectory]);
   const programIndex = useMemo(
     () => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []),
     [interviewWorkspace?.academicPrograms],
   );
   const interviewerWorkload = useMemo(
-    () => (isHead ? getInterviewerWorkload(applications, staffDirectory, programIndex) : []),
-    [applications, staffDirectory, programIndex, isHead],
+    () => (isAdmin ? getInterviewerWorkload(applications, staffDirectory, programIndex) : []),
+    [applications, staffDirectory, programIndex, isAdmin],
   );
   const [filters, setFilters] = useState(DEFAULT_INTAKE_POOL_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
@@ -91,8 +91,8 @@ export default function AdminIntakePool({
   );
   const taken = useMemo(() => getTakenCases(applications, caseOfficers), [applications, caseOfficers]);
   const workload = useMemo(
-    () => (isHead ? getOfficerWorkload(applications, caseOfficers) : []),
-    [applications, caseOfficers, isHead],
+    () => (isAdmin ? getOfficerWorkload(applications, caseOfficers) : []),
+    [applications, caseOfficers, isAdmin],
   );
   const facets = useMemo(() => getIntakePoolFacets(applications), [applications]);
   const filtered = useMemo(
@@ -190,12 +190,12 @@ export default function AdminIntakePool({
             : <StatusBadge tone="warning">No interviewer covers this cluster yet</StatusBadge>}
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
-          {isUnclaimed && isHead ? (
+          {isUnclaimed && isAdmin ? (
             <Button type="button" onClick={() => handlePickUp(entry.id)} disabled={pickingUp}>
               {pickingUp ? 'Picking up…' : 'Pick up for review'}
             </Button>
           ) : (
-            <Button type="button" onClick={() => openReview(entry.id)}>{isHead ? 'Open case' : 'View case'}</Button>
+            <Button type="button" onClick={() => openReview(entry.id)}>{isAdmin ? 'Open case' : 'View case'}</Button>
           )}
         </div>
       </article>
@@ -206,7 +206,7 @@ export default function AdminIntakePool({
     <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Application intake pool"
-        description={isHead
+        description={isAdmin
           ? 'Every open application in one list, oldest submission first. Pick up a case to verify its documents.'
           : 'Every open application in one list, oldest submission first. Read-only for Admissions Office Staff.'}
       >
@@ -379,7 +379,7 @@ export default function AdminIntakePool({
         </Card>
       </section>
 
-      {isHead ? (
+      {isAdmin ? (
         <section>
           <Card
             title="Interviewer workload"
@@ -403,7 +403,7 @@ export default function AdminIntakePool({
         </section>
       ) : null}
 
-      {isHead ? (
+      {isAdmin ? (
         <section>
           <Card
             title="Officer workload"
@@ -415,7 +415,7 @@ export default function AdminIntakePool({
                   <li key={officer.officerId || officer.officerName} className="flex min-w-0 flex-wrap items-center justify-between gap-2 rounded-2xl border border-app-border bg-app-surface p-3 transition hover:-translate-y-px hover:shadow-card">
                     <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
                     <span className="text-xs text-app-muted">
-                      {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'} · {officer.cases} open case{officer.cases === 1 ? '' : 's'}
+                      {officer.officerRole === 'admissions_admin' ? 'Admissions Office Admin' : 'Admissions Office Staff'} · {officer.cases} open case{officer.cases === 1 ? '' : 's'}
                     </span>
                   </li>
                 ))}

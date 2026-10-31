@@ -75,7 +75,7 @@ describe('student tawk.to support chat', () => {
 
   it('does not inject a widget for staff or when configuration is missing', () => {
     const config = { VITE_TAWK_PROPERTY_ID: 'property-1' };
-    expect(syncSupportChat({ role: 'admissions_head', ownerId: 'staff-1', env: config, win, doc }).reason)
+    expect(syncSupportChat({ role: 'admissions_admin', ownerId: 'staff-1', env: config, win, doc }).reason)
       .toBe('role-not-eligible');
     expect(syncSupportChat({ role: 'student', ownerId: 'student-1', env: {}, win, doc }).reason)
       .toBe('not-configured');

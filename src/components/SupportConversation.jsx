@@ -59,10 +59,10 @@ export default function SupportConversation({
         {messages.length ? messages.map((message) => {
           const own = viewer === 'student'
             ? message.senderRole === 'student'
-            : ['admissions_office', 'admissions_head'].includes(message.senderRole);
+            : ['admissions_office', 'admissions_admin'].includes(message.senderRole);
           const label = message.senderRole === 'student' ? (studentName || 'You')
             : message.senderRole === 'assistant' ? 'ScholarPath Assistant'
-            : message.senderRole === 'admissions_head' ? 'Admissions Office Head'
+            : message.senderRole === 'admissions_admin' ? 'Admissions Office Admin'
               : 'Admissions Office Staff';
           const assistant = message.senderRole === 'assistant';
           return (

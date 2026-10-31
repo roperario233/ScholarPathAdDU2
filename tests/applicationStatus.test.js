@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_HEAD_DECISION_STATUSES, AUTOMATIC_STAGE_STATUSES, STUDENT_DELIBERATION_STATUS, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel, getStudentFacingStatus, maskApplicationForStudent, sopStageIndex, sopStages } from '../src/lib/constants';
+import { ADMISSIONS_ADMIN_DECISION_STATUSES, AUTOMATIC_STAGE_STATUSES, STUDENT_DELIBERATION_STATUS, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel, getStudentFacingStatus, maskApplicationForStudent, sopStageIndex, sopStages } from '../src/lib/constants';
 import { academicPrograms } from '../src/lib/academicPrograms';
 
 const application = (overrides = {}) => ({
@@ -11,9 +11,9 @@ const application = (overrides = {}) => ({
   ...overrides,
 });
 
-// Consultation 2 (Oct 27): the Head verifies and forwards, an interviewer (or a
+// Consultation 2 (Oct 27): the Admin verifies and forwards, an interviewer (or a
 // ladder account in scope) schedules and recommends, the school's approving level
-// approves, and the Head does the final check and releases. Staff only read.
+// approves, and the Admin does the final check and releases. Staff only read.
 describe('role-aware application stage actions', () => {
   it('leaves Admissions Office Staff with a read-only view', () => {
     applicationStatuses.forEach((status) => {
@@ -21,19 +21,19 @@ describe('role-aware application stage actions', () => {
     });
   });
 
-  it('lets the Head verify, forward straight to interview, override, and close the final check', () => {
-    expect(getNextApplicationStatuses('Submitted', 'admissions_head')).toEqual(['Under Review', 'For Verification', 'Rejected']);
+  it('lets the Admin verify, forward straight to interview, override, and close the final check', () => {
+    expect(getNextApplicationStatuses('Submitted', 'admissions_admin')).toEqual(['Under Review', 'For Verification', 'Rejected']);
     // The separate endorsement hand-off is retired: the verified case goes
     // straight to the interviewers of its scope.
-    expect(getNextApplicationStatuses('For Verification', 'admissions_head')).toEqual(['Endorsed', 'Rejected']);
+    expect(getNextApplicationStatuses('For Verification', 'admissions_admin')).toEqual(['Endorsed', 'Rejected']);
     // A legacy row still waiting at For Endorsement can leave the stage.
-    expect(getNextApplicationStatuses('For Endorsement', 'admissions_head')).toEqual(['Endorsed', 'Rejected']);
-    expect(getNextApplicationStatuses('Endorsed', 'admissions_head')).toEqual(['Interview', 'Rejected']);
-    expect(getNextApplicationStatuses('Interview', 'admissions_head')).toEqual(['Recommended', 'Rejected']);
-    expect(getNextApplicationStatuses('Recommended', 'admissions_head')).toEqual(['Approved', 'Rejected']);
+    expect(getNextApplicationStatuses('For Endorsement', 'admissions_admin')).toEqual(['Endorsed', 'Rejected']);
+    expect(getNextApplicationStatuses('Endorsed', 'admissions_admin')).toEqual(['Interview', 'Rejected']);
+    expect(getNextApplicationStatuses('Interview', 'admissions_admin')).toEqual(['Recommended', 'Rejected']);
+    expect(getNextApplicationStatuses('Recommended', 'admissions_admin')).toEqual(['Approved', 'Rejected']);
     // The final check may still end the application before release.
-    expect(getNextApplicationStatuses('Approved', 'admissions_head')).toEqual(['Released', 'Rejected']);
-    expect(getNextApplicationStatuses('Released', 'admissions_head')).toEqual([]);
+    expect(getNextApplicationStatuses('Approved', 'admissions_admin')).toEqual(['Released', 'Rejected']);
+    expect(getNextApplicationStatuses('Released', 'admissions_admin')).toEqual([]);
   });
 
   it('lets an interviewer schedule, and recommend only from the panel, but never reject or approve', () => {
@@ -50,7 +50,7 @@ describe('role-aware application stage actions', () => {
       expect(getNextApplicationStatuses('Interview', role, { isPanelist: true })).toEqual(['Recommended']);
       expect(getNextApplicationStatuses('Recommended', role)).toEqual([]);
       expect(getNextApplicationStatuses('Recommended', role, { isApprover: true })).toEqual(['Approved', 'Rejected']);
-      // Verification and release stay with the Head.
+      // Verification and release stay with the Admin.
       expect(getNextApplicationStatuses('For Verification', role, { isApprover: true })).toEqual([]);
       expect(getNextApplicationStatuses('Approved', role, { isApprover: true })).toEqual([]);
     });
@@ -71,8 +71,8 @@ describe('automatic review start', () => {
   it('still permits the automatic write and the direct verification fallback', () => {
     // changeApplicationStatus guards the automatic write with this map, and a
     // Submitted application may still continue straight to verification when
-    // that write did not land. Only the Head opens a case into review now.
-    expect(getNextApplicationStatuses('Submitted', 'admissions_head')).toEqual(['Under Review', 'For Verification', 'Rejected']);
+    // that write did not land. Only the Admin opens a case into review now.
+    expect(getNextApplicationStatuses('Submitted', 'admissions_admin')).toEqual(['Under Review', 'For Verification', 'Rejected']);
   });
 });
 
@@ -104,18 +104,18 @@ describe('countApplicationsToReview', () => {
   });
 
   it('counts only Staff-actionable applications for Admissions Office Staff', () => {
-    // Recommended has moved to the Head's lane, so Staff see Submitted, Under
+    // Recommended has moved to the Admin's lane, so Staff see Submitted, Under
     // Review, and the two For Endorsement cases.
     expect(countApplicationsToReview(applications, { role: 'admissions_office' })).toBe(4);
   });
 
-  it('counts the verification queue, legacy endorsements, and the final check for the Head', () => {
-    // The Head verifies every file and does the final check before release; a
+  it('counts the verification queue, legacy endorsements, and the final check for the Admin', () => {
+    // The Admin verifies every file and does the final check before release; a
     // recommendation now waits on the school's approver instead.
-    expect(ADMISSIONS_HEAD_DECISION_STATUSES).toEqual(['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Approved']);
-    const expected = applications.filter((entry) => ADMISSIONS_HEAD_DECISION_STATUSES.includes(entry.status)).length;
-    expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(expected);
-    expect(countApplicationsToReview(applications, { role: 'admissions_head' })).toBe(5);
+    expect(ADMISSIONS_ADMIN_DECISION_STATUSES).toEqual(['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Approved']);
+    const expected = applications.filter((entry) => ADMISSIONS_ADMIN_DECISION_STATUSES.includes(entry.status)).length;
+    expect(countApplicationsToReview(applications, { role: 'admissions_admin' })).toBe(expected);
+    expect(countApplicationsToReview(applications, { role: 'admissions_admin' })).toBe(5);
   });
 
   it('counts the in-scope interview work and decisions for a Chairperson', () => {
@@ -235,7 +235,7 @@ describe('student-facing results hold', () => {
 });
 
 describe('transition map completeness', () => {
-  const roles = ['student', 'admissions_office', 'admissions_head', 'department_chair', 'interviewer'];
+  const roles = ['student', 'admissions_office', 'admissions_admin', 'department_chair', 'interviewer'];
 
   // Stored statuses stay as the database records them; the surfaces show the
   // stage instead (`Endorsed` is where the verified case waits for its interview,
@@ -256,8 +256,8 @@ describe('transition map completeness', () => {
       .forEach((status) => expect(getApplicationStatusLabel(status)).toBe(status));
   });
 
-  it('labels the Head forwarding a verified case to interview', () => {
-    expect(getStageActionLabel('Endorsed', 'admissions_head')).toBe('Forward to interview');
+  it('labels the Admin forwarding a verified case to interview', () => {
+    expect(getStageActionLabel('Endorsed', 'admissions_admin')).toBe('Forward to interview');
   });
 
   it('returns only known statuses for every role and status pair', () => {
@@ -285,11 +285,11 @@ describe('transition map completeness', () => {
     expect(getStageActionLabel('For Verification', 'admissions_office')).toBe('Continue to verification');
     expect(getStageActionLabel('Interview', 'admissions_office')).toBe('Schedule interview');
     expect(getStageActionLabel('Interview', 'interviewer')).toBe('Schedule interview');
-    expect(getStageActionLabel('Interview', 'admissions_head')).toBe('Schedule as Head (override)');
-    expect(getStageActionLabel('Recommended', 'admissions_head')).toBe('Recommend as Head (override)');
-    expect(getStageActionLabel('Approved', 'admissions_head')).toBe('Approve as Head (override)');
-    // Only the Head's own moves keep the plain verb: release is the Head's job.
-    expect(getStageActionLabel('Released', 'admissions_head')).toBe('Release results');
+    expect(getStageActionLabel('Interview', 'admissions_admin')).toBe('Schedule as Admin (override)');
+    expect(getStageActionLabel('Recommended', 'admissions_admin')).toBe('Recommend as Admin (override)');
+    expect(getStageActionLabel('Approved', 'admissions_admin')).toBe('Approve as Admin (override)');
+    // Only the Admin's own moves keep the plain verb: release is the Admin's job.
+    expect(getStageActionLabel('Released', 'admissions_admin')).toBe('Release results');
     expect(getStageActionLabel('Approved', 'department_chair')).toBe('Approve');
     expect(getStageActionLabel('Recommended', 'interviewer')).toBe('Recommend for approval');
   });

@@ -24,7 +24,7 @@ function LocationFields({ value, onChange, idPrefix }) {
 }
 
 /**
- * Admissions Office Head: manage the venues offered for on-site interviews.
+ * Admissions Office Admin: manage the venues offered for on-site interviews.
  * A venue is archived rather than deleted, and every interview keeps a copy of
  * its location label, so earlier schedules stay readable.
  */
