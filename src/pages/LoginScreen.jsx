@@ -323,7 +323,9 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
            <div className="grid content-start gap-4 rounded-app bg-gradient-to-br from-blue-500/10 to-slate-950/20 p-5 sm:p-6">
              <div className="inline-flex items-center gap-3">
                <img src={logoImage} alt="Ateneo de Davao University logo" className="h-12 w-12 rounded-full border border-white/20 bg-white/10 object-contain p-1" />
-               <span className="text-xl font-extrabold text-app-text">ScholarPath AdDU</span>
+               <span className="font-sans text-2xl/none font-bold tracking-wide text-app-text sm:text-3xl/none">
+                 ScholarPath <span className="font-display text-blue-700 dark:text-sky-300">AdDU</span>
+               </span>
             </div>
              <h1 className="hidden text-3xl font-extrabold leading-tight text-app-text sm:block lg:text-5xl">Sign in to your scholarship workspace</h1>
           </div>
