@@ -41,10 +41,10 @@ describe('My Profile academic profile', () => {
     expect(html).toContain('AdDU student number');
   });
 
-  it('asks a current Ateneo student for the school and strand the printed form asks for, not the senior high school average', () => {
+  it('asks a current Ateneo student for the school the printed form asks for, not the strand or the senior high school average', () => {
     const html = render({ yearStanding: '3rd', isTransferee: 'No', studentNumber: '2023001', qpi: '3.2', hsStrand: 'STEM' });
-    // FORM 230-SCH asks every applicant for their senior high school and strand.
-    expect(html).toContain('Senior high school strand');
+    // A current student is matched on the collegiate QPI, so the strand is not asked.
+    expect(html).not.toContain('Senior high school strand');
     expect(html).toContain('Senior high school last attended');
     // The general average is matched only for an incoming first-year, whose
     // credential is the senior high school average instead of a college QPI.
@@ -62,7 +62,7 @@ describe('My Profile academic profile', () => {
     expect(html).toContain('Year standing');
     expect(html).not.toContain('AdDU student number');
     // The college last attended is what a transferee reports instead of a senior
-    // high school, and the strand is asked of every applicant.
+    // high school, and the strand is still asked.
     expect(html).toContain('College last attended');
     expect(html).toContain('Senior high school strand');
     expect(html).not.toContain('Senior high school last attended');

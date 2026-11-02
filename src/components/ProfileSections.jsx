@@ -1136,9 +1136,9 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         {standing.requiresQpi && <FormField fieldKey="qpi" label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} required={need.has('qpi')} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        {/* FORM 230-SCH asks every applicant for the strand in senior high school,
-            so it is shown (and required) for a continuing student too. */}
-        <SelectField fieldKey="hsStrand" label="Senior high school strand" hint="Needed to apply." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={need.has('hsStrand')} />
+        {/* A current Ateneo student is matched on the collegiate QPI, so the strand
+            is asked of an incoming first-year or a transferee only. */}
+        {!needsStudentNumber && <SelectField fieldKey="hsStrand" label="Senior high school strand" hint="Needed to apply." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={need.has('hsStrand')} />}
         {standing.requiresHsStanding && <FormField fieldKey="hsAverage" label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} required={need.has('hsAverage')} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>}
       </div>
       <div data-field="schoolLastAttended" className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">

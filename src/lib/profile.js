@@ -636,6 +636,12 @@ export const requiresStudentNumber = (profile = {}) => {
   return standing.isContinuing && profile.isTransferee !== 'Yes';
 };
 
+// The senior high school strand is asked of an incoming first-year and a
+// transferee. A current Ateneo student is matched on the collegiate QPI, so the
+// strand is not asked of them; it is the same applicant status as the AdDU student
+// number, and an applicant who has not answered it yet is still shown the field.
+export const requiresHsStrand = (profile = {}) => !requiresStudentNumber(profile);
+
 export const academicStandingOptions = [
   { value: 'good', label: 'Good academic standing' },
   { value: 'probation', label: 'Academic probation' },
@@ -1265,10 +1271,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = [], { full
     qpi: standing.requiresQpi ? validateQpi(form.qpi) : (isBlank(form.qpi) ? ok('') : validateQpi(form.qpi)),
     // Senior high school standing lives with the academic profile (see My
     // Profile); incoming first-years are matched on it instead of a QPI.
-    // FORM 230-SCH asks every applicant for their strand, so My Profile requires it
-    // for every standing. The first-login modal only asks the eligibility
-    // essentials (`fullForm: false`), so it keeps the incoming-only rule.
-    hsStrand: standing.requiresHsStanding || fullForm
+    // My Profile requires the strand of everyone but a current Ateneo student. The
+    // first-login modal only asks the eligibility essentials (`fullForm: false`), so
+    // it keeps the incoming-only rule here and adds its own check below.
+    hsStrand: standing.requiresHsStanding || (fullForm && requiresHsStrand(form))
       ? oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.')
       : ok(hsStrandOptions.some((option) => option.value === (form.hsStrand || '')) ? (form.hsStrand || '') : ''),
     hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
@@ -1440,10 +1446,10 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
 
   const errors = { ...academic.errors, ...financial.errors };
   if (citizenship.error) errors.citizenship = citizenship.error;
-  // The modal asks the senior high school strand of every applicant the way My
-  // Profile does (FORM 230-SCH), so the essentials require it even though the
-  // section validator keeps it incoming-only while the full form is off.
-  if (!academic.values.hsStrand) errors.hsStrand = 'Choose your senior high school strand.';
+  // The modal asks the senior high school strand the way My Profile does, so the
+  // essentials require it even though the section validator keeps it incoming-only
+  // while the full form is off. A current Ateneo student is not asked for it.
+  if (requiresHsStrand(form) && !academic.values.hsStrand) errors.hsStrand = 'Choose your senior high school strand.';
 
   return {
     values: {
@@ -1578,9 +1584,8 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     add('application', 'householdIncome', 'Annual household income', 'background', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
     add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
-    // The printed form asks every applicant for the school last attended, its
-    // strand, and the number of graduates — not only an incoming first-year.
-    add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
+    // The strand is asked of everyone but a current Ateneo student.
+    if (requiresHsStrand(profile)) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
     add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
     add('application', 'housingType', 'Where you stay while studying', 'address', !isBlank(profile.housingType));
     add('application', 'fatherName', 'Father\'s name', 'family', isParentNameAnswered(profile, 'father'));

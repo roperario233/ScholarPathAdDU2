@@ -150,8 +150,8 @@ export default function AcademicProfileModal({
   };
   // An incoming first-year is matched on senior high school standing instead of
   // a college QPI, so the required inputs swap accordingly. The strand is asked of
-  // every applicant here, the way My Profile asks it (FORM 230-SCH).
-  const isComplete = Boolean(applicantStatus && program && yearStanding && hsStrand && academicStanding && citizenship)
+  // everyone but a current Ateneo student, the way My Profile asks it.
+  const isComplete = Boolean(applicantStatus && program && yearStanding && (needsStudentNumber || hsStrand) && academicStanding && citizenship)
     && householdIncome !== ''
     && (standing.requiresHsStanding
       ? hsAverage !== ''
@@ -255,9 +255,9 @@ export default function AcademicProfileModal({
             <input className={controlClass} value={householdIncome} onChange={(event) => { setHouseholdIncome(event.target.value.replace(/[^\d]/g, '')); clearError('householdIncome'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" required aria-invalid={Boolean(errors.householdIncome)} />
           </FormField>
           <div className="grid gap-4 sm:grid-cols-2">
-            {/* FORM 230-SCH asks every applicant for the strand in senior high school,
-                so it is asked (and required) for a continuing student too. */}
-            <NativeSelect label="Senior high school strand" hint="Needed to apply." value={hsStrand} onChange={(value) => { setHsStrand(value); clearError('hsStrand'); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={!hsStrand} />
+            {/* A current Ateneo student is matched on the collegiate QPI, so the
+                strand is asked of an incoming first-year or a transferee only. */}
+            {!needsStudentNumber && <NativeSelect label="Senior high school strand" hint="Needed to apply." value={hsStrand} onChange={(value) => { setHsStrand(value); clearError('hsStrand'); }} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={!hsStrand} />}
             {standing.requiresHsStanding && (
               <FormField label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} required={hsAverage === ''}>
                 <input className={controlClass} value={hsAverage} onChange={(event) => { setHsAverage(event.target.value.replace(/\D/g, '').slice(0, 3)); clearError('hsAverage'); }} inputMode="numeric" autoComplete="off" placeholder="e.g. 94" required aria-invalid={Boolean(errors.hsAverage)} />

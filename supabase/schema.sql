@@ -1074,9 +1074,12 @@ begin
   if v_income is null or v_income < 0 then return 'Annual household income'; end if;
   if coalesce(p_profile ->> 'citizenship', '') not in ('Filipino', 'Non-Filipino') then return 'Citizenship'; end if;
   if coalesce(btrim(p_profile ->> 'civilStatus'), '') = '' then return 'Civil status'; end if;
-  -- The printed form asks every applicant for their strand, not only an incoming
-  -- first-year.
-  if coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then return 'Senior high school strand'; end if;
+  -- The strand is asked of everyone except a current Ateneo student (the same
+  -- applicant status that is asked for an AdDU student number).
+  if not (v_transferee = 'No' and v_standing <> 'incoming-1st')
+    and coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then
+    return 'Senior high school strand';
+  end if;
   if coalesce(btrim(p_profile ->> 'completeAddress'), '') = '' then return 'Complete address'; end if;
   if coalesce(btrim(p_profile ->> 'housingType'), '') = '' then return 'Where you stay while studying'; end if;
   if not public.parent_name_answered(p_profile, 'father') then return 'Father''s name'; end if;
