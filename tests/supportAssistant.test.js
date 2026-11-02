@@ -92,4 +92,14 @@ describe('deterministic Support assistant', () => {
     expect(shouldAssistantReply({ thread: {}, messages: [studentMessage, { senderRole: 'assistant', replyingToId: 'student-msg' }], replyingToId: 'student-msg' })).toBe(false);
     expect(shouldAssistantReply({ thread: {}, messages: [studentMessage, { senderRole: 'admissions_admin' }], replyingToId: 'student-msg' })).toBe(false);
   });
+
+  it('answers again after a resolve, ignoring office replies from the closed topic', () => {
+    const oldReply = { senderRole: 'admissions_office', createdAt: '2026-10-29T10:00:00Z' };
+    const newQuestion = { id: 'new-msg', senderRole: 'student', createdAt: '2026-10-31T10:00:00Z' };
+    const thread = { resolvedAt: '2026-10-30T10:00:00Z', assistantEnabled: true };
+    expect(shouldAssistantReply({ thread, messages: [oldReply, newQuestion], replyingToId: 'new-msg' })).toBe(true);
+    expect(shouldAssistantReply({ thread: { assistantEnabled: true }, messages: [oldReply, newQuestion], replyingToId: 'new-msg' })).toBe(false);
+    const newOfficeReply = { senderRole: 'admissions_office', createdAt: '2026-10-31T11:00:00Z' };
+    expect(shouldAssistantReply({ thread, messages: [oldReply, newQuestion, newOfficeReply], replyingToId: 'new-msg' })).toBe(false);
+  });
 });

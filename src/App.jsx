@@ -18,7 +18,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -50,7 +50,7 @@ import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
-import { countUnreadSupportMessages, getSupportUnreadTotal, isSupportInboxChannel, mergeSupportInboxState, SUPPORT_BACKGROUND_POLL_MS, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
+import { countUnreadSupportMessages, getStudentVisibleMessages, getSupportUnreadTotal, isSupportInboxChannel, mergeSupportInboxState, SUPPORT_BACKGROUND_POLL_MS, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
 import { replyFor, shouldAssistantReply } from './lib/supportAssistant';
 import StudentSupportChat from './components/StudentSupportChat';
 import AdminSupportInboxPage from './pages/admin/AdminSupportInbox';
@@ -1043,7 +1043,7 @@ function App() {
 
   const supportThread = supportInbox.threads.find((thread) => thread.studentId === state.authUser?.id) || null;
   const supportStudentMessages = supportThread
-    ? supportInbox.messages.filter((message) => message.threadId === supportThread.id)
+    ? getStudentVisibleMessages(supportInbox.messages.filter((message) => message.threadId === supportThread.id), supportThread)
     : [];
   const supportStudentUnreadCount = countUnreadSupportMessages(supportThread, supportStudentMessages, 'student');
   const showSupportChatHint = state.isAuthenticated
@@ -1120,6 +1120,18 @@ function App() {
     if (!threadId) return { error: { message: 'The support conversation could not be opened.' } };
     const result = await escalateSupabaseSupportThread(threadId);
     if (!result.error) await refreshSupportInbox(threadId);
+    return result;
+  };
+  const resolveSupportThread = async () => {
+    if (!supportThread?.id) return { error: { message: 'The support conversation could not be found.' } };
+    const result = await resolveSupabaseSupportThread(supportThread.id);
+    if (!result.error) await refreshSupportInbox(supportThread.id);
+    return result;
+  };
+  const startNewSupportTopic = async () => {
+    if (!supportThread?.id) return { error: { message: 'The support conversation could not be found.' } };
+    const result = await startNewSupabaseSupportTopic(supportThread.id);
+    if (!result.error) await refreshSupportInbox(supportThread.id);
     return result;
   };
   const markSupportThreadRead = async (threadId) => {
@@ -3748,6 +3760,8 @@ function App() {
           assistantReady={supportInbox.assistantReady}
           availability={supportInbox.availability}
           onRequestLiveAgent={requestLiveAgent}
+          onResolve={resolveSupportThread}
+          onStartNewTopic={startNewSupportTopic}
           showHint={showSupportChatHint}
           onSend={(body) => sendSupportMessage(supportThread?.id || '', body)}
           onMarkRead={markSupportThreadRead}

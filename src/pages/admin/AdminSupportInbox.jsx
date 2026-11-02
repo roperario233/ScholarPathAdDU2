@@ -101,9 +101,12 @@ export default function AdminSupportInbox({
                   <p className="m-0 text-app-text">{selectedStudent?.degreeProgram || 'Program not listed'}</p>
                   <p className="m-0 text-xs text-app-muted">{selectedStudent?.department || 'School not listed'}</p>
                 </div>
-                <Button type="button" variant="secondary" onClick={changeStatus}>
-                  {selectedThread.status === 'Closed' ? 'Reopen conversation' : 'Close conversation'}
-                </Button>
+                <div className="grid justify-items-end gap-1">
+                  <Button type="button" variant="secondary" onClick={changeStatus}>
+                    {selectedThread.status === 'Closed' ? 'Reopen conversation' : 'Close conversation'}
+                  </Button>
+                  {selectedThread.status !== 'Closed' && <p className="m-0 text-[11px] text-app-muted">The student returns to the assistant.</p>}
+                </div>
               </div>
               {selectedThread.escalatedAt && (
                 <div className="shrink-0 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text">

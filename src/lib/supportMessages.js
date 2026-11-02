@@ -72,7 +72,33 @@ export const buildSupportThreadSummary = (thread, student = {}) => ({
   awaitingAgent: Boolean(thread.escalatedAt && !['admissions_office', 'admissions_admin'].includes(thread.lastMessageBy)),
 });
 
-export const normalizeSupportMessageBody = (value) => String(value || '').trim().slice(0, SUPPORT_MESSAGE_MAX_LENGTH);
+const OFFICE_SENDER_ROLES = ['admissions_office', 'admissions_admin'];
+
+// Where a student's conversation stands, so the chat can say so instead of
+// leaving "Live-agent request sent" on screen for good.
+export const getStudentSupportPhase = (thread) => {
+  if (!thread) return 'assistant';
+  if (thread.status === 'Closed') {
+    // "Start a new question" after the resolve puts the student back with the assistant.
+    const startedNew = Date.parse(thread.studentViewFrom || '') >= (Date.parse(thread.resolvedAt || '') || 0);
+    return startedNew ? 'assistant' : 'resolved';
+  }
+  const withOffice = Boolean(thread.escalatedAt) || thread.assistantEnabled === false;
+  if (!withOffice) return 'assistant';
+  return OFFICE_SENDER_ROLES.includes(thread.lastMessageBy) ? 'with-office' : 'waiting';
+};
+
+// "Start a new question" hides the earlier messages from the student's own chat only.
+export const getStudentVisibleMessages = (messages = [], thread = null) => {
+  const from = Date.parse(thread?.studentViewFrom || '');
+  if (!Number.isFinite(from)) return messages;
+  return messages.filter((message) => {
+    const sent = Date.parse(message.createdAt || '');
+    return !Number.isFinite(sent) || sent >= from;
+  });
+};
+
+export const normalizeSupportMessageBody =(value) => String(value || '').trim().slice(0, SUPPORT_MESSAGE_MAX_LENGTH);
 
 export const isAdmissionsOfficeOnline = ({ online = false, lastSeenAt = null, nowMs = Date.now() } = {}) => {
   if (typeof online === 'boolean' && online) return true;

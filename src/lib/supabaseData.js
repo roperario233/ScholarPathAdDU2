@@ -97,6 +97,9 @@ const toSupportThread = (row) => ({
   studentId: row.student_id,
   status: row.status,
   escalatedAt: row.escalated_at || null,
+  resolvedAt: row.resolved_at || null,
+  resolvedBy: row.resolved_by || null,
+  studentViewFrom: row.student_view_from || null,
   assistantEnabled: row.assistant_enabled !== false,
   lastMessageAt: row.last_message_at,
   lastMessageBy: row.last_message_by,
@@ -669,6 +672,18 @@ export const postSupabaseAssistantSupportMessage = async ({ threadId, body, repl
 export const escalateSupabaseSupportThread = async (threadId, note = '') => {
   if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
   const { error } = await supabase.rpc('escalate_support_thread', { p_thread_id: threadId, p_note: note || null });
+  return { error };
+};
+
+export const resolveSupabaseSupportThread = async (threadId) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc('resolve_support_thread', { p_thread_id: threadId });
+  return { error };
+};
+
+export const startNewSupabaseSupportTopic = async (threadId) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc('start_new_support_topic', { p_thread_id: threadId });
   return { error };
 };
 

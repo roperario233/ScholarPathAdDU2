@@ -1,17 +1,28 @@
 import { useEffect, useState } from 'react';
 import { MessageCircle, X } from 'lucide-react';
 import SupportConversation from './SupportConversation';
-import { Button, StatusBadge } from './ui';import { getSupportAvailabilityLabel } from '../lib/supportMessages';
+import { Button, StatusBadge } from './ui';
+import { getStudentSupportPhase, getSupportAvailabilityLabel } from '../lib/supportMessages';
 import { SUPPORT_QUICK_REPLIES } from '../lib/supportAssistant';
 
-export default function StudentSupportChat({ thread = null, messages = [], unreadCount = 0, ready = true, showHint = false, assistantEnabled = true, assistantReady = null, availability = {}, initialOpen = false, onSend, onRequestLiveAgent, onMarkRead, onOpenChange, onDismissHint }) {
+export default function StudentSupportChat({ thread = null, messages = [], unreadCount = 0, ready = true, showHint = false, assistantEnabled = true, assistantReady = null, availability = {}, initialOpen = false, onSend, onRequestLiveAgent, onResolve, onStartNewTopic, onMarkRead, onOpenChange, onDismissHint }) {
   const [open, setOpen] = useState(initialOpen);
-  const [handoffError, setHandoffError] = useState('');
-  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+  const [actionBusy, setActionBusy] = useState('');
   const hintVisible = showHint && !open;
   const assistantUnavailable = !assistantEnabled || assistantReady === false;
-  const humanActive = Boolean(thread?.escalatedAt || thread?.assistantEnabled === false);
+  // assistant -> waiting -> with-office -> resolved; a resolved conversation is back with the assistant.
+  const phase = getStudentSupportPhase(thread);
+  const humanActive = phase === 'waiting' || phase === 'with-office';
   const assistantActive = !assistantUnavailable && !humanActive;
+  const runAction = async (key, action, fallbackMessage) => {
+    setActionBusy(key);
+    setActionError('');
+    const result = await action?.();
+    if (result?.error) setActionError(result.error.message || fallbackMessage);
+    setActionBusy('');
+  };
+  const linkButtonClass = 'text-xs font-bold text-ateneo underline-offset-2 hover:underline disabled:opacity-60 dark:text-sky-200';
   useEffect(() => {
     if (!hintVisible) return undefined;
     const dismissOnEscape = (event) => {
@@ -62,7 +73,7 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
         </aside>
       )}
       {open && (
-        <section className="fixed bottom-20 left-3 z-20 flex max-h-[min(80dvh,40rem)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-2xl dark:bg-[#0a1c3a] sm:bottom-24 sm:left-5" aria-label="Admissions Office support chat">
+        <section className="fixed bottom-20 left-3 z-20 flex max-h-[min(80dvh,40rem)] min-h-[min(26rem,80dvh)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-2xl dark:bg-[#0a1c3a] sm:bottom-24 sm:left-5" aria-label="Admissions Office support chat">
           <header className="flex items-center gap-3 bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-3 text-white">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15">
               <MessageCircle size={20} aria-hidden="true" />
@@ -91,10 +102,11 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
                 viewer="student"
                 onSend={onSend}
                 className="min-h-0 flex-1"
-                suggestions={assistantActive && messages.length === 0 ? (
-                  <div className="flex flex-wrap gap-2" aria-label="Suggested support questions">
+                recentLimit={2}
+                suggestions={assistantActive ? (
+                  <div className={messages.length === 0 ? 'flex flex-wrap gap-2' : '-mx-1 flex gap-2 overflow-x-auto px-1 pb-1'} aria-label="Suggested support questions">
                     {SUPPORT_QUICK_REPLIES.map((suggestion) => (
-                      <button key={suggestion} type="button" className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-semibold text-app-text hover:border-blue-500/40" onClick={() => onSend?.(suggestion)}>
+                      <button key={suggestion} type="button" className="shrink-0 whitespace-nowrap rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-semibold text-app-text hover:border-blue-500/40" onClick={() => onSend?.(suggestion)}>
                         {suggestion}
                       </button>
                     ))}
@@ -103,39 +115,43 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
               />
             )}
             {ready && (
-              <div className="grid gap-1.5 border-t border-app-border pt-3">
-                <div className="flex items-center justify-between gap-3">
-                  {thread?.escalatedAt ? (
-                    <StatusBadge tone="warning">Live-agent request sent</StatusBadge>
-                  ) : (
-                    <button
-                      type="button"
-                      disabled={handoffBusy}
-                      className="text-xs font-bold text-ateneo underline-offset-2 hover:underline disabled:opacity-60 dark:text-sky-200"
-                      onClick={async () => {
-                        setHandoffBusy(true);
-                        setHandoffError('');
-                        const result = await onRequestLiveAgent?.();
-                        if (result?.error) setHandoffError(result.error.message || 'Your request could not be sent.');
-                        setHandoffBusy(false);
-                      }}
-                    >
-                      {handoffBusy ? 'Connecting…' : 'Talk to a live agent'}
+              <div className="grid justify-items-start gap-2 border-t border-app-border pt-3">
+                <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  {phase === 'waiting' && <StatusBadge tone="warning">Waiting for the Admissions Office</StatusBadge>}
+                  {phase === 'with-office' && (
+                    <>
+                      <StatusBadge tone="neutral">Chatting with the Admissions Office</StatusBadge>
+                      <button type="button" disabled={Boolean(actionBusy)} className={linkButtonClass} onClick={() => runAction('resolve', onResolve, 'The conversation could not be marked as solved.')}>
+                        {actionBusy === 'resolve' ? 'Saving…' : 'Mark as solved'}
+                      </button>
+                    </>
+                  )}
+                  {phase === 'resolved' && (
+                    <>
+                      <StatusBadge tone="success">Resolved</StatusBadge>
+                      <Button type="button" variant="primary" className="min-h-9 px-3 text-xs" disabled={Boolean(actionBusy)} onClick={() => runAction('new', onStartNewTopic, 'A new question could not be started.')}>
+                        {actionBusy === 'new' ? 'Starting…' : 'Start a new question'}
+                      </Button>
+                    </>
+                  )}
+                  {!humanActive && phase !== 'resolved' && (
+                    <button type="button" disabled={Boolean(actionBusy)} className={linkButtonClass} onClick={() => runAction('handoff', onRequestLiveAgent, 'Your request could not be sent.')}>
+                      {actionBusy === 'handoff' ? 'Connecting…' : 'Talk to a live agent'}
                     </button>
                   )}
-                  {thread?.status === 'Closed' && <span className="text-xs text-app-muted">Sending a message reopens this thread.</span>}
                 </div>
-                <p className="m-0 text-[11px] leading-snug text-app-muted">
-                  {thread?.escalatedAt
+                <p className="m-0 text-xs leading-snug text-app-muted">
+                  {phase === 'waiting'
                     ? 'The Admissions Office will reply here.'
-                    : assistantActive
-                      ? 'The assistant gives general guidance, not eligibility or award decisions. Your conversation is visible to Admissions Office Staff and the Admissions Office Admin.'
-                      : humanActive
-                        ? 'This conversation is with the Admissions Office. A staff member can reply here.'
-                        : 'Automated replies are not available right now. You can leave a message for Admissions Office Staff.'}
-                  {!availability.online && !thread?.escalatedAt && ' Staff will reply when available.'}
+                    : phase === 'with-office'
+                      ? 'A staff member can reply here.'
+                      : assistantActive
+                        ? 'The assistant gives general guidance, not eligibility or award decisions. Admissions Office staff can read this chat.'
+                        : 'Automated replies are not available right now. Leave a message for staff.'}
+                  {phase === 'resolved' && assistantActive && ' Send a message to ask something else.'}
+                  {!availability.online && !humanActive && ' Staff reply when available.'}
                 </p>
-                {handoffError && <p className="m-0 text-xs text-rose-600 dark:text-rose-300" role="alert">{handoffError}</p>}
+                {actionError && <p className="m-0 text-xs text-rose-600 dark:text-rose-300" role="alert">{actionError}</p>}
               </div>
             )}
           </div>

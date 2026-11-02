@@ -82,6 +82,45 @@ describe('support inbox surfaces', () => {
     expect(unavailable).toContain('Automated replies are not available right now');
   });
 
+  it('formats bullet replies, folds long answers, and hides earlier exchanges in the student chat', () => {
+    const longBody = `Needed for every scholarship\n${Array.from({ length: 9 }, (_, index) => `• Document ${index + 1}`).join('\n')}`;
+    const messages = [
+      { id: 'q1', senderRole: 'student', body: 'First question', createdAt: '2026-10-29T10:00:00Z' },
+      { id: 'a1', senderRole: 'assistant', body: 'First answer', createdAt: '2026-10-29T10:00:05Z' },
+      { id: 'q2', senderRole: 'student', body: 'Second question', createdAt: '2026-10-29T10:01:00Z' },
+      { id: 'a2', senderRole: 'assistant', body: 'Second answer', createdAt: '2026-10-29T10:01:05Z' },
+      { id: 'q3', senderRole: 'student', body: 'What documents do I need?', createdAt: '2026-10-29T10:02:00Z' },
+      { id: 'a3', senderRole: 'assistant', body: longBody, createdAt: '2026-10-29T10:02:05Z' },
+    ];
+    const html = renderToStaticMarkup(
+      <StudentSupportChat ready assistantEnabled assistantReady initialOpen messages={messages} onSend={vi.fn()} />,
+    );
+    expect(html).toContain('Show 2 earlier messages');
+    expect(html).not.toContain('First question');
+    expect(html).toContain('Second question');
+    expect(html).toContain('<li>Document 1</li>');
+    expect(html).toContain('Show more');
+    expect(html).toContain('Scholarship deadlines');
+  });
+
+  it('shows the conversation phase instead of leaving "Live-agent request sent" up', () => {
+    const render = (thread) => renderToStaticMarkup(
+      <StudentSupportChat ready assistantEnabled assistantReady initialOpen thread={thread} availability={{ online: true }} onSend={vi.fn()} onResolve={vi.fn()} onStartNewTopic={vi.fn()} onRequestLiveAgent={vi.fn()} />,
+    );
+    const waiting = render({ id: 't', status: 'Open', escalatedAt: '2026-10-29T10:00:00Z', lastMessageBy: 'student' });
+    const withOffice = render({ id: 't', status: 'Open', escalatedAt: '2026-10-29T10:00:00Z', lastMessageBy: 'admissions_office' });
+    const resolved = render({ id: 't', status: 'Closed', resolvedAt: '2026-10-30T10:00:00Z', lastMessageBy: 'admissions_office' });
+
+    expect(waiting).toContain('Waiting for the Admissions Office');
+    expect(waiting).not.toContain('Talk to a live agent');
+    expect(withOffice).toContain('Chatting with the Admissions Office');
+    expect(withOffice).toContain('Mark as solved');
+    expect(resolved).toContain('Resolved');
+    expect(resolved).toContain('Start a new question');
+    expect(resolved).toContain('ScholarPath Assistant');
+    for (const html of [waiting, withOffice, resolved]) expect(html).not.toContain('Live-agent request sent');
+  });
+
   it('shows a live-agent escalation in the office inbox and prioritizes its badge', () => {
     const html = renderToStaticMarkup(
       <AdminSupportInbox
