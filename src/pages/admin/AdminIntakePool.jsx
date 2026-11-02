@@ -248,7 +248,7 @@ export default function AdminIntakePool({
         </div>
       )}
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimed.filter((entry) => entry.status === 'Submitted').length} note="Nobody has opened these yet" />
         <StatCard icon={Clock} tone="danger" label="Oldest waiting" value={oldestWait == null ? '—' : `${oldestWait}d`} note="First come, first served" />
         <StatCard icon={Users} tone="info" label="In progress, no officer" value={unclaimedInProgress.length} note="Moving without an officer" />

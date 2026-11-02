@@ -29,11 +29,11 @@ const statusAccent = {
 
 function ApplicationMetric({ icon: Icon, label, value, note, tone }) {
   return (
-    <article className="page-metric relative overflow-hidden rounded-app border bg-app-card p-4 shadow-app backdrop-blur">
-      <div className={`absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${tone}`} aria-hidden="true"><Icon size={18} /></div>
-      <span className="pr-12 text-xs font-semibold">{label}</span>
-      <strong className="!text-3xl">{value}</strong>
-      <p className="text-xs">{note}</p>
+    <article className="page-metric relative min-w-0 overflow-hidden rounded-app border bg-app-card p-3 shadow-app backdrop-blur sm:p-4">
+      <div className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg sm:right-4 sm:top-4 sm:h-10 sm:w-10 sm:rounded-xl ${tone}`} aria-hidden="true"><Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /></div>
+      <span className="pr-9 text-xs font-semibold sm:pr-12">{label}</span>
+      <strong className="!text-2xl sm:!text-3xl">{value}</strong>
+      <p className="text-[11px] leading-snug sm:text-xs">{note}</p>
     </article>
   );
 }
@@ -153,7 +153,7 @@ export default function ApplicationsView({
       </div>
     </section>
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
       <ApplicationMetric icon={FileEdit} label="Drafts" value={summary.drafts} note="Ready to continue" tone="bg-slate-500/15 text-slate-700 dark:text-slate-300" />
       <ApplicationMetric icon={Hourglass} label="In review" value={summary.inReview} note="With the Admissions Office" tone="bg-blue-500/15 text-blue-700 dark:text-blue-300" />
       <ApplicationMetric icon={TriangleAlert} label="Action needed" value={summary.actionNeeded} note="Files to replace" tone="bg-rose-500/15 text-rose-700 dark:text-rose-300" />

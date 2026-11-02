@@ -140,7 +140,7 @@ export default function AdminReviewQueue({
       )}
 
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={ClipboardList} tone="info" label="In my review queue" value={myQueue.length} note="Cases you opened" />
         <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimedSubmissions} note="Waiting in the intake pool" />
         <StatCard icon={FileSearch} tone="warning" label="Documents awaiting verification" value={blockingDocuments.length} note="Files in your queue" />

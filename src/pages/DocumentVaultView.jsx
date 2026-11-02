@@ -30,11 +30,11 @@ const IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|gif|heic)$/i;
 
 function VaultMetric({ icon: Icon, label, value, note, tone }) {
   return (
-    <article className="page-metric relative overflow-hidden rounded-app border bg-app-card p-4 shadow-app backdrop-blur">
-      <div className={`absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${tone}`} aria-hidden="true"><Icon size={18} /></div>
-      <span className="pr-12 text-xs font-semibold">{label}</span>
-      <strong className="!text-3xl">{value}</strong>
-      <p className="text-xs">{note}</p>
+    <article className="page-metric relative min-w-0 overflow-hidden rounded-app border bg-app-card p-3 shadow-app backdrop-blur sm:p-4">
+      <div className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg sm:right-4 sm:top-4 sm:h-10 sm:w-10 sm:rounded-xl ${tone}`} aria-hidden="true"><Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /></div>
+      <span className="pr-9 text-xs font-semibold sm:pr-12">{label}</span>
+      <strong className="!text-2xl sm:!text-3xl">{value}</strong>
+      <p className="text-[11px] leading-snug sm:text-xs">{note}</p>
     </article>
   );
 }
@@ -97,7 +97,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
         </div>
       </section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <VaultMetric icon={Layers} label="Total documents" value={documents.length} note="Stored in your Document Vault" tone="bg-blue-500/15 text-blue-700 dark:text-blue-300" />
         <VaultMetric icon={ShieldCheck} label="Verified" value={countByStatus('Verified')} note="Ready to reuse" tone="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" />
         <VaultMetric icon={Clock} label="Pending review" value={countByStatus('Pending')} note="Awaiting Admissions Office review" tone="bg-amber-500/15 text-amber-700 dark:text-amber-300" />

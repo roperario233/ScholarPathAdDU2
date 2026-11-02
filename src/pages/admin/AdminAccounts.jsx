@@ -327,7 +327,7 @@ export function AccountsWorkspace({
         <div className={`${bannerClasses[feedback.tone] || bannerClasses.info} w-full rounded-xl border px-3 py-3 text-sm`} role="status">{feedback.message}</div>
       )}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Account totals">
+      <section className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4" aria-label="Account totals">
         <StatCard icon={UserCheck} tone="success" label="Active" value={summary.active} note="Can sign in with their role" />
         <StatCard icon={Clock3} tone="info" label="Invited" value={summary.invited} note="Waiting for first sign-in" />
         <StatCard icon={Clock3} tone="warning" label="Expired" value={summary.expired} note="Renew or revoke" />

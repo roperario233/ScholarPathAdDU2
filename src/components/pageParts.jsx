@@ -20,12 +20,12 @@ const statToneClasses = {
 export function StatCard({ label, value, note, icon: Icon, tone = 'info' }) {
   const isLongValue = typeof value === 'string' && value.length > 12;
   return (
-    <article className="group page-metric relative overflow-hidden rounded-app border border-app-border bg-app-card p-4 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app">
+    <article className="group page-metric relative min-w-0 overflow-hidden rounded-app border border-app-border bg-app-card p-3 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app sm:p-4">
       {Icon ? null : <span className="pointer-events-none absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-blue-500/10 transition group-hover:scale-125" aria-hidden="true" />}
-      {Icon ? <div className={`absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${statToneClasses[tone] || statToneClasses.info}`} aria-hidden="true"><Icon size={18} /></div> : null}
-      <span className={`text-xs font-semibold text-app-muted ${Icon ? 'pr-12' : ''}`}>{label}</span>
-      <strong className={`text-app-text ${isLongValue ? '!text-lg' : '!text-3xl'}`}>{value}</strong>
-      {note ? <p className="text-xs text-app-muted">{note}</p> : null}
+      {Icon ? <div className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg sm:right-4 sm:top-4 sm:h-10 sm:w-10 sm:rounded-xl ${statToneClasses[tone] || statToneClasses.info}`} aria-hidden="true"><Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /></div> : null}
+      <span className={`text-xs font-semibold text-app-muted ${Icon ? 'pr-9 sm:pr-12' : ''}`}>{label}</span>
+      <strong className={`text-app-text ${isLongValue ? '!text-base sm:!text-lg' : '!text-2xl sm:!text-3xl'}`}>{value}</strong>
+      {note ? <p className="text-[11px] leading-snug text-app-muted sm:text-xs">{note}</p> : null}
     </article>
   );
 }

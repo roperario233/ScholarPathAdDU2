@@ -126,7 +126,7 @@ export default function AdminResultsRelease({
         )}
       </AdminPageHeader>
 
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
         <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Approved by the configured level" />
         <StatCard icon={Award} tone="info" label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
         <StatCard icon={SendHorizontal} tone="success" label="Results released" value={applications.filter((entry) => entry.status === 'Released').length} note="Accepted applicants notified" />

@@ -152,7 +152,7 @@ export default function DepartmentReviewView({
         )}
       </AdminPageHeader>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
         <StatCard icon={UserCheck} tone="info" label="Interviews on your panel" value={panelInterviews.length} />
         {isInterviewer
