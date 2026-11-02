@@ -5,7 +5,10 @@ import {
   filterStatisticsApplications,
   getAcademicYearOptions,
   getApplicantProfileStats,
+  getApproverStats,
   getBreakdownByHierarchy,
+  getMyInterviewStats,
+  getStatisticsScope,
   getDocumentStats,
   getHeadlineStats,
   getPanelRecommendationStats,
@@ -127,7 +130,15 @@ describe('admissions statistics', () => {
     const rows = getBreakdownByHierarchy(all, programIndex);
     const sas = rows.find((row) => row.label === 'School of Arts and Sciences');
     expect(sas.applied).toBe(2);
-    expect(sas.departments[0]).toMatchObject({ label: 'Computer Science', applied: 2, accepted: 1, inProgress: 1 });
+    expect(sas.children[0]).toMatchObject({ label: 'Computer Science', applied: 2, accepted: 1, inProgress: 1 });
+  });
+
+  it('breaks a Dean down by cluster and a Chairperson by program', () => {
+    const byCluster = getBreakdownByHierarchy(all, programIndex, { parent: 'cluster', child: 'department' });
+    expect(byCluster.map((row) => row.label).sort()).toEqual(['Computer Studies', 'Direct under the school']);
+    const byProgram = getBreakdownByHierarchy(all, programIndex, { parent: 'program', child: null });
+    expect(byProgram.every((row) => row.children.length === 0)).toBe(true);
+    expect(byProgram[0]).toMatchObject({ applied: 2 });
   });
 
   it('counts only files attached to submitted applications and groups revert reasons', () => {
@@ -176,6 +187,81 @@ describe('admissions statistics', () => {
     expect(count(stats.shsAverage, '95 – 100')).toBe(1);
     expect(count(stats.householdIncome, '₱150,000 – ₱249,999')).toBe(1);
     expect(count(stats.householdIncome, 'Not recorded')).toBe(2);
+  });
+
+  it('decides each role’s scope and sections in one place', () => {
+    const admin = getStatisticsScope('admissions_admin');
+    expect(admin).toMatchObject({ audience: 'admin', showSchoolFilter: true });
+    expect(admin.sections).toEqual({ outcomes: true, recommendations: true, decisions: false, myInterviews: false });
+
+    const staff = getStatisticsScope('admissions_office');
+    expect(staff.audience).toBe('staff');
+    expect(staff.sections.outcomes).toBe(false);
+    expect(staff.sections.recommendations).toBe(false);
+
+    const dean = getStatisticsScope('dean', { reviewSchool: 'School of Arts and Sciences' });
+    expect(dean).toMatchObject({ audience: 'reviewer', showSchoolFilter: false, scopeLabel: 'School of Arts and Sciences' });
+    expect(dean.breakdown).toMatchObject({ parent: 'cluster', child: 'department' });
+    expect(dean.sections.decisions).toBe(true);
+
+    const assistantDean = getStatisticsScope('assistant_dean', { reviewSchool: 'School of Arts and Sciences', reviewCluster: 'Computer Studies' });
+    expect(assistantDean.breakdown).toMatchObject({ parent: 'department', child: 'program' });
+
+    const chair = getStatisticsScope('department_chair', { reviewSchool: 'School of Arts and Sciences', reviewDepartment: 'Computer Science' });
+    expect(chair.breakdown).toMatchObject({ parent: 'program', child: null });
+
+    const interviewer = getStatisticsScope('interviewer', { reviewSchool: 'School of Arts and Sciences', reviewDepartment: 'Computer Science' });
+    expect(interviewer.sections).toMatchObject({ decisions: false, myInterviews: true });
+  });
+
+  it('never derives outcomes for a volume-only role', () => {
+    const notes = [{ applicationId: 'released', recommendationLevel: 'recommended', createdAt: day(9) }];
+    const stats = buildOfficeStatistics({ applications: all, interviewNotes: notes, programIndex, scope: getStatisticsScope('admissions_office') });
+    expect(stats.headline).not.toHaveProperty('acceptanceRate');
+    expect(stats.headline).toMatchObject({ submitted: 3, closed: 2 });
+    expect(stats.recommendations).toBeNull();
+    expect(stats.distribution.map((row) => row.status)).not.toContain('Approved');
+    expect(stats.distribution.find((row) => row.status === 'Closed').count).toBe(2);
+    expect(stats.funnel.map((row) => row.status)).toEqual(['Submitted', 'For Verification', 'Endorsed', 'Interview', 'Recommended', 'Decided']);
+    expect(stats.funnel.at(-1).count).toBe(2);
+    expect(stats.turnaround.map((row) => row.key)).not.toContain('release');
+    expect(stats.byScholarship[0]).toEqual({ key: 'gia', label: 'Grant-in-Aid (GIA)', applied: 3, inProgress: 1 });
+    const text = JSON.stringify(buildStatisticsSheets(stats));
+    expect(text).not.toMatch(/Accepted|Not accepted|Acceptance rate|Panel recommendations/);
+  });
+
+  it('counts only the decisions the reviewer’s level owns', () => {
+    const chair = { id: 'chair-1', role: 'department_chair', reviewSchool: 'School of Arts and Sciences', reviewDepartment: 'Computer Science' };
+    const awaiting = application({ id: 'awaiting', status: 'Recommended', statusLog: log(['Recommended', 3]) });
+    const notes = [{ applicationId: 'released', recommendationLevel: 'highly_recommended', createdAt: day(9) }];
+    const stats = getApproverStats([released, rejected, awaiting, open], chair, [], programIndex, notes);
+    // `rejected` belongs to Civil Engineering, outside this Chairperson's department.
+    expect(stats).toMatchObject({ total: 2, awaiting: 1, approved: 1, notAccepted: 0, medianDaysToDecision: 2 });
+    expect(stats.byLevel.find((row) => row.key === 'highly_recommended')).toMatchObject({ count: 1, approved: 1 });
+    // A school routed to the Dean leaves the Chairperson nothing to decide.
+    const deanLevel = [{ school: 'School of Arts and Sciences', cluster: '', approverRole: 'dean' }];
+    expect(getApproverStats([released, awaiting], chair, deanLevel, programIndex).total).toBe(0);
+  });
+
+  it('reads the viewer’s own panel work', () => {
+    const upcoming = application({
+      id: 'upcoming',
+      status: 'Interview',
+      interview: { version: 2, state: 'scheduled', startsAt: '2026-12-01T01:00:00.000Z', scheduledBy: 'me' },
+    });
+    const panelists = [
+      { applicationId: 'upcoming', profileId: 'me', isLead: true },
+      { applicationId: 'released', profileId: 'me', isLead: false },
+      { applicationId: 'released', profileId: 'someone-else', isLead: true },
+      { applicationId: 'outside', profileId: 'me', isLead: true },
+    ];
+    const notes = [
+      { applicationId: 'released', authorId: 'me', recommendationLevel: 'recommended', createdAt: day(9) },
+      { applicationId: 'released', authorId: 'someone-else', recommendationLevel: 'not_recommended', createdAt: day(10) },
+    ];
+    const stats = getMyInterviewStats([released, upcoming], panelists, notes, 'me', new Date('2026-11-03T00:00:00Z'));
+    expect(stats).toMatchObject({ involved: 2, onPanel: 2, leading: 1, scheduledByMe: 1, upcoming: 1, notesRecorded: 1, recommended: 1 });
+    expect(stats.levels.find((row) => row.key === 'recommended').count).toBe(1);
   });
 
   it('exports counts without naming an applicant', () => {

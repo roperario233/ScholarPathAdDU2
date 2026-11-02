@@ -63,9 +63,8 @@ const workspaces = [
     view: 'admin-statistics',
     icon: BarChart3,
     label: 'Office statistics',
-    description: 'Applications, outcomes, stage turnaround, document reverts, and panel recommendations by year, scholarship, and school.',
+    description: 'Application volume, stage turnaround, and document verification by year, scholarship, and school.',
     action: 'Open statistics',
-    adminOnly: true,
   },
   {
     view: 'admin-announcements',

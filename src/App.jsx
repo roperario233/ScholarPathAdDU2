@@ -44,6 +44,7 @@ import AdminCalendarPage from './pages/admin/AdminCalendar';
 import AdminInterviewsPage from './pages/admin/AdminInterviews';
 import DepartmentReviewViewPage from './pages/DepartmentReviewView';
 import DepartmentCalendarViewPage from './pages/DepartmentCalendarView';
+import ReviewerStatisticsViewPage from './pages/ReviewerStatisticsView';
 import DepartmentInterviewsViewPage from './pages/DepartmentInterviewsView';
 import CalendarViewPage from './pages/CalendarView';
 import SettingsViewPage from './pages/SettingsView';
@@ -3206,9 +3207,10 @@ function App() {
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsAdmin },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
       { view: 'admin-support', label: 'Support inbox', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
-      // Office oversight and management (Admin only), after the case pipeline and
-      // the shared tools: the cycle's statistics, then the catalog and accounts.
-      { view: 'admin-statistics', label: 'Statistics', visible: isAdmissionsAdmin },
+      // Office oversight and management, after the case pipeline and the shared
+      // tools. Statistics is for both lanes (Staff see volume only); the catalog,
+      // announcements, and accounts are the Admin's.
+      { view: 'admin-statistics', label: 'Statistics', visible: true },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsAdmin },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsAdmin },
       { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsAdmin },
@@ -3233,6 +3235,7 @@ function App() {
     { view: 'review', label: getReviewPageLabel(state.viewerRole), visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-interviews', label: 'Interviews', visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-calendar', label: 'Calendar', visible: isReviewerRole(state.viewerRole) },
+    { view: 'chair-statistics', label: 'Statistics', visible: isReviewerRole(state.viewerRole) },
     { view: 'profile', label: profilePageLabel, visible: state.viewerRole !== 'student' },
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
@@ -3613,12 +3616,13 @@ function App() {
             />
           )}
 
-          {isAdmissionsAdmin && state.activeView === 'admin-statistics' && (
+          {isAdmissionsReviewerRole(state.viewerRole) && state.activeView === 'admin-statistics' && (
             <AdminStatisticsPage
               applications={state.applications}
               documents={state.documents}
               interviewNotes={state.interviewNotes || []}
               academicPrograms={activeAcademicPrograms}
+              profile={currentProfile}
               role={state.viewerRole}
             />
           )}
@@ -3667,6 +3671,18 @@ function App() {
               onAddComment={addReviewComment}
               interviewWorkspace={interviewWorkspace}
               officeCalendarEntries={state.officeCalendarEntries || []}
+            />
+          )}
+
+          {isReviewerRole(state.viewerRole) && state.activeView === 'chair-statistics' && (
+            <ReviewerStatisticsViewPage
+              profile={currentProfile}
+              queue={departmentQueue}
+              documents={state.documents}
+              interviewNotes={state.interviewNotes || []}
+              interviewPanelists={state.interviewPanelists || []}
+              approvalLevels={state.approvalLevels || []}
+              academicPrograms={activeAcademicPrograms}
             />
           )}
 

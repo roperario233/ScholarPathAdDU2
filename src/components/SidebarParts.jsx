@@ -26,6 +26,7 @@ const NAV_ICONS = {
   review: ClipboardCheck,
   'chair-interviews': Users,
   'chair-calendar': CalendarDays,
+  'chair-statistics': BarChart3,
   settings: Settings,
 };
 

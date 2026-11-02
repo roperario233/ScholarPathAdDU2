@@ -249,6 +249,7 @@ export const pageViewKeys = [
   'review',
   'chair-calendar',
   'chair-interviews',
+  'chair-statistics',
   'profile',
   'settings',
 ];
