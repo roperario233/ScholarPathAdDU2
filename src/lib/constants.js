@@ -243,6 +243,7 @@ export const pageViewKeys = [
   'admin-interviews',
   'admin-catalog',
   'admin-release',
+  'admin-statistics',
   'admin-announcements',
   'admin-accounts',
   'review',

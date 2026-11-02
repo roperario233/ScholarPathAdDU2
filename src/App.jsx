@@ -37,6 +37,7 @@ import AdminIntakePoolPage from './pages/admin/AdminIntakePool';
 import AdminReviewQueuePage from './pages/admin/AdminReviewQueue';
 import AdminScholarshipCatalogPage from './pages/admin/AdminScholarshipCatalog';
 import AdminResultsReleasePage from './pages/admin/AdminResultsRelease';
+import AdminStatisticsPage from './pages/admin/AdminStatistics';
 import AdminAnnouncementsPage from './pages/admin/AdminAnnouncements';
 import AdminAccountsPage from './pages/admin/AdminAccounts';
 import AdminCalendarPage from './pages/admin/AdminCalendar';
@@ -3203,6 +3204,7 @@ function App() {
       { view: 'admin-review', label: 'Review queue', visible: isAdmissionsAdmin },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsAdmin },
+      { view: 'admin-statistics', label: 'Statistics', visible: isAdmissionsAdmin },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
       { view: 'admin-support', label: 'Support inbox', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsAdmin },
@@ -3606,6 +3608,16 @@ function App() {
               resultsReleases={state.resultsReleases || []}
               academicPrograms={activeAcademicPrograms}
               interviewWorkspace={interviewWorkspace}
+            />
+          )}
+
+          {isAdmissionsAdmin && state.activeView === 'admin-statistics' && (
+            <AdminStatisticsPage
+              applications={state.applications}
+              documents={state.documents}
+              interviewNotes={state.interviewNotes || []}
+              academicPrograms={activeAcademicPrograms}
+              role={state.viewerRole}
             />
           )}
 

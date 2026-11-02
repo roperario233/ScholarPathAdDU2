@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Activity, ArrowRight, Award, CalendarClock, CalendarDays, CheckCircle2, ClipboardList, FileCheck2, Gavel, History, Hourglass, Inbox, LibraryBig, Megaphone, SendHorizontal, Users } from 'lucide-react';
+import { Activity, ArrowRight, Award, BarChart3, CalendarClock, CalendarDays, CheckCircle2, ClipboardList, FileCheck2, Gavel, History, Hourglass, Inbox, LibraryBig, Megaphone, SendHorizontal, Users } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Card, EmptyState, StatusBadge } from '../../components/ui';
@@ -57,6 +57,14 @@ const workspaces = [
     label: 'Final check and release',
     description: 'Check approved cases, release each scholarship\'s results, and export the final list to Excel.',
     action: 'Open final check and release',
+    adminOnly: true,
+  },
+  {
+    view: 'admin-statistics',
+    icon: BarChart3,
+    label: 'Office statistics',
+    description: 'Applications, outcomes, stage turnaround, document reverts, and panel recommendations by year, scholarship, and school.',
+    action: 'Open statistics',
     adminOnly: true,
   },
   {
