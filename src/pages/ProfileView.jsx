@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowRight, Award, Check, GraduationCap, LayoutDashboard, MapPin, PiggyBank, ShieldCheck, UserRound, Users } from 'lucide-react';
 import { AcademicSection, AddressSection, BackgroundSection, FamilySection, FinancesSection, FormSectionStatusIcon, PersonalSection, ProfileOverview, SectionContinueContext, SecuritySection, getFormSectionStatusText } from '../components/ProfileSections';
 import { Button } from '../components/ui';
+import { SkeletonCard, SkeletonRegion } from '../components/Skeleton';
 import { getDocumentChecklist } from '../lib/applicationRequirements';
 import { getApplicationFormProgress, getNextApplicationFormSection, getProfileCompleteness } from '../lib/profile';
 
@@ -55,6 +56,7 @@ export default function ProfileView({
   onSaveProfile,
   onSaveFinancialProfile,
   financialMissing = false,
+  financialLoading = false,
   onChangeAvatar,
   onRemoveAvatar,
   onChangePassword,
@@ -325,7 +327,9 @@ export default function ProfileView({
             {activeSection === 'academic' && isStudent && (
               <AcademicSection {...sectionProps} documents={documents} academicPrograms={academicPrograms} academicProgramGroups={academicProgramGroups} />
             )}
-            {activeSection === 'finances' && isStudent && <FinancesSection {...sectionProps} onSave={onSaveFinancialProfile} migrationMissing={financialMissing} />}
+            {activeSection === 'finances' && isStudent && (financialLoading
+              ? <SkeletonRegion label="Loading household finances"><SkeletonCard rows={3} /></SkeletonRegion>
+              : <FinancesSection {...sectionProps} onSave={onSaveFinancialProfile} migrationMissing={financialMissing} />)}
             {activeSection === 'background' && isStudent && <BackgroundSection {...sectionProps} />}
             {activeSection === 'security' && (
               <SecuritySection

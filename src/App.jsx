@@ -23,6 +23,7 @@ import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttri
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
 import { SidebarNav, SidebarProfile, SidebarStats } from './components/SidebarParts';
+import { ViewSkeleton } from './components/Skeleton';
 import SessionTimeoutModal from './components/SessionTimeoutModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
@@ -298,7 +299,7 @@ const persistCustomDeadline = async (deadline, ownerId) => {
 function App() {
   const [state, setState] = useState(createInitialState);
   const supportChatVisitorRef = useRef(null);
-  const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
+  const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
   const [isStudentSupportOpen, setIsStudentSupportOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   // theme: 'dark' | 'light' — persisted in state
@@ -315,6 +316,10 @@ function App() {
   const [profileSaveError, setProfileSaveError] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSupabaseWorkspaceLoaded, setIsSupabaseWorkspaceLoaded] = useState(false);
+  // True once the first workspace load has finished, whether it succeeded or not
+  // (`isSupabaseWorkspaceLoaded` stays false after a failure). Until then the
+  // pages show skeletons instead of reading empty and then filling in.
+  const [isWorkspaceSettled, setIsWorkspaceSettled] = useState(false);
   const [financial, setFinancial] = useState(emptyFinancialState);
   // When a My Profile link ("Attach proof" or the document checklist) opens the
   // vault it carries the profile attribute and/or document type so the upload
@@ -374,7 +379,8 @@ function App() {
     setState((previous) => createFreshState(devicePreferencesOf(previous)));
     setProfileOnboarding(null);
     setIsSupabaseWorkspaceLoaded(false);
-    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
+    setIsWorkspaceSettled(false);
+    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
     setDeadlineSync(null);
     setAvatarPreview({ path: '', url: '' });
     setFinancial(emptyFinancialState);
@@ -495,6 +501,8 @@ function App() {
           ...mergeSupportInboxState(previous, result),
           availability,
           assistantReady: previous.assistantReady,
+          loaded: true,
+          messagesLoaded: previous.messagesLoaded || conversationOpen,
         }));
         const notificationResult = await loadSupabaseNotifications(state.authUser.id);
         if (active && !notificationResult.error) {
@@ -503,7 +511,7 @@ function App() {
           }));
         }
       } catch {
-        if (active) setSupportInbox((previous) => ({ ...previous, ready: false, loading: false }));
+        if (active) setSupportInbox((previous) => ({ ...previous, ready: false, loaded: true, messagesLoaded: true, loading: false }));
       } finally {
         refreshing = false;
       }
@@ -853,6 +861,7 @@ function App() {
           onError: (message) => setDeadlineSync({ tone: 'error', message }),
         });
       }
+      if (active) setIsWorkspaceSettled(true);
       if (active) {
         const academicProgramsResult = await loadSupabaseAcademicPrograms();
         if (!active) return;
@@ -1422,6 +1431,7 @@ function App() {
           onError: (message) => setDeadlineSync({ tone: 'error', message }),
         });
       }
+      setIsWorkspaceSettled(true);
       const academicProgramsResult = await loadSupabaseAcademicPrograms();
       if (academicProgramsResult.success && academicProgramsResult.academicPrograms?.length) {
         updateState((previous) => ({ ...previous, academicPrograms: academicProgramsResult.academicPrograms }));
@@ -3227,6 +3237,12 @@ function App() {
     <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className} />
   );
 
+  // Settings reads only local preferences and Accounts fetches its own list, so
+  // neither waits on the workspace.
+  const showViewSkeleton = state.isAuthenticated
+    && !isWorkspaceSettled
+    && !['settings', 'admin-accounts'].includes(state.activeView);
+
   if (isBooting || !isSessionChecked) {
     return (
       <div className="grid min-h-screen place-items-center bg-app-bg p-5 text-app-text">
@@ -3339,6 +3355,7 @@ function App() {
             notifications={visibleNotifications}
             announcements={state.announcements}
             onMarkRead={markNotificationRead}
+            loading={!isWorkspaceSettled}
           />
           <button
             type="button"
@@ -3382,11 +3399,13 @@ function App() {
           {renderNavigation('my-4')}
 
           <div className="border-t border-app-border pt-4">
-            <SidebarStats items={sidebarStats} />
+            <SidebarStats items={sidebarStats} loading={!isWorkspaceSettled} />
           </div>
         </aside>
 
         <section className="blue-action-view grid min-w-0 gap-5">
+          {showViewSkeleton ? <ViewSkeleton view={state.activeView} /> : (
+          <>
           {state.viewerRole === 'student' && state.activeView === 'dashboard' && (
             <DashboardViewPage
               profile={currentIdentity}
@@ -3424,6 +3443,7 @@ function App() {
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
               financialAnswersByApplication={financial.answersByApplication}
+              financialLoaded={!isSupabaseWorkspaceLoaded || financial.loaded}
               financialSnapshotsByApplication={financial.snapshotsByApplication}
               onSaveProfile={saveProfile}
               onOpenProfile={() => navigate('profile')}
@@ -3664,6 +3684,7 @@ function App() {
               onSaveProfile={saveProfile}
               onSaveFinancialProfile={saveFinancialProfile}
               financialMissing={financial.missing}
+              financialLoading={isSupabaseWorkspaceLoaded && !financial.loaded}
               avatar={{ url: avatarPreview.url, path: state.authUser?.avatarPath || '', isSaving: isSavingAvatar }}
               onChangeAvatar={saveProfileAvatar}
               onRemoveAvatar={removeProfileAvatar}
@@ -3738,6 +3759,8 @@ function App() {
               selectedThreadId={supportInbox.selectedThreadId}
               role={state.viewerRole}
               loading={supportInbox.loading}
+              loaded={supportInbox.loaded}
+              messagesLoaded={supportInbox.messagesLoaded}
               ready={supportInbox.ready}
               availability={supportInbox.availability}
               onSelectThread={(threadId) => {
@@ -3748,6 +3771,8 @@ function App() {
               onSetStatus={updateSupportThreadStatus}
             />
           )}
+          </>
+          )}
         </section>
       </main>
       {state.isAuthenticated && state.viewerRole === 'student' && SUPPORT_INBOX_CHANNEL_ENABLED && (
@@ -3756,6 +3781,8 @@ function App() {
           messages={supportStudentMessages}
           unreadCount={supportStudentUnreadCount}
           ready={supportInbox.ready}
+          loaded={supportInbox.loaded}
+          messagesLoaded={supportInbox.messagesLoaded}
           assistantEnabled={SUPPORT_ASSISTANT_ENABLED}
           assistantReady={supportInbox.assistantReady}
           availability={supportInbox.availability}

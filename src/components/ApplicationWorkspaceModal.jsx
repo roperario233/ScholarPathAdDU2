@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, FolderOpen } from 'lucide-react';
 import { Button, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
+import { SkeletonRegion, SkeletonRows, SkeletonText } from './Skeleton';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
@@ -234,6 +235,7 @@ export default function ApplicationWorkspaceModal({
   documents,
   profile,
   financialAnswers: savedFinancialAnswers,
+  financialLoaded = true,
   onAttach,
   onDetach,
   onUploadAndAttach,
@@ -254,6 +256,16 @@ export default function ApplicationWorkspaceModal({
   const [savedFinancial, setSavedFinancial] = useState(() => normalizeFinancialAnswers(savedFinancialAnswers || {}));
   const [financialAnswers, setFinancialAnswers] = useState(savedFinancial);
   const [financialMessage, setFinancialMessage] = useState('');
+  // The financial answers load after the workspace. A modal opened before they
+  // arrive seeds its draft from them once, so saved answers never read blank.
+  const financialSeededRef = useRef(financialLoaded);
+  useEffect(() => {
+    if (!financialLoaded || financialSeededRef.current) return;
+    financialSeededRef.current = true;
+    const seeded = normalizeFinancialAnswers(savedFinancialAnswers || {});
+    setSavedFinancial(seeded);
+    setFinancialAnswers(seeded);
+  }, [financialLoaded, savedFinancialAnswers]);
   const [certified, setCertified] = useState(false);
   const [busyRequirement, setBusyRequirement] = useState('');
   const [rowErrors, setRowErrors] = useState({});
@@ -466,9 +478,11 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'financial' && (
             <>
-              <ApplicationFinancialStep answers={financialAnswers} onChange={(next) => { setFinancialAnswers(next); setFinancialMessage(''); }} missing={financialMissing} />
+              {financialLoaded
+                ? <ApplicationFinancialStep answers={financialAnswers} onChange={(next) => { setFinancialAnswers(next); setFinancialMessage(''); }} missing={financialMissing} />
+                : <SkeletonRegion label="Loading your financial answers" className="grid gap-4"><SkeletonText lines={2} /><SkeletonRows rows={3} /></SkeletonRegion>}
               <div className="flex flex-wrap items-center gap-3">
-                <Button type="button" onClick={saveFinancial} disabled={!isFinancialDirty}>Save draft</Button>
+                <Button type="button" onClick={saveFinancial} disabled={!financialLoaded || !isFinancialDirty}>Save draft</Button>
                 {financialMessage ? <span className="text-sm text-app-muted" role="status">{financialMessage}</span> : null}
               </div>
             </>

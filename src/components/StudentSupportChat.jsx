@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { MessageCircle, X } from 'lucide-react';
 import SupportConversation from './SupportConversation';
+import { SupportMessagesSkeleton } from './Skeleton';
 import { Button, StatusBadge } from './ui';
 import { getStudentSupportPhase, getSupportAvailabilityLabel } from '../lib/supportMessages';
 import { SUPPORT_QUICK_REPLIES } from '../lib/supportAssistant';
 
-export default function StudentSupportChat({ thread = null, messages = [], unreadCount = 0, ready = true, showHint = false, assistantEnabled = true, assistantReady = null, availability = {}, initialOpen = false, onSend, onRequestLiveAgent, onResolve, onStartNewTopic, onMarkRead, onOpenChange, onDismissHint }) {
+export default function StudentSupportChat({ thread = null, messages = [], unreadCount = 0, ready = true, loaded = true, messagesLoaded = true, showHint = false, assistantEnabled = true, assistantReady = null, availability = {}, initialOpen = false, onSend, onRequestLiveAgent, onResolve, onStartNewTopic, onMarkRead, onOpenChange, onDismissHint }) {
   const [open, setOpen] = useState(initialOpen);
   const [actionError, setActionError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
@@ -92,7 +93,9 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
             </button>
           </header>
           <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 sm:p-4">
-            {!ready ? (
+            {!loaded || (ready && !messagesLoaded) ? (
+              <SupportMessagesSkeleton className="flex-1" />
+            ) : !ready ? (
               <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text" role="status">
                 The support inbox is not available yet. Please try again later or contact the Admissions Office directly.
               </div>
@@ -114,7 +117,7 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
                 ) : null}
               />
             )}
-            {ready && (
+            {loaded && ready && (
               <div className="grid justify-items-start gap-2 border-t border-app-border pt-3">
                 <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2">
                   {phase === 'waiting' && <StatusBadge tone="warning">Waiting for the Admissions Office</StatusBadge>}

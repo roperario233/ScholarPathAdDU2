@@ -3,6 +3,7 @@ import { Bell, X } from 'lucide-react';
 import { getApplicationProgress, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 import { Button, EmptyState, StatusBadge } from './ui';
+import { Skeleton, SkeletonRegion } from './Skeleton';
 
 export { Button, Card, EmptyState, StatusBadge } from './ui';
 
@@ -111,7 +112,7 @@ export function AnnouncementItem({ entry }) {
   );
 }
 
-export function NotificationDropdown({ notifications, announcements, onMarkRead }) {
+export function NotificationDropdown({ notifications, announcements, onMarkRead, loading = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
   const unreadCount = notifications.filter((entry) => entry.status === 'Unread').length;
@@ -155,7 +156,9 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead 
           <div className="flex items-start justify-between gap-4 border-b border-app-border px-4 py-3">
             <div className="grid gap-1">
               <strong className="text-sm text-app-text">Notifications</strong>
-              <span className="text-xs text-app-muted">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? '' : 's'}` : 'You are all caught up'}</span>
+              {loading
+                ? <Skeleton className="h-3 w-28" />
+                : <span className="text-xs text-app-muted">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? '' : 's'}` : 'You are all caught up'}</span>}
             </div>
             <button type="button" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-app-surface hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => setIsOpen(false)} aria-label="Close notifications"><X size={18} /></button>
           </div>
@@ -166,7 +169,14 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead 
             {announcements.slice(0, 3).map((entry) => (
               <AnnouncementItem key={entry.id} entry={entry} />
             ))}
-            {!notifications.length && !announcements.length && (
+            {loading && !notifications.length && !announcements.length && (
+              <SkeletonRegion label="Loading notifications" className="grid gap-2">
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+              </SkeletonRegion>
+            )}
+            {!loading && !notifications.length && !announcements.length && (
               <EmptyState title="No updates yet" description="New deadline reminders and announcements will appear here." />
             )}
           </div>
