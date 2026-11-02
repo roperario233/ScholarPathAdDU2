@@ -235,9 +235,17 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(html).not.toContain('The panel must record the applicant as attended first.');
     expect(html).not.toContain('Outcome due');
     // The Admin's version of the move is an override and says so.
-    const pending = buttonMarkup(html, 'Recommend as Admin \\(override\\)');
+    // Like every recommendation, it needs a recorded level first.
+    expect(buttonMarkup(html, 'Recommend as Admin \\(override\\)')).toContain('disabled=""');
+    const recorded = render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'admissions_admin',
+      interviewWorkspace: workspace({
+        notes: [{ id: 'n-1', applicationId: 'app-1', authorName: 'Ivy Uy', authorRole: 'interviewer', recommendationLevel: 'highly_recommended', body: 'Ready.', createdAt: '2026-01-05T02:00:00.000Z' }],
+      }),
+    });
+    const pending = buttonMarkup(recorded, 'Recommend as Admin \\(override\\)');
     expect(pending).not.toContain('disabled=""');
-    expect(pending).not.toContain('title="No interview outcome recorded');
     expect(pending).not.toContain('<svg');
     expect(html).toContain('Admin override — not the intended flow.');
     expect(html).toContain('The interview panel records the recommendation.');
@@ -337,7 +345,8 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
       }),
     });
     expect(buttonMarkup(interviewer(), 'Recommend for approval')).toContain('disabled=""');
-    expect(interviewer()).toContain('Recommendation note');
+    expect(interviewer()).not.toContain('Recommendation note');
+    expect(interviewer()).toContain('No panel recommendation recorded yet');
     const recorded = interviewer([{ id: 'n-1', applicationId: 'app-1', authorName: 'Ivy Uy', authorRole: 'interviewer', recommendationLevel: 'highly_recommended', body: 'Ready.', createdAt: '2026-01-05T02:00:00.000Z' }]);
     expect(buttonMarkup(recorded, 'Recommend for approval')).not.toContain('disabled=""');
     // An interviewer never rejects: "Not recommended" is a level, not a status.

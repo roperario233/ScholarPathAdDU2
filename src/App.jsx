@@ -2492,12 +2492,12 @@ function App() {
     if (!getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application)).includes('Recommended')) {
       return { error: 'Only a member of this interview panel, or the Admissions Office Admin, can record the recommendation.' };
     }
-    // An interviewer's recommendation carries one of the five recommendation
-    // levels (Consultation 2, #7), recorded with an evaluation note first.
+    // Every recommendation, the Admin's override included, carries one of the five
+    // recommendation levels (Consultation 2, #7), recorded with an evaluation note first.
     const panelRecommendation = getLatestPanelRecommendation(
       (state.interviewNotes || []).filter((entry) => entry.applicationId === applicationId),
     );
-    if (!isAdmissionsAdminRole(state.viewerRole) && !panelRecommendation) {
+    if (!panelRecommendation) {
       return { error: 'Record a recommendation level with an evaluation note in the Interview tab first.' };
     }
     let base = application;

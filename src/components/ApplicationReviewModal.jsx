@@ -289,7 +289,6 @@ export default function ApplicationReviewModal({
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
   ));
-  const [deliberationNote, setDeliberationNote] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
@@ -481,9 +480,10 @@ export default function ApplicationReviewModal({
     return '';
   })();
   const showDeliberationField = nextStatuses.includes('Recommended');
-  // An interviewer's recommendation carries one of the five recommendation levels
-  // (Consultation 2, #7), recorded with an evaluation note in the Interview tab.
-  const needsRecommendationLevel = !isAdmissionsAdmin && !latestPanelRecommendation;
+  // Every recommendation, the Admin's override included, carries one of the five
+  // recommendation levels (Consultation 2, #7), recorded with an evaluation note
+  // in the Interview tab.
+  const needsRecommendationLevel = !latestPanelRecommendation;
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
   const lockedDocumentsMessage = !isAdmissionsAdmin
@@ -550,7 +550,7 @@ export default function ApplicationReviewModal({
       if (status === 'Interview') {
         result = await interviewWorkspace.onSchedule(application.id, interviewDraft);
       } else if (status === 'Recommended') {
-        result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
+        result = await onRecordDeliberation?.(application.id, 'Recommended');
       } else if (status === 'Released') {
         result = await onRelease?.(application.id);
       } else {
@@ -879,10 +879,6 @@ export default function ApplicationReviewModal({
 
         {showDeliberationField ? (
           <div className="grid gap-1">
-            <label className="grid gap-1 text-sm text-app-text">
-              <span className="font-semibold">{isAdmissionsAdmin ? 'Sub-committee note' : 'Recommendation note'}</span>
-              <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder={isAdmissionsAdmin ? 'Record the sub-committee deliberation.' : 'What the approver should know about this recommendation.'} />
-            </label>
             <p className="m-0 text-xs text-app-muted">
               {latestPanelRecommendation
                 ? `Panel recommendation: ${[
