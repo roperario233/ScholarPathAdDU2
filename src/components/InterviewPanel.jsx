@@ -778,7 +778,9 @@ export default function InterviewPanel({
   const nameById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.fullName]));
   const roleById = Object.fromEntries((workspace.staffDirectory || []).map((entry) => [entry.userId, entry.role || '']));
   const canCoordinate = mayCoordinate && ['Endorsed', 'Interview'].includes(application.status);
-  const canAddNotes = ['Interview', 'Recommended'].includes(application.status) && (isAdmin || isPanelist);
+  // Notes stay open after the approval and release: the case file keeps growing
+  // (follow-ups, final-check remarks) and the database has no stage gate on them.
+  const canAddNotes = ['Interview', 'Recommended', 'Approved', 'Released'].includes(application.status) && (isAdmin || isPanelist);
   // Repair is a recovery action, so it only appears when Google and the record
   // actually disagree: a cancelled interview whose event survived, a scheduled
   // interview with no event, or an online interview whose event has no link. The

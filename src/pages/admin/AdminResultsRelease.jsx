@@ -30,6 +30,8 @@ export default function AdminResultsRelease({
   resultsReleases = [],
   academicPrograms = [],
   interviewWorkspace = null,
+  reviewComments = [],
+  onAddComment,
 }) {
   const [openId, setOpenId] = useState(null);
   const [checked, setChecked] = useState({});
@@ -336,6 +338,8 @@ export default function AdminResultsRelease({
           onRejectApplication={onRejectApplication}
           onRelease={onReleaseResults}
           interviewWorkspace={interviewWorkspace}
+          reviewComments={reviewComments}
+          onAddComment={onAddComment}
         />
       )}
     </div>

@@ -3613,6 +3613,8 @@ function App() {
               resultsReleases={state.resultsReleases || []}
               academicPrograms={activeAcademicPrograms}
               interviewWorkspace={interviewWorkspace}
+              reviewComments={state.reviewComments || []}
+              onAddComment={addReviewComment}
             />
           )}
 
