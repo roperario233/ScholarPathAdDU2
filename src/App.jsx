@@ -3204,9 +3204,11 @@ function App() {
       { view: 'admin-review', label: 'Review queue', visible: isAdmissionsAdmin },
       { view: 'admin-interviews', label: 'Interviews', visible: true },
       { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsAdmin },
-      { view: 'admin-statistics', label: 'Statistics', visible: isAdmissionsAdmin },
       { view: 'admin-calendar', label: 'Calendar', visible: true },
       { view: 'admin-support', label: 'Support inbox', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
+      // Office oversight and management (Admin only), after the case pipeline and
+      // the shared tools: the cycle's statistics, then the catalog and accounts.
+      { view: 'admin-statistics', label: 'Statistics', visible: isAdmissionsAdmin },
       { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsAdmin },
       { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsAdmin },
       { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsAdmin },
