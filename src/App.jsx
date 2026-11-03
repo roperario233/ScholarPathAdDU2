@@ -3356,7 +3356,7 @@ function App() {
       {/* A solid bar that bleeds past the page padding to the screen edges. On a
           phone the title stacks as a two-line lockup and the buttons compact so the
           bigger logo and title still sit beside the avatar, theme toggle, bell, menu, and logout. */}
-      <header className="app-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
+      <header className="app-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] bg-[image:var(--header-gradient)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
         <div className="min-w-0 flex-1">
           <div className="flex max-w-full items-center gap-2 sm:gap-3">
             <img src={logoImage} alt="Ateneo de Davao University logo" className="h-11 w-11 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-12 min-[400px]:w-12 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
