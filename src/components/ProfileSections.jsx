@@ -1046,6 +1046,8 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
     isTransferee: values.isTransferee,
     studentNumber: values.studentNumber,
     degreeProgram: values.degreeProgram,
+    programChoice2: values.programChoice2,
+    programChoice3: values.programChoice3,
     academicStanding: values.academicStanding,
     qpi: values.qpi,
     hsStrand: values.hsStrand,
@@ -1113,24 +1115,39 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         {needsStudentNumber && <FormField fieldKey="studentNumber" label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber} required={need.has('studentNumber')}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
       <div className="grid gap-2" data-field="degreeProgram">
-        <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" required={need.has('degreeProgram')} />
+        <SelectPicker label={standing.requiresProgramChoices ? '1st choice Program / Course (to be enrolled)' : standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} placeholder="Choose program" idPrefix="profile-degree-program" required={need.has('degreeProgram')} />
       </div>
-      {selectedProgram && (
+      {/* The ranked choices sit with the 1st choice, so the three programs read as one
+          list; the school, cluster, and department below follow the 1st choice. */}
+      {standing.requiresProgramChoices && (
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField
-            label="School"
-            value={selectedProgram.school}
-            note="Updates with your degree program."
-            className={selectedProgram.cluster ? '' : 'md:col-span-2'}
-          />
-          {selectedProgram.cluster && <ReadOnlyField label="Cluster" value={selectedProgram.cluster} />}
-          <ReadOnlyField label="Academic department" value={selectedProgram.department} className="md:col-span-2" />
+          <SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} placeholder="Choose 2nd choice program" idPrefix="profile-program-choice-2" required={need.has('programChoice2')} />
+          <SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} placeholder="Choose 3rd choice program" idPrefix="profile-program-choice-3" required={need.has('programChoice3')} />
+          <small className="field-hint -mt-2 block md:col-span-2">List other programs you would take, in order of preference.</small>
+        </div>
+      )}
+      {selectedProgram && (
+        <div className="grid gap-3 rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3" data-field="programPlacement">
+          <p className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-app-muted">{standing.requiresProgramChoices ? 'Where your 1st choice sits' : 'Where your program sits'}</p>
+          <dl className={`m-0 grid gap-x-6 gap-y-3 ${selectedProgram.cluster ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+            <div className="min-w-0">
+              <dt className="text-xs text-app-muted">School</dt>
+              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.school}</dd>
+            </div>
+            {selectedProgram.cluster && (
+              <div className="min-w-0">
+                <dt className="text-xs text-app-muted">Cluster</dt>
+                <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.cluster}</dd>
+              </div>
+            )}
+            <div className="min-w-0">
+              <dt className="text-xs text-app-muted">Academic department</dt>
+              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.department}</dd>
+            </div>
+          </dl>
         </div>
       )}
       <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="note">{COURSE_SHIFT_REMINDER}</p>
-      {standing.requiresProgramChoices && (
-        <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" required={need.has('programChoice2')} /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" required={need.has('programChoice3')} /></div></div>
-      )}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField fieldKey="academicStanding" label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} required={need.has('academicStanding')} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && <FormField fieldKey="qpi" label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} required={need.has('qpi')} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}

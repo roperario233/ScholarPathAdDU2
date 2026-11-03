@@ -236,11 +236,11 @@ export default function AcademicProfileModal({
               </FormField>
             )}
           </div>
-          <SelectPicker label={standing.requiresProgramChoices ? '1st choice Program / Course (to be enrolled)' : standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError('degreeProgram', 'programChoice2', 'programChoice3'); }} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="academic-profile-program" required={!program} />
+          <SelectPicker label={standing.requiresProgramChoices ? '1st choice Program / Course (to be enrolled)' : standing.programLabel} value={program} onChange={(value) => { setProgram(value); clearError('degreeProgram', 'programChoice2', 'programChoice3'); }} options={choiceOptions.degreeProgram} error={errors.degreeProgram} placeholder="Choose program" idPrefix="academic-profile-program" required={!program} />
           {standing.requiresProgramChoices && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <SelectPicker label="2nd choice program" value={programChoice2} onChange={(value) => { setProgramChoice2(value); clearError('programChoice2', 'programChoice3'); }} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="academic-profile-program-choice-2" required={!programChoice2} />
-              <SelectPicker label="3rd choice program" value={programChoice3} onChange={(value) => { setProgramChoice3(value); clearError('programChoice3'); }} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="academic-profile-program-choice-3" required={!programChoice3} />
+              <SelectPicker label="2nd choice program" value={programChoice2} onChange={(value) => { setProgramChoice2(value); clearError('programChoice2', 'programChoice3'); }} options={choiceOptions.programChoice2} error={errors.programChoice2} placeholder="Choose 2nd choice program" idPrefix="academic-profile-program-choice-2" required={!programChoice2} />
+              <SelectPicker label="3rd choice program" value={programChoice3} onChange={(value) => { setProgramChoice3(value); clearError('programChoice3'); }} options={choiceOptions.programChoice3} error={errors.programChoice3} placeholder="Choose 3rd choice program" idPrefix="academic-profile-program-choice-3" required={!programChoice3} />
               <small className="field-hint -mt-2 block sm:col-span-2">List other programs you would take, in order of preference.</small>
             </div>
           )}
