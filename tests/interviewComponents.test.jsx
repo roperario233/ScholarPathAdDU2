@@ -328,7 +328,7 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
   });
 
   it('says when the panel has not recommended anything yet', () => {
-    expect(atInterview()).toContain('No panel recommendation recorded yet.');
+    expect(atInterview()).toContain('No panel recommendation recorded yet, so Recommend for approval is unavailable.');
   });
 
   it('holds an interviewer on the panel until a recommendation level is recorded', () => {

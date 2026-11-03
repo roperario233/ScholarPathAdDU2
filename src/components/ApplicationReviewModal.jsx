@@ -885,15 +885,19 @@ export default function ApplicationReviewModal({
 
         {showDeliberationField ? (
           <div className="grid gap-1">
-            <p className="m-0 text-xs text-app-muted">
-              {latestPanelRecommendation
-                ? `Panel recommendation: ${[
+            {latestPanelRecommendation ? (
+              <p className="m-0 text-xs text-app-muted">
+                {`Panel recommendation: ${[
                   latestPanelRecommendation.label,
                   latestPanelRecommendation.authorName,
                   latestPanelRecommendation.createdAt ? fmtDate(latestPanelRecommendation.createdAt) : '',
-                ].filter(Boolean).join(' · ')}`
-                : 'No panel recommendation recorded yet. The Interview tab records it with the panel’s evaluation note.'}
-            </p>
+                ].filter(Boolean).join(' · ')}`}
+              </p>
+            ) : (
+              <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+                No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Interview tab, add an evaluation note and choose a recommendation level.
+              </p>
+            )}
           </div>
         ) : null}
 
