@@ -3484,7 +3484,7 @@ function App() {
           </div>
         </aside>
 
-        <section className="blue-action-view grid min-w-0 gap-5">
+        <section className="blue-action-view grid min-w-0 content-start gap-5">
           {showViewSkeleton ? <ViewSkeleton view={state.activeView} /> : (
           <>
           {state.viewerRole === 'student' && state.activeView === 'dashboard' && (
