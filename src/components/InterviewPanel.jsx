@@ -655,7 +655,7 @@ function InterviewNotes({ notes, canAdd, onAddNote }) {
         <form className="grid gap-4 border-t border-app-border pt-4" onSubmit={submit}>
           <h5 className="m-0 text-base font-semibold text-app-text">Add an evaluation note</h5>
           <fieldset className="grid gap-2">
-            <legend className="mb-1 text-sm font-semibold text-app-text">Recommendation <span className="font-normal text-app-muted">(optional)</span></legend>
+            <legend className="mb-1 text-sm font-semibold text-app-text">Recommendation</legend>
             <div role="radiogroup" aria-label="Recommendation" className="flex flex-wrap gap-2">
               {INTERVIEW_RECOMMENDATION_LEVELS.map((level) => {
                 const selected = recommendationLevel === level.value;
