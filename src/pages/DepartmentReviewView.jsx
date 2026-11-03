@@ -3,6 +3,7 @@ import { CalendarClock, CheckCircle2, ClipboardCheck, Layers, SendHorizontal, Us
 import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isInterviewerRole } from '../lib/reviewScope';
@@ -58,6 +59,10 @@ export default function DepartmentReviewView({
   const decidedInScope = queue.filter((entry) => ['Recommended', 'Approved', 'Released'].includes(entry.status));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
   const programIndex = buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []);
+  // After a stage move the case's row in the work lists glows, or a notice says
+  // where it went. The all-applications list is left out: it always holds the
+  // case, so pointing there would scroll the page away from the work.
+  const moved = useMovedCase([...awaitingInterview, ...inInterview, ...awaitingApproval].map((entry) => entry.id));
 
   const openCase = (entry, tab = null) => {
     setReviewTab(tab);
@@ -87,7 +92,7 @@ export default function DepartmentReviewView({
     const onPanel = panelApplicationIds.has(entry.id);
     const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
     return (
-      <article key={entry.id} className={getCaseCardClass('warning')}>
+      <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full">
             <h3 className="truncate">{entry.studentName}</h3>
@@ -154,6 +159,8 @@ export default function DepartmentReviewView({
         )}
       </AdminPageHeader>
 
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It stays listed under All applications in your scope." />
+
       <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
         <StatCard icon={UserCheck} tone="info" label="Interviews on your panel" value={panelInterviews.length} />
@@ -172,7 +179,7 @@ export default function DepartmentReviewView({
             {awaitingApproval.length ? awaitingApproval.map((entry) => {
               const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
               return (
-                <article key={entry.id} className={getCaseCardClass('warning')}>
+                <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
                     <div className="min-w-0 w-full">
                       <h3 className="truncate">{entry.studentName}</h3>
@@ -246,7 +253,7 @@ export default function DepartmentReviewView({
           initialTab={reviewTab}
           reviewComments={reviewComments}
           onAddComment={onAddComment}
-          onClose={() => { setSelectedId(null); setReviewTab(null); }}
+          onClose={(result) => { setSelectedId(null); setReviewTab(null); moved.handleClose(result); }}
           onStatusChange={handleStatusChange}
           onRejectApplication={onRejectApplication}
           onRecordDeliberation={onRecordDeliberation}

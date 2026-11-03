@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { CalendarClock } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import FilterChips from '../../components/FilterChips';
 import InterviewLocationsModal from '../../components/InterviewLocationsModal';
 import MonthCalendar, { CalendarLegend, getCalendarMarkTone } from '../../components/MonthCalendar';
@@ -153,6 +154,8 @@ export default function AdminCalendar({
   const [displayMonth, setDisplayMonth] = useState((Number(todayKey.slice(5, 7)) || (now.getMonth() + 1)) - 1);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  // The calendar has no case rows, so a stage move made from it reads as a notice.
+  const moved = useMovedCase();
   // A recorded decision opens the case on Overview (its stage tab may not be
   // unlocked for that stage), while an interview opens the Interview tab.
   const [selectedTab, setSelectedTab] = useState('interview');
@@ -269,6 +272,8 @@ export default function AdminCalendar({
       >
         <AdminHeaderTile icon={CalendarClock} {...getNextInterviewTile(upcoming, { emptyNote: 'Interviews the schools schedule appear here.' })} />
       </AdminPageHeader>
+
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="" />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
         <Card
@@ -424,7 +429,7 @@ export default function AdminCalendar({
           role={role}
           reviewerName={reviewerName}
           initialTab={selectedTab}
-          onClose={() => setSelectedId(null)}
+          onClose={(result) => { setSelectedId(null); moved.handleClose(result); }}
           onStatusChange={onChangeApplication}
           onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}

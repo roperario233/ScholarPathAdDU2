@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Award, CalendarClock, CircleAlert, FileEdit, Eye, Hourglass, Search, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Award, CalendarClock, CheckCircle2, CircleAlert, FileEdit, Eye, Hourglass, Search, TriangleAlert, X } from 'lucide-react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import { SkeletonRegion, SkeletonText } from '../components/Skeleton';
@@ -7,7 +7,8 @@ import ApplicationPrintButton from '../components/ApplicationPrintSheet';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
-import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
+import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, SopStageTrack, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
+import { spotlightRow } from '../components/MovedCaseNotice';
 import { applyLiveVerificationsToSnapshot, buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationLiveAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { describeGrantAmount, getGrantAmountForApplication } from '../lib/grantAmount';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
@@ -40,6 +41,56 @@ function ApplicationMetric({ icon: Icon, label, value, note, tone }) {
   );
 }
 
+// Shown the moment a submission is saved, in place of the workspace (which only
+// renders a Draft): what was sent, where the application now stands, and what
+// happens next. Closing it lands on the application's card, which glows.
+function SubmittedConfirmation({ application, onClose }) {
+  const sharedCount = Array.isArray(application.attachedDocuments) ? application.attachedDocuments.length : 0;
+  return (
+    <ModalShell
+      title={application.scholarshipTitle}
+      onClose={onClose}
+      className="application-detail-modal !w-[min(640px,100%)]"
+      header={(
+        <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle}</h2>
+        </div>
+      )}
+    >
+      <div className="stage-outcome-enter grid content-start gap-4" role="status" aria-live="polite">
+        <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4">
+          <CheckCircle2 size={24} aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
+          <div className="grid min-w-0 gap-1">
+            <h3 className="m-0 text-base font-bold text-app-text">Application submitted</h3>
+            <p className="m-0 text-sm text-app-muted">
+              Submitted {fmtDate(application.submittedAt || application.updatedAt)}. It is now locked for review.
+            </p>
+          </div>
+        </div>
+        <SopStageTrack status={application.status === 'Draft' ? 'Submitted' : application.status} />
+        <Panel className="grid gap-2 text-sm">
+          <h4 className={sectionHeading}>Sent to the Admissions Office</h4>
+          <p className="m-0 text-app-text">
+            {sharedCount} attached {sharedCount === 1 ? 'document' : 'documents'}, your statement, and your Application Form answers.
+          </p>
+        </Panel>
+        <Panel className="grid gap-2 text-sm">
+          <h4 className={sectionHeading}>What happens next</h4>
+          <ol className="m-0 grid gap-1.5 pl-5 text-app-text">
+            <li>The Admissions Office verifies your documents. If a file needs correcting, you are asked to replace it.</li>
+            <li>An interviewer from your school schedules your interview.</li>
+            <li>Your school decides. Results are released to every applicant at the same time.</li>
+          </ol>
+          <p className="m-0 text-xs text-app-muted">You are notified at each step, through the channels you chose in Settings.</p>
+        </Panel>
+        <div className="flex justify-end">
+          <Button variant="primary" type="button" onClick={onClose}>Back to my applications</Button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 export default function ApplicationsView({
   applications,
   documents,
@@ -66,6 +117,13 @@ export default function ApplicationsView({
   const [status, setStatus] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
   const [preview, setPreview] = useState(null);
+  // The application just submitted (its confirmation is open), the card to glow
+  // once that confirmation closes, and the last reverted file replaced in the
+  // details view (the Action needed panel disappears with the last one, so the
+  // confirmation lives apart from it).
+  const [submittedId, setSubmittedId] = useState(null);
+  const [spotlightId, setSpotlightId] = useState(null);
+  const [replacedNote, setReplacedNote] = useState(null);
 
   const scholarshipById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry])), [scholarships]);
   const readinessFor = (entry) => getApplicationReadiness({ application: entry, scholarship: scholarshipById[entry.scholarshipId], documents, profile, financialAnswers: financialAnswersByApplication[entry.id] });
@@ -75,6 +133,7 @@ export default function ApplicationsView({
     return matchesQuery && (status === 'all' || entry.status === status);
   }), [applications, query, status]);
   const selected = applications.find((entry) => entry.id === selectedId);
+  const submittedApplication = submittedId ? applications.find((entry) => entry.id === submittedId) : null;
   // Only an AdDU internal draft opens the workspace; external entries are tracked.
   const workspaceApplication = applications.find((entry) => (
     entry.id === openApplicationId && entry.status === 'Draft' && isAdduInternalProgram(scholarshipById[entry.scholarshipId])
@@ -116,10 +175,51 @@ export default function ApplicationsView({
   useEffect(() => {
     if (!openApplicationId) return;
     const entry = applications.find((item) => item.id === openApplicationId);
-    if (!entry || entry.status === 'Draft') return;
+    // The application just submitted shows its confirmation instead of its
+    // details (the workspace clears openApplicationId as it closes).
+    if (!entry || entry.status === 'Draft' || entry.id === submittedId) return;
     setSelectedId(entry.id);
     onOpenApplication(null);
-  }, [openApplicationId, applications, onOpenApplication]);
+  }, [openApplicationId, applications, onOpenApplication, submittedId]);
+
+  // The submitted application's card glows once its confirmation closes. The
+  // effect waits for the list to render it (a Draft filter is widened first).
+  useEffect(() => {
+    if (!spotlightId) return undefined;
+    const cleanup = spotlightRow(spotlightId, { onDone: () => setSpotlightId(null) });
+    if (!cleanup) setSpotlightId(null);
+    return cleanup || undefined;
+  }, [spotlightId]);
+
+  const closeSubmittedConfirmation = () => {
+    // A Draft (or other) filter would hide the card that just became Submitted.
+    if (status !== 'all' && status !== 'Submitted') setStatus('all');
+    setSpotlightId(submittedId);
+    setSubmittedId(null);
+  };
+
+  const closeDetails = () => {
+    setSelectedId(null);
+    setReplacedNote(null);
+  };
+
+  // A replacement makes its "Action needed" row disappear, so a confirmation
+  // names the file that now stands in for the reverted one.
+  const replaceDocument = async (applicationId, oldDocumentId, payload) => {
+    const result = await onReplaceDocument(applicationId, oldDocumentId, payload);
+    if (!result?.error) {
+      const oldDoc = documents.find((doc) => doc.id === oldDocumentId);
+      setReplacedNote({
+        applicationId,
+        oldTitle: oldDoc?.title || 'The reverted file',
+        newDocumentId: result?.documentId || payload?.documentId || '',
+      });
+    }
+    return result;
+  };
+  const replacedNewTitle = replacedNote?.newDocumentId
+    ? documents.find((doc) => doc.id === replacedNote.newDocumentId)?.title || ''
+    : '';
 
   // A rejected attached file the student can still replace is shown in one
   // prominent panel above the lists, so it cannot be missed.
@@ -186,7 +286,7 @@ export default function ApplicationsView({
             : isDraft
               ? (readiness.requirements.some((item) => item.state === 'missing' || item.state === 'rejected') ? 'Next: attach the remaining required documents.' : 'Next: review your statement, certify, and submit.')
               : (isTracked ? entry.notes : getApplicationStatusGuidance(entry.status) || entry.notes);
-          return <article key={entry.id} className={`application-result-card relative grid items-stretch gap-4 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-5 pl-6 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 hover:-translate-y-0.5 hover:shadow-app ${accent.bar}`}>
+          return <article key={entry.id} data-application-id={entry.id} className={`application-result-card relative grid items-stretch gap-4 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-5 pl-6 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 hover:-translate-y-0.5 hover:shadow-app ${accent.bar}`}>
             <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4"><div className="min-w-0 w-full flex-1"><h3>{entry.scholarshipTitle}</h3><p>{scholarship?.category || 'Scholarship'} · Updated {fmtDate(entry.updatedAt)}</p></div><StatusBadge className="max-w-full shrink-0" tone={isTracked ? 'neutral' : statusTone[entry.status] || 'info'}>{isTracked ? 'Tracked' : getApplicationStatusLabel(entry.status)}</StatusBadge></div>
             <div className="grid gap-1.5">
               <div className="flex items-center justify-between gap-3 text-xs font-semibold text-app-muted"><span>{isDraft ? 'Documents attached' : 'Progress'}</span><span>{toPercent(progress)}</span></div>
@@ -220,14 +320,14 @@ export default function ApplicationsView({
     {selected && selectedReadiness && (
       <ModalShell
         title={selected.scholarshipTitle}
-        onClose={() => setSelectedId(null)}
+        onClose={closeDetails}
         className="application-detail-modal"
         header={(
           <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
             <h2 className="m-0 min-w-0 flex-1">{selected.scholarshipTitle}</h2>
             <div className="flex shrink-0 items-center gap-2">
               {selectedReadiness.route === 'external' ? null : <ApplicationPrintButton sheet={printSheetFor(selected, selectedReadiness)} />}
-              <Button variant="secondary" type="button" onClick={() => setSelectedId(null)}>Close</Button>
+              <Button variant="secondary" type="button" onClick={closeDetails}>Close</Button>
             </div>
           </div>
         )}
@@ -241,6 +341,22 @@ export default function ApplicationsView({
           ) : null}
           {selectedReadiness.route === 'external' ? <p className="m-0 text-sm text-app-muted">{selected.notes}</p> : (
             <>
+              {replacedNote && replacedNote.applicationId === selected.id ? (
+                <div className="stage-outcome-enter flex min-w-0 items-start justify-between gap-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-100" role="status">
+                  <CheckCircle2 size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+                  <p className="m-0 min-w-0 flex-1">
+                    Replaced “{replacedNote.oldTitle}”{replacedNewTitle ? ` with “${replacedNewTitle}”` : ''}. The new file is waiting for Admissions Office review{replaceableRejected.length ? '.' : ', and nothing else needs replacing.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                    onClick={() => setReplacedNote(null)}
+                    aria-label="Dismiss replacement message"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : null}
               {replaceableRejected.length ? (
                 <Panel className="grid gap-3 !border-rose-400/40">
                   <div className="grid gap-1">
@@ -255,7 +371,7 @@ export default function ApplicationsView({
                       key={doc.id}
                       doc={doc}
                       options={getReplacementOptions({ application: selected, requirements: selectedReadiness.requirements, rejectedDocument: doc, documents })}
-                      onReplace={(oldDocumentId, payload) => onReplaceDocument(selected.id, oldDocumentId, payload)}
+                      onReplace={(oldDocumentId, payload) => replaceDocument(selected.id, oldDocumentId, payload)}
                     />
                   ))}
                 </Panel>
@@ -301,8 +417,12 @@ export default function ApplicationsView({
         onSaveProfile={onSaveProfile}
         onOpenProfile={onOpenProfile}
         onClose={() => onOpenApplication(null)}
+        onSubmitted={setSubmittedId}
       />
     )}
+    {submittedApplication ? (
+      <SubmittedConfirmation application={submittedApplication} onClose={closeSubmittedConfirmation} />
+    ) : null}
     {preview ? <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} /> : null}
   </div>;
 }

@@ -13,6 +13,7 @@ import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import GrantAmountPanel from './GrantAmountPanel';
 import FinalCheckToggle from './FinalCheckToggle';
+import StageOutcomeCard, { StageMoveStrip } from './StageOutcomeCard';
 import { describeGrantAmount, getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
@@ -21,6 +22,7 @@ import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admiss
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getLatestPanelRecommendation, validateInterviewSchedule } from '../lib/interview';
+import { describeStageOutcome } from '../lib/stageOutcome';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -327,7 +329,21 @@ export default function ApplicationReviewModal({
   const [endorsementDecision, setEndorsementDecision] = useState(null);
   const [endorsementBusy, setEndorsementBusy] = useState(false);
   const [endorsementError, setEndorsementError] = useState('');
-  const [endorsementFeedback, setEndorsementFeedback] = useState('');
+  // The last stage move this surface recorded ({ fromStatus, toStatus, warning }).
+  // Its card replaces the tab panel until the reviewer moves on, and the list the
+  // modal closes onto reads it to say where the case went.
+  const [stageMove, setStageMove] = useState(null);
+  const [showStageMove, setShowStageMove] = useState(false);
+  const recordStageMove = (toStatus, warning = '') => {
+    setActionError('');
+    setStageMove({ fromStatus: application.status, toStatus, warning: warning || '' });
+    setShowStageMove(true);
+    // A move whose next work sits in this modal (the files at verification, the
+    // schedule from For Interview on) lands on that tab, with a one-line strip
+    // saying why. A move that hands the case on shows the outcome card instead.
+    const stageTab = getReviewStageTab(toStatus);
+    if (stageTab !== 'overview') setActiveTab(stageTab);
+  };
   // Re-read from `documents` every render so a Verified/Rejected decision shows
   // in the pane immediately.
   const selectedDoc = linkedDocuments.find((doc) => doc.id === selectedDocId) || linkedDocuments[0] || null;
@@ -354,7 +370,10 @@ export default function ApplicationReviewModal({
       setVerifyTarget(target);
       return;
     }
-    onChangeDocument?.(documentId, status);
+    setActionError('');
+    Promise.resolve(onChangeDocument?.(documentId, status))
+      .then((result) => { if (result?.error) setActionError(result.error); })
+      .catch(() => undefined);
   };
 
   const confirmVerification = async () => {
@@ -391,13 +410,10 @@ export default function ApplicationReviewModal({
         setEndorsementError(result.error);
         return;
       }
-      setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-        ? 'Sent for endorsement. The Admissions Office Admin records the decision next.'
-        : "Forwarded to interview. The interviewers of the applicant's school schedule it next.");
+      const toStatus = endorsementDecision.mode === 'handoff' ? 'For Endorsement' : 'Endorsed';
       setEndorsementDecision(null);
-      // Stay on the Endorsement tab either way: the recorded hand-off or decision
-      // is the confirmation, and closing the review surface would hide it.
-      setActiveTab('endorsement');
+      // The outcome card says where the case went; the review surface stays open.
+      recordStageMove(toStatus);
     } catch (error) {
       // A rejected write must never leave the dialog stuck on "Saving…".
       setEndorsementError(error?.message || 'The decision could not be recorded. Please try again.');
@@ -475,6 +491,41 @@ export default function ApplicationReviewModal({
   // A selection pointing at a tab that is not shown (for example right after a
   // status write) falls back to the overview instead of an empty panel.
   const visibleActiveTab = tabs.some((tab) => tab.key === activeTab) ? activeTab : 'overview';
+  // The recorded move, described against the application as it is now (so a new
+  // interview record or stage is read after the write). The card only offers a
+  // tab this reviewer can open.
+  const stageOutcome = (() => {
+    if (!stageMove) return null;
+    const described = describeStageOutcome({
+      application,
+      fromStatus: stageMove.fromStatus,
+      toStatus: stageMove.toStatus,
+      approverRole: stageMove.toStatus === 'Recommended' && interviewWorkspace
+        ? getApproverRoleForApplication(
+          application,
+          interviewWorkspace.approvalLevels || [],
+          buildProgramScopeIndex(interviewWorkspace.academicPrograms || []),
+        )
+        : '',
+      totalFiles: totalDocuments,
+      warning: stageMove.warning,
+    });
+    if (!described) return null;
+    return tabs.some((tab) => tab.key === described.goTab) ? described : { ...described, goTab: null };
+  })();
+  // The move continues in this modal when its stage tab is the one on screen: the
+  // tab itself is the result, so only a strip explains the change. Otherwise the
+  // case has left this reviewer's hands and the outcome card says where it went.
+  const movedInPlace = showStageMove && Boolean(stageOutcome?.goTab) && stageOutcome.goTab === visibleActiveTab;
+  const showingOutcome = showStageMove && Boolean(stageOutcome) && !movedInPlace;
+  const panelTab = showingOutcome ? null : visibleActiveTab;
+  // Every way out of the modal (Done, Close, Escape, the backdrop) tells the page
+  // what moved, so the list can point at the case or say where it went.
+  const closeReview = () => onClose?.(stageOutcome ? { outcome: stageOutcome } : undefined);
+  const selectTab = (key) => {
+    setShowStageMove(false);
+    setActiveTab(key);
+  };
 
   // Action bar: one button per transition the role may take, read once from
   // getNextApplicationStatuses. Rejection sits apart on the left; when several
@@ -597,18 +648,11 @@ export default function ApplicationReviewModal({
       setActionError(result.error);
       return;
     }
-    if (status === 'Interview') {
-      // The recorded schedule is the confirmation; keep it on screen.
-      setActiveTab('interview');
-      return;
-    }
-    if (status === 'For Verification' && isAdmissionsAdmin) {
-      // The document queue opens in place: closing the modal would hide the work
-      // the review just queued.
-      setActiveTab('documents');
-      return;
-    }
-    onClose();
+    // Every move stays on screen with its outcome card (what changed, who holds
+    // the case now, what happens next) instead of closing the modal or jumping to
+    // another tab. The card offers the stage's tab, and Done closes onto the list.
+    // A calendar warning from closing the interview is reported there too.
+    recordStageMove(status, result?.warning);
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
@@ -634,12 +678,12 @@ export default function ApplicationReviewModal({
     <>
     <ModalShell
       title={application.scholarshipTitle}
-      onClose={onClose}
+      onClose={closeReview}
       className="application-review-modal"
       header={(
         <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
           <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle}</h2>
-          <div className="shrink-0"><Button variant="secondary" type="button" onClick={onClose}>Close</Button></div>
+          <div className="shrink-0"><Button variant="secondary" type="button" onClick={closeReview}>Close</Button></div>
         </div>
       )}
     >
@@ -675,15 +719,22 @@ export default function ApplicationReviewModal({
         </div>
       </header>
 
-      <ReviewTabs tabs={tabs} active={visibleActiveTab} onChange={setActiveTab} />
+      <ReviewTabs tabs={tabs} active={visibleActiveTab} onChange={selectTab} />
 
       <div
-        className={`application-review-modal-body pt-4${visibleActiveTab === 'documents' ? ' application-review-modal-body--split' : ''}`}
+        className={`application-review-modal-body pt-4${panelTab === 'documents' ? ' application-review-modal-body--split' : ''}`}
         role="tabpanel"
         id={`review-panel-${visibleActiveTab}`}
         aria-labelledby={`review-tab-${visibleActiveTab}`}
       >
-        {visibleActiveTab === 'overview' && (
+        {showingOutcome ? (
+          <StageOutcomeCard outcome={stageOutcome} onDone={closeReview} />
+        ) : null}
+        {movedInPlace ? (
+          <StageMoveStrip outcome={stageOutcome} onDismiss={() => setShowStageMove(false)} />
+        ) : null}
+
+        {panelTab === 'overview' && (
           <div className="grid content-start gap-4">
             {application.openedByOfficeAt ? (
               <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-800 dark:text-amber-100" role="note">
@@ -705,7 +756,7 @@ export default function ApplicationReviewModal({
           </div>
         )}
 
-        {visibleActiveTab === 'documents' && (
+        {panelTab === 'documents' && (
           linkedDocuments.length || requirements.length ? (
             <div className="application-review-documents">
               <div className="application-review-documents-pane">
@@ -779,7 +830,7 @@ export default function ApplicationReviewModal({
           ) : <p className="m-0 text-sm text-app-muted">No documents attached yet.</p>
         )}
 
-        {visibleActiveTab === 'profile' && (
+        {panelTab === 'profile' && (
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
             <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
@@ -802,7 +853,7 @@ export default function ApplicationReviewModal({
           </Panel>
         )}
 
-        {visibleActiveTab === 'grant' && (
+        {panelTab === 'grant' && (
           <GrantAmountPanel
             key={application.id}
             applicationId={application.id}
@@ -813,7 +864,7 @@ export default function ApplicationReviewModal({
           />
         )}
 
-        {visibleActiveTab === 'history' && (
+        {panelTab === 'history' && (
           <div className="grid gap-3">
             {/* The recorded rejection reason is staff-only, and the Endorsement
                 tab's thread only exists from For Endorsement on. A case rejected
@@ -881,7 +932,7 @@ export default function ApplicationReviewModal({
           </div>
         )}
 
-        {visibleActiveTab === 'interview' && interviewWorkspace && (
+        {panelTab === 'interview' && interviewWorkspace && (
           <InterviewPanel
             application={application}
             role={role}
@@ -899,13 +950,8 @@ export default function ApplicationReviewModal({
           />
         )}
 
-        {visibleActiveTab === 'endorsement' && (
+        {panelTab === 'endorsement' && (
           <div className="grid gap-3">
-            {endorsementFeedback ? (
-              <p className="m-0 rounded-[14px] border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-200" role="status">
-                {endorsementFeedback}
-              </p>
-            ) : null}
             <EndorsementCasePanel
               application={application}
               documents={documents}
@@ -1035,7 +1081,7 @@ export default function ApplicationReviewModal({
             : { error: 'Rejection is not available on this page.' };
           if (result?.error) return result;
           setRejectReasonOpen(false);
-          onClose();
+          recordStageMove('Rejected');
           return result;
         }}
         onClose={() => setRejectReasonOpen(false)}
@@ -1049,9 +1095,13 @@ export default function ApplicationReviewModal({
         options={getDocumentRejectionReasons(documentRejectTarget.documentType)}
         notesHint="Add details, such as which page or value needs correcting."
         confirmLabel="Revert for resubmission"
-        onConfirm={(reason) => {
-          onChangeDocument?.(documentRejectTarget.id, 'Rejected', reason);
+        onConfirm={async (reason) => {
+          // Awaited so a failed write is reported in the dialog instead of closing
+          // on it.
+          const result = await onChangeDocument?.(documentRejectTarget.id, 'Rejected', reason);
+          if (result?.error) return result;
           setDocumentRejectTarget(null);
+          return result;
         }}
         onClose={() => setDocumentRejectTarget(null)}
       />

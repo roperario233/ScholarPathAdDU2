@@ -2,6 +2,7 @@ import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader'
 import { useState } from 'react';
 import { CalendarClock } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import MonthCalendar, { CalendarLegend } from '../components/MonthCalendar';
 import { getInterviewStateTone } from '../components/InterviewRoster';
 import { Button, Card, EmptyState, StatusBadge } from '../components/ui';
@@ -124,6 +125,8 @@ export default function DepartmentCalendarView({
   const [displayMonth, setDisplayMonth] = useState((Number(todayKey.slice(5, 7)) || (now.getMonth() + 1)) - 1);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
+  // The calendar has no case rows, so a stage move made from it reads as a notice.
+  const moved = useMovedCase();
   // A recorded decision opens on Overview; an interview opens its Interview tab.
   const [selectedTab, setSelectedTab] = useState('interview');
 
@@ -201,6 +204,8 @@ export default function DepartmentCalendarView({
             : getNextInterviewTile(departmentUpcoming, { label: 'Next in your scope' }))}
         />
       </AdminPageHeader>
+
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="" />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.65fr)]">
         <Card
@@ -312,7 +317,7 @@ export default function DepartmentCalendarView({
           initialTab={selectedTab}
           reviewComments={reviewComments}
           onAddComment={onAddComment}
-          onClose={() => setSelectedId(null)}
+          onClose={(result) => { setSelectedId(null); moved.handleClose(result); }}
           onStatusChange={(applicationId, status, options) => (
             status === 'Approved' && onApproveApplication
               ? onApproveApplication(applicationId, options?.note)

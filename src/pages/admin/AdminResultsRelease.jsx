@@ -2,6 +2,7 @@ import { Award, CheckCircle2, ChevronDown, Gavel, SendHorizontal } from 'lucide-
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../../components/ui';
 import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue, getFinalCheckHints, getReleaseGroups } from '../../lib/admissionsOffice';
@@ -43,9 +44,10 @@ export default function AdminResultsRelease({
     setOpenTab(tab);
     setOpenId(applicationId);
   };
-  const closeCase = () => {
+  const closeCase = (result) => {
     setOpenId(null);
     setOpenTab(null);
+    moved.handleClose(result);
   };
   const [checked, setChecked] = useState({});
   const [busyScholarship, setBusyScholarship] = useState('');
@@ -58,6 +60,8 @@ export default function AdminResultsRelease({
   const approvedCount = groups.reduce((total, group) => total + group.approved.length, 0);
   const finalList = applications.filter((entry) => ['Approved', 'Released'].includes(entry.status));
   const selected = applications.find((entry) => entry.id === openId);
+  // After a stage move the case's row glows, or a notice says where it went.
+  const moved = useMovedCase([...awaitingSchool, ...groups.flatMap((group) => group.approved || [])].map((entry) => entry.id));
   const releasedHistory = [...resultsReleases].filter((release) => release.releasedBy).reverse();
   const titleById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title]));
   const grantAmounts = interviewWorkspace?.grantAmounts || [];
@@ -162,6 +166,8 @@ export default function AdminResultsRelease({
         )}
       </AdminPageHeader>
 
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It is no longer awaiting a decision or a release here." />
+
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
         <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Approved by the configured level" />
         <StatCard icon={Award} tone="info" label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
@@ -202,7 +208,7 @@ export default function AdminResultsRelease({
                       const hints = getFinalCheckHints(entry, applications);
                       const flagged = hints.siblingsOnGrant.length || hints.pendingCases.length || hints.selfDeclaredSibling;
                       return (
-                        <li key={entry.id} className="grid gap-2 rounded-2xl border border-app-border bg-app-card/60 p-3">
+                        <li key={entry.id} data-application-id={entry.id} className="grid gap-2 rounded-2xl border border-app-border bg-app-card/60 p-3">
                           <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
                             <div className="min-w-0 w-full">
                               <strong className="block truncate text-sm">{entry.studentName}</strong>
@@ -282,7 +288,7 @@ export default function AdminResultsRelease({
           {awaitingSchool.length ? awaitingSchool.map((entry) => {
             const approver = getApproverRoleForApplication(entry, approvalLevels, programIndex);
             return (
-              <article key={entry.id} className={getCaseCardClass('warning')}>
+              <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
                   <div className="min-w-0 w-full"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p></div>
                   <StatusBadge tone="info">With the {REVIEW_ROLE_LABELS[approver] || 'Chairperson'}</StatusBadge>

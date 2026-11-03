@@ -1596,9 +1596,29 @@ a:focus-visible {
   .print-sheet-root tr { break-inside: avoid; }
 }
 
-/* My Profile: an opened section eases in rather than snapping into place. */
-.profile-section-enter {
+/* My Profile: an opened section eases in rather than snapping into place. The
+   stage-move outcome card (StageOutcomeCard) and the "moved" notice on a queue
+   page (MovedCaseNotice) ease in the same way. */
+.profile-section-enter,
+.stage-outcome-enter {
   animation: profile-section-in 180ms ease-out;
+}
+
+/* A queue row the review modal just moved glows for a moment when the page
+   comes back (MovedCaseNotice adds the class, then removes it). The ring and the
+   tint are inset so a scrolling list never clips them and the card keeps its
+   own radius and background. */
+.row-spotlight {
+  animation: row-spotlight 2.2s ease-out;
+}
+
+@keyframes row-spotlight {
+  0%, 45% {
+    box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.6), inset 0 0 0 999px rgba(59, 130, 246, 0.08);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0), inset 0 0 0 999px rgba(59, 130, 246, 0);
+  }
 }
 
 @keyframes profile-section-in {
@@ -1632,8 +1652,14 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .profile-section-enter {
+  .profile-section-enter,
+  .stage-outcome-enter {
     animation: none;
+  }
+
+  .row-spotlight {
+    animation: none;
+    box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0.6), inset 0 0 0 999px rgba(59, 130, 246, 0.08);
   }
 
   /* No fade: a steady ring for as long as the class stays on. */

@@ -72,7 +72,9 @@ export function SopStageTrack({ status }) {
               className="grid min-w-0 gap-1.5"
               title={label}
             >
-              <span className={`h-1.5 rounded-full ${STAGE_BAR_TONES[tone]}`} aria-hidden="true" />
+              {/* The colour eases, so a stage move visibly advances the track in
+                  the review modal header instead of snapping. */}
+              <span className={`h-1.5 rounded-full transition-colors duration-500 motion-reduce:transition-none ${STAGE_BAR_TONES[tone]}`} aria-hidden="true" />
               <span className="sr-only sm:not-sr-only sm:flex sm:min-w-0 sm:items-center sm:gap-1 text-[11px] leading-tight">
                 <StageIcon tone={tone} />
                 <span className={`min-w-0 sm:truncate ${STAGE_LABEL_TONES[tone]}`}>{label}</span>

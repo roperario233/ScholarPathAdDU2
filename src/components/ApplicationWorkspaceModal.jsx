@@ -244,6 +244,10 @@ export default function ApplicationWorkspaceModal({
   onSaveProfile,
   onOpenProfile,
   onClose,
+  // Called with the application id once the submission is saved, so the page
+  // can show the Submitted confirmation in place of this workspace (which only
+  // renders for a Draft).
+  onSubmitted,
 }) {
   const [step, setStep] = useState(0);
   const stepContentRef = useRef(null);
@@ -375,6 +379,7 @@ export default function ApplicationWorkspaceModal({
     const result = await onSubmit(application.id, { statement, certified, financialAnswers });
     setIsSubmitting(false);
     if (result?.error) { setSubmitError(result.error); return; }
+    onSubmitted?.(application.id);
     onClose();
   };
 

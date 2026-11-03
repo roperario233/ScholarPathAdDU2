@@ -2,6 +2,7 @@ import { CheckCircle2, ClipboardList, FileCheck2, FileSearch, Inbox, X } from 'l
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { SopStageTrack } from '../../components/ApplicationParts';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
@@ -66,14 +67,17 @@ export default function AdminReviewQueue({
     [myQueue],
   );
   const unclaimedSubmissions = intakePool.filter((entry) => entry.status === 'Submitted').length;
+  // After a stage move the case's row glows, or a notice says where it went.
+  const moved = useMovedCase(myQueue.map((entry) => entry.id));
 
   const openReview = (applicationId, tab = null) => {
     setReviewTab(tab);
     setSelectedId(applicationId);
   };
-  const closeReview = () => {
+  const closeReview = (result) => {
     setSelectedId(null);
     setReviewTab(null);
+    moved.handleClose(result);
   };
 
   // Every stage transition stays in the shared handler, so the queue only reports
@@ -113,6 +117,8 @@ export default function AdminReviewQueue({
           />
         )}
       </AdminPageHeader>
+
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It has left your review queue." />
 
       {feedback?.message && (
         <div
@@ -175,7 +181,7 @@ export default function AdminReviewQueue({
                 officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName
               ));
               return (
-                <article key={entry.id} className={getCaseCardClass(getStatusTone(entry.status))}>
+                <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass(getStatusTone(entry.status))}>
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
                     <div className="min-w-0 w-full flex-1">
                       <h3>{entry.studentName}</h3>

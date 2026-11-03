@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { AlertTriangle, CalendarClock, CalendarPlus } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { InterviewDayGroup, InterviewRosterRow } from '../../components/InterviewRoster';
 import FilterChips from '../../components/FilterChips';
 import { getCaseCardClass } from '../../components/pageParts';
@@ -43,7 +44,7 @@ const describeOtherCategories = (others = [], counts = {}) => (
 // than the intended flow. Staff read the board without acting.
 function ScheduleRow({ application, schedulers = [], isAdmin = false, onOpen }) {
   return (
-    <article className={getCaseCardClass('warning')}>
+    <article data-application-id={application.id} className={getCaseCardClass('warning')}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate">{application.studentName}</h3>
@@ -155,6 +156,16 @@ export default function AdminInterviews({
   })();
   const groups = groupInterviewsByDate(visibleEntries);
   const showScheduleList = filter === 'needs-scheduling';
+  // After a stage move the case's row glows, or a notice says where it went.
+  const moved = useMovedCase(showScheduleList
+    ? needsSchedule.map((entry) => entry.id)
+    : visibleEntries.map((entry) => entry.applicationId));
+  // Opening a case pins the category on screen, so a schedule recorded inside
+  // the case never switches the filter chip under the reader.
+  const openCase = (applicationId) => {
+    if (!chosenFilter) setFilter(filter);
+    setSelectedId(applicationId);
+  };
 
   return (
     <div className="grid content-start gap-5 self-start">
@@ -186,6 +197,8 @@ export default function AdminInterviews({
         )}
       </AdminPageHeader>
 
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} />
+
       {calendarNeedsAttention ? (
         <p className="m-0 text-sm text-amber-700 dark:text-amber-200">
           Google Calendar is not connected. Online interviews need a pasted meeting link.
@@ -214,7 +227,7 @@ export default function AdminInterviews({
                 application={entry}
                 schedulers={getInterviewSchedulers(entry, staffDirectory, programIndex)}
                 isAdmin={isAdmin}
-                onOpen={setSelectedId}
+                onOpen={openCase}
               />
             )) : <EmptyState title="Nothing to schedule" description={describeOtherCategories(otherWithItems, counts)} />
           ) : groups.length ? groups.map((group) => (
@@ -226,7 +239,7 @@ export default function AdminInterviews({
                     entry={entry}
                     panel={getPanelForApplication(interviewWorkspace?.panelists || [], entry.applicationId)}
                     notesCount={getNoteCountForApplication(interviewWorkspace?.notes || [], entry.applicationId)}
-                    onOpen={setSelectedId}
+                    onOpen={openCase}
                   />
                 ))}
               </div>
@@ -270,7 +283,7 @@ export default function AdminInterviews({
           role={role}
           reviewerName={reviewerName}
           initialTab="interview"
-          onClose={() => setSelectedId(null)}
+          onClose={(result) => { setSelectedId(null); moved.handleClose(result); }}
           onStatusChange={onChangeApplication}
           onRejectApplication={onRejectApplication}
           onEndorse={onEndorseApplication}

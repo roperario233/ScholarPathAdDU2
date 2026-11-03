@@ -2746,9 +2746,9 @@ function App() {
     // Reviewing a vault file belongs to the Admissions Office Admin (Consultation
     // 2): Staff and the interviewers read the files but never decide them.
     if (!isAdmissionsAdminRole(state.viewerRole)) {
-      const message = 'Only the Admissions Office Admin can verify a document or revert it for resubmission.';
-      window.alert(message);
-      return { error: message };
+      // The review modal reports the error in place (the verification dialog, the
+      // revert dialog, or the action bar), so no browser alert is raised here.
+      return { error: 'Only the Admissions Office Admin can verify a document or revert it for resubmission.' };
     }
     const reason = verificationStatus === 'Rejected' ? String(rejectionReason || '').trim() : '';
     if (verificationStatus === 'Rejected' && !reason) return { error: 'A note is required to revert a document for resubmission.' };
@@ -2756,9 +2756,7 @@ function App() {
     if (isSupabaseWorkspaceLoaded) {
       const result = await updateSupabaseDocumentStatus(documentId, verificationStatus, reason);
       if (result.error) {
-        const message = result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.';
-        window.alert(message);
-        return { error: message };
+        return { error: result.error.message || 'The document status could not be saved. Confirm Supabase is configured and apply pending migrations.' };
       }
       if (['Verified', 'Rejected'].includes(verificationStatus)) {
         notifySupabaseDocumentVerification(documentId).catch(() => undefined);
@@ -2809,7 +2807,9 @@ function App() {
         : result.error.message || 'The document could not be replaced.' };
     }
     setApplicationAttachments(applicationId, (ids) => [...ids.filter((id) => id !== oldDocumentId && id !== replacementId), replacementId], { touch: false });
-    return { ok: true };
+    // The replacement's id lets the details view confirm which file now stands
+    // in for the reverted one.
+    return { ok: true, documentId: replacementId };
   };
 
   const deleteDocument = async (documentId) => {
