@@ -531,6 +531,35 @@ export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
   );
 }
 
+// The photos of the residence the application attaches, as a thumbnail grid.
+// Like the 2x2 photo they come from the Document Vault through signed URLs and
+// are not frozen into the snapshot JSON, so a replacement before endorsement
+// shows the newer file.
+function ResidencePhotoGrid({ photos, onPreview }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 pb-2 pl-3 sm:grid-cols-3">
+      {photos.map((doc, index) => {
+        const picture = (
+          <span className="block aspect-[4/3] overflow-hidden rounded-[10px] border border-app-border bg-app-surface">
+            <SignedVaultImage doc={doc} alt={`Photo of the residence ${index + 1}`} className="h-full w-full object-cover" />
+          </span>
+        );
+        return onPreview ? (
+          <button
+            key={doc.id}
+            type="button"
+            onClick={() => onPreview(doc)}
+            aria-label={`Open photo of the residence ${index + 1}`}
+            className="cursor-pointer rounded-[10px] text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+          >
+            {picture}
+          </button>
+        ) : <div key={doc.id}>{picture}</div>;
+      })}
+    </div>
+  );
+}
+
 // Values are self-reported; a badge only reflects Document Vault proof reviewed
 // by the Admissions Office, never a Registrar record. The answers the
 // application needs stay open; the other groups fold so long snapshots stay
@@ -539,7 +568,9 @@ export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
 // `applicantPhoto` is the 2x2 ID photo the application currently attaches
 // (getApplicantPhotoDocument), shown first so the applicant is recognized at a
 // glance; `onPreviewPhoto` opens the full document where the surface has one.
-export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, onPreviewPhoto, extraSections = [] }) {
+// `residencePhotos` are the attached Photos of Residence files, listed in their
+// own group after the snapshot rows.
+export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, residencePhotos = [], onPreviewPhoto, extraSections = [] }) {
   if (!snapshot) return <p className="m-0 text-sm text-app-muted">No profile snapshot was recorded.</p>;
   const { legacy, sections } = getProfileSnapshotSections(snapshot);
   const [primary, ...snapshotGroups] = sections;
@@ -575,6 +606,15 @@ export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto
           </div>
         </details>
       ))}
+      <details open={expanded} className="group border-b border-app-border/60 last:border-b-0">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 py-2 text-sm font-semibold text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 [&::-webkit-details-marker]:hidden">
+          <span>Photos of residence ({residencePhotos.length})</span>
+          <span aria-hidden="true" className="text-app-muted transition group-open:rotate-180">▾</span>
+        </summary>
+        {residencePhotos.length
+          ? <ResidencePhotoGrid photos={residencePhotos} onPreview={onPreviewPhoto} />
+          : <p className="m-0 pb-2 pl-3 text-xs text-app-muted">No photos of the residence are attached.</p>}
+      </details>
       {legacy ? <p className="m-0 pt-2 text-xs text-app-muted">Submitted before the extended profile details were recorded.</p> : null}
       {snapshot.capturedAt ? <p className="m-0 pt-2 text-xs text-app-muted">Self-reported values as of {fmtDate(snapshot.capturedAt)}.</p> : null}
     </div>

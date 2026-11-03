@@ -7,7 +7,7 @@ import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import ApplicationFinancialStep from './ApplicationFinancialStep';
 import { DocumentRejectionReason, ProfileSnapshotList, RequirementStateBadge } from './ApplicationParts';
-import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments } from '../lib/applicationRequirements';
+import { buildProfileSnapshot, describeRequirementTypes, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationReadiness, getMatchingVaultDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType } from '../lib/constants';
 import { AFFIDAVIT_CLAUSES, DATA_PRIVACY_NOTICE, ESSAY_INSTRUCTION, ESSAY_TARGET_WORDS, ESSAY_TOPIC, countWords } from '../lib/applicationForm';
 import { getFinancialAnswersMissing, getFinancialDetailSections, normalizeFinancialAnswers } from '../lib/financialDetails';
@@ -466,7 +466,7 @@ export default function ApplicationWorkspaceModal({
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Application form">
               <p className="m-0 text-sm text-app-muted">Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
-              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections.filter((section) => section.key !== 'situation')} /></Panel>
+              <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} residencePhotos={getResidencePhotoDocuments(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections.filter((section) => section.key !== 'situation')} /></Panel>
               {readiness.eligibilityWaived ? (
                 <p className="m-0 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-app-text" role="note">
                   The Admissions Office opened this application for you, so the qualification rules do not block it. Complete the remaining steps and submit.

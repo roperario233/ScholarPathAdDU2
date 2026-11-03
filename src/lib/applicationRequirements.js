@@ -944,6 +944,13 @@ export const getProfileSnapshotSections = (snapshot) => {
       row(academic.label || 'Academic record', academicValue, academic.verification),
       row('Household income', snapshot.householdIncome?.value == null ? '' : fmtCurrency(snapshot.householdIncome.value), snapshot.householdIncome?.verification),
       row('Citizenship', snapshot.citizenship?.value, snapshot.citizenship?.verification),
+      // The contact details stay in the always-open group so a reviewer never has
+      // to unfold "Personal and address" to reach the applicant. A snapshot frozen
+      // before they were recorded shows a blank row.
+      ...(snapshot.version ? [
+        row('Email address', snapshot.personal?.email),
+        row('Contact number', snapshot.personal?.phone),
+      ] : []),
     ],
   }];
   if (!snapshot.version) return { legacy: true, sections };
@@ -996,8 +1003,6 @@ export const getProfileSnapshotSections = (snapshot) => {
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
         row('Religion', [optionLabel(religionOptions, personal.religion), personal.religionOther].filter(Boolean).join(' · ')),
-        ...(personal.email ? [row('Email address', personal.email)] : []),
-        ...(personal.phone ? [row('Contact number', personal.phone)] : []),
         row('Complete address', address.completeAddress, address.verification?.completeAddress),
         row('Residing address', address.residingAddress, address.verification?.residingAddress),
         ...(snapshot.version >= 3 && address.housingType
