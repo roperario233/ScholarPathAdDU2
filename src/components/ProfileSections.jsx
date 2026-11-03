@@ -173,6 +173,7 @@ export const SectionContinueContext = createContext(null);
 
 function SectionForm({ title, description, form, submitLabel = 'Save changes', children }) {
   const proceed = useContext(SectionContinueContext);
+  const showContinue = Boolean(proceed && (form.isDirty || proceed.next));
   return (
     <Card title={title}>
       {description && <p className="-mt-1 mb-5 text-sm text-app-muted">{description}</p>}
@@ -180,12 +181,14 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
         {children}
         <ProofImpactWarning warnings={form.proofWarnings} />
         <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-4">
-          <Button variant="primary" type="submit" disabled={!form.isDirty || form.isSaving}>
-            {form.isSaving ? 'Saving…' : submitLabel}
-          </Button>
+          {/* Where a continue action is offered it is the primary path and comes
+              first, so plain Save changes steps back to the quiet treatment.
+              Enter still submits through Save changes: the continue button is
+              type="button", so it is never the form's default button. */}
           {/* Unsaved input is saved first; a clean form simply steps to the next part. */}
-          {proceed && (form.isDirty || proceed.next) && (
+          {showContinue && (
             <Button
+              variant="primary"
               type="button"
               className="gap-2"
               disabled={form.isSaving}
@@ -195,6 +198,9 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
           )}
+          <Button variant={showContinue ? 'secondary' : 'primary'} type="submit" disabled={!form.isDirty || form.isSaving}>
+            {form.isSaving ? 'Saving…' : submitLabel}
+          </Button>
           {form.isDirty && (
             <Button type="button" onClick={form.reset} disabled={form.isSaving}>Discard changes</Button>
           )}
