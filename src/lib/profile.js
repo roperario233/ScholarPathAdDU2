@@ -1377,13 +1377,19 @@ export const isGrantListActive = (form = {}) => (
   || Boolean(form.hasActiveGovernmentGrant)
   || Boolean(form.hasOtherActiveScholarship)
   || Boolean(form.isOnPrepaidPlan)
-  || (Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
+  // An explicit "No" hides the list; the rows stay in the draft (so switching back
+  // to Yes restores them) and the validator drops them on save.
+  || (form.previousGrantsAnswered !== 'No' && Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
 );
 
 export const validateBackgroundSection = (form = {}) => {
   const honorsRank = form.honorsRank || '';
   // "No" is an answer: it clears the list so a hidden grant is never submitted.
-  const grants = validateRows(form.previousGrantsAnswered === 'No' ? [] : form.previousGrants, {
+  // An aid toggle keeps the list open, though, so a row the student can still see
+  // is validated and saved instead of being dropped behind their back.
+  const aidToggleOn = Boolean(form.hasActiveGovernmentGrant || form.hasOtherActiveScholarship || form.isOnPrepaidPlan);
+  const answeredNo = form.previousGrantsAnswered === 'No';
+  const grants = validateRows(answeredNo && !aidToggleOn ? [] : form.previousGrants, {
     max: MAX_GRANT_ROWS,
     label: 'Grant',
     columns: {
@@ -1431,7 +1437,8 @@ export const validateBackgroundSection = (form = {}) => {
     result.values.graduatingClassSize = '';
     delete result.errors.graduatingClassSize;
   }
-  if (grantListActive && !result.values.previousGrants.length && !result.errors.previousGrants) {
+  // An explicit "No" is a complete answer, so an open list never demands a row.
+  if (grantListActive && !answeredNo && !result.values.previousGrants.length && !result.errors.previousGrants) {
     result.errors.previousGrants = 'Add the grant you applied for or received, or answer No to the financial aid question.';
   }
   return result;

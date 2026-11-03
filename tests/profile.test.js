@@ -493,6 +493,8 @@ describe('section validators', () => {
     expect(isGrantListActive({ hasSiblingOnAid: true })).toBe(false);
     // A saved row keeps the list open, so a recorded grant never becomes unreachable.
     expect(isGrantListActive({ previousGrants: [{ name: 'CHED' }] })).toBe(true);
+    // An explicit No hides the list even though rows remain in the draft.
+    expect(isGrantListActive({ previousGrantsAnswered: 'No', previousGrants: [{ name: 'CHED' }] })).toBe(false);
   });
 
   it('requires at least one grant while the list is open', () => {
@@ -507,6 +509,17 @@ describe('section validators', () => {
     });
     expect(completed.errors).toEqual({});
     expect(completed.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', level: '', status: 'accepted', institution: 'CHED', amount: 12000 }]);
+  });
+
+  it('keeps a visible grant row when "No" is answered but an aid toggle holds the list open', () => {
+    const row = { type: 'Government', name: 'CHED', level: 'Senior high school', status: 'accepted', institution: 'School', amount: '132' };
+    const base = { citizenship: 'Filipino', householdIncome: '240000', previousGrantsAnswered: 'No' };
+    const kept = validateBackgroundSection({ ...base, hasActiveGovernmentGrant: true, previousGrants: [row] });
+    expect(kept.errors).toEqual({});
+    expect(kept.values.previousGrants).toHaveLength(1);
+    // An explicit No never demands a row, and without a toggle it still clears the list.
+    expect(validateBackgroundSection({ ...base, hasActiveGovernmentGrant: true, previousGrants: [] }).errors.previousGrants).toBeUndefined();
+    expect(validateBackgroundSection({ ...base, previousGrants: [row] }).values.previousGrants).toEqual([]);
   });
 
   it('never asks for a grant when no aid answer is on', () => {

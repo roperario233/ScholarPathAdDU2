@@ -1263,7 +1263,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
             label="Did you enjoy financial aid in senior high school, or apply for or receive a grant?"
             hint="Needed to apply. Answer Yes to list each grant below."
             value={values.previousGrantsAnswered}
-            onChange={(value) => update(value === 'No' ? { previousGrantsAnswered: value, previousGrants: [] } : { previousGrantsAnswered: value })}
+            onChange={(value) => update({ previousGrantsAnswered: value })}
             options={grantHistoryOptions}
             error={errors.previousGrantsAnswered}
             required={need.has('previousGrantsAnswered')}
@@ -1286,7 +1286,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
           </p>
           <RepeatableRows
             legend="Grant"
-            required={grantListActive && !values.previousGrants.length}
+            required={grantListActive && values.previousGrantsAnswered !== 'No' && !values.previousGrants.length}
             rows={values.previousGrants}
             max={MAX_GRANT_ROWS}
             addLabel="Add a grant applied for or received"
