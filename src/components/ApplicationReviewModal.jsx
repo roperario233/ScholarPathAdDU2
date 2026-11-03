@@ -229,6 +229,9 @@ export default function ApplicationReviewModal({
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
   const documentsUnlocked = areApplicationDocumentsVisible(application.status);
+  // Since Consultation 2 only the Admin verifies files, so the Documents tab is
+  // hidden from every other role (Staff, interviewers, and the reviewer ladder).
+  const documentsTabVisible = documentsUnlocked && isAdmissionsAdmin;
   // SOP step 4 starts when the Admissions Office hands the case to the Admin for
   // the endorsement decision, so the Endorsement tab stays hidden while the case
   // is still being verified. It stays visible afterwards so the recorded
@@ -274,17 +277,17 @@ export default function ApplicationReviewModal({
   });
 
   const [activeTab, setActiveTab] = useState(() => {
-    if (initialTab === 'documents' && !documentsUnlocked) return 'overview';
+    if (initialTab === 'documents' && !documentsTabVisible) return 'overview';
     if (initialTab === 'endorsement' && !endorsementUnlocked) return 'overview';
     if (initialTab) return initialTab;
     // Open on the stage the application is in, so the reviewer lands on the work
     // that stage needs: the files at For Verification, the endorsement record at
     // For Endorsement, the schedule from Endorsed on.
     const stageTab = getReviewStageTab(application.status);
-    if (stageTab === 'documents' && documentsUnlocked) return 'documents';
+    if (stageTab === 'documents' && documentsTabVisible) return 'documents';
     if (stageTab === 'endorsement' && endorsementUnlocked) return 'endorsement';
     if (stageTab === 'interview' && interviewUnlocked) return 'interview';
-    return isAdmissionsAdmin && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
+    return documentsTabVisible && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
@@ -413,11 +416,11 @@ export default function ApplicationReviewModal({
     // The Documents tab appears only once the application reaches the SOP
     // verification stage; before that the gate is explained in the action bar
     // rather than by a tab that cannot be opened.
-    ...(documentsUnlocked ? [{
+    ...(documentsTabVisible ? [{
       key: 'documents',
       label: 'Documents',
-      badge: isAdmissionsAdmin && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
-      alert: isAdmissionsAdmin && blockedByDocuments,
+      badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
+      alert: blockedByDocuments,
     }] : []),
     // SOP step 5: the schedule, the panel from the applicant's school, and the
     // private evaluation notes.
@@ -877,7 +880,7 @@ export default function ApplicationReviewModal({
       </div>
 
       <footer className="application-review-actions grid shrink-0 gap-3 border-t border-app-border pt-4">
-        {!documentsUnlocked ? (
+        {!documentsUnlocked && isAdmissionsAdmin ? (
           <p className="m-0 rounded-[14px] border border-app-border bg-app-surface px-3 py-2 text-sm text-app-muted">
             {lockedDocumentsMessage}
           </p>
