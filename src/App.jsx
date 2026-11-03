@@ -18,7 +18,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -51,6 +51,7 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
+import { isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
 import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
 import { countUnreadSupportMessages, getStudentVisibleMessages, getSupportUnreadTotal, isSupportInboxChannel, mergeSupportInboxState, SUPPORT_BACKGROUND_POLL_MS, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
@@ -2096,6 +2097,39 @@ function App() {
     return { ok: true };
   };
 
+  // The grant amount is recorded by the school's approving level or the Admissions
+  // Office Admin while the case is Recommended or Approved. The RPC re-checks the
+  // caller, the scope, and the stage;
+  // this guard keeps every other session from attempting a write it would refuse.
+  const saveGrantAmount = async (applicationId, input) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (!isAdmissionsAdminRole(state.viewerRole) && !stageContextFor(application).isApprover) {
+      return { error: 'Only the approving level for this applicant or the Admissions Office Admin can record a grant amount.' };
+    }
+    if (!isGrantAmountEditableStage(application.status)) {
+      return { error: 'A grant amount can be recorded only while the application is Recommended or Approved.' };
+    }
+    const { values, errors } = validateGrantAmount(input);
+    const firstError = errors.form || errors.coveragePercent || errors.amount || errors.note;
+    if (firstError) return { error: firstError };
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the grant amount could not be saved.' };
+    }
+    const result = await saveSupabaseGrantAmount({ applicationId, ...values });
+    if (result.error || !result.data) {
+      return { error: result.error?.message || 'The grant amount could not be saved. Confirm the grant amount migration is applied.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      grantAmounts: [
+        ...(previous.grantAmounts || []).filter((entry) => entry.applicationId !== applicationId),
+        result.data,
+      ],
+    }));
+    return { ok: true };
+  };
+
   // Eligibility exception: the Admissions Office Admin opens a Draft for a student
   // the qualification rules would block. The student still completes, certifies,
   // and submits it; only the rules are waived for that Draft (getApplicationReadiness
@@ -2508,6 +2542,10 @@ function App() {
     canCoordinate: canCoordinateInterview,
     stageContextFor,
     approvalLevels: state.approvalLevels || [],
+    // The recorded grant amounts and the approving level's save action (the Grant
+    // amount tab of the review modal).
+    grantAmounts: state.grantAmounts || [],
+    onSaveGrantAmount: saveGrantAmount,
   };
 
   // SOP step 6 — evaluation and deliberation by the School Scholarship
@@ -3476,6 +3514,7 @@ function App() {
               applications={studentApplications}
               documents={studentDocuments}
               scholarships={state.scholarships || []}
+              grantAmounts={state.grantAmounts || []}
               profile={studentMatchProfile}
               openApplicationId={openApplicationId}
               onOpenApplication={setOpenApplicationId}

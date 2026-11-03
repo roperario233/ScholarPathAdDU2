@@ -128,6 +128,10 @@ const createDefaultState = () => ({
   // The internal endorsement thread. Staff-only rows; a student session always
   // keeps this empty.
   reviewComments: [],
+  // Recorded grant amounts (application_grant_amounts). RLS decides the rows: staff
+  // and the approving level read them, a student only after a release covers the
+  // application.
+  grantAmounts: [],
   // The Admissions Office case-officer roster: which office accounts have opened
   // which application. Staff-only, so a student or Department Chair session always
   // keeps this empty. `caseOfficersReady` turns false when the roster migration is
@@ -230,6 +234,7 @@ export const createInitialState = () => {
     notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
     reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
+    grantAmounts: Array.isArray(stored.grantAmounts) ? stored.grantAmounts : defaults.grantAmounts,
     caseOfficers: Array.isArray(stored.caseOfficers) ? stored.caseOfficers : defaults.caseOfficers,
     caseOfficersReady: stored.caseOfficersReady === false ? false : defaults.caseOfficersReady,
     staffDirectory: Array.isArray(stored.staffDirectory) ? stored.staffDirectory : defaults.staffDirectory,

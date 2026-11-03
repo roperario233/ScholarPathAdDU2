@@ -180,6 +180,19 @@ const toReviewComment = (row) => ({
   createdAt: row.created_at,
 });
 
+// The recorded grant amount of one application (application_grant_amounts). It is
+// a separate table because a student reads their own `applications` row in full:
+// the student policy only returns the row once a results release covers it.
+const toGrantAmount = (row) => ({
+  applicationId: row.application_id,
+  coveragePercent: row.coverage_percent === null || row.coverage_percent === undefined ? null : Number(row.coverage_percent),
+  amountPerSemester: row.amount_per_semester === null || row.amount_per_semester === undefined ? null : Number(row.amount_per_semester),
+  note: row.note || '',
+  setBy: row.set_by || null,
+  setByRole: row.set_by_role || '',
+  updatedAt: row.updated_at,
+});
+
 // The Admissions Office case-officer roster (application_case_officers). Staff
 // only: the student never learns which officer opened their application, so these
 // rows are never merged into an application object.
@@ -362,6 +375,18 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // Recorded grant amounts (application_grant_amounts, from 20261059000000). RLS
+  // decides the rows: the Admissions Office and the scoped approving level read
+  // them, and a student only receives the row of a released application. A pending
+  // migration yields no rows rather than failing the whole workspace.
+  let grantAmounts = [];
+  if (applicationIds.length) {
+    const grantAmountsResult = await supabase.from('application_grant_amounts').select('*').in('application_id', applicationIds);
+    if (!grantAmountsResult.error) {
+      grantAmounts = (grantAmountsResult.data || []).map(toGrantAmount);
+    }
+  }
+
   // The Admissions Office case-officer roster (application_case_officers, from
   // 20261027043147). Admissions Office sessions only: the student and the
   // Department Chair never receive these rows. The roster is what splits the
@@ -433,6 +458,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     notifications: (notificationsResult.data || []).map(toNotification),
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
     reviewComments,
+    grantAmounts,
     staffDirectory,
     // Staff-only case-officer roster: which Admissions Office accounts have
     // opened which application. Empty for a student or Department Chair session.
@@ -586,6 +612,22 @@ export const createSupabaseReviewComment = async ({ applicationId, authorId, aut
     body,
   }).select('*').single();
   return { ...result, data: result.data ? toReviewComment(result.data) : null };
+};
+
+// The approving level records the grant amount through a security definer RPC
+// that re-checks the caller, the scope, and the stage; the table has no client
+// write policy.
+export const saveSupabaseGrantAmount = async ({ applicationId, coveragePercent, amountPerSemester, note }) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.rpc('set_application_grant_amount', {
+    p_application_id: applicationId,
+    p_coverage_percent: coveragePercent,
+    p_amount: amountPerSemester,
+    p_note: note || null,
+  });
+  if (result.error) return { data: null, error: result.error };
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  return { data: row ? toGrantAmount(row) : null, error: null };
 };
 
 // Student support conversations. The database policies determine the visible

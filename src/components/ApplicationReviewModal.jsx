@@ -11,6 +11,8 @@ import AdminOverrideNotice from './AdminOverrideNotice';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
+import GrantAmountPanel from './GrantAmountPanel';
+import { getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
@@ -269,6 +271,16 @@ export default function ApplicationReviewModal({
     INTERVIEW_TAB_STATUSES.includes(application.status)
     || (application.status === 'Rejected' && Boolean(application.interview))
   );
+  // The recorded grant amount: the school's approving level or the Admissions
+  // Office Admin sets it while the case is Recommended or Approved, and Staff read
+  // it. Any other reviewer never sees the tab.
+  const grantRecord = getGrantAmountForApplication(interviewWorkspace?.grantAmounts, application.id);
+  const canEditGrantAmount = (isAdmissionsAdmin || Boolean(stageContext.isApprover))
+    && Boolean(interviewWorkspace?.onSaveGrantAmount)
+    && isGrantAmountEditableStage(application.status);
+  const grantTabVisible = Boolean(interviewWorkspace)
+    && isGrantAmountStage(application.status)
+    && (isAdmissionsReviewer || Boolean(stageContext.isApprover));
   const [interviewDraft, setInterviewDraft] = useState(() => createInterviewDraft(application, applicationPanelists));
   const [interviewShowErrors, setInterviewShowErrors] = useState(false);
   const interviewErrors = validateInterviewSchedule(interviewDraft, {
@@ -442,6 +454,13 @@ export default function ApplicationReviewModal({
       label: 'Case notes',
       badge: application.status === 'For Endorsement' ? 'Decision due' : null,
       alert: application.status === 'For Endorsement',
+    }] : []),
+    // The approving level's recorded grant figure (Recommended, Approved, Released).
+    ...(grantTabVisible ? [{
+      key: 'grant',
+      label: 'Grant amount',
+      badge: canEditGrantAmount && !grantRecord ? 'To set' : null,
+      alert: canEditGrantAmount && !grantRecord,
     }] : []),
     { key: 'history', label: 'History', badge: statusLog.length || (application.timeline || []).length || null },
   ];
@@ -773,6 +792,17 @@ export default function ApplicationReviewModal({
               />
             </div>
           </Panel>
+        )}
+
+        {visibleActiveTab === 'grant' && (
+          <GrantAmountPanel
+            key={application.id}
+            applicationId={application.id}
+            record={grantRecord}
+            canEdit={canEditGrantAmount}
+            status={application.status}
+            onSave={interviewWorkspace?.onSaveGrantAmount}
+          />
         )}
 
         {visibleActiveTab === 'history' && (

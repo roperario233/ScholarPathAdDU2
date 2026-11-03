@@ -9,6 +9,7 @@ import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { applyLiveVerificationsToSnapshot, buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationLiveAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
+import { describeGrantAmount, getGrantAmountForApplication } from '../lib/grantAmount';
 import { DOCUMENT_REPLACEMENT_STATUSES, applicationStatuses, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
@@ -57,6 +58,9 @@ export default function ApplicationsView({
   financialAnswersByApplication = {},
   financialSnapshotsByApplication = {},
   financialLoaded = true,
+  // Recorded grant amounts. The database only returns a student's own row once a
+  // results release covers the application, so a held result shows nothing here.
+  grantAmounts = [],
 }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -77,6 +81,7 @@ export default function ApplicationsView({
   ));
 
   const selectedReadiness = selected ? readinessFor(selected) : null;
+  const selectedGrantAmount = selected ? getGrantAmountForApplication(grantAmounts, selected.id) : null;
 
   // What the student may read of an application's office-only financial details:
   // the answers they wrote and the financial profile frozen when they submitted
@@ -256,6 +261,13 @@ export default function ApplicationsView({
                 </Panel>
               ) : null}
               {selected.interview ? <StudentInterviewCard application={selected} scholarshipTitle={selected.scholarshipTitle} /> : null}
+              {selectedGrantAmount ? (
+                <Panel className="grid gap-2">
+                  <h3 className={sectionHeading}>Grant amount</h3>
+                  <strong className="text-base text-app-text">{describeGrantAmount(selectedGrantAmount)}</strong>
+                  <p className="m-0 text-xs text-app-muted">A figure recorded for your grant. ScholarPath does not disburse funds; the Admissions Office will advise you on the next steps.</p>
+                </Panel>
+              ) : null}
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
               <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>

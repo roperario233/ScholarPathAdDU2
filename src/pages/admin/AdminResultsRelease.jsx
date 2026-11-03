@@ -8,6 +8,7 @@ import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue
 import { getActorRoleLabel } from '../../lib/applicationRequirements';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
+import { describeGrantAmount, getGrantAmountForApplication } from '../../lib/grantAmount';
 import { fmtDate, plural } from '../../lib/formatters';
 
 // The Admissions Office Admin's last step (Consultation 2, #13): the school
@@ -34,6 +35,17 @@ export default function AdminResultsRelease({
   onAddComment,
 }) {
   const [openId, setOpenId] = useState(null);
+  // The tab the review modal opens on: the case notes and the grant amount have
+  // their own buttons on the final-check list, so the Admin need not hunt for them.
+  const [openTab, setOpenTab] = useState(null);
+  const openCase = (applicationId, tab = null) => {
+    setOpenTab(tab);
+    setOpenId(applicationId);
+  };
+  const closeCase = () => {
+    setOpenId(null);
+    setOpenTab(null);
+  };
   const [checked, setChecked] = useState({});
   const [busyScholarship, setBusyScholarship] = useState('');
   const [feedback, setFeedback] = useState(null);
@@ -47,6 +59,11 @@ export default function AdminResultsRelease({
   const selected = applications.find((entry) => entry.id === openId);
   const releasedHistory = [...resultsReleases].filter((release) => release.releasedBy).reverse();
   const titleById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title]));
+  const grantAmounts = interviewWorkspace?.grantAmounts || [];
+  const grantFor = (applicationId) => getGrantAmountForApplication(grantAmounts, applicationId);
+  // The final check needs the grant amount recorded first, so a case without one
+  // can neither be ticked nor counted toward the release.
+  const isFinalChecked = (applicationId) => Boolean(checked[applicationId]) && Boolean(grantFor(applicationId));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
 
   // The review surface offers the Admin's override at Recommended and the final
@@ -86,6 +103,11 @@ export default function AdminResultsRelease({
   };
 
   const releaseGroup = async (group) => {
+    const missingGrant = group.approved.filter((entry) => !grantFor(entry.id));
+    if (missingGrant.length) {
+      setFeedback({ tone: 'error', message: `${group.title}: set the grant amount on ${plural(missingGrant.length, 'approved case')} before releasing.` });
+      return;
+    }
     setBusyScholarship(group.scholarshipId);
     setFeedback(null);
     const result = await onReleaseScholarshipResults?.(group.scholarshipId);
@@ -144,8 +166,9 @@ export default function AdminResultsRelease({
       <Card title="Final check by scholarship" action={<ExportButton disabled={!finalList.length} onClick={exportFinalList} />}>
         <div className="grid gap-4">
           {groups.length ? groups.map((group) => {
-            const allChecked = group.approved.every((entry) => checked[entry.id]);
-            const checkedCount = group.approved.filter((entry) => checked[entry.id]).length;
+            const allChecked = group.approved.every((entry) => isFinalChecked(entry.id));
+            const checkedCount = group.approved.filter((entry) => isFinalChecked(entry.id)).length;
+            const missingGrantCount = group.approved.filter((entry) => !grantFor(entry.id)).length;
             const notAccepted = group.decided.filter((entry) => entry.status === 'Rejected').length;
             const progress = group.approved.length ? Math.round((checkedCount / group.approved.length) * 100) : 0;
             const releasing = busyScholarship === group.scholarshipId;
@@ -162,6 +185,7 @@ export default function AdminResultsRelease({
                 {group.approved.length ? (
                   <ul className="m-0 grid gap-2 p-0">
                     {group.approved.map((entry) => {
+                      const grant = grantFor(entry.id);
                       const hints = getFinalCheckHints(entry, applications);
                       const flagged = hints.siblingsOnGrant.length || hints.pendingCases.length || hints.selfDeclaredSibling;
                       return (
@@ -185,18 +209,28 @@ export default function AdminResultsRelease({
                             </ul>
                           ) : null}
                           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-3">
-                            <label
-                              className={`flex min-h-10 cursor-pointer items-center gap-2.5 rounded-xl border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-blue-500/40 ${checked[entry.id] ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : 'border-app-border bg-app-surface text-app-text hover:bg-app-card'}`}
-                            >
-                              <input
-                                type="checkbox"
-                                className="h-4 w-4 cursor-pointer accent-emerald-600"
-                                checked={Boolean(checked[entry.id])}
-                                onChange={(event) => setChecked((previous) => ({ ...previous, [entry.id]: event.target.checked }))}
-                              />
-                              {checked[entry.id] ? 'Final check done' : 'Mark final check as done'}
-                            </label>
-                            <Button type="button" variant="secondary" onClick={() => setOpenId(entry.id)}>Open case</Button>
+                            <div className="grid min-w-0 gap-1">
+                              <label
+                                className={`flex min-h-10 items-center gap-2.5 rounded-xl border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-blue-500/40 ${grant ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'} ${isFinalChecked(entry.id) ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : `border-app-border bg-app-surface text-app-text ${grant ? 'hover:bg-app-card' : ''}`}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed"
+                                  checked={isFinalChecked(entry.id)}
+                                  disabled={!grant}
+                                  onChange={(event) => setChecked((previous) => ({ ...previous, [entry.id]: event.target.checked }))}
+                                />
+                                {isFinalChecked(entry.id) ? 'Final check done' : 'Mark final check as done'}
+                              </label>
+                              <span className={`text-xs ${grant ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
+                                {grant ? `Grant amount: ${describeGrantAmount(grant)}` : 'Set the grant amount before the final check.'}
+                              </span>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'endorsement')}>Case notes</Button>
+                              <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'grant')}>Grant amount</Button>
+                              <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>Open case</Button>
+                            </div>
                           </div>
                         </li>
                       );
@@ -222,7 +256,9 @@ export default function AdminResultsRelease({
                     ) : null}
                     <span className="text-xs text-app-muted">
                       {group.approved.length && !allChecked
-                        ? 'Tick the final check on every approved case to unlock the release.'
+                        ? (missingGrantCount
+                          ? `Set the grant amount on ${plural(missingGrantCount, 'case')}, then tick the final check on every approved case to unlock the release.`
+                          : 'Tick the final check on every approved case to unlock the release.')
                         : 'Releasing notifies the accepted applicants and sends the general letter to the others.'}
                     </span>
                   </div>
@@ -252,7 +288,7 @@ export default function AdminResultsRelease({
                 </div>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
                   <span className="text-xs text-app-muted">{getLatestPanelRecommendation(notesFor(entry.id))?.label || 'Recommended'} · the school decides; you can override from the case.</span>
-                  <Button type="button" variant="secondary" onClick={() => setOpenId(entry.id)}>Open case</Button>
+                  <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>Open case</Button>
                 </div>
               </article>
             );
@@ -310,7 +346,7 @@ export default function AdminResultsRelease({
                                 </div>
                                 <div className="flex shrink-0 flex-wrap items-center gap-2">
                                   <StatusBadge tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : 'Not accepted'}</StatusBadge>
-                                  <Button type="button" variant="secondary" onClick={() => setOpenId(entry.id)}>View case</Button>
+                                  <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>View case</Button>
                                 </div>
                               </li>
                             );
@@ -333,7 +369,8 @@ export default function AdminResultsRelease({
           documents={documents}
           students={students}
           role={role}
-          onClose={() => setOpenId(null)}
+          initialTab={openTab}
+          onClose={closeCase}
           onStatusChange={handleStatusChange}
           onRejectApplication={onRejectApplication}
           onRelease={onReleaseResults}
