@@ -3437,7 +3437,7 @@ function App() {
             taller than the window its top (the page links) stays in view and the
             summary boxes below come into view at the bottom of the page. */}
         <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
-          <SidebarProfile avatarUrl={avatarPreview.url} name={currentIdentity.fullName} roleLine={identityRoleLine} detailLine={identityDetailLine} />
+          <SidebarProfile avatarUrl={avatarPreview.url} name={currentIdentity.fullName} roleLine={identityRoleLine} detailLine={state.viewerRole === 'student' ? '' : identityDetailLine} />
 
           {renderNavigation('my-4')}
 
