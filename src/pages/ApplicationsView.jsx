@@ -190,7 +190,7 @@ export default function ApplicationsView({
             <div className="flex flex-wrap gap-2 text-xs text-app-muted">
               {isTracked
                 ? <span className="rounded-full bg-app-muted-surface px-3 py-1">Tracked only — apply through the provider.</span>
-                : <><span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Documents</strong> {readiness.attachedCount} of {readiness.requiredCount} attached</span>{isDraft ? <span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Statement</strong> {String(entry.statement || '').trim() ? 'Written' : 'Not yet'}</span> : null}</>}
+                : <><span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Documents</strong> {readiness.attachedCount} of {readiness.requiredCount} attached</span>{isDraft ? <span className="rounded-full bg-app-muted-surface px-3 py-1"><strong className="text-app-text">Statement</strong> {String(entry.statement || '').trim() ? 'Written' : 'Not yet'}</span> : null}{entry.openedByOfficeAt ? <span className="rounded-full bg-blue-500/10 px-3 py-1 font-semibold text-app-text">Opened by the Admissions Office</span> : null}</>}
               <span className="inline-flex items-center gap-1.5 rounded-full bg-app-muted-surface px-3 py-1"><CalendarClock size={12} aria-hidden="true" /><strong className="text-app-text">Deadline</strong> {scholarship ? fmtDate(scholarship.deadline) : 'N/A'}</span>
             </div>
             {nextStep ? (

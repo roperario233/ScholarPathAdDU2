@@ -156,6 +156,18 @@ export const getStageActionLabel = (status, role) => (
 export const APPLICATION_REJECTION_NOTICE = 'Application not accepted.';
 export const APPLICATION_REJECTION_REASON_PREFIX = 'Rejection reason — ';
 
+// An application the Admissions Office Admin opens for a student who does not
+// meet a qualification rule (open_application_for_student). The reason is filed
+// in the same staff-only thread with this prefix; the student sees only that the
+// office opened the application. Keep the prefix identical to the RPC's.
+export const APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX = 'Eligibility exception — ';
+export const ELIGIBILITY_EXCEPTION_REASONS = [
+  { value: 'recommended', label: 'Recommended by faculty or the department' },
+  { value: 'borderline', label: 'Borderline academic standing' },
+  { value: 'financial-need', label: 'Financial need warrants review' },
+  { value: 'other', label: 'Other', requiresNotes: true },
+];
+
 // Student-facing next-step copy for the application workspace. The card and
 // the detail modal show this instead of the static creation note, so a student
 // always knows what the current stage means and whether they need to act.

@@ -7,7 +7,7 @@ import { mergeWorkspaceRefresh, WORKSPACE_REFRESH_INTERVAL_MS } from './lib/work
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
-import { APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
+import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
 import { getUpcomingInterviews } from './lib/interviewRoster';
@@ -18,7 +18,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -2096,6 +2096,42 @@ function App() {
     return { ok: true };
   };
 
+  // Eligibility exception: the Admissions Office Admin opens a Draft for a student
+  // the qualification rules would block. The student still completes, certifies,
+  // and submits it; only the rules are waived for that Draft (getApplicationReadiness
+  // reads `openedByOfficeAt`). The RPC files the reason in the staff-only thread,
+  // so the Draft and the note are reloaded from the server rather than built here.
+  const openApplicationForStudent = async (studentId, scholarshipId, reason) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can open an application for a student.' };
+    }
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) return { error: 'Record the reason for opening this application.' };
+    const maxReasonLength = 2000 - APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX.length;
+    if (trimmed.length > maxReasonLength) {
+      return { error: `Keep the reason to ${maxReasonLength.toLocaleString()} characters or fewer.` };
+    }
+    if (state.applications.some((entry) => entry.studentId === studentId && entry.scholarshipId === scholarshipId)) {
+      return { error: 'This student already has an application for this scholarship.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the application could not be opened.' };
+    }
+    const result = await openSupabaseApplicationForStudent({
+      id: crypto.randomUUID(),
+      studentId,
+      scholarshipId,
+      reason: trimmed,
+    });
+    if (result?.error) {
+      return { error: result.error.message || 'The application could not be opened. Confirm the office-opened applications migration is applied.' };
+    }
+    const ownerId = state.authUser?.id;
+    const workspace = await loadSupabaseWorkspace({ role: state.viewerRole, userId: ownerId, department: state.authUser?.department || '' });
+    if (workspace.success) updateState((previous) => mergeWorkspaceRefresh(previous, workspace, ownerId));
+    return { ok: true };
+  };
+
   // SOP step 5 — Interview of applicants. The Admissions Office (Staff and
   // Admin) coordinates the interview: mode, location, time, meeting link,
   // reschedules, and the Endorsed → Interview → Recommended moves. SOP 5a draws
@@ -3504,6 +3540,7 @@ function App() {
               onAddComment={addReviewComment}
               onJoinCase={joinCaseReview}
               onLeaveCase={leaveCaseReview}
+              onOpenApplicationForStudent={isAdmissionsAdminRole(state.viewerRole) ? openApplicationForStudent : undefined}
             />
           )}
 

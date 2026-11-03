@@ -1,8 +1,9 @@
-import { CheckCircle2, ChevronDown, Clock, Inbox, Search, UserCheck, Users, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, Clock, FilePlus2, Inbox, Search, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import FilterChips from '../../components/FilterChips';
+import OpenApplicationForStudentModal from '../../components/OpenApplicationForStudentModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { describeApplicantAcademic } from '../../lib/applicationRequirements';
@@ -64,6 +65,7 @@ export default function AdminIntakePool({
   onAddComment,
   onJoinCase,
   onLeaveCase,
+  onOpenApplicationForStudent,
 }) {
   const isAdmin = isAdmissionsAdminRole(role);
   const staffDirectory = useMemo(() => interviewWorkspace?.staffDirectory || [], [interviewWorkspace?.staffDirectory]);
@@ -82,7 +84,14 @@ export default function AdminIntakePool({
   const [feedback, setFeedback] = useState(null);
   const [pickingUpId, setPickingUpId] = useState(null);
   const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [openingForStudent, setOpeningForStudent] = useState(false);
+  const [openedNotice, setOpenedNotice] = useState('');
   const today = useMemo(() => new Date(), []);
+  // Drafts the Admin opened as an eligibility exception. They are not in the pool
+  // until the student submits, so they are listed apart to stay traceable.
+  const officeOpenedDrafts = useMemo(() => applications
+    .filter((entry) => entry.status === 'Draft' && entry.openedByOfficeAt)
+    .sort((a, b) => String(b.openedByOfficeAt).localeCompare(String(a.openedByOfficeAt))), [applications]);
 
   const unclaimed = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
   const unclaimedInProgress = useMemo(
@@ -223,6 +232,23 @@ export default function AdminIntakePool({
         )}
       </AdminPageHeader>
 
+      {openedNotice && (
+        <div
+          className="flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-100"
+          role="status"
+        >
+          <span className="min-w-0">{openedNotice}</span>
+          <button
+            type="button"
+            className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+            onClick={() => setOpenedNotice('')}
+            aria-label="Dismiss confirmation"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
+
       {feedback?.message && (
         <div
           className="flex min-w-0 flex-wrap items-start justify-between gap-3 rounded-xl border border-rose-400/40 bg-rose-500/10 p-3 text-sm text-rose-700 dark:text-rose-200"
@@ -258,8 +284,24 @@ export default function AdminIntakePool({
       <section>
         <Card
           title="Find a case"
-          action={<StatusBadge tone={filtered.length ? 'info' : 'neutral'}>{filtered.length} in view</StatusBadge>}
+          action={(
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {onOpenApplicationForStudent ? (
+                <Button type="button" variant="primary" className="gap-2" onClick={() => setOpeningForStudent(true)}>
+                  <FilePlus2 size={16} aria-hidden="true" />
+                  Open application for a student
+                </Button>
+              ) : null}
+              <StatusBadge tone={filtered.length ? 'info' : 'neutral'}>{filtered.length} in view</StatusBadge>
+            </div>
+          )}
         >
+          {officeOpenedDrafts.length ? (
+            <p className="mt-0 mb-3 text-xs text-app-muted">
+              Opened for students as eligibility exceptions, waiting for them to submit:{' '}
+              {officeOpenedDrafts.map((entry) => `${entry.studentName} (${entry.scholarshipTitle}, opened ${fmtDate(entry.openedByOfficeAt)})`).join('; ')}.
+            </p>
+          ) : null}
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <FilterChips
               name="intake-coverage"
@@ -428,6 +470,23 @@ export default function AdminIntakePool({
             </p>
           </Card>
         </section>
+      ) : null}
+
+      {openingForStudent && onOpenApplicationForStudent ? (
+        <OpenApplicationForStudentModal
+          students={students}
+          scholarships={scholarships}
+          applications={applications}
+          onConfirm={async (studentId, scholarshipId, reason) => {
+            const result = await onOpenApplicationForStudent(studentId, scholarshipId, reason);
+            if (!result?.error) {
+              const title = scholarships.find((entry) => entry.id === scholarshipId)?.title || 'the scholarship';
+              setOpenedNotice(`The ${title} application was opened for ${students[studentId]?.fullName || 'the student'}. They were notified to complete and submit it.`);
+            }
+            return result;
+          }}
+          onClose={() => setOpeningForStudent(false)}
+        />
       ) : null}
 
       {selected && (

@@ -225,6 +225,27 @@ describe('application readiness', () => {
     expect(result.attachedCount).toBe(result.requiredCount);
   });
 
+  it('waives only the qualification rules for an application the Admissions Office opened', () => {
+    const belowFloor = { ...continuingProfile, qpi: 2.0 };
+    const blocked = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: belowFloor, certified: true });
+    expect(blocked.ready).toBe(false);
+    expect(blocked.eligibilityWaived).toBe(false);
+    expect(blocked.blockers.some((blocker) => blocker.startsWith('Eligibility:'))).toBe(true);
+
+    const opened = { ...complete, openedByOfficeAt: '2026-11-03T02:00:00Z' };
+    const waived = readinessOf({ application: opened, scholarship: gia, documents: allDocs, profile: belowFloor, certified: true });
+    expect(waived.eligibilityWaived).toBe(true);
+    expect(waived.waivedReasons.length).toBeGreaterThan(0);
+    expect(waived.blockers).toEqual([]);
+    expect(waived.ready).toBe(true);
+
+    // Every other gate still applies to an office-opened Draft.
+    const uncertified = readinessOf({ application: opened, scholarship: gia, documents: allDocs, profile: belowFloor });
+    expect(uncertified.blockers).toEqual(['Certify that your information and documents are true and complete.']);
+    const closed = readinessOf({ application: opened, scholarship: { ...gia, deadline: '2000-01-01' }, documents: allDocs, profile: belowFloor, certified: true });
+    expect(closed.blockers).toContain('This scholarship is no longer accepting applications.');
+  });
+
   it('blocks submission until certification', () => {
     const result = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile });
     expect(result.ready).toBe(false);

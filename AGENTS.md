@@ -96,6 +96,26 @@ Staff and reviewer accounts are provisioned by invitation, not by seeding SQL (`
 - **Bootstrap.** The first Admissions Office Admin is still created once by an operator in SQL.
 - **Manuscript.** Flag that account creation by the Admin is a new capability beyond the manuscript's role description.
 
+## Office-opened applications (eligibility exception)
+The Smart Eligibility Checker blocks some applicants the office still needs to let through (staff estimated about 2 in 5). There is no general override. Instead, the **Admissions Office Admin opens the Draft for the student** (`20261058000000_office_opened_applications.sql`):
+
+- **Opening the Draft.** **Open application for a student** on `admin-intake` (`OpenApplicationForStudentModal`, built on `ReasonModal` with its `children` slot) calls `open_application_for_student()`.
+  - The RPC is a `security definer`, Admin-only function. It re-checks the student account, the in-scope track, the deadline, and duplicates.
+  - It inserts the Draft with `applications.opened_by_office_at`.
+  - It files the preset reason plus notes (`ELIGIBILITY_EXCEPTION_REASONS`) in `application_review_comments` as `Eligibility exception — …` (`APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX`).
+  - It writes a generic in-app notification (`application-opened-<id>`, gated on `inAppEnabled`).
+- **What the student sees.**
+  - The marker carries no name or reason, because a student reads their own row.
+  - The reason is staff-only, like a rejection reason.
+  - The student sees "Opened by the Admissions Office" and nothing more.
+- **What is waived.** The student still completes, certifies, and submits.
+  - `getApplicationReadiness()` passes `waiveRules` to `evaluateApplicationGate()` for a marked application, which waives only the `evaluateScholarship()` rules: floors, ceilings, degree, track, and exclusion rules.
+  - Blank or out-of-range answers, the out-of-scope track, the deadline, the profile, the documents, the financial step, and certification still block.
+  - The database never checked the floors, so the submit trigger is unchanged.
+- **Guard.** `protect_application_office_marker` nulls the marker on a student insert and refuses a student change, so a student cannot waive their own gate.
+- **Where staff see it.** Drafts opened this way are listed on the intake pool until submitted. The review modal's Overview shows an amber callout.
+- **Manuscript.** Flag that the Smart Eligibility Checker can now be waived per application by the Admin.
+
 ## Current Codebase Map
 The present implementation is organized as follows:
 

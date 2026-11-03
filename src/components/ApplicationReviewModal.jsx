@@ -655,6 +655,12 @@ export default function ApplicationReviewModal({
       >
         {visibleActiveTab === 'overview' && (
           <div className="grid content-start gap-4">
+            {application.openedByOfficeAt ? (
+              <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-800 dark:text-amber-100" role="note">
+                Opened by the Admissions Office on {fmtDate(application.openedByOfficeAt)} as an eligibility exception:
+                the qualification rules were waived for this application. The recorded reason is in the internal notes.
+              </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <FactTile {...academicFact} />
               <FactTile {...incomeFact} />

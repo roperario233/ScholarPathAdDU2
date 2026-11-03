@@ -73,6 +73,9 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
     statement: row.statement ?? '',
     profileSnapshot: row.profile_snapshot ?? null,
     certifiedAt: row.certified_at ?? null,
+    // Set only when the Admissions Office Admin opened the Draft as an
+    // eligibility exception (open_application_for_student); the reason is staff-only.
+    openedByOfficeAt: row.opened_by_office_at ?? null,
     // The append-only audit history (application_status_log). Empty when the
     // migration is pending or no status change has been logged yet.
     statusLog: statusLogByApplication[row.id] || [],
@@ -287,6 +290,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   // against, without shipping the whole profile row.
   const students = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, {
     fullName: entry.full_name || 'Student applicant',
+    role: entry.role || '',
     department: entry.department || '',
     degreeProgram: entry.degree_program || '',
     qpi: entry.qpi ?? null,
@@ -823,6 +827,21 @@ export const createSupabaseApplication = async ({ id, studentId, scholarshipId, 
   const links = await supabase.from('application_documents').insert(attachedDocuments.map((documentId) => ({ application_id: result.data.id, document_id: documentId })));
   return links.error ? { data: result.data, error: links.error } : result;
 };
+
+// open_application_for_student: the Admissions Office Admin opens a Draft for a
+// student as an eligibility exception. The RPC re-checks the role, the student,
+// the track, the deadline, and duplicates, files the reason in the staff-only
+// review thread, and notifies the student without the reason.
+export const openSupabaseApplicationForStudent = ({ id, studentId, scholarshipId, reason }) => (
+  ensureReady()
+    ? supabase.rpc('open_application_for_student', {
+      p_application_id: id,
+      p_student_id: studentId,
+      p_scholarship_id: scholarshipId,
+      p_reason: reason,
+    }).then(({ data, error }) => ({ data, error }))
+    : Promise.resolve({ data: null, error: { message: 'Supabase is not configured.' } })
+);
 
 // Draft-only document links; RLS refuses them once the application is submitted.
 export const attachSupabaseApplicationDocument = (applicationId, documentId) => (

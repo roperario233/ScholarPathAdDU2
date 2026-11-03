@@ -592,7 +592,10 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   if (getDeadlineStatus(scholarship.deadline, today).label === 'Closed' || scholarship.isActive === false) {
     blockers.push('This scholarship is no longer accepting applications.');
   }
-  const gate = evaluateApplicationGate(profile, scholarship);
+  // An application the Admissions Office Admin opened as an eligibility exception
+  // waives the qualification rules only; every other gate above still applies.
+  const eligibilityWaived = Boolean(application.openedByOfficeAt);
+  const gate = evaluateApplicationGate(profile, scholarship, { waiveRules: eligibilityWaived });
   if (!gate.allowed) blockers.push(...gate.reasons.map((reason) => `Eligibility: ${reason}`));
 
   const attachedCount = requirements.filter((item) => item.state !== 'missing').length;
@@ -603,6 +606,8 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
     attachedCount,
     requiredCount: requirements.length,
     blockers,
+    eligibilityWaived,
+    waivedReasons: gate.waivedReasons,
     ready: blockers.length === 0,
   };
 };

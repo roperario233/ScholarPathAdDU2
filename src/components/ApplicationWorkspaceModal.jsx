@@ -467,6 +467,11 @@ export default function ApplicationWorkspaceModal({
             <section className="grid gap-3" aria-label="Application form">
               <p className="m-0 text-sm text-app-muted">Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
               <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections.filter((section) => section.key !== 'situation')} /></Panel>
+              {readiness.eligibilityWaived ? (
+                <p className="m-0 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-app-text" role="note">
+                  The Admissions Office opened this application for you, so the qualification rules do not block it. Complete the remaining steps and submit.
+                </p>
+              ) : null}
               {eligibilityBlockers.length || profileBlockers.length ? (
                 <ul className="m-0 grid gap-1 pl-5 text-sm text-rose-700 dark:text-rose-300" role="status">
                   {[...profileBlockers, ...eligibilityBlockers].map((blocker) => <li key={blocker}>{blocker.replace('Eligibility: ', '')}</li>)}
@@ -522,7 +527,7 @@ export default function ApplicationWorkspaceModal({
                 <span><strong className="text-app-text">Supporting documents</strong> {supportingCount} attached (optional)</span>
                 <span><strong className="text-app-text">Financial situation</strong> {financialMissing.length ? 'Not complete yet' : 'Answered'}</span>
                 <span><strong className="text-app-text">Statement</strong> {statement.trim() ? `${wordCount} words` : 'Not written yet'}</span>
-                <span><strong className="text-app-text">Profile</strong> {eligibilityBlockers.length ? 'Does not meet the current qualification rules' : 'Meets the current qualification rules'}</span>
+                <span><strong className="text-app-text">Profile</strong> {eligibilityBlockers.length ? 'Does not meet the current qualification rules' : readiness.eligibilityWaived ? 'Opened for you by the Admissions Office' : 'Meets the current qualification rules'}</span>
               </Panel>
               {readiness.blockers.filter((blocker) => !blocker.startsWith('Certify')).length ? (
                 <div className="grid gap-1 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3">
