@@ -244,7 +244,7 @@ export default function AdminOverview({ applications = [], documents = [], caseO
         <Card title="Recent application activity" action={<StatusBadge tone={recentActivity.length ? 'info' : 'neutral'}>{recentActivity.length} recent</StatusBadge>}>
           <ol className="m-0 grid max-h-[640px] list-none gap-3 overflow-y-auto p-0 pr-1">
             {recentActivity.length ? recentActivity.map((event) => (
-              <li key={`${event.application.id}-${event.id || event.at}`} className="relative grid gap-2 rounded-2xl border border-app-border bg-app-surface p-4 pl-5 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 before:bg-gradient-to-b before:from-ateneo before:via-sky-400 before:to-cyan-300 hover:-translate-y-0.5 hover:shadow-app">
+              <li key={`${event.application.id}-${event.id || event.at}`} className="relative grid gap-2 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-4 pl-5 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 before:bg-gradient-to-b before:from-ateneo before:via-sky-400 before:to-cyan-300 hover:-translate-y-0.5 hover:shadow-app">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <strong className="block text-sm text-app-text">{event.application.studentName} · {event.application.scholarshipTitle}</strong>
