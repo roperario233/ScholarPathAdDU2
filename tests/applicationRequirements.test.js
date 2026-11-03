@@ -225,6 +225,27 @@ describe('application readiness', () => {
     expect(result.attachedCount).toBe(result.requiredCount);
   });
 
+  it('waives only the qualification rules for an application the Admissions Office opened', () => {
+    const belowFloor = { ...continuingProfile, qpi: 2.0 };
+    const blocked = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: belowFloor, certified: true });
+    expect(blocked.ready).toBe(false);
+    expect(blocked.eligibilityWaived).toBe(false);
+    expect(blocked.blockers.some((blocker) => blocker.startsWith('Eligibility:'))).toBe(true);
+
+    const opened = { ...complete, openedByOfficeAt: '2026-11-03T02:00:00Z' };
+    const waived = readinessOf({ application: opened, scholarship: gia, documents: allDocs, profile: belowFloor, certified: true });
+    expect(waived.eligibilityWaived).toBe(true);
+    expect(waived.waivedReasons.length).toBeGreaterThan(0);
+    expect(waived.blockers).toEqual([]);
+    expect(waived.ready).toBe(true);
+
+    // Every other gate still applies to an office-opened Draft.
+    const uncertified = readinessOf({ application: opened, scholarship: gia, documents: allDocs, profile: belowFloor });
+    expect(uncertified.blockers).toEqual(['Certify that your information and documents are true and complete.']);
+    const closed = readinessOf({ application: opened, scholarship: { ...gia, deadline: '2000-01-01' }, documents: allDocs, profile: belowFloor, certified: true });
+    expect(closed.blockers).toContain('This scholarship is no longer accepting applications.');
+  });
+
   it('blocks submission until certification', () => {
     const result = readinessOf({ application: complete, scholarship: gia, documents: allDocs, profile: continuingProfile });
     expect(result.ready).toBe(false);
@@ -339,7 +360,7 @@ describe('profile snapshot', () => {
       hsStrand: 'STEM',
     });
     expect(snapshot.background.pwd).toEqual({ value: 'No', verification: 'Pending' });
-    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: 'she/her', email: 'ana.reyes@example.com', phone: '0917 123 4567' });
+    expect(snapshot.personal).toEqual({ firstName: '', middleName: '', lastName: '', civilStatus: 'Single', religion: 'Roman Catholic', religionOther: '', birthdate: '2005-04-12', sexAtBirth: 'Female', pronouns: 'she/her', email: 'ana.reyes@example.com', phone: '0917 123 4567' });
     expect(snapshot.address).toEqual({
       completeAddress: 'Roxas Ave, Davao City',
       residingAddress: 'Roxas Ave, Davao City',
@@ -382,6 +403,14 @@ describe('profile snapshot', () => {
     expect(snapshot.aid.previousGrants).toEqual([{ type: 'Government', name: 'CHED', status: 'applied', institution: 'CHED XI' }]);
   });
 
+  it('freezes the religion the student recorded, including an "Other" answer', () => {
+    expect(buildProfileSnapshot(fullProfile).personal).toMatchObject({ religion: 'Roman Catholic', religionOther: '' });
+    const other = buildProfileSnapshot({ ...fullProfile, religion: 'Other', religionOther: ' Baha’i ' });
+    expect(other.personal).toMatchObject({ religion: 'Other', religionOther: 'Baha’i' });
+    // A leftover name never rides along with a religion that is already listed.
+    expect(buildProfileSnapshot({ ...fullProfile, religion: 'Islam', religionOther: 'Baha’i' }).personal.religionOther).toBe('');
+  });
+
   it('adds the strand and ranked program choices only for an incoming first-year', () => {
     expect(buildProfileSnapshot(fullProfile).eligibility).not.toHaveProperty('programChoices');
     const incoming = buildProfileSnapshot({ ...incomingProfile, programChoice2: 'BS Accountancy' });
@@ -409,6 +438,16 @@ describe('profile snapshot sections', () => {
     expect(rows['Sex assigned at birth'].value).toBe('Female');
     expect(rows['School last attended'].value).toBe('Davao Senior High School, Davao City, Davao del Sur');
     expect(rows['Willing to render community service'].value).toBe('Yes');
+  });
+
+  it('prints an "Other" religion with the name the student gave', () => {
+    const { sections } = getProfileSnapshotSections(buildProfileSnapshot({ ...continuingProfile, religion: 'Other', religionOther: 'Iglesia Filipina Independiente (Aglipayan)' }));
+    const rows = Object.fromEntries(sections.flatMap((section) => section.rows).map((row) => [row.label, row.value]));
+    expect(rows.Religion).toBe('Other · Iglesia Filipina Independiente (Aglipayan)');
+    // An older snapshot without the key keeps the plain option label.
+    expect(getProfileSnapshotSections(buildProfileSnapshot(continuingProfile)).sections
+      .flatMap((section) => section.rows)
+      .find((row) => row.label === 'Religion').value).toBe('Roman Catholic');
   });
 
   it('lists siblings, household members and grants as labelled rows', () => {
@@ -720,14 +759,14 @@ describe('describeStatusActor', () => {
 
   it('falls back to the humanized role for staff when the name cannot be resolved', () => {
     expect(describeStatusActor(logRow({ actorName: null }), true)).toBe('Admissions Office Staff');
-    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: null }), true)).toBe('Admissions Office Head');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_admin', actorName: null }), true)).toBe('Admissions Office Admin');
     expect(describeStatusActor(logRow({ actorRole: 'department_chair', actorName: null }), true)).toBe('Department Chair');
     expect(describeStatusActor(logRow({ actorRole: 'student', actorName: null }), true)).toBe('Student');
   });
 
   it('shows the role (never the name) for a student', () => {
     expect(describeStatusActor(logRow({ actorName: 'Ada Cruz' }), false)).toBe('Admissions Office Staff');
-    expect(describeStatusActor(logRow({ actorRole: 'admissions_head', actorName: 'Ada Cruz' }))).toBe('Admissions Office Head');
+    expect(describeStatusActor(logRow({ actorRole: 'admissions_admin', actorName: 'Ada Cruz' }))).toBe('Admissions Office Admin');
   });
 
   it('labels an automated move as System', () => {
@@ -762,10 +801,10 @@ describe('describeDocumentDecision', () => {
     expect(describeDocumentDecision(verified)).toBe(`Verified by Admissions Office Staff · ${on}`);
   });
 
-  it('labels the Head lane and a rejection', () => {
-    const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_head', reviewedByName: 'Ada Cruz' };
+  it('labels the Admin lane and a rejection', () => {
+    const rejected = { ...verified, verificationStatus: 'Rejected', reviewedByRole: 'admissions_admin', reviewedByName: 'Ada Cruz' };
     expect(describeDocumentDecision(rejected, { showName: true }))
-      .toBe(`Reverted for resubmission by Ada Cruz · Admissions Office Head · ${on}`);
+      .toBe(`Reverted for resubmission by Ada Cruz · Admissions Office Admin · ${on}`);
   });
 
   it('treats a reset file as awaiting review', () => {

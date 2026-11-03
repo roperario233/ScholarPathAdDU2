@@ -20,7 +20,7 @@
 //
 // Deployed with verify_jwt disabled, like the other notification functions:
 // the database caller presents the shared REMINDER_CRON_SECRET, and any other
-// caller must be a signed-in Admissions Office Staff or Head account. Every
+// caller must be a signed-in Admissions Office Staff or Admin account. Every
 // channel dedupes on its source key (`interview-update-<id>-<revision>-<state>`
 // for the student, `interview-panel-<id>-<revision>-<state>` for a panelist);
 // SMS is sent only by the database caller because it has no idempotency key.
@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
       .eq('user_id', jwtUser.user.id)
       .maybeSingle();
     callerRole = callerProfile?.role ?? null;
-    if (!['admissions_office', 'admissions_head', ...SCOPED_REVIEWER_ROLES].includes(callerRole ?? '')) {
+    if (!['admissions_office', 'admissions_admin', ...SCOPED_REVIEWER_ROLES].includes(callerRole ?? '')) {
       return json({ error: 'Only the Admissions Office or an interviewer of this applicant can send interview notifications' }, 403);
     }
   }

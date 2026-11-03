@@ -3,7 +3,7 @@
 // Deno, Node, and the Vite bundle can all import it).
 //
 // Only `Endorsed` and `For Endorsement` differ from their stored values. Since
-// Consultation 2 the Admissions Office Head forwards a verified case straight to
+// Consultation 2 the Admissions Office Admin forwards a verified case straight to
 // the interviewers of its scope, so `Endorsed` is the stage where the case waits
 // for its interview and is shown as "For Interview". `For Endorsement` only
 // remains on rows handed off before that change. Keep the stored values

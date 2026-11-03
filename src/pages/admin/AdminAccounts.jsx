@@ -3,6 +3,7 @@ import { Clock3, UserCheck, UserX } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ReasonModal from '../../components/ReasonModal';
 import { StatCard } from '../../components/pageParts';
+import { SkeletonMetrics, SkeletonRegion, SkeletonRows } from '../../components/Skeleton';
 import { Button, Card, EmptyState, FormField, ModalShell, StatusBadge } from '../../components/ui';
 import {
   ACCOUNT_ACTION_LABELS,
@@ -123,7 +124,7 @@ function RoleScopeFields({ draft, onChange, hierarchy, errors = {}, idPrefix }) 
   );
 }
 
-// The invitation form lives in a dialog the Head opens from the page header, so
+// The invitation form lives in a dialog the Admin opens from the page header, so
 // the account list stays the first thing on the page.
 function InviteAccountDialog({ hierarchy, programs, onInvite, onClose }) {
   const [draft, setDraft] = useState(EMPTY_INVITATION_DRAFT);
@@ -307,8 +308,8 @@ export function AccountsWorkspace({
         <AdminHeaderTile
           icon={UserCheck}
           label="Accounts"
-          title={plural(summary.active, 'active account')}
-          note={summary.expired
+          title={loading ? 'Loading accounts…' : plural(summary.active, 'active account')}
+          note={loading ? 'Counting invitations' : summary.expired
             ? `${plural(summary.expired, 'invitation')} expired. Renew or revoke.`
             : `${summary.invited} invited · ${summary.deactivated} deactivated`}
           tone={summary.expired ? 'warning' : 'info'}
@@ -327,18 +328,20 @@ export function AccountsWorkspace({
         <div className={`${bannerClasses[feedback.tone] || bannerClasses.info} w-full rounded-xl border px-3 py-3 text-sm`} role="status">{feedback.message}</div>
       )}
 
-      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Account totals">
+      {loading ? <SkeletonMetrics count={4} /> : (
+      <section className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4" aria-label="Account totals">
         <StatCard icon={UserCheck} tone="success" label="Active" value={summary.active} note="Can sign in with their role" />
         <StatCard icon={Clock3} tone="info" label="Invited" value={summary.invited} note="Waiting for first sign-in" />
         <StatCard icon={Clock3} tone="warning" label="Expired" value={summary.expired} note="Renew or revoke" />
         <StatCard icon={UserX} tone="neutral" label="Deactivated" value={summary.deactivated} note="Role removed, history kept" />
       </section>
+      )}
 
       <Card
         title="Accounts"
         action={(
           <div className="flex flex-wrap items-center justify-end gap-2">
-            <StatusBadge>{visibleRows.length} shown</StatusBadge>
+            {loading ? null : <StatusBadge>{visibleRows.length} shown</StatusBadge>}
             <Button type="button" variant="primary" onClick={() => setDialog({ action: 'invite' })}>Invite an account</Button>
           </div>
         )}
@@ -362,7 +365,7 @@ export function AccountsWorkspace({
         </div>
 
         {loading ? (
-          <p className="text-sm text-app-muted" role="status">Loading accounts…</p>
+          <SkeletonRegion label="Loading accounts"><SkeletonRows rows={4} /></SkeletonRegion>
         ) : visibleRows.length ? (
           <ul className="grid gap-3">
             {visibleRows.map((row) => (

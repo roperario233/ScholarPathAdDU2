@@ -67,7 +67,7 @@ describe('getReviewQueue', () => {
 });
 
 describe('getApprovalQueue', () => {
-  it('keeps only the recommendations the Admissions Office Head decides', () => {
+  it('keeps only the recommendations the Admissions Office Admin decides', () => {
     const queue = getApprovalQueue([
       application({ id: 'submitted', status: 'Submitted' }),
       application({ id: 'recommended-a', status: 'Recommended' }),
@@ -531,7 +531,7 @@ describe('applicant summary workbook', () => {
       scholarship: 'Grant-in-Aid (GIA)',
       releasedAt: '2026-10-28T03:00:00Z',
       releasedIds: ['sum-2'],
-      exportedBy: 'Admissions Office Head',
+      exportedBy: 'Admissions Office Admin',
       now: NOW,
     },
   };
@@ -543,7 +543,7 @@ describe('applicant summary workbook', () => {
     expect(text).toContain('Final check and release › Released results');
     expect(text).toContain('Every application covered by this release');
     expect(text).toContain('October 29, 2026');
-    expect(text).toContain('by Admissions Office Head');
+    expect(text).toContain('by Admissions Office Admin');
     expect(text).toContain('2 applicants · 1 accepted · 1 not accepted · 1 released');
   });
 
@@ -600,7 +600,7 @@ describe('applicant summary workbook', () => {
   });
 });
 
-// Consultation 2, #13: the Head's final check before release.
+// Consultation 2, #13: the Admin's final check before release.
 describe('getFinalCheckHints', () => {
   const withParents = (overrides) => application({
     profileSnapshot: { family: { fatherName: 'Jose Cruz', motherName: 'Maria Cruz' } },

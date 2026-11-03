@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowRight, CalendarClock, CheckCircle2, ChevronRight, FileText, ListChecks, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarClock, CheckCircle2, ChevronRight, FileText, ListChecks } from 'lucide-react';
 import ScholarshipTrackIcon from '../components/ScholarshipTrackIcon';
 import { ModalShell } from '../components/ui';
 import { getDeadlineStatus, getScholarshipAcademicDisplay } from '../lib/eligibility';
@@ -140,7 +140,7 @@ function ScholarshipGuideCard({ card, profile, standingNote }) {
 
 // The student Dashboard: the three AdDU internal grants first, each with its
 // explanation and requirements, then one action into Scholarship Explorer.
-// Staff, head, and Department Chair roles have their own landing workspaces (the
+// Staff, Admin, and Department Chair roles have their own landing workspaces (the
 // Admissions Office Dashboard and Department Review), so this page is never
 // rendered for them.
 export default function DashboardView({ profile, isFirstLogin, scholarships, onOpenExplorer }) {
@@ -169,7 +169,6 @@ export default function DashboardView({ profile, isFirstLogin, scholarships, onO
         <div className="relative flex min-w-0 items-center justify-between gap-6">
           <div className="page-title-copy flex-1">
             <h2 className="flex min-w-0 items-center gap-2.5 !mt-0 text-2xl font-extrabold leading-tight tracking-tight sm:text-3xl">
-              <Sparkles size={24} className="shrink-0 text-[color:var(--accent)]" aria-hidden="true" />
               <span className="min-w-0 truncate">{isFirstLogin ? 'Welcome, Scholar' : `${getGreeting()}, Scholar`}</span>
             </h2>
             <p className="mt-2 max-w-2xl text-sm text-app-muted"><strong className="font-semibold text-app-text">Available AdDU scholarship grants.</strong> The Office of Admission and Aid offers three financial aid pipelines. Read what each one covers and what to prepare before you apply.</p>

@@ -34,9 +34,11 @@ describe('first-login academic profile marks', () => {
 
   it('adds the current student’s student number and QPI to the marks', () => {
     // Choosing a standing clears the Year standing mark and reveals the two answers
-    // a current student still owes: the student number and the annual QPI.
+    // a current student still owes: the student number and the annual QPI. The
+    // strand is not asked of a current student, so it carries no mark.
     const html = renderModal({ initialYearStanding: '2nd', initialIsTransferee: 'No' });
-    expect(countMarks(html)).toBe(7);
+    expect(countMarks(html)).toBe(6);
+    expect(html).not.toContain('Senior high school strand');
     expect(html).toContain('AdDU student number');
     expect(html).toContain('Annual QPI');
   });

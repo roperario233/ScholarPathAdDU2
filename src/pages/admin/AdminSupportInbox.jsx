@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import AdminPageHeader from '../../components/AdminPageHeader';
 import SupportConversation from '../../components/SupportConversation';
+import { SkeletonRegion, SkeletonRows, SupportMessagesSkeleton } from '../../components/Skeleton';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { buildSupportThreadSummary, countUnreadSupportMessages, getSupportAvailabilityLabel, sortSupportThreads } from '../../lib/supportMessages';
 
@@ -16,6 +17,8 @@ export default function AdminSupportInbox({
   selectedThreadId = '',
   role = 'admissions_office',
   loading = false,
+  loaded = true,
+  messagesLoaded = true,
   ready = true,
   availability = {},
   onSelectThread,
@@ -56,14 +59,20 @@ export default function AdminSupportInbox({
         description="Assistant transcripts and student requests for live-agent help appear here. Both Admissions Office lanes share this inbox."
         badge={`${unreadTotal} unread`}
       />
-      {!ready && (
+      {loaded && !ready && (
         <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-4 text-sm text-app-text" role="status">
           The support inbox tables are unavailable. Apply migration `20261053000000_add_support_inbox.sql` to enable this workspace.
         </div>
       )}
-      <section className="grid min-h-[60vh] gap-4 lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)]">
-        <Card title="Student conversations" action={<StatusBadge tone={unreadTotal ? 'warning' : 'neutral'}>{summaries.length} total</StatusBadge>} className="min-w-0">
-          <div className="grid max-h-[65vh] content-start gap-2 overflow-y-auto pr-1">
+      {!loaded ? (
+        <SkeletonRegion label="Loading the support inbox" className="grid gap-4 lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)]">
+          <Card title="Student conversations"><SkeletonRows rows={4} /></Card>
+          <Card title="Conversation"><SupportMessagesSkeleton /></Card>
+        </SkeletonRegion>
+      ) : (
+      <section className="grid gap-4 lg:h-[72vh] lg:min-h-[32rem] lg:grid-cols-[minmax(16rem,0.38fr)_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+        <Card title="Student conversations" action={<StatusBadge tone={unreadTotal ? 'warning' : 'neutral'}>{summaries.length} total</StatusBadge>} className="flex min-h-0 min-w-0 flex-col">
+          <div className="grid max-h-[40vh] min-h-0 content-start gap-2 overflow-y-auto pr-1 lg:max-h-none lg:flex-1">
             <StatusBadge tone={availability.online ? 'success' : 'neutral'}>{getSupportAvailabilityLabel(availability)}</StatusBadge>
             {summaries.length ? summaries.map((thread) => (
               <button
@@ -92,39 +101,45 @@ export default function AdminSupportInbox({
         <Card
           title={selectedThread ? selectedStudent?.fullName || 'Student conversation' : 'Conversation'}
           action={selectedThread && <StatusBadge tone={selectedThread.status === 'Open' ? 'success' : 'neutral'}>{selectedThread.status}</StatusBadge>}
-          className="grid min-h-0 min-w-0 content-start"
+          className="flex min-h-0 min-w-0 flex-col"
         >
           {selectedThread ? (
-            <div className="grid min-h-[55vh] content-start gap-3">
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm">
+            <div className="flex h-[34rem] min-h-0 flex-col gap-3 lg:h-auto lg:flex-1">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm">
                 <div className="min-w-0">
                   <p className="m-0 text-app-text">{selectedStudent?.degreeProgram || 'Program not listed'}</p>
                   <p className="m-0 text-xs text-app-muted">{selectedStudent?.department || 'School not listed'}</p>
                 </div>
-                <Button type="button" variant="secondary" onClick={changeStatus}>
-                  {selectedThread.status === 'Closed' ? 'Reopen conversation' : 'Close conversation'}
-                </Button>
+                <div className="grid justify-items-end gap-1">
+                  <Button type="button" variant="secondary" onClick={changeStatus}>
+                    {selectedThread.status === 'Closed' ? 'Reopen conversation' : 'Close conversation'}
+                  </Button>
+                  {selectedThread.status !== 'Closed' && <p className="m-0 text-[11px] text-app-muted">The student returns to the assistant.</p>}
+                </div>
               </div>
               {selectedThread.escalatedAt && (
-                <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text">
+                <div className="shrink-0 rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-app-text">
                   <strong>{selectedThread.awaitingAgent ? 'Awaiting live agent reply' : 'Live-agent request'}</strong>
                   <p className="mb-0 mt-1 text-xs text-app-muted">The student requested Admissions Office help. Review the assistant transcript and reply directly below.</p>
                 </div>
               )}
               {statusError && <p className="m-0 text-sm text-rose-600 dark:text-rose-300" role="alert">{statusError}</p>}
-              <SupportConversation
-                messages={selectedMessages}
-                viewer={role}
-                studentName={selectedStudent?.fullName || 'Student'}
-                onSend={(body) => onSend?.(selectedThread.id, body)}
-                className="min-h-0"
-              />
+              {messagesLoaded ? (
+                <SupportConversation
+                  messages={selectedMessages}
+                  viewer={role}
+                  studentName={selectedStudent?.fullName || 'Student'}
+                  onSend={(body) => onSend?.(selectedThread.id, body)}
+                  className="min-h-0 flex-1"
+                />
+              ) : <SupportMessagesSkeleton />}
             </div>
           ) : (
             <EmptyState title="Select a conversation" description="Choose a student from the inbox to read and reply." />
           )}
         </Card>
       </section>
+      )}
       {loading && <p className="m-0 text-center text-xs text-app-muted" role="status">Refreshing inbox…</p>}
     </div>
   );

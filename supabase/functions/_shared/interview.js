@@ -193,7 +193,7 @@ export const getEligiblePanelists = (staffDirectory = [], application = {}, appl
   const byName = (a, b) => String(a.fullName || '').localeCompare(String(b.fullName || ''));
   const levelOf = (entry) => {
     const role = entry?.role || '';
-    if (role === 'admissions_office' || role === 'admissions_head') return 'office';
+    if (role === 'admissions_office' || role === 'admissions_admin') return 'office';
     const reviewSchool = String(entry?.reviewSchool || '').trim();
     const reviewCluster = String(entry?.reviewCluster || '').trim();
     const reviewDepartment = String(entry?.reviewDepartment || '').trim();

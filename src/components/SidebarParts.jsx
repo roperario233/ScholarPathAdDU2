@@ -1,8 +1,9 @@
 import {
-  Award, Bell, CalendarClock, CalendarDays, ClipboardCheck, ClipboardList, Compass, FolderOpen,
+  Award, BarChart3, Bell, CalendarClock, CalendarDays, ClipboardCheck, ClipboardList, Compass, FolderOpen,
   GraduationCap, Inbox, LayoutDashboard, LibraryBig, ListChecks, Megaphone, Settings, UserCog, UserRound, Users, Vault,
 } from 'lucide-react';
 import ProfileAvatar from './ProfileAvatar';
+import { Skeleton } from './Skeleton';
 
 // One glyph per route, shared by the desktop sidebar and the mobile drawer. The
 // student's `profile` route is the Application Form; staff keep My Profile.
@@ -18,12 +19,14 @@ const NAV_ICONS = {
   'admin-interviews': Users,
   'admin-calendar': CalendarDays,
   'admin-release': Award,
+  'admin-statistics': BarChart3,
   'admin-catalog': LibraryBig,
   'admin-announcements': Megaphone,
   'admin-accounts': UserCog,
   review: ClipboardCheck,
   'chair-interviews': Users,
   'chair-calendar': CalendarDays,
+  'chair-statistics': BarChart3,
   settings: Settings,
 };
 
@@ -130,7 +133,24 @@ const GLANCE_VISUALS = {
 
 // The quick-glance numbers: equal tiles instead of a stack of rows. `items` is
 // `{ key, label, value }[]`; an unread-alerts tile turns rose while anything is unread.
-export function SidebarStats({ items = [] }) {
+export function SidebarStats({ items = [], loading = false }) {
+  if (loading) {
+    // The numbers are derived from the workspace, so until it loads they would
+    // read 0 and then jump.
+    return (
+      <section aria-label="At a glance" aria-busy="true">
+        <div className="grid grid-cols-3 gap-2" aria-hidden="true">
+          {Array.from({ length: items.length || 3 }, (_, index) => (
+            <div key={index} className="grid min-w-0 justify-items-center gap-1.5 rounded-2xl border border-app-border bg-app-muted-surface px-2 py-3">
+              <Skeleton className="h-8 w-8 rounded-xl" />
+              <Skeleton className="h-5 w-7" />
+              <Skeleton className="h-2.5 w-12" />
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
   return (
     <section aria-label="At a glance">
       <div className="grid grid-cols-3 gap-2">

@@ -10,8 +10,8 @@ import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApp
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import { fmtDate, plural } from '../../lib/formatters';
 
-// The Admissions Office Head's last step (Consultation 2, #13): the school
-// approves, then the Head checks each approved case for a sibling already on a
+// The Admissions Office Admin's last step (Consultation 2, #13): the school
+// approves, then the Admin checks each approved case for a sibling already on a
 // grant or another pending case, and releases one scholarship's results to every
 // applicant at the same time. Until then the student sees "Under deliberation";
 // releasing notifies the accepted applicants and sends everyone else the general
@@ -21,7 +21,7 @@ export default function AdminResultsRelease({
   documents = [],
   students = {},
   scholarships = [],
-  role = 'admissions_head',
+  role = 'admissions_admin',
   onChangeApplication,
   onRejectApplication,
   onApproveApplication,
@@ -30,6 +30,8 @@ export default function AdminResultsRelease({
   resultsReleases = [],
   academicPrograms = [],
   interviewWorkspace = null,
+  reviewComments = [],
+  onAddComment,
 }) {
   const [openId, setOpenId] = useState(null);
   const [checked, setChecked] = useState({});
@@ -47,7 +49,7 @@ export default function AdminResultsRelease({
   const titleById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title]));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
 
-  // The review surface offers the Head's override at Recommended and the final
+  // The review surface offers the Admin's override at Recommended and the final
   // check's Reject at Approved; every other move stays with the role map.
   const handleStatusChange = (applicationId, status, options) => (
     status === 'Approved'
@@ -126,7 +128,7 @@ export default function AdminResultsRelease({
         )}
       </AdminPageHeader>
 
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
         <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Approved by the configured level" />
         <StatCard icon={Award} tone="info" label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
         <StatCard icon={SendHorizontal} tone="success" label="Results released" value={applications.filter((entry) => entry.status === 'Released').length} note="Accepted applicants notified" />
@@ -306,7 +308,10 @@ export default function AdminResultsRelease({
                                   <strong className="block text-sm font-semibold">{entry.studentName}</strong>
                                   <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'}</span>
                                 </div>
-                                <StatusBadge tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : 'Not accepted'}</StatusBadge>
+                                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                  <StatusBadge tone={accepted ? 'success' : 'warning'}>{accepted ? 'Accepted' : 'Not accepted'}</StatusBadge>
+                                  <Button type="button" variant="secondary" onClick={() => setOpenId(entry.id)}>View case</Button>
+                                </div>
                               </li>
                             );
                           })}
@@ -333,6 +338,8 @@ export default function AdminResultsRelease({
           onRejectApplication={onRejectApplication}
           onRelease={onReleaseResults}
           interviewWorkspace={interviewWorkspace}
+          reviewComments={reviewComments}
+          onAddComment={onAddComment}
         />
       )}
     </div>

@@ -7,7 +7,7 @@ import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, is
 
 // The Admissions Office workspace is split into one route per function
 // (dashboard, application review, catalog management, results release, and
-// announcements) and two accountability lanes: Staff prepare a case, the Head
+// announcements) and two accountability lanes: Staff prepare a case, the Admin
 // decides it. These selectors keep every derivation out of the pages so the
 // queues, the dashboard metrics, and the review count all read one source and
 // can be unit-tested without a DOM.
@@ -31,7 +31,7 @@ export const getReviewStageTab = (status) => REVIEW_STAGE_TABS[status] || 'overv
 // Applications that still need a Staff or Department Chair action. It reads the
 // same exclusion list as countApplicationsToReview(), so the Dashboard and the
 // review queue can never show different numbers for the same data. Approval and
-// release leave this queue for the Head's lane.
+// release leave this queue for the Admin's lane.
 export const getReviewQueue = (applications = []) => asList(applications)
   .filter((entry) => !ADMISSIONS_STAFF_EXCLUDED_STATUSES.includes(entry.status));
 
@@ -110,7 +110,7 @@ export const getUnclaimedInProgress = (applications = [], caseOfficers = []) => 
 );
 
 // The signed-in officer's review queue. A case leaves it only when it reaches a
-// stage outside the review scope (approval and release belong to the Head) or the
+// stage outside the review scope (approval and release belong to the Admin) or the
 // officer leaves the case.
 export const getMyReviewQueue = (applications = [], caseOfficers = [], officerId = '') => {
   if (!officerId) return [];
@@ -122,7 +122,7 @@ export const getMyReviewQueue = (applications = [], caseOfficers = [], officerId
     .sort(byOldestSubmission);
 };
 
-// Officer workload for the Head's oversight card: how many open cases each active
+// Officer workload for the Admin's oversight card: how many open cases each active
 // officer is working. Read-only; membership is still self-selected.
 export const getOfficerWorkload = (applications = [], caseOfficers = []) => {
   const openIds = new Set(asList(applications).filter(isOpenCase).map((entry) => entry.id));
@@ -261,7 +261,7 @@ export const filterIntakePool = (applications = [], caseOfficers = [], filters =
   return list.sort(sorters[merged.sort] || byOldestSubmission);
 };
 
-// SOP step 7: recommendations the Admissions Office Head approves.
+// SOP step 7: recommendations the Admissions Office Admin approves.
 export const getApprovalQueue = (applications = []) => asList(applications)
   .filter((entry) => entry.status === 'Recommended');
 
@@ -429,7 +429,7 @@ const APPLICANT_SUMMARY_COLUMNS = [
 ];
 
 const COLUMN_NOTES = {
-  Result: 'What the case came to. A decided application is held until the Admissions Office Head releases its scholarship’s results; students see “Under deliberation” until then.',
+  Result: 'What the case came to. A decided application is held until the Admissions Office Admin releases its scholarship’s results; students see “Under deliberation” until then.',
   'Application stage': 'The workflow stage as the app shows it (For Interview is the stage after document verification).',
   'Interview recommendation': 'The latest recommendation level recorded by the interview panel. Staff-only; students never see it.',
   'Recommended by': 'The panel member who recorded that recommendation.',
@@ -554,9 +554,9 @@ export const getApplicantSummaryFileName = (...parts) => {
   return `Applicant_summary_${[...safe, MANILA_DAY.format(new Date())].join('_')}.xlsx`;
 };
 
-// The Head's final check before release (Consultation 2, #13): a sibling who is
+// The Admin's final check before release (Consultation 2, #13): a sibling who is
 // already on a grant, and another application of the same student that is still
-// open. These are hints for the Head to read, not decisions.
+// open. These are hints for the Admin to read, not decisions.
 const normalizeName = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const parentNames = (entry) => {
   const family = entry?.profileSnapshot?.family || {};
@@ -581,7 +581,7 @@ export const getFinalCheckHints = (application, applications = []) => {
 };
 
 // Approved and released applications grouped by scholarship, for the batch
-// release: the Head releases one scholarship's results to every applicant at the
+// release: the Admin releases one scholarship's results to every applicant at the
 // same time.
 export const getReleaseGroups = (applications = [], scholarships = [], resultsReleases = []) => {
   const titleById = Object.fromEntries(asList(scholarships).map((entry) => [entry.id, entry.title]));
@@ -615,7 +615,7 @@ export const getRoutedInterviewers = (application, staffDirectory = [], programI
 // Who may schedule an applicant's interview (App.jsx `canCoordinateInterview`):
 // any scoped reviewer whose level covers the applicant. The routed interviewers
 // come first because the case reaches them automatically; a Dean, Assistant Dean,
-// or Chairperson in scope can also schedule. The Head's override is not listed.
+// or Chairperson in scope can also schedule. The Admin's override is not listed.
 export const getInterviewSchedulers = (application, staffDirectory = [], programIndex = new Map()) => asList(staffDirectory)
   .filter((entry) => isReviewerRole(entry.role))
   .filter((entry) => isApplicationInReviewerScope(application, getReviewerScope(entry), programIndex))

@@ -767,6 +767,20 @@ main article > .flex > :last-child {
   overflow-y: auto;
 }
 
+/* `align-items: center` clips the top of a dialog taller than the viewport,
+   because the overflow above the scroll origin can never be scrolled to (the
+   catalog editor lost its title and Close button this way). Start-aligning and
+   giving the panel automatic block margins still centers a dialog that fits and
+   lets a tall one scroll as a whole, heading included. */
+.modal-overlay {
+  align-items: flex-start;
+}
+
+.modal-overlay > section,
+.modal-overlay > div {
+  margin-block: auto;
+}
+
 /* The first-login academic profile modal is taller than the viewport once the
    onboarding essentials are shown. Left-aligned + auto margins let it center
    when it fits and scroll as one unit (heading included) when it does not,
@@ -1324,6 +1338,16 @@ a:focus-visible {
   100% {
     background-position: -200% 0;
   }
+}
+
+/* Placeholder block shown while data loads. The shimmer sweeps a soft highlight
+   across a tint of the theme text colour, so it reads in light and dark. Reduced
+   motion is handled by the global rule that shortens every animation. */
+.skeleton {
+  background-color: color-mix(in srgb, var(--text) 8%, transparent);
+  background-image: linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--text) 11%, transparent) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
 
 @media (max-width: 720px) {

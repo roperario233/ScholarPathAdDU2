@@ -10,9 +10,12 @@ import { Button, ModalShell } from './ui';
 // Without `options` the reason is free text. With `options` ({ value, label,
 // requiresNotes }) the reviewer picks a preset reason and may add notes; the
 // recorded reason is "<label> — <notes>", or only the notes for an option that
-// requires them (such as "Other").
+// requires them (such as "Other"). `children` renders above the reason fields
+// for a dialog that records more than the reason (an office-opened application
+// picks the student and the scholarship there).
 export default function ReasonModal({
   title,
+  children = null,
   label = 'Reason',
   hint = '',
   options = null,
@@ -68,6 +71,7 @@ export default function ReasonModal({
   return (
     <ModalShell title={title} onClose={onClose} className="w-[min(520px,100%)]">
       <div className="grid gap-3">
+        {children}
         {options ? (
           <>
             <label className="grid gap-2 text-sm text-app-text">

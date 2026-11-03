@@ -344,8 +344,14 @@ export const evaluateScholarship = (profile, scholarship) => {
   };
 };
 
-export const evaluateApplicationGate = (profile, scholarship) => {
+// `waiveRules` is set only for an application the Admissions Office Admin opened
+// as an eligibility exception (applications.opened_by_office_at). It waives the
+// qualification rules (floors, ceilings, degree, track, and exclusion rules), never
+// the answers they read: a blank or out-of-range value and an out-of-scope track
+// still block, and the deadline is enforced separately by the readiness check.
+export const evaluateApplicationGate = (profile, scholarship, { waiveRules = false } = {}) => {
   const issues = [];
+  let waivedIssues = [];
   const householdIncome = Number(profile?.householdIncome);
 
   // The required academic credential follows the standing: a collegiate QPI for
@@ -385,7 +391,9 @@ export const evaluateApplicationGate = (profile, scholarship) => {
     if (!ruleFamily) {
       issues.push(issue('Scholarship qualification rules are not configured. Please contact the Admissions Office.'));
     } else {
-      issues.push(...evaluateScholarship(profile, { ...scholarship, ruleFamily }).issues);
+      const ruleIssues = evaluateScholarship(profile, { ...scholarship, ruleFamily }).issues;
+      if (waiveRules) waivedIssues = ruleIssues;
+      else issues.push(...ruleIssues);
     }
   }
 
@@ -394,6 +402,7 @@ export const evaluateApplicationGate = (profile, scholarship) => {
     allowed,
     reasons: toReasons(issues),
     issues,
+    waivedReasons: toReasons(waivedIssues),
     message: allowed ? 'You meet the qualifications to proceed with this scholarship application.' : DENIAL_MESSAGE,
   };
 };

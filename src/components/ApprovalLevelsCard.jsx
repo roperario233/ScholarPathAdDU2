@@ -71,7 +71,7 @@ function ApprovalLevelDialog({ initial, academicPrograms, onSave, onClose }) {
 
 // SOP step 7 routing (Consultation 2, 32:08-36:01): who approves depends on the
 // school. Education's Dean approves directly, Engineering's Chairpersons approve
-// without the Dean, and Computer Studies uses its Assistant Deans. The Head sets
+// without the Dean, and Computer Studies uses its Assistant Deans. The Admin sets
 // one row per school, or per cluster inside a school; anything unset is approved
 // by the Chairperson. The database resolves the same rows in
 // public.approver_role_for_student().

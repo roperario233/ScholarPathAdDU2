@@ -198,13 +198,26 @@ describe('section validators', () => {
   it('normalizes personal information and requires a full name', () => {
     const valid = validatePersonalSection({ fullName: '  Ana   Cruz ', phone: '0917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single' });
     expect(valid.errors).toEqual({});
-    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', religion: 'Roman Catholic', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
+    expect(valid.values).toEqual({ firstName: '', middleName: '', lastName: '', fullName: 'Ana Cruz', phone: '+63 917 123 4567', religion: 'Roman Catholic', religionOther: '', civilStatus: 'Single', birthdate: '', sexAtBirth: '', pronouns: '', essay: '' });
 
     expect(validatePersonalSection({ fullName: 'A' }).errors).toMatchObject({
       fullName: expect.any(String),
     });
     // An unknown religion or civil status is rejected.
     expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Jedi', civilStatus: 'Single' }).errors.religion).toBeTruthy();
+  });
+
+  it('names an "Other" religion and clears the name for every other choice', () => {
+    // The option list carries the faiths the field offers, so a newly added one
+    // validates without a second rule set.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Seventh-day Adventist' }).errors.religion).toBeFalsy();
+    // "Other" is the only answer that needs the student to name it.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Other' }).errors.religionOther).toBe('Name the religion.');
+    const named = validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Other', religionOther: '  Baha’i  ' });
+    expect(named.errors).toEqual({});
+    expect(named.values).toMatchObject({ religion: 'Other', religionOther: 'Baha’i' });
+    // The input is hidden for another choice, so a leftover answer never rides along.
+    expect(validatePersonalSection({ fullName: 'Ana Cruz', religion: 'Islam', religionOther: 'Baha’i' }).values.religionOther).toBe('');
   });
 
   it('keeps paragraph breaks in the statement/essay and enforces the cap', () => {
@@ -342,10 +355,10 @@ describe('section validators', () => {
     expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '' }, programs).errors.qpi).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '2nd', qpi: '3.1' }, programs).errors.studentNumber).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
-    // FORM 230-SCH asks every applicant for the strand, so My Profile validates it
-    // for a continuing student too; the first-login modal is exempt (`fullForm`).
-    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1' }, programs).errors.hsStrand).toBeUndefined();
-    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', hsStrand: 'x' }, programs).errors.hsStrand).toBeTruthy();
+    // A current Ateneo student is not asked for the strand; a transferee still is
+    // (the first-login modal is exempt, `fullForm`).
+    expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', isTransferee: 'No' }, programs).errors.hsStrand).toBeUndefined();
+    expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '2nd', qpi: '3.1', isTransferee: 'Yes', hsStrand: 'x' }, programs).errors.hsStrand).toBeTruthy();
     expect(validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '2nd', qpi: '3.1', isTransferee: 'No', hsStrand: 'STEM' }, programs).values.hsStrand).toBe('STEM');
     expect(validateAcademicSection({ ...base, studentNumber: '', yearStanding: '' }, programs).errors.yearStanding).toBeTruthy();
     expect(validateAcademicSection({ ...base, degreeProgram: 'BS Unknown', studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs).errors.degreeProgram).toBeTruthy();
@@ -648,7 +661,7 @@ describe('getProfileCompleteness', () => {
       // Educational background and the standing it branches on.
       'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi',
       // Eligibility inputs and the printed personal/background answers.
-      'householdIncome', 'citizenship', 'civilStatus', 'hsStrand',
+      'householdIncome', 'citizenship', 'civilStatus',
       'completeAddress', 'housingType',
       // Family background and household details.
       'fatherName', 'motherName', 'fatherAge', 'fatherOccupation', 'motherAge', 'motherOccupation',
@@ -767,8 +780,9 @@ describe('validateOnboardingEssentials', () => {
     // The mobile number is My Profile's contact number, so the first-login
     // essentials neither ask for it nor validate a value a caller passes along.
     expect(validateOnboardingEssentials({ ...base, phone: '12345' }, programs).errors.phone).toBeUndefined();
-    // The strand is asked of every applicant, the way My Profile asks it.
-    expect(validateOnboardingEssentials({ ...base, hsStrand: '' }, programs).errors.hsStrand).toBeTruthy();
+    // A current Ateneo student is not asked for the strand; a transferee is.
+    expect(validateOnboardingEssentials({ ...base, hsStrand: '' }, programs).errors.hsStrand).toBeUndefined();
+    expect(validateOnboardingEssentials({ ...base, isTransferee: 'Yes', studentNumber: '', hsStrand: '' }, programs).errors.hsStrand).toBeTruthy();
   });
 });
 
@@ -938,9 +952,9 @@ describe('FORM 230-SCH core answers', () => {
     ]);
     const incoming = { ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, hsStrand: '' };
     expect(getApplicationProfileGate(incoming).missing.map((item) => [item.key, item.section])).toEqual([['hsStrand', 'academic']]);
-    // FORM 230-SCH asks every applicant for the strand, so a continuing student is
-    // asked for it too.
-    expect(getApplicationProfileGate({ ...complete, hsStrand: '' }).missing.map((item) => item.key)).toEqual(['hsStrand']);
+    // A current Ateneo student is not asked for the strand; a transferee is.
+    expect(getApplicationProfileGate({ ...complete, hsStrand: '' }).missing).toEqual([]);
+    expect(getApplicationProfileGate({ ...complete, isTransferee: 'Yes', studentNumber: '', hsStrand: '' }).missing.map((item) => item.key)).toEqual(['hsStrand']);
   });
 
   it('asks every applicant for the senior high school last attended, its city, and its province', () => {
@@ -977,7 +991,8 @@ describe('FORM 230-SCH full-form parity', () => {
 
   it('requires the school, the strand, and the awards for every applicant, and the class size with an honors standing', () => {
     expect(missingFor({ schoolLastAttended: { name: 'Davao SHS', city: 'Davao City', province: '' } })).toEqual(['schoolLastAttended']);
-    expect(missingFor({ hsStrand: '' })).toEqual(['hsStrand']);
+    expect(missingFor({ hsStrand: '' })).toEqual([]);
+    expect(missingFor({ isTransferee: 'Yes', studentNumber: '', hsStrand: '' })).toEqual(['hsStrand']);
     // The class size supports an honors standing, so it is asked only when one is claimed.
     expect(missingFor({ graduatingClassSize: '' })).toEqual([]);
     expect(missingFor({ honorsRank: 'Valedictorian', graduatingClassSize: '' })).toEqual(['graduatingClassSize']);

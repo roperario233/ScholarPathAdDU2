@@ -35,6 +35,24 @@ const dateLabel = (value) => {
   return new Date(value).toLocaleDateString('en-PH', { dateStyle: 'long', timeZone: 'Asia/Manila' });
 };
 
+const bulletList = (lines) => lines.map((line) => `• ${line}`).join('\n');
+
+// The three grants share most paperwork, so list what every scholarship asks for
+// once and only name the extras per scholarship, instead of repeating one long run-on list.
+const describeDocumentRequirements = (tracks) => {
+  if (tracks.length < 2) {
+    return tracks.map((track) => `${track.name}\n${bulletList(track.requirements)}`).join('\n\n');
+  }
+  const shared = tracks[0].requirements.filter((label) => tracks.every((track) => track.requirements.includes(label)));
+  const sections = [];
+  if (shared.length) sections.push(`Needed for every scholarship\n${bulletList(shared)}`);
+  tracks.forEach((track) => {
+    const extra = track.requirements.filter((label) => !shared.includes(label));
+    if (extra.length) sections.push(`Also for ${track.name}\n${bulletList(extra)}`);
+  });
+  return sections.join('\n\n');
+};
+
 export const buildAssistantKnowledge = ({ scholarships = [], applications = [], documents = [], profile = {} } = {}) => {
   const tracks = getScholarshipGuideCards(scholarships, profile).map((guide) => ({
     name: guide.name,
@@ -93,18 +111,17 @@ export const replyFor = ({ message, context = {} } = {}) => {
     return { kind: 'answer', intent, body: `${status} Usual office hours are ${ADMISSIONS_OFFICE_HOURS}. You can leave a message here at any time.`, quickReplies: ['Talk to a live agent'] };
   }
   if (intent === 'scholarships') {
-    const details = knowledge.tracks.map((track) => `${track.name}: ${track.summary}${track.deadline ? ` Application deadline: ${dateLabel(track.deadline)}.` : ''}`).join(' ');
-    return { kind: 'answer', intent, body: details ? `${details} Check Scholarship Explorer for current catalog details and requirements.` : 'The AdDU scholarship catalog has not loaded yet. Open Scholarship Explorer to see the current listings.', quickReplies: ['Scholarship deadlines', 'What documents do I need?', 'Open Scholarship Explorer'] };
+    const details = knowledge.tracks.map((track) => `${track.name}\n${track.summary}${track.deadline ? ` Application deadline: ${dateLabel(track.deadline)}.` : ''}`).join('\n\n');
+    return { kind: 'answer', intent, body: details ? `${details}\n\nCheck Scholarship Explorer for current catalog details and requirements.` : 'The AdDU scholarship catalog has not loaded yet. Open Scholarship Explorer to see the current listings.', quickReplies: ['Scholarship deadlines', 'What documents do I need?', 'Open Scholarship Explorer'] };
   }
   if (intent === 'deadlines') {
-    const details = knowledge.tracks.map((track) => `${track.name}: ${dateLabel(track.deadline)}.`).join(' ');
-    return { kind: 'answer', intent, body: `${details || 'The scholarship catalog has not loaded yet.'} Dates can change; check the live catalog in Scholarship Explorer.`, quickReplies: SUPPORT_QUICK_REPLIES };
+    const details = bulletList(knowledge.tracks.map((track) => `${track.name}: ${dateLabel(track.deadline)}.`));
+    return { kind: 'answer', intent, body: `${knowledge.tracks.length ? details : 'The scholarship catalog has not loaded yet.'}\n\nDates can change; check the live catalog in Scholarship Explorer.`, quickReplies: SUPPORT_QUICK_REPLIES };
   }
   if (intent === 'documents') {
     const tracks = knowledge.tracks.filter((track) => track.requirements.length);
     if (!tracks.length) return { kind: 'answer', intent, body: 'Open the Document Vault to review your files. The requirements for each AdDU scholarship appear in Scholarship Explorer and in the application workspace once you start a draft.' , quickReplies: SUPPORT_QUICK_REPLIES };
-    const details = tracks.map((track) => `${track.name}: ${track.requirements.join(', ')}.`).join(' ');
-    return { kind: 'answer', intent, body: `${details} Your application workspace shows the requirements that apply to your standing.`, quickReplies: SUPPORT_QUICK_REPLIES };
+    return { kind: 'answer', intent, body: `${describeDocumentRequirements(tracks)}\n\nYour application workspace shows the requirements that apply to your standing.`, quickReplies: SUPPORT_QUICK_REPLIES };
   }
   if (intent === 'reverted-document') {
     const reverted = knowledge.applications.flatMap((application) => application.documents
@@ -117,7 +134,7 @@ export const replyFor = ({ message, context = {} } = {}) => {
   }
   if (intent === 'application-status') {
     if (!knowledge.applications.length) return { kind: 'answer', intent, body: 'I do not see a submitted application in your workspace. Drafts and submitted applications are listed on Applications.', quickReplies: ['Open Applications', 'Talk to a live agent'] };
-    const details = knowledge.applications.map((application) => `${application.title}: ${application.status}${application.guidance ? ` — ${application.guidance}` : ''}`).join(' ');
+    const details = knowledge.applications.map((application) => `${application.title}: ${application.status}${application.guidance ? ` — ${application.guidance}` : ''}`).join('\n\n');
     return { kind: 'answer', intent, body: details, quickReplies: ['Open Applications', 'Talk to a live agent'] };
   }
   if (intent === 'interview') {
@@ -139,8 +156,14 @@ export const replyFor = ({ message, context = {} } = {}) => {
 export const shouldAssistantReply = ({ thread, messages = [], replyingToId = '', assistantEnabled = true } = {}) => {
   if (!assistantEnabled || thread?.assistantEnabled === false) return false;
   if (thread?.escalatedAt) return false;
-  if (thread?.lastMessageBy === 'admissions_office' || thread?.lastMessageBy === 'admissions_head') return false;
-  if (messages.some((message) => ['admissions_office', 'admissions_head'].includes(message.senderRole))) return false;
+  if (thread?.lastMessageBy === 'admissions_office' || thread?.lastMessageBy === 'admissions_admin') return false;
+  // A reply from before the conversation was resolved belongs to the closed topic.
+  const resolvedAt = Date.parse(thread?.resolvedAt || '');
+  const humanReplied = messages.some((message) => (
+    ['admissions_office', 'admissions_admin'].includes(message.senderRole)
+    && !(Number.isFinite(resolvedAt) && Date.parse(message.createdAt || '') <= resolvedAt)
+  ));
+  if (humanReplied) return false;
   if (!replyingToId) return true;
   return !messages.some((message) => message.senderRole === 'assistant' && message.replyingToId === replyingToId);
 };

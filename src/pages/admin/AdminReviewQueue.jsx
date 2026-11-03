@@ -13,7 +13,7 @@ import {
   getMyReviewQueue,
   getSubmissionWaitDays,
 } from '../../lib/admissionsOffice';
-import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
+import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { fmtDate, plural } from '../../lib/formatters';
 
 // SOP steps 2-6 for the Admissions Office, as each officer sees it: the cases the
@@ -44,7 +44,7 @@ export default function AdminReviewQueue({
   onJoinCase,
   onLeaveCase,
 }) {
-  const isHead = isAdmissionsHeadRole(role);
+  const isAdmin = isAdmissionsAdminRole(role);
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
   const [feedback, setFeedback] = useState(null);
@@ -88,7 +88,7 @@ export default function AdminReviewQueue({
     <div className="grid content-start gap-5">
       <AdminPageHeader
         title="Review queue"
-        description={isHead
+        description={isAdmin
           ? 'The cases you opened, through every stage you decide.'
           : 'The cases you opened. Pick up more from the intake pool.'}
       >
@@ -140,7 +140,7 @@ export default function AdminReviewQueue({
       )}
 
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={ClipboardList} tone="info" label="In my review queue" value={myQueue.length} note="Cases you opened" />
         <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimedSubmissions} note="Waiting in the intake pool" />
         <StatCard icon={FileSearch} tone="warning" label="Documents awaiting verification" value={blockingDocuments.length} note="Files in your queue" />
@@ -192,7 +192,7 @@ export default function AdminReviewQueue({
                       <Button type="button" onClick={() => openReview(entry.id, 'documents')}>Review documents</Button>
                     ) : entry.status === 'For Endorsement' ? (
                       <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>
-                        {isHead ? 'Forward to interview' : 'Open case notes'}
+                        {isAdmin ? 'Forward to interview' : 'Open case notes'}
                       </Button>
                     ) : (
                       <Button type="button" onClick={() => openReview(entry.id)}>Open case</Button>

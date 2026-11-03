@@ -133,18 +133,32 @@ describe('createInitialState', () => {
     expect(state.authUser.role).toBe('admissions_office');
   });
 
-  it('restores an Admissions Office Head session', () => {
+  it('restores an Admissions Office Admin session', () => {
     installStorage({
-      viewerRole: 'admissions_head',
-      savedRole: 'admissions_head',
-      authUser: { id: 'head-1', role: 'admissions_head', fullName: 'Office Head' },
+      viewerRole: 'admissions_admin',
+      savedRole: 'admissions_admin',
+      authUser: { id: 'admin-1', role: 'admissions_admin', fullName: 'Office Admin' },
     });
 
     const state = createInitialState();
 
-    expect(state.viewerRole).toBe('admissions_head');
-    expect(state.savedRole).toBe('admissions_head');
-    expect(state.authUser.role).toBe('admissions_head');
+    expect(state.viewerRole).toBe('admissions_admin');
+    expect(state.savedRole).toBe('admissions_admin');
+    expect(state.authUser.role).toBe('admissions_admin');
+  });
+
+  it('migrates a session saved under the earlier Admin role name', () => {
+    installStorage({
+      viewerRole: 'admissions_head',
+      savedRole: 'admissions_head',
+      authUser: { id: 'admin-1', role: 'admissions_head', fullName: 'Office Admin' },
+    });
+
+    const state = createInitialState();
+
+    expect(state.viewerRole).toBe('admissions_admin');
+    expect(state.savedRole).toBe('admissions_admin');
+    expect(state.authUser.role).toBe('admissions_admin');
   });
 
   it('carries over only theme, preferences, and deadlines from the legacy demo key', () => {

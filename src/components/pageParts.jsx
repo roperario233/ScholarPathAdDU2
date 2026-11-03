@@ -3,6 +3,7 @@ import { Bell, X } from 'lucide-react';
 import { getApplicationProgress, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 import { Button, EmptyState, StatusBadge } from './ui';
+import { Skeleton, SkeletonRegion } from './Skeleton';
 
 export { Button, Card, EmptyState, StatusBadge } from './ui';
 
@@ -20,12 +21,12 @@ const statToneClasses = {
 export function StatCard({ label, value, note, icon: Icon, tone = 'info' }) {
   const isLongValue = typeof value === 'string' && value.length > 12;
   return (
-    <article className="group page-metric relative overflow-hidden rounded-app border border-app-border bg-app-card p-4 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app">
+    <article className="group page-metric relative min-w-0 overflow-hidden rounded-app border border-app-border bg-app-card p-3 shadow-card backdrop-blur transition hover:-translate-y-1 hover:shadow-app sm:p-4">
       {Icon ? null : <span className="pointer-events-none absolute right-0 top-0 h-20 w-20 translate-x-5 -translate-y-5 rounded-full bg-blue-500/10 transition group-hover:scale-125" aria-hidden="true" />}
-      {Icon ? <div className={`absolute right-4 top-4 grid h-10 w-10 place-items-center rounded-xl ${statToneClasses[tone] || statToneClasses.info}`} aria-hidden="true"><Icon size={18} /></div> : null}
-      <span className={`text-xs font-semibold text-app-muted ${Icon ? 'pr-12' : ''}`}>{label}</span>
-      <strong className={`text-app-text ${isLongValue ? '!text-lg' : '!text-3xl'}`}>{value}</strong>
-      {note ? <p className="text-xs text-app-muted">{note}</p> : null}
+      {Icon ? <div className={`absolute right-3 top-3 grid h-8 w-8 place-items-center rounded-lg sm:right-4 sm:top-4 sm:h-10 sm:w-10 sm:rounded-xl ${statToneClasses[tone] || statToneClasses.info}`} aria-hidden="true"><Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" /></div> : null}
+      <span className={`text-xs font-semibold text-app-muted ${Icon ? 'pr-9 sm:pr-12' : ''}`}>{label}</span>
+      <strong className={`text-app-text ${isLongValue ? '!text-base sm:!text-lg' : '!text-2xl sm:!text-3xl'}`}>{value}</strong>
+      {note ? <p className="text-[11px] leading-snug text-app-muted sm:text-xs">{note}</p> : null}
     </article>
   );
 }
@@ -111,7 +112,7 @@ export function AnnouncementItem({ entry }) {
   );
 }
 
-export function NotificationDropdown({ notifications, announcements, onMarkRead }) {
+export function NotificationDropdown({ notifications, announcements, onMarkRead, loading = false }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
   const unreadCount = notifications.filter((entry) => entry.status === 'Unread').length;
@@ -155,7 +156,9 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead 
           <div className="flex items-start justify-between gap-4 border-b border-app-border px-4 py-3">
             <div className="grid gap-1">
               <strong className="text-sm text-app-text">Notifications</strong>
-              <span className="text-xs text-app-muted">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? '' : 's'}` : 'You are all caught up'}</span>
+              {loading
+                ? <Skeleton className="h-3 w-28" />
+                : <span className="text-xs text-app-muted">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? '' : 's'}` : 'You are all caught up'}</span>}
             </div>
             <button type="button" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-app-surface hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => setIsOpen(false)} aria-label="Close notifications"><X size={18} /></button>
           </div>
@@ -166,7 +169,14 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead 
             {announcements.slice(0, 3).map((entry) => (
               <AnnouncementItem key={entry.id} entry={entry} />
             ))}
-            {!notifications.length && !announcements.length && (
+            {loading && !notifications.length && !announcements.length && (
+              <SkeletonRegion label="Loading notifications" className="grid gap-2">
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+                <Skeleton className="h-16 w-full rounded-xl" />
+              </SkeletonRegion>
+            )}
+            {!loading && !notifications.length && !announcements.length && (
               <EmptyState title="No updates yet" description="New deadline reminders and announcements will appear here." />
             )}
           </div>

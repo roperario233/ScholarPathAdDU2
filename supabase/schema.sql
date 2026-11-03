@@ -4,7 +4,7 @@ create table if not exists profiles (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null unique,
   full_name text not null,
-  role text not null check (role in ('student', 'admissions_office', 'admissions_head', 'department_chair')),
+  role text not null check (role in ('student', 'admissions_office', 'admissions_admin', 'department_chair')),
   email text,
   phone text,
   department text,
@@ -19,7 +19,7 @@ alter table profiles add column if not exists student_number text;
 alter table profiles drop constraint if exists profiles_role_check;
 update profiles set role = 'admissions_office' where role = 'osa_admin';
 alter table profiles add constraint profiles_role_check
-  check (role in ('student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair'));
+  check (role in ('student', 'admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair'));
 
 -- The reviewer scope ladder: a Dean owns a School, an Assistant Dean a Cluster, and a
 -- Chairperson a Department (and its degree programs). `department` still holds the
@@ -273,7 +273,7 @@ create table if not exists application_review_comments (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null references applications(id) on delete cascade,
   author_id uuid not null references profiles(user_id) on delete cascade,
-  author_role text not null check (author_role in ('admissions_office', 'admissions_head', 'department_chair')),
+  author_role text not null check (author_role in ('admissions_office', 'admissions_admin', 'department_chair')),
   author_name text not null,
   kind text not null default 'note' check (kind in ('note', 'question', 'decision')),
   body text not null check (char_length(btrim(body)) between 1 and 2000),
@@ -291,7 +291,7 @@ create table if not exists application_case_officers (
   application_id uuid not null references applications(id) on delete cascade,
   officer_id uuid references profiles(user_id) on delete set null,
   officer_name text not null,
-  officer_role text not null check (officer_role in ('admissions_office', 'admissions_head')),
+  officer_role text not null check (officer_role in ('admissions_office', 'admissions_admin')),
   joined_at timestamptz not null default now(),
   added_by uuid references profiles(user_id) on delete set null,
   left_at timestamptz,
@@ -387,7 +387,7 @@ as $$ select department from public.profiles where user_id = auth.uid() limit 1 
 
 -- Admissions Office lanes (see 20261024000000_split_admissions_office_head_and_staff.sql).
 -- `admissions_office` is Staff (intake, verification, hand-off, interviews,
--- recommendation); `admissions_head` decides approval and release and owns the
+-- recommendation); `admissions_admin` decides approval and release and owns the
 -- catalog and announcement surfaces.
 create or replace function public.is_admissions_staff()
 returns boolean
@@ -397,13 +397,13 @@ set search_path = public
 stable
 as $$ select public.current_profile_role() = 'admissions_office' $$;
 
-create or replace function public.is_admissions_head()
+create or replace function public.is_admissions_admin()
 returns boolean
 language sql
 security definer
 set search_path = public
 stable
-as $$ select public.current_profile_role() = 'admissions_head' $$;
+as $$ select public.current_profile_role() = 'admissions_admin' $$;
 
 create or replace function public.is_admissions_office()
 returns boolean
@@ -411,7 +411,7 @@ language sql
 security definer
 set search_path = public
 stable
-as $$ select public.current_profile_role() in ('admissions_office', 'admissions_head') $$;
+as $$ select public.current_profile_role() in ('admissions_office', 'admissions_admin') $$;
 
 -- The role-scoped transition map, repeated in the database because RLS cannot
 -- compare a row's old and new status. Students, Chairs, and service-role writes
@@ -425,7 +425,7 @@ as $$
 declare
   caller_role text := public.current_profile_role();
 begin
-  if caller_role is null or caller_role not in ('admissions_office', 'admissions_head') then
+  if caller_role is null or caller_role not in ('admissions_office', 'admissions_admin') then
     return new;
   end if;
   if new.status is not distinct from old.status then
@@ -454,7 +454,7 @@ begin
       or (old.status = 'Recommended' and new.status in ('Approved', 'Rejected'))
       or (old.status = 'Approved' and new.status = 'Released')
     ) then
-      raise exception 'The Admissions Office Head cannot move an application from % to %.', old.status, new.status
+      raise exception 'The Admissions Office Admin cannot move an application from % to %.', old.status, new.status
         using errcode = '42501';
     end if;
   end if;
@@ -483,7 +483,7 @@ begin
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1), 'ScholarPath user'),
     -- Public registration cannot grant privileged roles. A staff or reviewer role
-    -- arrives only through an invitation the Admissions Office Head recorded
+    -- arrives only through an invitation the Admissions Office Admin recorded
     -- (see the account provisioning block at the bottom of this file).
     'student',
     new.email,
@@ -521,7 +521,7 @@ drop policy if exists "osa_applications_access" on applications;
 drop policy if exists "admissions_office_applications_access" on applications;
 drop policy if exists "admissions_office_applications_read" on applications;
 drop policy if exists "admissions_staff_applications_update" on applications;
-drop policy if exists "admissions_head_applications_update" on applications;
+drop policy if exists "admissions_admin_applications_update" on applications;
 drop policy if exists "chair_applications_read" on applications;
 drop policy if exists "chair_applications_status" on applications;
 drop policy if exists "chair_applications_flag_for_validation" on applications;
@@ -544,7 +544,7 @@ drop policy if exists "admissions_office_academic_programs_manage" on academic_p
 create policy "profiles_self_read_write" on profiles
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy "staff_read_profiles" on profiles
-for select using (public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair'));
+for select using (public.current_profile_role() in ('admissions_office', 'admissions_admin', 'department_chair'));
 
 create policy "scholarships_read_all" on scholarships
 for select using (true);
@@ -563,10 +563,10 @@ $$;
 
 create policy "admissions_office_scholarships_manage" on scholarships
 for all using (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   and public.is_addu_in_scope_track(title)
 ) with check (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   and public.is_addu_in_scope_track(title)
 );
 create policy "documents_self_access" on documents
@@ -592,12 +592,12 @@ for update using (
   public.is_admissions_staff()
   and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Interview', 'Recommended', 'Rejected')
 );
-create policy "admissions_head_applications_update" on applications
+create policy "admissions_admin_applications_update" on applications
 for update using (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved')
 ) with check (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
 );
 create policy "chair_applications_read" on applications
@@ -607,7 +607,7 @@ for select using (
 );
 -- The Department Chair has read-only department visibility (chair_applications_read
 -- above) plus SOP 5a panel work. Endorsement moved to the Office of Admissions &
--- Aid: Staff hand off (For Endorsement) and the Head records the decision
+-- Aid: Staff hand off (For Endorsement) and the Admin records the decision
 -- (Endorsed), so the Chair has no stage-move policy.
 -- Students attach or detach only their own vault files, and only while the
 -- application is still a Draft.
@@ -625,12 +625,12 @@ for delete using (
   exists (select 1 from applications a where a.id = application_id and a.student_id = auth.uid() and a.status = 'Draft')
 );
 create policy "staff_application_documents_access" on application_documents
-for all using (public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair'))
-with check (public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair'));
+for all using (public.current_profile_role() in ('admissions_office', 'admissions_admin', 'department_chair'))
+with check (public.current_profile_role() in ('admissions_office', 'admissions_admin', 'department_chair'));
 create policy "announcements_read_all" on announcements
 for select using (true);
 create policy "admissions_office_announcements_manage" on announcements
-for insert with check (public.is_admissions_head() and created_by = auth.uid());
+for insert with check (public.is_admissions_admin() and created_by = auth.uid());
 create policy "notifications_self_access" on notifications
 for all using (auth.uid() = profile_id) with check (auth.uid() = profile_id);
 create policy "department_reviews_restricted" on department_reviews
@@ -675,7 +675,7 @@ for select using (public.is_admissions_office());
 create policy "academic_programs_read_all" on academic_programs
 for select using (true);
 create policy "admissions_office_academic_programs_manage" on academic_programs
-for all using (public.is_admissions_head()) with check (public.is_admissions_head());
+for all using (public.is_admissions_admin()) with check (public.is_admissions_admin());
 
 -- ---------------------------------------------------------------------------
 -- Student submit gate. Staff transitions keep their own RLS policies; this
@@ -1074,9 +1074,12 @@ begin
   if v_income is null or v_income < 0 then return 'Annual household income'; end if;
   if coalesce(p_profile ->> 'citizenship', '') not in ('Filipino', 'Non-Filipino') then return 'Citizenship'; end if;
   if coalesce(btrim(p_profile ->> 'civilStatus'), '') = '' then return 'Civil status'; end if;
-  -- The printed form asks every applicant for their strand, not only an incoming
-  -- first-year.
-  if coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then return 'Senior high school strand'; end if;
+  -- The strand is asked of everyone except a current Ateneo student (the same
+  -- applicant status that is asked for an AdDU student number).
+  if not (v_transferee = 'No' and v_standing <> 'incoming-1st')
+    and coalesce(btrim(p_profile ->> 'hsStrand'), '') = '' then
+    return 'Senior high school strand';
+  end if;
   if coalesce(btrim(p_profile ->> 'completeAddress'), '') = '' then return 'Complete address'; end if;
   if coalesce(btrim(p_profile ->> 'housingType'), '') = '' then return 'Where you stay while studying'; end if;
   if not public.parent_name_answered(p_profile, 'father') then return 'Father''s name'; end if;
@@ -1846,9 +1849,9 @@ begin
   end if;
 
   if v_application.status = 'Submitted' then
-    v_actor := case v_role when 'admissions_head' then 'Admissions Office Head' else 'Admissions Office Staff' end;
+    v_actor := case v_role when 'admissions_admin' then 'Admissions Office Admin' else 'Admissions Office Staff' end;
     v_note := case v_role
-      when 'admissions_head' then 'The Admissions Office Head opened this application for review. Attached documents are reviewed at the verification stage.'
+      when 'admissions_admin' then 'The Admissions Office Admin opened this application for review. Attached documents are reviewed at the verification stage.'
       else 'The Admissions Office Staff opened this application for review. Attached documents are reviewed at the verification stage.'
     end;
 
@@ -1966,14 +1969,14 @@ create table if not exists public.interview_locations (
 alter table public.interview_locations enable row level security;
 
 drop policy if exists "admissions_office_interview_locations_read" on public.interview_locations;
-drop policy if exists "admissions_head_interview_locations_insert" on public.interview_locations;
-drop policy if exists "admissions_head_interview_locations_update" on public.interview_locations;
+drop policy if exists "admissions_admin_interview_locations_insert" on public.interview_locations;
+drop policy if exists "admissions_admin_interview_locations_update" on public.interview_locations;
 create policy "admissions_office_interview_locations_read" on public.interview_locations
 for select using (public.is_admissions_office());
-create policy "admissions_head_interview_locations_insert" on public.interview_locations
-for insert with check (public.is_admissions_head());
-create policy "admissions_head_interview_locations_update" on public.interview_locations
-for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+create policy "admissions_admin_interview_locations_insert" on public.interview_locations
+for insert with check (public.is_admissions_admin());
+create policy "admissions_admin_interview_locations_update" on public.interview_locations
+for update using (public.is_admissions_admin()) with check (public.is_admissions_admin());
 
 -- Panel membership. An account panelist is a Department Chair from the
 -- applicant's school; a faculty guest without a ScholarPath account is typed in
@@ -2079,7 +2082,7 @@ begin
     from public.profiles
     where user_id = new.profile_id;
 
-  if v_role in ('admissions_office', 'admissions_head') then
+  if v_role in ('admissions_office', 'admissions_admin') then
     return new;
   end if;
   if v_role = 'dean'
@@ -2178,7 +2181,7 @@ create table if not exists public.application_interview_notes (
   id uuid primary key default gen_random_uuid(),
   application_id uuid not null references public.applications(id) on delete cascade,
   author_id uuid not null references public.profiles(user_id) on delete cascade,
-  author_role text not null check (author_role in ('admissions_office', 'admissions_head', 'department_chair')),
+  author_role text not null check (author_role in ('admissions_office', 'admissions_admin', 'department_chair')),
   rating smallint check (rating is null or rating between 1 and 5),
   -- The panel's recommendation (SOP step 6 input). `rating` is kept so a note
   -- recorded before this column still displays; see
@@ -2400,23 +2403,23 @@ on office_calendar_entries (entry_date);
 alter table office_calendar_entries enable row level security;
 
 drop policy if exists "staff_office_calendar_entries_read" on office_calendar_entries;
-drop policy if exists "admissions_head_office_calendar_entries_insert" on office_calendar_entries;
-drop policy if exists "admissions_head_office_calendar_entries_update" on office_calendar_entries;
-drop policy if exists "admissions_head_office_calendar_entries_delete" on office_calendar_entries;
+drop policy if exists "admissions_admin_office_calendar_entries_insert" on office_calendar_entries;
+drop policy if exists "admissions_admin_office_calendar_entries_update" on office_calendar_entries;
+drop policy if exists "admissions_admin_office_calendar_entries_delete" on office_calendar_entries;
 
 create policy "staff_office_calendar_entries_read" on office_calendar_entries
 for select using (
-  public.current_profile_role() in ('admissions_office', 'admissions_head', 'department_chair')
+  public.current_profile_role() in ('admissions_office', 'admissions_admin', 'department_chair')
 );
 
-create policy "admissions_head_office_calendar_entries_insert" on office_calendar_entries
-for insert with check (public.is_admissions_head() and created_by = auth.uid());
+create policy "admissions_admin_office_calendar_entries_insert" on office_calendar_entries
+for insert with check (public.is_admissions_admin() and created_by = auth.uid());
 
-create policy "admissions_head_office_calendar_entries_update" on office_calendar_entries
-for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+create policy "admissions_admin_office_calendar_entries_update" on office_calendar_entries
+for update using (public.is_admissions_admin()) with check (public.is_admissions_admin());
 
-create policy "admissions_head_office_calendar_entries_delete" on office_calendar_entries
-for delete using (public.is_admissions_head());
+create policy "admissions_admin_office_calendar_entries_delete" on office_calendar_entries
+for delete using (public.is_admissions_admin());
 
 
 alter table notification_email_log enable row level security;
@@ -2619,7 +2622,7 @@ revoke execute on function public.enforce_student_application_update() from publ
 
 -- ===========================================================================
 -- Consultation 2 account split (Oct 27): interviewers recommend, the school's
--- approving level approves, the Admissions Office Head verifies, checks, and
+-- approving level approves, the Admissions Office Admin verifies, checks, and
 -- releases. Mirrors, in order:
 --   supabase/migrations/20261050000000_interviewer_role_and_approval_routing.sql
 --   supabase/migrations/20261050000001_lane_transitions_by_flow_role.sql
@@ -2628,7 +2631,7 @@ revoke execute on function public.enforce_student_application_update() from publ
 -- ===========================================================================
 
 -- Consultation 2 (Oct 27): interviewers recommend, the school's chair or dean
--- approves, and the Admissions Office Head does the final check and releases.
+-- approves, and the Admissions Office Admin does the final check and releases.
 --
 -- This migration adds the account split that process needs:
 --
@@ -2649,7 +2652,7 @@ revoke execute on function public.enforce_student_application_update() from publ
 --   * Interview work for every scoped reviewer: in-scope interviewers and ladder
 --     accounts may build the panel, and the author_role checks accept the Dean,
 --     the Assistant Dean, and the interviewer (they rejected a Dean's note).
---   * Document decisions belong to the Admissions Office Head only. Staff keep a
+--   * Document decisions belong to the Admissions Office Admin only. Staff keep a
 --     read-only office view.
 --
 -- The stage moves themselves are enforced by
@@ -2658,7 +2661,7 @@ revoke execute on function public.enforce_student_application_update() from publ
 -- 1. The interviewer role and its scope.
 alter table public.profiles drop constraint if exists profiles_role_check;
 alter table public.profiles add constraint profiles_role_check
-  check (role in ('student', 'admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
+  check (role in ('student', 'admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
 
 alter table public.profiles drop constraint if exists profiles_review_scope_check;
 alter table public.profiles add constraint profiles_review_scope_check check (
@@ -2755,19 +2758,19 @@ create unique index if not exists approval_levels_scope_unique
 alter table public.approval_levels enable row level security;
 
 drop policy if exists "approval_levels_staff_read" on public.approval_levels;
-drop policy if exists "approval_levels_head_insert" on public.approval_levels;
-drop policy if exists "approval_levels_head_update" on public.approval_levels;
-drop policy if exists "approval_levels_head_delete" on public.approval_levels;
+drop policy if exists "approval_levels_admin_insert" on public.approval_levels;
+drop policy if exists "approval_levels_admin_update" on public.approval_levels;
+drop policy if exists "approval_levels_admin_delete" on public.approval_levels;
 create policy "approval_levels_staff_read" on public.approval_levels
 for select using (
-  public.current_profile_role() in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer')
+  public.current_profile_role() in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer')
 );
-create policy "approval_levels_head_insert" on public.approval_levels
-for insert with check (public.is_admissions_head());
-create policy "approval_levels_head_update" on public.approval_levels
-for update using (public.is_admissions_head()) with check (public.is_admissions_head());
-create policy "approval_levels_head_delete" on public.approval_levels
-for delete using (public.is_admissions_head());
+create policy "approval_levels_admin_insert" on public.approval_levels
+for insert with check (public.is_admissions_admin());
+create policy "approval_levels_admin_update" on public.approval_levels
+for update using (public.is_admissions_admin()) with check (public.is_admissions_admin());
+create policy "approval_levels_admin_delete" on public.approval_levels
+for delete using (public.is_admissions_admin());
 
 -- The three examples given at the consultation (32:08-36:01).
 insert into public.approval_levels (school, cluster, approver_role)
@@ -2864,7 +2867,7 @@ for insert with check (
   author_id = auth.uid()
   and author_role = public.current_profile_role()
   and (
-    public.is_admissions_head()
+    public.is_admissions_admin()
     or (
       public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
       and exists (
@@ -2879,7 +2882,7 @@ for insert with check (
 alter table public.application_review_comments
   drop constraint if exists application_review_comments_author_role_check;
 alter table public.application_review_comments add constraint application_review_comments_author_role_check
-  check (author_role in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
+  check (author_role in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
 
 drop policy if exists "status_log_staff_read" on public.application_status_log;
 create policy "status_log_staff_read" on public.application_status_log
@@ -2928,33 +2931,33 @@ $$;
 -- 6. Interview work. The interviewer schedules its own interviews (45:23), and a
 --    Chairperson, Assistant Dean, or Dean in scope may run the interview itself in
 --    a small program (20:11), so every scoped reviewer may build the panel. The
---    Head keeps the office override; Staff no longer coordinate interviews.
+--    Admin keeps the office override; Staff no longer coordinate interviews.
 drop policy if exists "admissions_office_interview_locations_read" on public.interview_locations;
 create policy "admissions_office_interview_locations_read" on public.interview_locations
 for select using (
-  public.current_profile_role() in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer')
+  public.current_profile_role() in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer')
 );
 
 drop policy if exists "admissions_office_interview_panelists_insert" on public.application_interview_panelists;
 drop policy if exists "admissions_office_interview_panelists_update" on public.application_interview_panelists;
 create policy "admissions_office_interview_panelists_insert" on public.application_interview_panelists
 for insert with check (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   or public.is_chair_for_application(application_id)
 );
 create policy "admissions_office_interview_panelists_update" on public.application_interview_panelists
 for update using (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   or public.is_chair_for_application(application_id)
 ) with check (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   or public.is_chair_for_application(application_id)
 );
 
 alter table public.application_interview_notes
   drop constraint if exists application_interview_notes_author_role_check;
 alter table public.application_interview_notes add constraint application_interview_notes_author_role_check
-  check (author_role in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
+  check (author_role in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer'));
 
 drop policy if exists "interview_notes_insert" on public.application_interview_notes;
 create policy "interview_notes_insert" on public.application_interview_notes
@@ -2962,7 +2965,7 @@ for insert with check (
   author_id = auth.uid()
   and author_role = public.current_profile_role()
   and (
-    public.is_admissions_head()
+    public.is_admissions_admin()
     or (
       public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
       and public.is_interview_panelist(application_id)
@@ -3003,7 +3006,7 @@ begin
     from public.profiles
     where user_id = new.profile_id;
 
-  if v_role in ('admissions_office', 'admissions_head') then
+  if v_role in ('admissions_office', 'admissions_admin') then
     return new;
   end if;
 
@@ -3057,10 +3060,10 @@ $$;
 revoke all on function public.validate_interview_panelist() from public;
 revoke all on function public.validate_interview_panelist() from anon, authenticated;
 
--- 7. Document decisions belong to the Admissions Office Head.
+-- 7. Document decisions belong to the Admissions Office Admin.
 drop policy if exists "admissions_office_documents_update" on public.documents;
 create policy "admissions_office_documents_update" on public.documents
-for update using (public.is_admissions_head()) with check (public.is_admissions_head());
+for update using (public.is_admissions_admin()) with check (public.is_admissions_admin());
 
 -- Verification (run after applying):
 --   select school, cluster, approver_role from public.approval_levels order by school;
@@ -3071,7 +3074,7 @@ for update using (public.is_admissions_head()) with check (public.is_admissions_
 -- Stage authority by role, following the process Ma'am Devi described at
 -- Consultation 2 (Oct 27):
 --
---   Admissions Office Head  Submitted -> Under Review -> For Verification, verifies
+--   Admissions Office Admin  Submitted -> Under Review -> For Verification, verifies
 --                           every file, then forwards the case straight to the
 --                           interviewer (For Verification -> Endorsed; the separate
 --                           endorsement hand-off is retired). Superset override on
@@ -3087,7 +3090,7 @@ for update using (public.is_admissions_head()) with check (public.is_admissions_
 --                           role is approver_role_for_student() for the applicant.
 --
 -- src/lib/constants.js `getNextApplicationStatuses()` mirrors this map.
--- The legacy For Endorsement -> Endorsed move stays with the Head so rows sent to
+-- The legacy For Endorsement -> Endorsed move stays with the Admin so rows sent to
 -- endorsement before this migration can still leave that stage.
 
 create or replace function public.enforce_admissions_office_lane_transitions()
@@ -3129,7 +3132,7 @@ begin
     return new;
   end if;
 
-  if caller_role = 'admissions_head' then
+  if caller_role = 'admissions_admin' then
     v_allowed := (old.status = 'Submitted' and new.status in ('Under Review', 'For Verification', 'Rejected'))
       or (old.status = 'Under Review' and new.status in ('For Verification', 'Rejected'))
       or (old.status = 'For Verification' and new.status in ('Endorsed', 'Rejected'))
@@ -3174,13 +3177,13 @@ revoke all on function public.enforce_admissions_office_lane_transitions() from 
 -- allowed; these policies decide which rows each role may touch at all.
 drop policy if exists "admissions_staff_applications_update" on public.applications;
 
-drop policy if exists "admissions_head_applications_update" on public.applications;
-create policy "admissions_head_applications_update" on public.applications
+drop policy if exists "admissions_admin_applications_update" on public.applications;
+create policy "admissions_admin_applications_update" on public.applications
 for update using (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved')
 ) with check (
-  public.is_admissions_head()
+  public.is_admissions_admin()
   and status in ('Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected')
 );
 
@@ -3197,13 +3200,13 @@ for update using (
 );
 
 -- The case-officer roster is no longer how work is routed (an applicant reaches
--- the interviewers of its scope automatically), so only the Head opens a case
+-- the interviewers of its scope automatically), so only the Admin opens a case
 -- into review. `join_application_review` still checks the caller itself; the
 -- trigger above refuses a Staff status move.
 
 -- Results are released per scholarship, in one batch (Consultation 2, #8 and #13).
 --
--- Until the Admissions Office Head releases a scholarship's results, no outcome
+-- Until the Admissions Office Admin releases a scholarship's results, no outcome
 -- reaches the student: notify-application-status holds the Approved and Rejected
 -- notices, and the student's surfaces show "Under deliberation". Releasing:
 --
@@ -3218,7 +3221,7 @@ for update using (
 --
 -- Students read these rows (the counts are what the letter states, and the
 -- covered application ids are what unmask a Rejected status on their own
--- surfaces); only the Head inserts, through the function.
+-- surfaces); only the Admin inserts, through the function.
 --
 -- Setup before applying, as for the other notify migrations:
 --   1. Replace <project-ref> with the deployed project ref.
@@ -3256,8 +3259,8 @@ declare
   v_accepted integer;
   v_row public.results_releases;
 begin
-  if not public.is_admissions_head() then
-    raise exception 'Only the Admissions Office Head can release results.' using errcode = '42501';
+  if not public.is_admissions_admin() then
+    raise exception 'Only the Admissions Office Admin can release results.' using errcode = '42501';
   end if;
   if exists (
     select 1 from public.applications
@@ -3337,7 +3340,7 @@ grant execute on function public.record_results_release(uuid) to authenticated;
 
 
 -- Account provisioning (see migrations/20261051000000_account_provisioning.sql).
--- The Admissions Office Head invites staff and reviewer accounts; a confirmed email
+-- The Admissions Office Admin invites staff and reviewer accounts; a confirmed email
 -- matching an open invitation claims the role (handle_new_user above and the
 -- email-confirmed trigger below). Deploy prerequisite: Authentication -> Email ->
 -- "Confirm email" must be ON. current_profile_role() and handle_new_user() are
@@ -3377,7 +3380,7 @@ begin
      -- For staff, `department` is the school label that scopes the account. A
      -- student still writes it from their degree program.
      or (old.role <> 'student' and new.department is distinct from old.department) then
-    raise exception 'Account role, review scope, and status are managed by the Admissions Office Head.'
+    raise exception 'Account role, review scope, and status are managed by the Admissions Office Admin.'
       using errcode = '42501';
   end if;
   return new;
@@ -3396,7 +3399,7 @@ create table if not exists public.account_invitations (
   id uuid primary key default gen_random_uuid(),
   email text not null check (email = lower(btrim(email)) and char_length(email) between 3 and 320),
   full_name text check (full_name is null or char_length(btrim(full_name)) between 1 and 200),
-  role text not null check (role in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer')),
+  role text not null check (role in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer')),
   review_school text,
   review_cluster text,
   review_department text,
@@ -3414,11 +3417,11 @@ create table if not exists public.account_invitations (
   constraint account_invitations_closed_once check (claimed_at is null or revoked_at is null),
   constraint account_invitations_scope_shape check (
     (
-      role in ('admissions_office', 'admissions_head')
+      role in ('admissions_office', 'admissions_admin')
       and review_school is null and review_cluster is null and review_department is null and home_school is null
     )
     or (
-      role not in ('admissions_office', 'admissions_head')
+      role not in ('admissions_office', 'admissions_admin')
       and home_school is not null
       and (review_school is not null or review_department is not null)
     )
@@ -3431,9 +3434,9 @@ create unique index if not exists account_invitations_open_email_idx
   where claimed_at is null and revoked_at is null;
 
 alter table public.account_invitations enable row level security;
-drop policy if exists "admissions_head_account_invitations_read" on public.account_invitations;
-create policy "admissions_head_account_invitations_read" on public.account_invitations
-for select using (public.is_admissions_head());
+drop policy if exists "admissions_admin_account_invitations_read" on public.account_invitations;
+create policy "admissions_admin_account_invitations_read" on public.account_invitations
+for select using (public.is_admissions_admin());
 revoke insert, update, delete on public.account_invitations from anon, authenticated;
 
 -- 4. Append-only record of who provisioned what.
@@ -3459,13 +3462,13 @@ create index if not exists account_provisioning_log_created_idx
   on public.account_provisioning_log (created_at desc);
 
 alter table public.account_provisioning_log enable row level security;
-drop policy if exists "admissions_head_account_provisioning_log_read" on public.account_provisioning_log;
-create policy "admissions_head_account_provisioning_log_read" on public.account_provisioning_log
-for select using (public.is_admissions_head());
+drop policy if exists "admissions_admin_account_provisioning_log_read" on public.account_provisioning_log;
+create policy "admissions_admin_account_provisioning_log_read" on public.account_provisioning_log
+for select using (public.is_admissions_admin());
 revoke insert, update, delete on public.account_provisioning_log from anon, authenticated;
 
 -- 5. Helpers.
-create or replace function public.require_admissions_head()
+create or replace function public.require_admissions_admin()
 returns uuid
 language plpgsql
 security definer
@@ -3473,8 +3476,8 @@ set search_path = public
 stable
 as $$
 begin
-  if auth.uid() is null or not public.is_admissions_head() then
-    raise exception 'Only the Admissions Office Head can manage accounts.' using errcode = '42501';
+  if auth.uid() is null or not public.is_admissions_admin() then
+    raise exception 'Only the Admissions Office Admin can manage accounts.' using errcode = '42501';
   end if;
   return auth.uid();
 end;
@@ -3505,7 +3508,7 @@ declare
   v_cluster text := nullif(btrim(coalesce(p_cluster, '')), '');
   v_department text := nullif(btrim(coalesce(p_department, '')), '');
 begin
-  if p_role in ('admissions_office', 'admissions_head') then
+  if p_role in ('admissions_office', 'admissions_admin') then
     return query select null::text, null::text, null::text, null::text;
     return;
   end if;
@@ -3557,8 +3560,8 @@ begin
 end;
 $$;
 
-revoke all on function public.require_admissions_head() from public, anon;
-grant execute on function public.require_admissions_head() to authenticated;
+revoke all on function public.require_admissions_admin() from public, anon;
+grant execute on function public.require_admissions_admin() to authenticated;
 revoke all on function public.normalize_provisioned_scope(text, text, text, text) from public, anon, authenticated;
 
 -- 6. Claiming. Called only from the auth triggers below, never by a client. A
@@ -3652,7 +3655,7 @@ create trigger on_auth_user_email_confirmed
   when (old.email_confirmed_at is null and new.email_confirmed_at is not null)
   execute procedure public.claim_invitation_on_email_confirmed();
 
--- 7. Head-only operations. Each one re-checks the caller and logs itself.
+-- 7. Admin-only operations. Each one re-checks the caller and logs itself.
 create or replace function public.invite_account(
   p_email text,
   p_full_name text,
@@ -3667,7 +3670,7 @@ security definer
 set search_path = public, auth
 as $$
 declare
-  v_actor uuid := public.require_admissions_head();
+  v_actor uuid := public.require_admissions_admin();
   v_email text := lower(btrim(coalesce(p_email, '')));
   v_name text := nullif(btrim(coalesce(p_full_name, '')), '');
   v_scope record;
@@ -3676,7 +3679,7 @@ begin
   if v_email !~ '^[^@ ]+@[^@ ]+[.][^@ ]+$' or char_length(v_email) > 320 then
     raise exception 'Enter a valid email address.';
   end if;
-  if p_role is null or p_role not in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer') then
+  if p_role is null or p_role not in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer') then
     raise exception 'Choose a role for this account.';
   end if;
   if exists (select 1 from auth.users u where lower(u.email) = v_email and u.email_confirmed_at is not null) then
@@ -3698,7 +3701,7 @@ begin
   returning * into v_row;
 
   insert into public.account_provisioning_log (action, actor_id, actor_role, target_email, role, review_school, review_cluster, review_department)
-  values ('invited', v_actor, 'admissions_head', v_email, p_role, v_scope.scope_school, v_scope.scope_cluster, v_scope.scope_department);
+  values ('invited', v_actor, 'admissions_admin', v_email, p_role, v_scope.scope_school, v_scope.scope_cluster, v_scope.scope_department);
 
   return v_row;
 end;
@@ -3711,7 +3714,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_actor uuid := public.require_admissions_head();
+  v_actor uuid := public.require_admissions_admin();
   v_row public.account_invitations;
 begin
   update public.account_invitations
@@ -3723,7 +3726,7 @@ begin
   end if;
 
   insert into public.account_provisioning_log (action, actor_id, actor_role, target_email, role, review_school, review_cluster, review_department)
-  values ('invitation_renewed', v_actor, 'admissions_head', v_row.email, v_row.role, v_row.review_school, v_row.review_cluster, v_row.review_department);
+  values ('invitation_renewed', v_actor, 'admissions_admin', v_row.email, v_row.role, v_row.review_school, v_row.review_cluster, v_row.review_department);
   return v_row;
 end;
 $$;
@@ -3735,7 +3738,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_actor uuid := public.require_admissions_head();
+  v_actor uuid := public.require_admissions_admin();
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_row public.account_invitations;
 begin
@@ -3752,7 +3755,7 @@ begin
   end if;
 
   insert into public.account_provisioning_log (action, actor_id, actor_role, target_email, role, review_school, review_cluster, review_department, reason)
-  values ('invitation_revoked', v_actor, 'admissions_head', v_row.email, v_row.role, v_row.review_school, v_row.review_cluster, v_row.review_department, v_reason);
+  values ('invitation_revoked', v_actor, 'admissions_admin', v_row.email, v_row.role, v_row.review_school, v_row.review_cluster, v_row.review_department, v_reason);
 end;
 $$;
 
@@ -3769,19 +3772,19 @@ security definer
 set search_path = public
 as $$
 declare
-  v_actor uuid := public.require_admissions_head();
+  v_actor uuid := public.require_admissions_admin();
   v_old_role text;
   v_email text;
   v_scope record;
 begin
   if p_user_id = v_actor then
-    raise exception 'You cannot change your own account. Ask another Admissions Office Head.';
+    raise exception 'You cannot change your own account. Ask another Admissions Office Admin.';
   end if;
   select p.role, p.email into v_old_role, v_email from public.profiles p where p.user_id = p_user_id;
   if not found or v_old_role = 'student' then
     raise exception 'Only staff and reviewer accounts can be changed here.';
   end if;
-  if p_role is null or p_role not in ('admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer') then
+  if p_role is null or p_role not in ('admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer') then
     raise exception 'Choose a role for this account.';
   end if;
 
@@ -3797,7 +3800,7 @@ begin
    where user_id = p_user_id;
 
   insert into public.account_provisioning_log (action, actor_id, actor_role, target_user_id, target_email, role, review_school, review_cluster, review_department)
-  values ('scope_changed', v_actor, 'admissions_head', p_user_id, v_email, p_role, v_scope.scope_school, v_scope.scope_cluster, v_scope.scope_department);
+  values ('scope_changed', v_actor, 'admissions_admin', p_user_id, v_email, p_role, v_scope.scope_school, v_scope.scope_cluster, v_scope.scope_department);
 end;
 $$;
 
@@ -3808,7 +3811,7 @@ security definer
 set search_path = public, auth
 as $$
 declare
-  v_actor uuid := public.require_admissions_head();
+  v_actor uuid := public.require_admissions_admin();
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_profile public.profiles;
 begin
@@ -3838,7 +3841,7 @@ begin
   end;
 
   insert into public.account_provisioning_log (action, actor_id, actor_role, target_user_id, target_email, role, review_school, review_cluster, review_department, reason)
-  values ('deactivated', v_actor, 'admissions_head', p_user_id, v_profile.email, v_profile.role, v_profile.review_school, v_profile.review_cluster, v_profile.review_department, v_reason);
+  values ('deactivated', v_actor, 'admissions_admin', p_user_id, v_profile.email, v_profile.role, v_profile.review_school, v_profile.review_cluster, v_profile.review_department, v_reason);
 end;
 $$;
 
@@ -3849,7 +3852,7 @@ security definer
 set search_path = public
 as $$
 declare
-  v_actor uuid := public.require_admissions_head();
+  v_actor uuid := public.require_admissions_admin();
   v_profile public.profiles;
 begin
   select * into v_profile from public.profiles p where p.user_id = p_user_id;
@@ -3860,7 +3863,7 @@ begin
   update public.profiles set deactivated_at = null, updated_at = now() where user_id = p_user_id;
 
   insert into public.account_provisioning_log (action, actor_id, actor_role, target_user_id, target_email, role, review_school, review_cluster, review_department)
-  values ('reactivated', v_actor, 'admissions_head', p_user_id, v_profile.email, v_profile.role, v_profile.review_school, v_profile.review_cluster, v_profile.review_department);
+  values ('reactivated', v_actor, 'admissions_admin', p_user_id, v_profile.email, v_profile.role, v_profile.review_school, v_profile.review_cluster, v_profile.review_department);
 end;
 $$;
 
@@ -3940,7 +3943,7 @@ create table if not exists public.support_threads (
   student_id uuid not null unique references public.profiles(user_id) on delete cascade,
   status text not null default 'Open' check (status in ('Open', 'Closed')),
   last_message_at timestamptz,
-  last_message_by text check (last_message_by in ('student', 'admissions_office', 'admissions_head', 'assistant')),
+  last_message_by text check (last_message_by in ('student', 'admissions_office', 'admissions_admin', 'assistant')),
   escalated_at timestamptz,
   assistant_enabled boolean not null default true,
   student_last_read_at timestamptz,
@@ -3957,7 +3960,7 @@ create table if not exists public.support_messages (
   id uuid primary key default gen_random_uuid(),
   thread_id uuid not null references public.support_threads(id) on delete cascade,
   sender_id uuid references public.profiles(user_id) on delete cascade,
-  sender_role text not null check (sender_role in ('student', 'admissions_office', 'admissions_head', 'assistant')),
+  sender_role text not null check (sender_role in ('student', 'admissions_office', 'admissions_admin', 'assistant')),
   body text not null check (char_length(btrim(body)) between 1 and 2000),
   replying_to_id uuid references public.support_messages(id) on delete set null,
   created_at timestamptz not null default now()
@@ -3970,10 +3973,10 @@ alter table public.support_messages add column if not exists replying_to_id uuid
 alter table public.support_messages alter column sender_id drop not null;
 alter table public.support_threads drop constraint if exists support_threads_last_message_by_check;
 alter table public.support_threads add constraint support_threads_last_message_by_check
-  check (last_message_by in ('student', 'admissions_office', 'admissions_head', 'assistant'));
+  check (last_message_by in ('student', 'admissions_office', 'admissions_admin', 'assistant'));
 alter table public.support_messages drop constraint if exists support_messages_sender_role_check;
 alter table public.support_messages add constraint support_messages_sender_role_check
-  check (sender_role in ('student', 'admissions_office', 'admissions_head', 'assistant'));
+  check (sender_role in ('student', 'admissions_office', 'admissions_admin', 'assistant'));
 create unique index if not exists support_messages_assistant_reply_once_idx
   on public.support_messages (thread_id, replying_to_id)
   where sender_role = 'assistant' and replying_to_id is not null;
@@ -4002,7 +4005,7 @@ create policy "support_messages_insert" on public.support_messages
 for insert with check (
   sender_id = auth.uid()
   and sender_role = public.current_profile_role()
-  and sender_role in ('student', 'admissions_office', 'admissions_head')
+  and sender_role in ('student', 'admissions_office', 'admissions_admin')
   and (
     public.is_admissions_office()
     or exists (
@@ -4024,7 +4027,7 @@ begin
     new.sender_id := null;
     new.sender_role := 'assistant';
   else
-    if caller_role is null or caller_role not in ('student', 'admissions_office', 'admissions_head') then
+    if caller_role is null or caller_role not in ('student', 'admissions_office', 'admissions_admin') then
       raise exception 'This account cannot send support messages.';
     end if;
     if caller_role = 'student' and not exists (
@@ -4048,8 +4051,8 @@ begin
     last_message_at = new.created_at,
     last_message_by = new.sender_role,
     status = 'Open',
-    assistant_enabled = case when new.sender_role in ('admissions_office', 'admissions_head') then false else assistant_enabled end,
-    student_unread_count = student_unread_count + case when new.sender_role in ('admissions_office', 'admissions_head', 'assistant') then 1 else 0 end,
+    assistant_enabled = case when new.sender_role in ('admissions_office', 'admissions_admin') then false else assistant_enabled end,
+    student_unread_count = student_unread_count + case when new.sender_role in ('admissions_office', 'admissions_admin', 'assistant') then 1 else 0 end,
     office_unread_count = office_unread_count + case when new.sender_role = 'student' and exists (
       select 1 from public.support_threads t where t.id = new.thread_id and (t.escalated_at is not null or not t.assistant_enabled)
     ) then 1 else 0 end,
@@ -4066,7 +4069,7 @@ create or replace function public.notify_student_of_support_reply()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare student_profile_id uuid; in_app_preference text;
 begin
-  if new.sender_role not in ('admissions_office', 'admissions_head') then return new; end if;
+  if new.sender_role not in ('admissions_office', 'admissions_admin') then return new; end if;
   select t.student_id into student_profile_id from public.support_threads t where t.id = new.thread_id;
   select p.notification_preferences ->> 'inAppEnabled' into in_app_preference
     from public.profiles p where p.user_id = student_profile_id;
@@ -4092,7 +4095,7 @@ begin
   if not coalesce(is_escalated, false) then return new; end if;
   for recipient in
     select p.user_id, p.notification_preferences ->> 'inAppEnabled' as in_app_preference
-    from public.profiles p where p.role in ('admissions_office', 'admissions_head')
+    from public.profiles p where p.role in ('admissions_office', 'admissions_admin')
   loop
     if recipient.in_app_preference is distinct from 'false' then
       insert into public.notifications (profile_id, title, body, channel, status, source_key)
@@ -4135,7 +4138,7 @@ begin
       where profile_id = auth.uid() and status = 'Unread'
         and source_key like 'support-reply-' || p_thread_id::text || '-%';
     end if;
-  elsif caller_role in ('admissions_office', 'admissions_head') then
+  elsif caller_role in ('admissions_office', 'admissions_admin') then
     update public.support_threads set office_last_read_at = now(), office_unread_count = 0
       where id = p_thread_id and public.is_admissions_office();
     if found then
@@ -4158,10 +4161,85 @@ begin
 end;
 $$;
 
+-- Support conversation lifecycle (20261056000000): a resolve moves the escalation into
+-- history and returns the thread to the assistant; messages are never deleted.
+alter table public.support_threads add column if not exists resolved_at timestamptz;
+alter table public.support_threads add column if not exists resolved_by text;
+alter table public.support_threads add column if not exists last_escalated_at timestamptz;
+alter table public.support_threads add column if not exists student_view_from timestamptz;
+alter table public.support_threads drop constraint if exists support_threads_resolved_by_check;
+alter table public.support_threads add constraint support_threads_resolved_by_check
+  check (resolved_by is null or resolved_by in ('student', 'admissions_office', 'admissions_admin', 'system'));
+
+create or replace function public.reset_support_thread(p_thread_id uuid, p_by text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  update public.support_threads
+  set last_escalated_at = coalesce(escalated_at, last_escalated_at), escalated_at = null, assistant_enabled = true,
+      status = 'Closed', resolved_at = now(), resolved_by = p_by, updated_at = now()
+  where id = p_thread_id;
+end;
+$$;
+
+create or replace function public.set_support_thread_status(p_thread_id uuid, p_status text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if public.is_admissions_office() is not true then raise exception 'Only the Admissions Office can change support thread status.'; end if;
+  if p_status not in ('Open', 'Closed') then raise exception 'Invalid support thread status.'; end if;
+  if p_status = 'Closed' then
+    perform public.reset_support_thread(p_thread_id, public.current_profile_role());
+  else
+    update public.support_threads set status = p_status, updated_at = now() where id = p_thread_id;
+  end if;
+end;
+$$;
+
+create or replace function public.resolve_support_thread(p_thread_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null or public.current_profile_role() is distinct from 'student' then raise exception 'Only a signed-in student can resolve a support conversation.'; end if;
+  perform 1 from public.support_threads t where t.id = p_thread_id and t.student_id = auth.uid() for update;
+  if not found then raise exception 'Support conversation not found.'; end if;
+  perform public.reset_support_thread(p_thread_id, 'student');
+end;
+$$;
+
+create or replace function public.start_new_support_topic(p_thread_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare thread public.support_threads;
+begin
+  if auth.uid() is null or public.current_profile_role() is distinct from 'student' then raise exception 'Only a signed-in student can start a new support question.'; end if;
+  select * into thread from public.support_threads t where t.id = p_thread_id and t.student_id = auth.uid() for update;
+  if not found then raise exception 'Support conversation not found.'; end if;
+  if thread.escalated_at is not null and thread.status <> 'Closed'
+    and coalesce(thread.last_message_by, '') not in ('admissions_office', 'admissions_admin') then
+    raise exception 'Your live-agent request is still waiting for the Admissions Office.';
+  end if;
+  if thread.escalated_at is not null or not thread.assistant_enabled then perform public.reset_support_thread(p_thread_id, 'student'); end if;
+  update public.support_threads set student_view_from = now(), updated_at = now() where id = p_thread_id;
+end;
+$$;
+
+create or replace function public.auto_resolve_idle_support_threads()
+returns integer language plpgsql security definer set search_path = public as $$
+declare target record; resolved_count integer := 0;
+begin
+  for target in
+    select t.id from public.support_threads t
+    where (t.escalated_at is not null or not t.assistant_enabled)
+      and (t.status = 'Closed' or (t.last_message_by in ('admissions_office', 'admissions_admin') and t.last_message_at < now() - interval '3 days'))
+  loop
+    perform public.reset_support_thread(target.id, 'system');
+    resolved_count := resolved_count + 1;
+  end loop;
+  return resolved_count;
+end;
+$$;
+
 create or replace function public.touch_office_support_presence()
 returns void language plpgsql security definer set search_path = public as $$
 begin
-  if coalesce(public.current_profile_role(), '') not in ('admissions_office', 'admissions_head') then
+  if coalesce(public.current_profile_role(), '') not in ('admissions_office', 'admissions_admin') then
     raise exception 'Only Admissions Office accounts can update office availability.';
   end if;
   update public.profiles set support_last_seen_at = now()
@@ -4173,10 +4251,10 @@ create or replace function public.get_admissions_office_availability()
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare latest_seen timestamptz; local_now timestamp := now() at time zone 'Asia/Manila'; office_open boolean;
 begin
-  if coalesce(public.current_profile_role(), '') not in ('student', 'admissions_office', 'admissions_head') then
+  if coalesce(public.current_profile_role(), '') not in ('student', 'admissions_office', 'admissions_admin') then
     raise exception 'This account cannot access Admissions Office availability.';
   end if;
-  select max(p.support_last_seen_at) into latest_seen from public.profiles p where p.role in ('admissions_office', 'admissions_head');
+  select max(p.support_last_seen_at) into latest_seen from public.profiles p where p.role in ('admissions_office', 'admissions_admin');
   office_open := extract(isodow from local_now) between 1 and 5 and local_now::time >= time '08:00' and local_now::time < time '17:00';
   return jsonb_build_object('online', latest_seen is not null and latest_seen >= now() - interval '5 minutes', 'officeHoursOpen', office_open, 'checkedAt', now());
 end;
@@ -4217,7 +4295,7 @@ begin
   if not found then raise exception 'Support conversation not found.'; end if;
   if escalation_time is not null then return escalation_time; end if;
   update public.support_threads set escalated_at = now(), assistant_enabled = false, status = 'Open', office_unread_count = greatest(office_unread_count, 1), updated_at = now() where id = p_thread_id returning escalated_at into escalation_time;
-  for recipient in select p.user_id, p.notification_preferences ->> 'inAppEnabled' as in_app_preference from public.profiles p where p.role in ('admissions_office', 'admissions_head') loop
+  for recipient in select p.user_id, p.notification_preferences ->> 'inAppEnabled' as in_app_preference from public.profiles p where p.role in ('admissions_office', 'admissions_admin') loop
     if recipient.in_app_preference is distinct from 'false' then
       insert into public.notifications (profile_id, title, body, channel, status, source_key)
       values (recipient.user_id, 'Student requested a live agent', 'A student is waiting for a reply in the Support inbox.', 'In-app', 'Unread',
@@ -4239,7 +4317,7 @@ begin
       update public.notifications set status = 'Read' where profile_id = auth.uid() and status = 'Unread'
         and source_key like 'support-reply-' || p_thread_id::text || '-%';
     end if;
-  elsif caller_role in ('admissions_office', 'admissions_head') then
+  elsif caller_role in ('admissions_office', 'admissions_admin') then
     update public.support_threads set office_last_read_at = now(), office_unread_count = 0 where id = p_thread_id and public.is_admissions_office();
     if found then
       update public.notifications n set status = 'Read' where n.profile_id = auth.uid() and n.status = 'Unread'
@@ -4262,6 +4340,14 @@ revoke all on function public.get_admissions_office_availability() from public;
 revoke all on function public.post_assistant_support_message(uuid, text, uuid) from public;
 revoke all on function public.escalate_support_thread(uuid, text) from public;
 revoke all on function public.mark_support_thread_read(uuid) from public;
+revoke all on function public.reset_support_thread(uuid, text) from public;
+revoke all on function public.resolve_support_thread(uuid) from public;
+revoke all on function public.start_new_support_topic(uuid) from public;
+revoke all on function public.auto_resolve_idle_support_threads() from public;
+grant execute on function public.resolve_support_thread(uuid) to authenticated;
+grant execute on function public.start_new_support_topic(uuid) to authenticated;
+-- Hourly idle sweep (needs pg_cron; applied by 20261056000000):
+-- select cron.schedule('auto-resolve-idle-support-threads', '0 * * * *', $$ select public.auto_resolve_idle_support_threads(); $$);
 grant execute on function public.get_or_create_support_thread() to authenticated;
 grant execute on function public.set_support_thread_status(uuid, text) to authenticated;
 grant execute on function public.touch_office_support_presence() to authenticated;
@@ -4269,3 +4355,142 @@ grant execute on function public.get_admissions_office_availability() to authent
 grant execute on function public.post_assistant_support_message(uuid, text, uuid) to authenticated;
 grant execute on function public.escalate_support_thread(uuid, text) to authenticated;
 grant execute on function public.mark_support_thread_read(uuid) to authenticated;
+
+-- Office-opened applications (20261058000000): the Admissions Office Admin opens a
+-- Draft for a student as an eligibility exception. opened_by_office_at is a marker
+-- only (no name, no reason); the reason goes to the staff-only review thread, and a
+-- student session can never set or change the marker. The client waives only the
+-- qualification rules for a marked Draft; every other submit gate still applies.
+alter table public.applications add column if not exists opened_by_office_at timestamptz;
+
+create or replace function public.protect_application_office_marker()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  if public.current_profile_role() is distinct from 'student' then
+    return new;
+  end if;
+  if tg_op = 'INSERT' then
+    new.opened_by_office_at := null;
+  elsif new.opened_by_office_at is distinct from old.opened_by_office_at then
+    raise exception 'Only the Admissions Office can open an application as an eligibility exception.'
+      using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists protect_application_office_marker on public.applications;
+create trigger protect_application_office_marker
+before insert or update on public.applications
+for each row execute function public.protect_application_office_marker();
+
+create or replace function public.open_application_for_student(
+  p_application_id uuid,
+  p_student_id uuid,
+  p_scholarship_id uuid,
+  p_reason text
+)
+returns public.applications
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_actor uuid := auth.uid();
+  v_actor_name text;
+  v_reason text := btrim(coalesce(p_reason, ''));
+  v_body text;
+  v_student public.profiles;
+  v_scholarship public.scholarships;
+  v_row public.applications;
+  v_today date := (now() at time zone 'Asia/Manila')::date;
+begin
+  if v_actor is null or not public.is_admissions_admin() then
+    raise exception 'Only the Admissions Office Admin can open an application for a student.'
+      using errcode = '42501';
+  end if;
+  if p_application_id is null then
+    raise exception 'The application id is missing.';
+  end if;
+
+  v_body := 'Eligibility exception — ' || v_reason;
+  if v_reason = '' then
+    raise exception 'Record the reason for opening this application.';
+  end if;
+  if char_length(v_body) > 2000 then
+    raise exception 'Keep the reason to % characters or fewer.', 2000 - char_length('Eligibility exception — ');
+  end if;
+
+  select * into v_student from public.profiles where user_id = p_student_id;
+  if not found or v_student.role is distinct from 'student' or v_student.deactivated_at is not null then
+    raise exception 'Choose an active student account.';
+  end if;
+
+  select * into v_scholarship from public.scholarships where id = p_scholarship_id;
+  if not found or not public.is_addu_in_scope_track(v_scholarship.title) then
+    raise exception 'Choose an AdDU internal scholarship (GIA, Jubilee, or the Working Scholar Program).';
+  end if;
+  if not v_scholarship.is_active
+    or (v_scholarship.deadline is not null and v_scholarship.deadline < v_today) then
+    raise exception 'This scholarship is no longer accepting applications.';
+  end if;
+
+  if exists (
+    select 1 from public.applications
+    where student_id = p_student_id and scholarship_id = p_scholarship_id
+  ) then
+    raise exception 'This student already has an application for this scholarship.';
+  end if;
+
+  select coalesce(nullif(btrim(full_name), ''), 'Admissions Office Admin') into v_actor_name
+  from public.profiles where user_id = v_actor;
+
+  insert into public.applications (
+    id, student_id, scholarship_id, status, document_status, notes, statement,
+    opened_by_office_at, timeline, updated_at
+  ) values (
+    p_application_id,
+    p_student_id,
+    p_scholarship_id,
+    'Draft',
+    'Pending',
+    'Opened by the Admissions Office.',
+    coalesce(v_student.profile_details ->> 'essay', ''),
+    now(),
+    jsonb_build_array(jsonb_build_object(
+      'id', 'ev-' || gen_random_uuid()::text,
+      'stage', 'Draft',
+      'note', 'Opened by the Admissions Office. Attach the required documents, then review and submit.',
+      'actor', 'Admissions Office',
+      'at', to_char(v_today, 'YYYY-MM-DD')
+    )),
+    now()
+  )
+  returning * into v_row;
+
+  insert into public.application_review_comments (application_id, author_id, author_role, author_name, body)
+  values (p_application_id, v_actor, 'admissions_admin', v_actor_name, v_body);
+
+  if (v_student.notification_preferences ->> 'inAppEnabled') is distinct from 'false' then
+    insert into public.notifications (profile_id, title, body, channel, status, source_key)
+    values (
+      p_student_id,
+      'An application was opened for you',
+      'The Admissions Office opened your ' || v_scholarship.title
+        || ' application. Attach the required documents, then review and submit.',
+      'In-app',
+      'Unread',
+      'application-opened-' || p_application_id::text
+    )
+    on conflict (profile_id, source_key) do nothing;
+  end if;
+
+  return v_row;
+end;
+$$;
+
+revoke all on function public.open_application_for_student(uuid, uuid, uuid, text) from public, anon;
+grant execute on function public.open_application_for_student(uuid, uuid, uuid, text) to authenticated;

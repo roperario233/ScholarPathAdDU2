@@ -435,6 +435,27 @@ export const getApplicationLiveAttributeVerifications = (application, documents 
   });
 };
 
+// The snapshot with each badge replaced by its live value, for the staff review
+// surface. A badge frozen at submit reads Pending forever, because the Admissions
+// Office decides the files afterwards; the values stay the frozen ones. An answer
+// the live derivation has no entry for keeps its frozen badge.
+export const applyLiveVerificationsToSnapshot = (snapshot, live) => {
+  if (!snapshot || !live) return snapshot;
+  const swap = (entry, key) => (entry && live[key] ? { ...entry, verification: live[key] } : entry);
+  const swapMap = (map) => (map ? Object.fromEntries(Object.entries(map).map(([key, badge]) => [key, live[key] || badge])) : map);
+  const { academic, householdIncome, citizenship, eligibility, background, address, family } = snapshot;
+  return {
+    ...snapshot,
+    ...(academic ? { academic: swap(academic, academic.credential) } : {}),
+    ...(householdIncome ? { householdIncome: swap(householdIncome, 'householdIncome') } : {}),
+    ...(citizenship ? { citizenship: swap(citizenship, 'citizenship') } : {}),
+    ...(eligibility ? { eligibility: { ...eligibility, academicStanding: swap(eligibility.academicStanding, 'academicStanding'), honorsRank: swap(eligibility.honorsRank, 'honorsRank') } } : {}),
+    ...(background ? { background: { ...background, ipCommunity: swap(background.ipCommunity, 'ipCommunity'), pwd: swap(background.pwd, 'pwd'), employed: swap(background.employed, 'employed') } } : {}),
+    ...(address ? { address: { ...address, ...(address.verification ? { verification: swapMap(address.verification) } : {}) } } : {}),
+    ...(family ? { family: { ...family, ...(family.verification ? { verification: swapMap(family.verification) } : {}) } } : {}),
+  };
+};
+
 // A declared or attested answer, phrased for the student and the reviewers.
 const PROOF_VALUE_OPTIONS = {
   academicStanding: () => academicStandingOptions,
@@ -571,7 +592,10 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
   if (getDeadlineStatus(scholarship.deadline, today).label === 'Closed' || scholarship.isActive === false) {
     blockers.push('This scholarship is no longer accepting applications.');
   }
-  const gate = evaluateApplicationGate(profile, scholarship);
+  // An application the Admissions Office Admin opened as an eligibility exception
+  // waives the qualification rules only; every other gate above still applies.
+  const eligibilityWaived = Boolean(application.openedByOfficeAt);
+  const gate = evaluateApplicationGate(profile, scholarship, { waiveRules: eligibilityWaived });
   if (!gate.allowed) blockers.push(...gate.reasons.map((reason) => `Eligibility: ${reason}`));
 
   const attachedCount = requirements.filter((item) => item.state !== 'missing').length;
@@ -582,6 +606,8 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
     attachedCount,
     requiredCount: requirements.length,
     blockers,
+    eligibilityWaived,
+    waivedReasons: gate.waivedReasons,
     ready: blockers.length === 0,
   };
 };
@@ -594,7 +620,7 @@ export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Inter
 export const ENDORSEMENT_BLOCKED_STATUSES = ENDORSEMENT_STAGE_STATUSES;
 
 // SOP step 4 (endorsement) starts when the Admissions Office Staff hand the case
-// to the Head for the endorsement decision. Until `For Endorsement` the stage has
+// to the Admin for the endorsement decision. Until `For Endorsement` the stage has
 // not begun, so the review surface keeps its Endorsement tab hidden instead of
 // restating the action bar; the tab stays readable through the later stages.
 export const areEndorsementRecordsVisible = (status) => ENDORSEMENT_STAGE_STATUSES.includes(status);
@@ -675,7 +701,7 @@ export const isApplicationVerifiedForEndorsement = (application, documents = [])
 // or `system`). Kept here (not in a component) so it is unit-testable.
 const ACTOR_ROLE_LABELS = {
   admissions_office: 'Admissions Office Staff',
-  admissions_head: 'Admissions Office Head',
+  admissions_admin: 'Admissions Office Admin',
   dean: 'Dean',
   assistant_dean: 'Assistant Dean',
   department_chair: 'Department Chair',
@@ -793,6 +819,11 @@ export const buildProfileSnapshot = (profile = {}, attributeVerifications = {}, 
       lastName: asText(profile.lastName),
       civilStatus: asText(profile.civilStatus),
       religion: asText(profile.religion),
+      // The name given when the religion answer is "Other", frozen beside the
+      // answer it completes (see `housingOther` in the address group below). The
+      // row renders the two joined, so an older snapshot without the key is
+      // unaffected.
+      religionOther: profile.religion === 'Other' ? asText(profile.religionOther) : '',
       birthdate: asText(profile.birthdate),
       sexAtBirth: asText(profile.sexAtBirth),
       pronouns: asText(profile.pronouns),
@@ -964,7 +995,7 @@ export const getProfileSnapshotSections = (snapshot) => {
           ...(personal.pronouns ? [row('Preferred pronouns', personal.pronouns)] : []),
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
-        row('Religion', optionLabel(religionOptions, personal.religion)),
+        row('Religion', [optionLabel(religionOptions, personal.religion), personal.religionOther].filter(Boolean).join(' · ')),
         ...(personal.email ? [row('Email address', personal.email)] : []),
         ...(personal.phone ? [row('Contact number', personal.phone)] : []),
         row('Complete address', address.completeAddress, address.verification?.completeAddress),

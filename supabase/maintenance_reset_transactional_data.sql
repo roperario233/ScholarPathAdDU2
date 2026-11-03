@@ -7,7 +7,7 @@
 --
 -- KEPT
 --   public.profiles                    the signed-in accounts: Admissions Office
---                                      Staff/Head, Department Chairs, and the
+--                                      Staff/Admin, Department Chairs, and the
 --                                      student demo profiles with their answers
 --                                      and notification preferences
 --   public.annual_qpi_records          profile data, not an application
@@ -15,7 +15,7 @@
 --   public.scholarships                the catalog (3 active in-scope tracks plus
 --                                      the 51 deactivated out-of-scope rows)
 --   public.academic_programs           the program taxonomy
---   public.interview_locations         the venue list the Head maintains
+--   public.interview_locations         the venue list the Admin maintains
 --
 -- DELETED (and why the order matters)
 --   application_status_log is the only child table with `on delete NO ACTION`,

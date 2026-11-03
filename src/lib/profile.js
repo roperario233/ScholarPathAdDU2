@@ -55,6 +55,10 @@ export const PROFILE_DETAIL_KEYS = [
   'middleName',
   'lastName',
   'religion',
+  // FORM 230-SCH asks for a religion; an "Other" answer names it, exactly as
+  // "where you stay while studying" records `housingOther`. Both stay descriptive
+  // only — the Smart Eligibility Checker never reads either one.
+  'religionOther',
   'civilStatus',
   'completeAddress',
   'country',
@@ -632,6 +636,12 @@ export const requiresStudentNumber = (profile = {}) => {
   return standing.isContinuing && profile.isTransferee !== 'Yes';
 };
 
+// The senior high school strand is asked of an incoming first-year and a
+// transferee. A current Ateneo student is matched on the collegiate QPI, so the
+// strand is not asked of them; it is the same applicant status as the AdDU student
+// number, and an applicant who has not answered it yet is still shown the field.
+export const requiresHsStrand = (profile = {}) => !requiresStudentNumber(profile);
+
 export const academicStandingOptions = [
   { value: 'good', label: 'Good academic standing' },
   { value: 'probation', label: 'Academic probation' },
@@ -663,16 +673,33 @@ export const hsStrandOptions = [
 // Personal information options. Religion and civil status are descriptive only;
 // they are never read by the Smart Eligibility Checker. FORM 230-SCH asks every
 // applicant for a religion (writing NA when it does not apply), so "prefer not to
-// say" is a recorded answer instead of the blank the field starts on.
+// say" is a recorded answer instead of the blank the field starts on. The list
+// covers the Christian denominations and faiths a Philippine applicant is most
+// likely to record; "Other" is the one answer the student names in
+// `religionOther`, so an unlisted faith is never misreported.
 export const religionOptions = [
   { value: '', label: 'Select' },
   { value: 'Prefer not to say', label: 'Prefer not to say' },
   { value: 'Roman Catholic', label: 'Roman Catholic' },
-  { value: 'Protestant', label: 'Protestant' },
+  { value: 'Iglesia Filipina Independiente (Aglipayan)', label: 'Iglesia Filipina Independiente (Aglipayan)' },
   { value: 'Iglesia ni Cristo', label: 'Iglesia ni Cristo' },
+  { value: 'Protestant', label: 'Protestant' },
+  { value: 'Evangelical / Born Again Christian', label: 'Evangelical / Born Again Christian' },
+  { value: 'Baptist', label: 'Baptist' },
+  { value: 'Methodist', label: 'Methodist' },
+  { value: 'Seventh-day Adventist', label: 'Seventh-day Adventist' },
+  { value: "Jehovah's Witnesses", label: "Jehovah's Witnesses" },
+  { value: 'The Church of Jesus Christ of Latter-day Saints', label: 'The Church of Jesus Christ of Latter-day Saints' },
+  { value: 'United Church of Christ in the Philippines', label: 'United Church of Christ in the Philippines' },
+  { value: 'Orthodox Christian', label: 'Orthodox Christian' },
   { value: 'Islam', label: 'Islam' },
   { value: 'Buddhism', label: 'Buddhism' },
   { value: 'Hinduism', label: 'Hinduism' },
+  { value: 'Judaism', label: 'Judaism' },
+  { value: 'Sikhism', label: 'Sikhism' },
+  { value: 'Taoism', label: 'Taoism' },
+  { value: 'Indigenous or traditional belief', label: 'Indigenous or traditional belief' },
+  { value: 'No religion / atheist / agnostic', label: 'No religion / atheist / agnostic' },
   { value: 'Other', label: 'Other' },
 ];
 
@@ -828,6 +855,8 @@ export const getShsFinancialAid = (previousGrants = []) => (
 );
 
 export const PRONOUNS_MAX_LENGTH = 40;
+// The free-text name of a religion recorded as "Other" (see `religionOptions`).
+export const RELIGION_OTHER_MAX_LENGTH = 80;
 export const SCHOOL_FIELD_MAX_LENGTH = 100;
 export const AWARDS_MAX_LENGTH = 500;
 export const MAX_SIBLING_ROWS = 15;
@@ -1086,6 +1115,7 @@ export const validatePersonalSection = (form = {}) => {
     fullName: validateFullName(form.fullName),
     phone: validateMobileNumber(form.phone),
     religion: oneOf(form.religion || '', religionOptions, 'Choose a religion option.'),
+    religionOther: validateText(form.religionOther, { max: RELIGION_OTHER_MAX_LENGTH, message: `Keep this within ${RELIGION_OTHER_MAX_LENGTH} characters.` }),
     civilStatus: oneOf(form.civilStatus || '', civilStatusOptions, 'Choose a civil status.'),
     birthdate: validateOptionalDate(form.birthdate, { label: 'your birthdate' }),
     sexAtBirth: oneOf(form.sexAtBirth || '', sexAtBirthOptions, 'Choose an option.'),
@@ -1094,6 +1124,13 @@ export const validatePersonalSection = (form = {}) => {
       ? { value: essay, error: `Keep your default statement/essay within ${ESSAY_MAX_LENGTH} characters.` }
       : ok(essay),
   });
+  // "Other" is the one religion answer that has to be named, exactly as "where you
+  // stay while studying" asks for its own text. The field is hidden for every other
+  // choice, so a leftover answer is cleared on save instead of being kept unseen.
+  if (result.values.religion === 'Other' && !result.values.religionOther && !result.errors.religionOther) {
+    result.errors.religionOther = 'Name the religion.';
+  }
+  result.values.religionOther = result.values.religion === 'Other' ? result.values.religionOther : '';
   // The name parts are what FORM 230-SCH prints (Last, First, Middle), so once
   // they are filled in they become the display name and `profiles.full_name`
   // never disagrees with them. A profile that only holds the single name keeps
@@ -1234,10 +1271,10 @@ export const validateAcademicSection = (form = {}, academicPrograms = [], { full
     qpi: standing.requiresQpi ? validateQpi(form.qpi) : (isBlank(form.qpi) ? ok('') : validateQpi(form.qpi)),
     // Senior high school standing lives with the academic profile (see My
     // Profile); incoming first-years are matched on it instead of a QPI.
-    // FORM 230-SCH asks every applicant for their strand, so My Profile requires it
-    // for every standing. The first-login modal only asks the eligibility
-    // essentials (`fullForm: false`), so it keeps the incoming-only rule.
-    hsStrand: standing.requiresHsStanding || fullForm
+    // My Profile requires the strand of everyone but a current Ateneo student. The
+    // first-login modal only asks the eligibility essentials (`fullForm: false`), so
+    // it keeps the incoming-only rule here and adds its own check below.
+    hsStrand: standing.requiresHsStanding || (fullForm && requiresHsStrand(form))
       ? oneOf(form.hsStrand || '', hsStrandOptions, 'Choose your senior high school strand.')
       : ok(hsStrandOptions.some((option) => option.value === (form.hsStrand || '')) ? (form.hsStrand || '') : ''),
     hsAverage: validateOptionalInteger(form.hsAverage, HS_AVERAGE_RULE),
@@ -1409,10 +1446,10 @@ export const validateOnboardingEssentials = (form = {}, academicPrograms = []) =
 
   const errors = { ...academic.errors, ...financial.errors };
   if (citizenship.error) errors.citizenship = citizenship.error;
-  // The modal asks the senior high school strand of every applicant the way My
-  // Profile does (FORM 230-SCH), so the essentials require it even though the
-  // section validator keeps it incoming-only while the full form is off.
-  if (!academic.values.hsStrand) errors.hsStrand = 'Choose your senior high school strand.';
+  // The modal asks the senior high school strand the way My Profile does, so the
+  // essentials require it even though the section validator keeps it incoming-only
+  // while the full form is off. A current Ateneo student is not asked for it.
+  if (requiresHsStrand(form) && !academic.values.hsStrand) errors.hsStrand = 'Choose your senior high school strand.';
 
   return {
     values: {
@@ -1547,9 +1584,8 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     add('application', 'householdIncome', 'Annual household income', 'background', !validateHouseholdIncome(profile.householdIncome).error);
     add('application', 'citizenship', 'Citizenship', 'background', citizenshipOptions.some((option) => option.value === profile.citizenship));
     add('application', 'civilStatus', 'Civil status', 'personal', !isBlank(profile.civilStatus));
-    // The printed form asks every applicant for the school last attended, its
-    // strand, and the number of graduates — not only an incoming first-year.
-    add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
+    // The strand is asked of everyone but a current Ateneo student.
+    if (requiresHsStrand(profile)) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
     add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
     add('application', 'housingType', 'Where you stay while studying', 'address', !isBlank(profile.housingType));
     add('application', 'fatherName', 'Father\'s name', 'family', isParentNameAnswered(profile, 'father'));

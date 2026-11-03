@@ -85,6 +85,20 @@ describe('internal scholarship eligibility gate', () => {
     expect(result.reasons).toContain('Needs QPI 2.50+.');
   });
 
+  it('waives the qualification rules, not the answers, for an office-opened application', () => {
+    const waived = evaluateApplicationGate({ ...eligibleProfile, qpi: 2.2 }, scholarship, { waiveRules: true });
+    expect(waived.allowed).toBe(true);
+    expect(waived.reasons).toEqual([]);
+    expect(waived.waivedReasons).toContain('Needs QPI 2.50+.');
+
+    const blank = evaluateApplicationGate({ ...eligibleProfile, qpi: '' }, scholarship, { waiveRules: true });
+    expect(blank.allowed).toBe(false);
+    expect(blank.reasons).toContain('Enter a valid QPI before checking qualifications.');
+
+    const outOfScope = evaluateApplicationGate(eligibleProfile, { title: 'Donor Endowment', isActive: true }, { waiveRules: true });
+    expect(outOfScope.allowed).toBe(false);
+  });
+
   it('does not treat missing QPI or household income as zero', () => {
     const result = evaluateApplicationGate({ ...eligibleProfile, qpi: '', householdIncome: null }, scholarship);
     expect(result.allowed).toBe(false);

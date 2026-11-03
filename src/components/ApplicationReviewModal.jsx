@@ -7,12 +7,12 @@ import { DocumentVerificationItem, ProfileSnapshotList, RequirementStateBadge, S
 import ApplicationPrintButton from './ApplicationPrintSheet';
 import { FinancialDetailsNotice, useApplicationFinancialSections } from './ApplicationFinancialDetails';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApproverRoleForApplication, isReviewerRole } from '../lib/reviewScope';
-import HeadOverrideNotice from './HeadOverrideNotice';
+import AdminOverrideNotice from './AdminOverrideNotice';
 import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
-import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsHeadRole, isHeadOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
+import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
@@ -167,20 +167,20 @@ export default function ApplicationReviewModal({
   onJoinCase,
   onLeaveCase,
 }) {
-  // Since Consultation 2 the Head verifies the files, forwards the case to the
+  // Since Consultation 2 the Admin verifies the files, forwards the case to the
   // interviewers of its scope, and does the final check and release; Staff read
   // the office workspace without acting. A scoped reviewer (an interviewer or a
   // ladder account) schedules and recommends, and the school's approving level
   // approves; getNextApplicationStatuses decides each move from the case facts.
-  const isAdmissionsHead = isAdmissionsHeadRole(role);
+  const isAdmissionsAdmin = isAdmissionsAdminRole(role);
   const isAdmissionsReviewer = isAdmissionsReviewerRole(role);
   const stageContext = interviewWorkspace?.stageContextFor?.(application) || {};
   // Who may schedule this applicant's interview: an interviewer or ladder
-  // account in scope, or the Head (App.jsx canCoordinateInterview). Without the
-  // workspace's answer only the Head coordinates.
+  // account in scope, or the Admin (App.jsx canCoordinateInterview). Without the
+  // workspace's answer only the Admin coordinates.
   const canCoordinateInterview = interviewWorkspace?.canCoordinate
     ? Boolean(interviewWorkspace.canCoordinate(application))
-    : isAdmissionsHead;
+    : isAdmissionsAdmin;
   const isWide = useIsWide();
   // Case officers. Opening an application is what adds the officer to it, so the
   // effect below runs once per open unless the signed-in account is already on the
@@ -196,13 +196,13 @@ export default function ApplicationReviewModal({
   const [leaveError, setLeaveError] = useState('');
   const joinAttemptedRef = useRef(false);
   useEffect(() => {
-    if (!isAdmissionsHead || !onJoinCase) return;
+    if (!isAdmissionsAdmin || !onJoinCase) return;
     if (!CASE_OFFICER_JOINABLE_STATUSES.includes(application.status)) return;
     if (isCaseOfficer(caseOfficers, application.id, currentUserId)) return;
     if (joinAttemptedRef.current) return;
     joinAttemptedRef.current = true;
     Promise.resolve(onJoinCase(application.id)).catch(() => undefined);
-  }, [application.id, application.status, caseOfficers, currentUserId, isAdmissionsHead, onJoinCase]);
+  }, [application.id, application.status, caseOfficers, currentUserId, isAdmissionsAdmin, onJoinCase]);
 
   const previewPaneRef = useRef(null);
   const nextStatuses = getNextApplicationStatuses(application.status, role, stageContext);
@@ -229,7 +229,7 @@ export default function ApplicationReviewModal({
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
   const documentsUnlocked = areApplicationDocumentsVisible(application.status);
-  // SOP step 4 starts when the Admissions Office hands the case to the Head for
+  // SOP step 4 starts when the Admissions Office hands the case to the Admin for
   // the endorsement decision, so the Endorsement tab stays hidden while the case
   // is still being verified. It stays visible afterwards so the recorded
   // hand-off, decision, and discussion remain readable.
@@ -284,12 +284,11 @@ export default function ApplicationReviewModal({
     if (stageTab === 'documents' && documentsUnlocked) return 'documents';
     if (stageTab === 'endorsement' && endorsementUnlocked) return 'endorsement';
     if (stageTab === 'interview' && interviewUnlocked) return 'interview';
-    return isAdmissionsHead && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
+    return isAdmissionsAdmin && documentsUnlocked && blockedByDocuments ? 'documents' : 'overview';
   });
   const [selectedDocId, setSelectedDocId] = useState(() => (
     (linkedDocuments.find((doc) => doc.verificationStatus !== 'Verified') || linkedDocuments[0])?.id || null
   ));
-  const [deliberationNote, setDeliberationNote] = useState('');
   const [actionBusy, setActionBusy] = useState(false);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
@@ -370,7 +369,7 @@ export default function ApplicationReviewModal({
         return;
       }
       setEndorsementFeedback(endorsementDecision.mode === 'handoff'
-        ? 'Sent for endorsement. The Admissions Office Head records the decision next.'
+        ? 'Sent for endorsement. The Admissions Office Admin records the decision next.'
         : "Forwarded to interview. The interviewers of the applicant's school schedule it next.");
       setEndorsementDecision(null);
       // Stay on the Endorsement tab either way: the recorded hand-off or decision
@@ -417,20 +416,20 @@ export default function ApplicationReviewModal({
     ...(documentsUnlocked ? [{
       key: 'documents',
       label: 'Documents',
-      badge: isAdmissionsHead && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
-      alert: isAdmissionsHead && blockedByDocuments,
+      badge: isAdmissionsAdmin && blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
+      alert: isAdmissionsAdmin && blockedByDocuments,
     }] : []),
     // SOP step 5: the schedule, the panel from the applicant's school, and the
     // private evaluation notes.
     ...(interviewUnlocked ? [{
       key: 'interview',
       label: 'Interview',
-      // An interviewer's scheduling is due work; for the Head it is the
+      // An interviewer's scheduling is due work; for the Admin it is the
       // interviewer's step, so the tab says so instead of raising an alert.
       badge: canCoordinateInterview && application.status === 'Endorsed'
-        ? (isAdmissionsHead ? 'Interviewer schedules' : 'Schedule due')
+        ? (isAdmissionsAdmin ? 'Interviewer schedules' : 'Schedule due')
         : null,
-      alert: canCoordinateInterview && application.status === 'Endorsed' && !isAdmissionsHead,
+      alert: canCoordinateInterview && application.status === 'Endorsed' && !isAdmissionsAdmin,
     }] : []),
     // The forwarding record and the internal thread. It sits beside History
     // because both are the case's record rather than a stage's work; it appears
@@ -452,7 +451,7 @@ export default function ApplicationReviewModal({
   // forward moves are allowed, the furthest one is the primary action. Moves the
   // surface performs itself (opening an application starts its review) never
   // render as buttons.
-  // Results are released per scholarship from the Head's final-check lane, so a
+  // Results are released per scholarship from the Admin's final-check lane, so a
   // single case never releases on its own (Consultation 2, #8 and #13).
   const forwardStatuses = nextStatuses.filter((status) => (
     status !== 'Rejected' && status !== 'Released' && !AUTOMATIC_STAGE_STATUSES.includes(status)
@@ -460,11 +459,11 @@ export default function ApplicationReviewModal({
   ));
   const canReject = nextStatuses.includes('Rejected');
   // The recommendation belongs to the panel and the approval to the school's
-  // approving level (Consultation 2); the Head's version of either move is an
+  // approving level (Consultation 2); the Admin's version of either move is an
   // override, so the footer says who the move normally belongs to. Scheduling is
   // flagged in the Interview tab.
-  const headOverrideNote = (() => {
-    if (!isAdmissionsHead) return '';
+  const adminOverrideNote = (() => {
+    if (!isAdmissionsAdmin) return '';
     if (forwardStatuses.includes('Recommended')) return 'The interview panel records the recommendation.';
     if (forwardStatuses.includes('Approved')) {
       const approver = interviewWorkspace
@@ -481,12 +480,13 @@ export default function ApplicationReviewModal({
     return '';
   })();
   const showDeliberationField = nextStatuses.includes('Recommended');
-  // An interviewer's recommendation carries one of the five recommendation levels
-  // (Consultation 2, #7), recorded with an evaluation note in the Interview tab.
-  const needsRecommendationLevel = !isAdmissionsHead && !latestPanelRecommendation;
+  // Every recommendation, the Admin's override included, carries one of the five
+  // recommendation levels (Consultation 2, #7), recorded with an evaluation note
+  // in the Interview tab.
+  const needsRecommendationLevel = !latestPanelRecommendation;
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
-  const lockedDocumentsMessage = !isAdmissionsHead
+  const lockedDocumentsMessage = !isAdmissionsAdmin
     ? 'Documents become available at verification.'
     : linkedDocuments.length
       ? `Continue to verification to review its ${linkedDocuments.length} attached file${linkedDocuments.length === 1 ? '' : 's'}${requirements.length ? ` against ${requirements.length} required submission${requirements.length === 1 ? '' : 's'}` : ''}.`
@@ -550,7 +550,7 @@ export default function ApplicationReviewModal({
       if (status === 'Interview') {
         result = await interviewWorkspace.onSchedule(application.id, interviewDraft);
       } else if (status === 'Recommended') {
-        result = await onRecordDeliberation?.(application.id, 'Recommended', deliberationNote);
+        result = await onRecordDeliberation?.(application.id, 'Recommended');
       } else if (status === 'Released') {
         result = await onRelease?.(application.id);
       } else {
@@ -572,7 +572,7 @@ export default function ApplicationReviewModal({
       setActiveTab('interview');
       return;
     }
-    if (status === 'For Verification' && isAdmissionsHead) {
+    if (status === 'For Verification' && isAdmissionsAdmin) {
       // The document queue opens in place: closing the modal would hide the work
       // the review just queued.
       setActiveTab('documents');
@@ -582,7 +582,7 @@ export default function ApplicationReviewModal({
   };
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
-    : isAdmissionsHead
+    : isAdmissionsAdmin
       ? (application.status === 'Recommended'
         ? "Awaiting the approval of the applicant's school."
         : application.status === 'Approved'
@@ -591,18 +591,28 @@ export default function ApplicationReviewModal({
       : !isReviewerRole(role)
         ? 'Admissions Office Staff have a read-only view of applications.'
         : ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(application.status)
-          ? 'The Admissions Office Head verifies the documents before the interview.'
+          ? 'The Admissions Office Admin verifies the documents before the interview.'
           : application.status === 'Interview'
             ? 'Only a member of this interview panel records the recommendation.'
             : application.status === 'Recommended'
               ? "The approving level for the applicant's school decides this recommendation."
               : application.status === 'Approved'
-                ? 'Approved. The Admissions Office Head does the final check and releases the results.'
+                ? 'Approved. The Admissions Office Admin does the final check and releases the results.'
                 : 'No stage action is available to your role at this stage.';
 
   return (
     <>
-    <ModalShell title={application.scholarshipTitle} onClose={onClose} className="application-review-modal">
+    <ModalShell
+      title={application.scholarshipTitle}
+      onClose={onClose}
+      className="application-review-modal"
+      header={(
+        <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle}</h2>
+          <div className="shrink-0"><Button variant="secondary" type="button" onClick={onClose}>Close</Button></div>
+        </div>
+      )}
+    >
       <header className="grid shrink-0 gap-2 pb-2">
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full sm:w-auto sm:flex-1">
@@ -622,7 +632,7 @@ export default function ApplicationReviewModal({
               <StatusBadge tone="neutral">{totalDocuments} document{totalDocuments === 1 ? '' : 's'} attached · reviewed at verification</StatusBadge>
             )
           ) : <StatusBadge tone="neutral">No documents attached</StatusBadge>}
-          {isAdmissionsHead ? (
+          {isAdmissionsAdmin ? (
             <StatusBadge tone={caseOfficersOnApplication.length ? 'info' : 'neutral'}>
               {caseOfficersOnApplication.length === 0
                 ? 'No case officers yet'
@@ -645,6 +655,12 @@ export default function ApplicationReviewModal({
       >
         {visibleActiveTab === 'overview' && (
           <div className="grid content-start gap-4">
+            {application.openedByOfficeAt ? (
+              <div className="rounded-xl border border-amber-400/40 bg-amber-400/10 p-3 text-sm text-amber-800 dark:text-amber-100" role="note">
+                Opened by the Admissions Office on {fmtDate(application.openedByOfficeAt)} as an eligibility exception:
+                the qualification rules were waived for this application. The recorded reason is in the internal notes.
+              </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <FactTile {...academicFact} />
               <FactTile {...incomeFact} />
@@ -702,7 +718,7 @@ export default function ApplicationReviewModal({
                   <Panel className="grid content-start gap-3">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
                       <h4 className={sectionHeading}>Document verification</h4>
-                      {!isAdmissionsHead ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office Head</span> : null}
+                      {!isAdmissionsAdmin ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office Admin</span> : null}
                     </div>
                     <DocumentVerificationItem
                       as="div"
@@ -710,7 +726,7 @@ export default function ApplicationReviewModal({
                       application={application}
                       owner={students[selectedDoc.ownerId] || null}
                       onPreview={isWide ? undefined : setPreviewDoc}
-                      onChangeDocument={isAdmissionsHead && onChangeDocument ? changeDocument : undefined}
+                      onChangeDocument={isAdmissionsAdmin && onChangeDocument ? changeDocument : undefined}
                       openUrl={isWide ? previewUrl : ''}
                     />
                     {isWide ? (
@@ -737,7 +753,7 @@ export default function ApplicationReviewModal({
           <Panel className="grid gap-1">
             <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
             <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
-            <ProfileSnapshotList snapshot={application.profileSnapshot} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} extraSections={financialDetails.sections} />
+            <ProfileSnapshotList snapshot={applyLiveVerificationsToSnapshot(application.profileSnapshot, liveVerifications)} applicantPhoto={applicantPhoto} onPreviewPhoto={setPreviewDoc} extraSections={financialDetails.sections} />
             <FinancialDetailsNotice status={financialDetails.status} />
             <div className="pt-2">
               <ApplicationPrintButton
@@ -803,7 +819,7 @@ export default function ApplicationReviewModal({
                       <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
                         <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
                         <span className="text-xs text-app-muted">
-                          {officer.officerRole === 'admissions_head' ? 'Admissions Office Head' : 'Admissions Office Staff'}
+                          {officer.officerRole === 'admissions_admin' ? 'Admissions Office Admin' : 'Admissions Office Staff'}
                           {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
                         </span>
                       </li>
@@ -869,19 +885,19 @@ export default function ApplicationReviewModal({
 
         {showDeliberationField ? (
           <div className="grid gap-1">
-            <label className="grid gap-1 text-sm text-app-text">
-              <span className="font-semibold">{isAdmissionsHead ? 'Sub-committee note' : 'Recommendation note'}</span>
-              <textarea rows="2" value={deliberationNote} onChange={(event) => setDeliberationNote(event.target.value)} placeholder={isAdmissionsHead ? 'Record the sub-committee deliberation.' : 'What the approver should know about this recommendation.'} />
-            </label>
-            <p className="m-0 text-xs text-app-muted">
-              {latestPanelRecommendation
-                ? `Panel recommendation: ${[
+            {latestPanelRecommendation ? (
+              <p className="m-0 text-xs text-app-muted">
+                {`Panel recommendation: ${[
                   latestPanelRecommendation.label,
                   latestPanelRecommendation.authorName,
                   latestPanelRecommendation.createdAt ? fmtDate(latestPanelRecommendation.createdAt) : '',
-                ].filter(Boolean).join(' · ')}`
-                : 'No panel recommendation recorded yet. The Interview tab records it with the panel’s evaluation note.'}
-            </p>
+                ].filter(Boolean).join(' · ')}`}
+              </p>
+            ) : (
+              <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+                No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Interview tab, add an evaluation note and choose a recommendation level.
+              </p>
+            )}
           </div>
         ) : null}
 
@@ -891,7 +907,7 @@ export default function ApplicationReviewModal({
           </p>
         ) : null}
 
-        {headOverrideNote ? <HeadOverrideNotice>{headOverrideNote}</HeadOverrideNotice> : null}
+        {adminOverrideNote ? <AdminOverrideNotice>{adminOverrideNote}</AdminOverrideNotice> : null}
 
         {nextStatuses.length ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -914,9 +930,9 @@ export default function ApplicationReviewModal({
               })}
               {forwardStatuses.map((status, index) => {
                 const reason = blockReasonFor(status);
-                // The Head's scheduling is a step-in, not the intended flow, so it
+                // The Admin's scheduling is a step-in, not the intended flow, so it
                 // never takes the primary treatment and explains itself on hover.
-                const isOverride = isHeadOverrideAction(status, role);
+                const isOverride = isAdminOverrideAction(status, role);
                 return (
                   <Button
                     key={status}

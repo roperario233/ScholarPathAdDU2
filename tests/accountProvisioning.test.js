@@ -27,7 +27,7 @@ const draft = (overrides = {}) => ({ ...EMPTY_INVITATION_DRAFT, email: 'faculty@
 describe('getScopeFields', () => {
   it('asks each role for exactly the levels it owns', () => {
     expect(getScopeFields('admissions_office')).toEqual([]);
-    expect(getScopeFields('admissions_head')).toEqual([]);
+    expect(getScopeFields('admissions_admin')).toEqual([]);
     expect(getScopeFields('dean')).toEqual(['school']);
     expect(getScopeFields('assistant_dean')).toEqual(['school', 'cluster']);
     expect(getScopeFields('department_chair')).toEqual(['school', 'department']);
@@ -70,7 +70,7 @@ describe('validateInvitationDraft', () => {
 
   it('needs no scope for either Admissions Office lane', () => {
     expect(validateInvitationDraft(draft({ role: 'admissions_office' }), academicPrograms).valid).toBe(true);
-    expect(validateInvitationDraft(draft({ role: 'admissions_head' }), academicPrograms).valid).toBe(true);
+    expect(validateInvitationDraft(draft({ role: 'admissions_admin' }), academicPrograms).valid).toBe(true);
   });
 
   it('requires the cluster for an Assistant Dean and checks it belongs to the school', () => {
@@ -128,7 +128,7 @@ describe('getDraftFromAccount', () => {
 
 describe('getAccountScopeLabel', () => {
   it('labels the office lanes and each reviewer level', () => {
-    expect(getAccountScopeLabel({ role: 'admissions_head' })).toBe('Central office');
+    expect(getAccountScopeLabel({ role: 'admissions_admin' })).toBe('Central office');
     expect(getAccountScopeLabel({ role: 'dean', reviewSchool: SAS })).toBe(SAS);
     expect(getAccountScopeLabel({ role: 'assistant_dean', reviewSchool: SAS, reviewCluster: 'Computer Studies' })).toBe(`${SAS} · Computer Studies`);
     expect(getAccountScopeLabel({ role: 'department_chair', reviewDepartment: 'Computer Science Department' })).toBe('Computer Science Department');
@@ -157,7 +157,7 @@ describe('getInvitationStatus', () => {
 describe('account rows', () => {
   const profiles = [
     { userId: 'student-1', role: 'student', fullName: 'Student', email: 's@example.com' },
-    { userId: 'head-1', role: 'admissions_head', fullName: 'Head Reyes', email: 'head@example.com' },
+    { userId: 'admin-1', role: 'admissions_admin', fullName: 'Admin Reyes', email: 'admin@example.com' },
     { userId: 'dean-1', role: 'dean', fullName: 'Dean Cruz', email: 'dean@example.com', reviewSchool: SAS },
     { userId: 'chair-1', role: 'department_chair', fullName: 'Chair Lim', email: 'chair@example.com', department: SAS, reviewDepartment: 'Computer Science Department', deactivatedAt: '2026-10-10T00:00:00.000Z' },
   ];
@@ -170,7 +170,7 @@ describe('account rows', () => {
   const rows = buildAccountRows({ profiles, invitations, now: NOW });
 
   it('lists staff and open invitations only, never students or closed invitations', () => {
-    expect(rows.map((row) => row.id).sort()).toEqual(['chair-1', 'dean-1', 'head-1', 'inv-old', 'inv-open']);
+    expect(rows.map((row) => row.id).sort()).toEqual(['admin-1', 'chair-1', 'dean-1', 'inv-old', 'inv-open']);
   });
 
   it('orders active, then invited, then expired, then deactivated', () => {
@@ -184,12 +184,12 @@ describe('account rows', () => {
     expect(filterAccountRows(rows, { query: 'computer studies' }).map((row) => row.id)).toEqual(['inv-open']);
   });
 
-  it('offers actions that fit each row and never lets the Head act on themselves', () => {
+  it('offers actions that fit each row and never lets the Admin act on themselves', () => {
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));
-    expect(getAccountActions(byId['inv-open'], { currentUserId: 'head-1' })).toEqual(['renew', 'revoke']);
-    expect(getAccountActions(byId['dean-1'], { currentUserId: 'head-1' })).toEqual(['change', 'deactivate']);
-    expect(getAccountActions(byId['chair-1'], { currentUserId: 'head-1' })).toEqual(['reactivate']);
-    expect(getAccountActions(byId['head-1'], { currentUserId: 'head-1' })).toEqual([]);
+    expect(getAccountActions(byId['inv-open'], { currentUserId: 'admin-1' })).toEqual(['renew', 'revoke']);
+    expect(getAccountActions(byId['dean-1'], { currentUserId: 'admin-1' })).toEqual(['change', 'deactivate']);
+    expect(getAccountActions(byId['chair-1'], { currentUserId: 'admin-1' })).toEqual(['reactivate']);
+    expect(getAccountActions(byId['admin-1'], { currentUserId: 'admin-1' })).toEqual([]);
   });
 });
 

@@ -92,7 +92,7 @@ const officeEntries = () => [
   { id: 'office-1', title: 'Verification window closes', entryDate: todayKey, kind: 'deadline', notes: 'Finish queued files.' },
 ];
 
-// A case the Head released today, so the recorded-decision layer has one event on
+// A case the Admin released today, so the recorded-decision layer has one event on
 // the Manila day the calendar opens on.
 const decisionLogged = () => [
   ...applications(),
@@ -100,7 +100,7 @@ const decisionLogged = () => [
     id: 'app-released',
     status: 'Released',
     interview: null,
-    statusLog: [{ id: 'log-1', toStatus: 'Released', actorRole: 'admissions_head', at: `${todayKey}T02:00:00.000Z` }],
+    statusLog: [{ id: 'log-1', toStatus: 'Released', actorRole: 'admissions_admin', at: `${todayKey}T02:00:00.000Z` }],
   }),
 ];
 
@@ -170,13 +170,13 @@ describe('AdminInterviews', () => {
     expect(html).toContain('To be scheduled by');
     expect(html).toContain('Read-only for Admissions Office Staff');
     expect(html).toContain('View case');
-    expect(html).not.toContain('Schedule as Head');
+    expect(html).not.toContain('Schedule as Admin');
     expect(html).toContain('Ada Cruz');
   });
 
-  it('offers the Head the override and shows a count on every category', () => {
-    const html = renderToStaticMarkup(<AdminInterviews {...officeProps({ role: 'admissions_head' })} initialFilter="needs-scheduling" />);
-    expect(html).toContain('Schedule as Head (override)');
+  it('offers the Admin the override and shows a count on every category', () => {
+    const html = renderToStaticMarkup(<AdminInterviews {...officeProps({ role: 'admissions_admin' })} initialFilter="needs-scheduling" />);
+    expect(html).toContain('Schedule as Admin (override)');
     expect(html).toContain('Not the intended flow');
     ['Upcoming', 'Needs scheduling', 'Cancelled', 'All interviews'].forEach((label) => {
       expect(html).toMatch(new RegExp(`${label}<span[^>]*>\\d+</span>`));
@@ -240,23 +240,23 @@ describe('AdminCalendar', () => {
     expect(html).toContain('Verification window closes');
   });
 
-  it('reserves venue management for the Admissions Office Head', () => {
+  it('reserves venue management for the Admissions Office Admin', () => {
     const staff = renderToStaticMarkup(<AdminCalendar {...officeProps()} />);
     expect(staff).not.toContain('>Venues<');
     const head = renderToStaticMarkup(
-      <AdminCalendar {...officeProps({ role: 'admissions_head', interviewWorkspace: workspace({ onSaveLocation: () => ({ ok: true }) }) })} />,
+      <AdminCalendar {...officeProps({ role: 'admissions_admin', interviewWorkspace: workspace({ onSaveLocation: () => ({ ok: true }) }) })} />,
     );
     expect(head).toContain('>Venues<');
   });
 
-  it('reserves office planning entries for the Admissions Office Head', () => {
+  it('reserves office planning entries for the Admissions Office Admin', () => {
     const staff = renderToStaticMarkup(<AdminCalendar {...officeProps({ officeCalendarEntries: officeEntries() })} />);
     expect(staff).not.toContain('Office planning entries');
     expect(staff).not.toContain('Add office entry');
     const head = renderToStaticMarkup(
       <AdminCalendar
         {...officeProps({
-          role: 'admissions_head',
+          role: 'admissions_admin',
           officeCalendarEntries: officeEntries(),
           onAddOfficeEntry: () => ({ ok: true }),
           onDeleteOfficeEntry: () => ({ ok: true }),

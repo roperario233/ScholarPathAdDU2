@@ -242,7 +242,7 @@ export const updateUserProfile = async (userId, { degreeProgram, department, stu
     const metadata = authUser.user_metadata || {};
     // Only ever a student. `user_metadata` is writable by the signed-in user, so it
     // cannot name a role; staff and reviewer roles come from an invitation the
-    // Admissions Office Head records (20261051000000_account_provisioning.sql).
+    // Admissions Office Admin records (20261051000000_account_provisioning.sql).
     const role = 'student';
     const fullName = metadata.full_name?.trim() || authUser.email?.split('@')[0] || 'ScholarPath user';
 

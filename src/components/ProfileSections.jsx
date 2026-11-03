@@ -27,6 +27,7 @@ import {
   MAX_SIBLING_ROWS,
   NAME_PART_MAX_LENGTH,
   PRONOUNS_MAX_LENGTH,
+  RELIGION_OTHER_MAX_LENGTH,
   SCHOOL_FIELD_MAX_LENGTH,
   applicantStatusOptions,
   applyApplicantStatus,
@@ -289,12 +290,12 @@ const assignmentNote = {
   department_chair: 'Your department and its degree programs. Managed by the Admissions Office.',
   interviewer: 'The applicants of your assigned school, cluster, or department reach you automatically. Managed by the Admissions Office.',
   admissions_office: 'A read-only view of the office workspace.',
-  admissions_head: 'Document verification, forwarding to interview, the final check, release, catalog, and announcements.',
+  admissions_admin: 'Document verification, forwarding to interview, the final check, release, catalog, and announcements.',
 };
 
 // Both Admissions Office lanes belong to the central office, so the read-only
 // field reads "Office" for either of them.
-const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'admissions_head';
+const isAdmissionsRole = (role) => role === 'admissions_office' || role === 'admissions_admin';
 
 // The year standing decides which answers an application reads, so the
 // overview says which credential the student is matched on.
@@ -720,6 +721,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       fullName: asText(profile.fullName),
       phone: asText(profile.phone),
       religion: asText(profile.religion),
+      religionOther: asText(profile.religionOther),
       civilStatus: asText(profile.civilStatus),
       birthdate: asText(profile.birthdate),
       sexAtBirth: asText(profile.sexAtBirth),
@@ -791,7 +793,12 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         <FormField fieldKey="phone" label="Mobile number" hint={isStudent ? 'Needed to apply. Also used for SMS reminders.' : 'Optional. Used for SMS reminders.'} error={errors.phone} required={need.has('phone')}>
           <input className={controlClass} value={values.phone} onChange={(event) => update({ phone: event.target.value.replace(/[^\d+\-\s]/g, '').slice(0, 20) })} inputMode="tel" autoComplete="tel" placeholder="e.g. 0917 123 4567" aria-invalid={Boolean(errors.phone)} />
         </FormField>
-        {isStudent && <SelectField fieldKey="religion" label="Religion" hint="Needed to apply." value={values.religion} onChange={(value) => update({ religion: value })} options={religionOptions} error={errors.religion} required={need.has('religion')} />}
+        {isStudent && <SelectField fieldKey="religion" label="Religion" hint="Needed to apply." value={values.religion} onChange={(value) => update({ religion: value }, ['religionOther'])} options={religionOptions} error={errors.religion} required={need.has('religion')} />}
+        {isStudent && values.religion === 'Other' && (
+          <FormField label="Religion you follow" hint="Name the religion you recorded as Other." error={errors.religionOther}>
+            <input className={controlClass} value={values.religionOther} onChange={(event) => update({ religionOther: event.target.value.slice(0, RELIGION_OTHER_MAX_LENGTH) })} maxLength={RELIGION_OTHER_MAX_LENGTH} aria-invalid={Boolean(errors.religionOther)} />
+          </FormField>
+        )}
         {isStudent && <SelectField fieldKey="civilStatus" label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} required={need.has('civilStatus')} />}
         {isStudent && <FormField fieldKey="birthdate" label="Birthdate" hint="Needed to apply." error={errors.birthdate} required={need.has('birthdate')}><input className={controlClass} type="date" max={todayInputValue()} value={values.birthdate} onChange={(event) => update({ birthdate: event.target.value })} autoComplete="bday" aria-invalid={Boolean(errors.birthdate)} /></FormField>}
         {isStudent && <SelectField fieldKey="sexAtBirth" label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} required={need.has('sexAtBirth')} />}
@@ -1129,9 +1136,9 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         {standing.requiresQpi && <FormField fieldKey="qpi" label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} required={need.has('qpi')} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        {/* FORM 230-SCH asks every applicant for the strand in senior high school,
-            so it is shown (and required) for a continuing student too. */}
-        <SelectField fieldKey="hsStrand" label="Senior high school strand" hint="Needed to apply." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={need.has('hsStrand')} />
+        {/* A current Ateneo student is matched on the collegiate QPI, so the strand
+            is asked of an incoming first-year or a transferee only. */}
+        {!needsStudentNumber && <SelectField fieldKey="hsStrand" label="Senior high school strand" hint="Needed to apply." value={values.hsStrand} onChange={(value) => update({ hsStrand: value })} options={hsStrandOptions.filter((option) => option.value)} placeholder="Choose strand" error={errors.hsStrand} required={need.has('hsStrand')} />}
         {standing.requiresHsStanding && <FormField fieldKey="hsAverage" label="Senior high school general average" hint="Whole number from 60 to 100." error={errors.hsAverage} required={need.has('hsAverage')} labelAdornment={<AttributeVerification attributeKey="hsAverage" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.hsAverage} onChange={(event) => update({ hsAverage: event.target.value.replace(/\D/g, '').slice(0, 3) })} inputMode="numeric" placeholder="e.g. 94" aria-invalid={Boolean(errors.hsAverage)} /></FormField>}
       </div>
       <div data-field="schoolLastAttended" className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4">

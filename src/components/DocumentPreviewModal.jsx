@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ModalShell } from './ui';
+import { Skeleton, SkeletonRegion } from './Skeleton';
 import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 import { isImageFileName } from '../lib/documentStorage';
 
@@ -57,7 +58,13 @@ export function DocumentPreview({
   const resolvedError = ownsRequest ? fetched.error : (error || '');
 
   if (resolvedError) return <p className="m-0 text-sm text-app-muted">{resolvedError}</p>;
-  if (!resolvedUrl) return <p className="m-0 text-sm text-app-muted">Loading document…</p>;
+  if (!resolvedUrl) {
+    return (
+      <SkeletonRegion label="Loading document">
+        <Skeleton className={`w-full rounded-xl ${frameClassName}`} />
+      </SkeletonRegion>
+    );
+  }
   return (
     <div className="grid gap-3">
       {isImageFileName(doc.fileName) ? (

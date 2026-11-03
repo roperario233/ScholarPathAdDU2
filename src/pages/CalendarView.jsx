@@ -94,8 +94,8 @@ function InterviewItem({ interview }) {
 
 function SummaryTile({ icon: Icon, label, value, note }) {
   return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-app-border bg-app-surface/70 p-3">
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-app-muted-surface text-blue-600 dark:text-blue-300" aria-hidden="true"><Icon size={18} /></span>
+    <div className="flex min-w-0 items-center gap-2 rounded-2xl border border-app-border bg-app-surface/70 p-2.5 sm:gap-3 sm:p-3">
+      <span className="hidden h-10 w-10 shrink-0 place-items-center rounded-xl bg-app-muted-surface text-blue-600 dark:text-blue-300 min-[420px]:grid" aria-hidden="true"><Icon size={18} /></span>
       <div className="min-w-0">
         <span className="block text-xs font-semibold text-app-muted">{label}</span>
         <strong className="block truncate text-base font-bold text-app-text" title={String(value)}>{value}</strong>
@@ -326,7 +326,7 @@ export default function CalendarView({ scholarships, customDeadlines = [], inter
             )}
           </div>
         )}
-        <div className="relative mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="relative mt-5 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
           <SummaryTile icon={CalendarClock} label="Next deadline" value={nextDeadline ? nextDeadline.title : 'None upcoming'} note={nextDeadline ? `${fmtDate(nextDeadline.deadline)} · ${daysLeftLabel(daysUntil(nextDeadline.deadline))}` : 'You are all caught up'} />
           <SummaryTile icon={Flag} label="Due in 7 days" value={dueThisWeek} note={dueThisWeek === 1 ? 'deadline or reminder' : 'deadlines and reminders'} />
           <SummaryTile icon={BellRing} label="Your reminders" value={upcomingReminders} note="Arrive 7, 3, and 1 day before" />

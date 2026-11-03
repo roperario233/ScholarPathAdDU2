@@ -3,6 +3,8 @@ import {
   buildSupportThreadSummary,
   countUnreadSupportMessages,
   describeSupportSender,
+  getStudentSupportPhase,
+  getStudentVisibleMessages,
   getSupportUnreadTotal,
   isSupportInboxChannel,
   isTawkSupportChannel,
@@ -14,6 +16,33 @@ import {
   isAdmissionsOfficeOnline,
   mergeSupportInboxState,
 } from '../src/lib/supportMessages';
+
+describe('student support conversation lifecycle', () => {
+  it('moves from assistant to waiting, with-office, and resolved', () => {
+    expect(getStudentSupportPhase(null)).toBe('assistant');
+    expect(getStudentSupportPhase({ status: 'Open', assistantEnabled: true })).toBe('assistant');
+    expect(getStudentSupportPhase({ status: 'Open', escalatedAt: '2026-10-29T10:00:00Z', lastMessageBy: 'student' })).toBe('waiting');
+    expect(getStudentSupportPhase({ status: 'Open', escalatedAt: '2026-10-29T10:00:00Z', lastMessageBy: 'admissions_office' })).toBe('with-office');
+    expect(getStudentSupportPhase({ status: 'Open', assistantEnabled: false, lastMessageBy: 'admissions_admin' })).toBe('with-office');
+    expect(getStudentSupportPhase({ status: 'Closed', resolvedAt: '2026-10-30T10:00:00Z' })).toBe('resolved');
+  });
+
+  it('returns to the assistant once the student starts a new question after the resolve', () => {
+    const resolved = { status: 'Closed', resolvedAt: '2026-10-30T10:00:00Z' };
+    expect(getStudentSupportPhase({ ...resolved, studentViewFrom: '2026-10-30T10:00:00Z' })).toBe('assistant');
+    expect(getStudentSupportPhase({ ...resolved, studentViewFrom: '2026-10-29T10:00:00Z' })).toBe('resolved');
+  });
+
+  it('hides messages from before the new question for the student only', () => {
+    const messages = [
+      { id: 'old', createdAt: '2026-10-29T10:00:00Z' },
+      { id: 'new', createdAt: '2026-10-30T11:00:00Z' },
+    ];
+    expect(getStudentVisibleMessages(messages, { studentViewFrom: '2026-10-30T10:00:00Z' }).map((message) => message.id)).toEqual(['new']);
+    expect(getStudentVisibleMessages(messages, {})).toHaveLength(2);
+    expect(getStudentVisibleMessages(messages, null)).toHaveLength(2);
+  });
+});
 
 describe('support inbox derivations', () => {
   it('defaults to the in-app inbox and lets tawk.to be selected explicitly', () => {
@@ -45,7 +74,7 @@ describe('support inbox derivations', () => {
   it('uses the persisted unread count and otherwise derives it from the reader timestamp', () => {
     const messages = [
       { senderRole: 'student', createdAt: '2026-10-29T10:00:00Z' },
-      { senderRole: 'admissions_head', createdAt: '2026-10-29T11:00:00Z' },
+      { senderRole: 'admissions_admin', createdAt: '2026-10-29T11:00:00Z' },
       { senderRole: 'admissions_office', createdAt: '2026-10-29T12:00:00Z' },
     ];
     expect(countUnreadSupportMessages({ studentUnreadCount: 2 }, messages, 'student')).toBe(2);
@@ -73,7 +102,7 @@ describe('support inbox derivations', () => {
     })).toMatchObject({
       studentName: 'A Student', studentProgram: 'BS Biology', studentSchool: 'SON', status: 'Open',
     });
-    expect(describeSupportSender({ senderRole: 'admissions_head' })).toBe('Admissions Office Head');
+    expect(describeSupportSender({ senderRole: 'admissions_admin' })).toBe('Admissions Office Admin');
     expect(describeSupportSender({ senderRole: 'admissions_office' })).toBe('Admissions Office Staff');
     expect(describeSupportSender({ senderRole: 'assistant' })).toBe('ScholarPath Assistant');
   });

@@ -1,7 +1,7 @@
 -- ---------------------------------------------------------------------------
 -- Repair: restore the documented SAS approval routing.
 --
--- `approval_levels` is data, not schema: the Admissions Office Head owns it on
+-- `approval_levels` is data, not schema: the Admissions Office Admin owns it on
 -- the `admin-catalog` page (ApprovalLevelsCard), so it drifts when the setting
 -- is changed during a demonstration. It had drifted into a dead end for the
 -- School of Arts and Sciences:
@@ -34,7 +34,7 @@
 --     SAS IT and IS Department chair, so an SEA case has no approver yet.
 --   * SAS departments other than Computer Studies need their own Chairperson
 --     account before a case there can be approved.
--- Create the missing accounts from the Head's Accounts page
+-- Create the missing accounts from the Admin's Accounts page
 -- (20261051000000_account_provisioning.sql) rather than by seeding SQL.
 -- ---------------------------------------------------------------------------
 
@@ -74,7 +74,7 @@ update public.approval_levels
 commit;
 
 -- Applied once to the deployed project alongside this file, as an operator
--- action on the Head's Accounts page (display name only; no routing effect):
+-- action on the Admin's Accounts page (display name only; no routing effect):
 -- the `dean` account scoped to SBG still carried a stale
 -- "(Department Chair, SEA)" suffix, which contradicted its role and school in
 -- the sidebar and on every review surface.

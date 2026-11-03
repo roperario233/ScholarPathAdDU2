@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState } from 'react';
 import { Camera, CheckCircle2, Circle, CircleDot, Clock } from 'lucide-react';
 import { Button, StatusBadge } from './ui';
+import { Skeleton } from './Skeleton';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import PhotoGuide from './PhotoGuide';
 import { PHOTO_ACCEPT } from '../lib/photoGuide';
@@ -510,7 +511,9 @@ export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
       ? <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />Photo unavailable</span>
       : state.url && !state.error
         ? <img src={state.url} alt="Recent 2x2 ID photo of the applicant" className="h-full w-full rounded-[10px] object-cover" onError={() => setState({ url: '', error: 'The 2x2 photo could not be opened.' })} />
-        : <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />{state.error ? 'Photo unavailable' : 'Loading photo…'}</span>
+        : state.error
+          ? <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />Photo unavailable</span>
+          : <><Skeleton className="h-full w-full rounded-[10px]" /><span className="sr-only" role="status">Loading photo…</span></>
   ) : (
     <span className="grid place-items-center gap-1 px-1"><Camera aria-hidden="true" className="h-4 w-4" />2x2 photo not attached</span>
   );

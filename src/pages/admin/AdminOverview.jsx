@@ -1,17 +1,17 @@
 import { useMemo } from 'react';
-import { Activity, ArrowRight, Award, CalendarClock, CalendarDays, CheckCircle2, ClipboardList, FileCheck2, Gavel, History, Hourglass, Inbox, LibraryBig, Megaphone, SendHorizontal, Users } from 'lucide-react';
+import { Activity, ArrowRight, Award, BarChart3, CalendarClock, CalendarDays, CheckCircle2, ClipboardList, FileCheck2, Gavel, History, Hourglass, Inbox, LibraryBig, Megaphone, SendHorizontal, Users } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import { StatCard } from '../../components/pageParts';
 import { Card, EmptyState, StatusBadge } from '../../components/ui';
 import { getApprovalQueue, getDocumentsAwaitingReview, getIntakePool, getMyReviewQueue, getRecentApplicationActivity, getReleaseQueue, getReviewQueue } from '../../lib/admissionsOffice';
 import { getEndorsementQueue } from '../../lib/endorsement';
-import { getApplicationStatusLabel, getStatusTone, isAdmissionsHeadRole } from '../../lib/constants';
+import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { fmtDate, plural } from '../../lib/formatters';
 
 // The Admissions Office landing route. It carries only the metrics that steer the
 // day's work, the links into each functional workspace, and the cross-cutting
 // activity feed, so the queues and forms live on their own routes. Since
-// Consultation 2 the Head verifies, forwards, checks, and releases; Staff share a
+// Consultation 2 the Admin verifies, forwards, checks, and releases; Staff share a
 // read-only view of the same dashboard.
 const workspaces = [
   {
@@ -27,7 +27,7 @@ const workspaces = [
     label: 'Review queue',
     description: 'The cases you opened: document verification and the forward to interview.',
     action: 'Open review queue',
-    headOnly: true,
+    adminOnly: true,
   },
   {
     view: 'admin-interviews',
@@ -49,7 +49,7 @@ const workspaces = [
     label: 'AdDU internal scholarship catalog',
     description: 'Publish internal tracks and their required documents.',
     action: 'Open catalog',
-    headOnly: true,
+    adminOnly: true,
   },
   {
     view: 'admin-release',
@@ -57,7 +57,14 @@ const workspaces = [
     label: 'Final check and release',
     description: 'Check approved cases, release each scholarship\'s results, and export the final list to Excel.',
     action: 'Open final check and release',
-    headOnly: true,
+    adminOnly: true,
+  },
+  {
+    view: 'admin-statistics',
+    icon: BarChart3,
+    label: 'Office statistics',
+    description: 'Application volume, stage turnaround, and document verification by year, scholarship, and school.',
+    action: 'Open statistics',
   },
   {
     view: 'admin-announcements',
@@ -65,17 +72,17 @@ const workspaces = [
     label: 'Office announcements',
     description: 'Publish office notices and application windows.',
     action: 'Open announcements',
-    headOnly: true,
+    adminOnly: true,
   },
 ];
 
 // The header tile, shaped like the student Dashboard's "Next deadline" tile: it
 // names the one piece of work that needs the signed-in lane next and opens it.
-// The Head's order follows the pipeline's end first, because a released result
+// The Admin's order follows the pipeline's end first, because a released result
 // is what applicants are waiting on: final check, then the intake pool, then the
 // officer's own queue. Staff only read, so their tile reports the open cases.
-function getNextAction({ isHead, approved, intakePool, myQueue, openCases }) {
-  if (!isHead) {
+function getNextAction({ isAdmin, approved, intakePool, myQueue, openCases }) {
+  if (!isAdmin) {
     return {
       icon: Activity,
       label: 'Open applications',
@@ -125,10 +132,10 @@ function getNextAction({ isHead, approved, intakePool, myQueue, openCases }) {
 }
 
 export default function AdminOverview({ applications = [], documents = [], caseOfficers = [], currentUserId = '', role = 'admissions_office', onOpenWorkspace }) {
-  const isHead = isAdmissionsHeadRole(role);
+  const isAdmin = isAdmissionsAdminRole(role);
   const visibleWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => !workspace.headOnly || isHead),
-    [isHead],
+    () => workspaces.filter((workspace) => !workspace.adminOnly || isAdmin),
+    [isAdmin],
   );
   const reviewApplications = useMemo(() => getReviewQueue(applications), [applications]);
   // The officer's own cases, and the pool nobody has opened yet. Together they are
@@ -159,7 +166,7 @@ export default function AdminOverview({ applications = [], documents = [], caseO
   const recentActivity = useMemo(() => getRecentApplicationActivity(applications, 5), [applications]);
 
   const nextAction = getNextAction({
-    isHead,
+    isAdmin,
     approved: approvedApplications.length,
     intakePool: intakePool.length,
     myQueue: myQueue.length,
@@ -169,8 +176,8 @@ export default function AdminOverview({ applications = [], documents = [], caseO
   return (
     <div className="grid content-start gap-5">
       <AdminPageHeader
-        title={isHead ? 'Admissions Office Head dashboard' : 'Admissions Office dashboard'}
-        description={isHead
+        title={isAdmin ? 'Admissions Office Admin dashboard' : 'Admissions Office dashboard'}
+        description={isAdmin
           ? 'Verify documents, forward cases to the interviewers, then check and release the results.'
           : 'A read-only view of the office\'s open applications.'}
         featured
@@ -181,9 +188,9 @@ export default function AdminOverview({ applications = [], documents = [], caseO
         />
       </AdminPageHeader>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4 max-sm:[&>*:last-child:nth-child(odd)]:col-span-2">
         <StatCard icon={Inbox} tone="warning" label="Intake pool" value={intakePool.length} note="Open cases nobody has picked up" />
-        {isHead ? (
+        {isAdmin ? (
           <>
             <StatCard icon={ClipboardList} tone="info" label="In my review queue" value={myQueue.length} note="Cases you opened" />
             <StatCard icon={FileCheck2} tone="info" label="Under document verification" value={verifiedAwaitingForward.length} note="Verify, then forward to interview" />
@@ -199,7 +206,7 @@ export default function AdminOverview({ applications = [], documents = [], caseO
           <>
             <StatCard icon={Hourglass} tone="warning" label="Documents awaiting verification" value={blockingDocuments.length} note="Files across the office" />
             <StatCard icon={Gavel} tone="warning" label="With the schools for approval" value={approvalApplications.length} note="Interviewer recommendations" />
-            <StatCard icon={SendHorizontal} tone="success" label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Head" />
+            <StatCard icon={SendHorizontal} tone="success" label="Results released" value={releasedApplications.length} note="Released through the Admissions Office Admin" />
           </>
         )}
       </section>
@@ -237,7 +244,7 @@ export default function AdminOverview({ applications = [], documents = [], caseO
         <Card title="Recent application activity" action={<StatusBadge tone={recentActivity.length ? 'info' : 'neutral'}>{recentActivity.length} recent</StatusBadge>}>
           <ol className="m-0 grid max-h-[640px] list-none gap-3 overflow-y-auto p-0 pr-1">
             {recentActivity.length ? recentActivity.map((event) => (
-              <li key={`${event.application.id}-${event.id || event.at}`} className="relative grid gap-2 rounded-2xl border border-app-border bg-app-surface p-4 pl-5 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 before:bg-gradient-to-b before:from-ateneo before:via-sky-400 before:to-cyan-300 hover:-translate-y-0.5 hover:shadow-app">
+              <li key={`${event.application.id}-${event.id || event.at}`} className="relative grid gap-2 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-4 pl-5 shadow-sm transition before:absolute before:inset-y-0 before:left-0 before:w-1.5 before:bg-gradient-to-b before:from-ateneo before:via-sky-400 before:to-cyan-300 hover:-translate-y-0.5 hover:shadow-app">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0">
                     <strong className="block text-sm text-app-text">{event.application.studentName} · {event.application.scholarshipTitle}</strong>

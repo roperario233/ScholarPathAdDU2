@@ -73,6 +73,9 @@ const toApplication = (row, scholarshipById, documentIdsByApplication, studentBy
     statement: row.statement ?? '',
     profileSnapshot: row.profile_snapshot ?? null,
     certifiedAt: row.certified_at ?? null,
+    // Set only when the Admissions Office Admin opened the Draft as an
+    // eligibility exception (open_application_for_student); the reason is staff-only.
+    openedByOfficeAt: row.opened_by_office_at ?? null,
     // The append-only audit history (application_status_log). Empty when the
     // migration is pending or no status change has been logged yet.
     statusLog: statusLogByApplication[row.id] || [],
@@ -97,6 +100,9 @@ const toSupportThread = (row) => ({
   studentId: row.student_id,
   status: row.status,
   escalatedAt: row.escalated_at || null,
+  resolvedAt: row.resolved_at || null,
+  resolvedBy: row.resolved_by || null,
+  studentViewFrom: row.student_view_from || null,
   assistantEnabled: row.assistant_enabled !== false,
   lastMessageAt: row.last_message_at,
   lastMessageBy: row.last_message_by,
@@ -122,7 +128,7 @@ const toCustomDeadline = (row) => ({
   deadline: row.deadline,
   createdAt: row.created_at,
 });
-// Office planning entries on the Admissions Office calendar. The Head publishes
+// Office planning entries on the Admissions Office calendar. The Admin publishes
 // them; both office lanes and Department Chairs read them, and a student session
 // never loads them.
 const toOfficeCalendarEntry = (row) => ({
@@ -230,7 +236,7 @@ const toInterviewNote = (row, nameById = {}) => ({
 // Reviewer accounts read a scoped slice of the office workflow. The academic
 // ladder (Dean, Assistant Dean, Chairperson) and the interviewer are scoped to the
 // hierarchy; the two Admissions Office lanes read every case.
-const STAFF_ROLES = ['admissions_office', 'admissions_head', 'dean', 'assistant_dean', 'department_chair', 'interviewer'];
+const STAFF_ROLES = ['admissions_office', 'admissions_admin', 'dean', 'assistant_dean', 'department_chair', 'interviewer'];
 
 const ensureReady = () => hasSupabaseConfig && supabase;
 
@@ -261,7 +267,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
       ? Promise.resolve({ data: [], error: null })
       : supabase.from('approval_levels').select('*').order('school', { ascending: true }),
     // Every role reads the releases: a student's held result is unmasked by the
-    // release that covers it, and the Head's release lane counts them.
+    // release that covers it, and the Admin's release lane counts them.
     supabase.from('results_releases').select('*').order('released_at', { ascending: true }),
   ]);
   const failed = [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, profilesResult].find((result) => result.error);
@@ -284,6 +290,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   // against, without shipping the whole profile row.
   const students = Object.fromEntries((profilesResult.data || []).map((entry) => [entry.user_id, {
     fullName: entry.full_name || 'Student applicant',
+    role: entry.role || '',
     department: entry.department || '',
     degreeProgram: entry.degree_program || '',
     qpi: entry.qpi ?? null,
@@ -399,7 +406,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   if (role !== 'student') {
     const [locationsResult, panelistsResult, notesResult] = await Promise.all([
       // Interviewers and ladder accounts schedule their own interviews, so they
-      // read the saved venues too (Head-managed). Before the routing migration a
+      // read the saved venues too (Admin-managed). Before the routing migration a
       // reviewer read is refused and the list stays empty; the typed location
       // field still works.
       supabase.from('interview_locations').select('*').order('name', { ascending: true }),
@@ -585,7 +592,7 @@ export const createSupabaseReviewComment = async ({ applicationId, authorId, aut
 // rows; caller-provided ids are only filters, never an authorization boundary.
 export const loadSupabaseSupportInbox = async ({ role, userId, selectedThreadId = '', markRead = false, includeMessages = true }) => {
   if (!ensureReady()) return { success: false, ready: false, error: { message: 'Supabase is not configured.' } };
-  const isOffice = role === 'admissions_office' || role === 'admissions_head';
+  const isOffice = role === 'admissions_office' || role === 'admissions_admin';
   if (!isOffice && role !== 'student') return { success: false, ready: true, threads: [], messages: [], students: {} };
 
   const threadQuery = supabase.from('support_threads').select('*')
@@ -672,6 +679,18 @@ export const escalateSupabaseSupportThread = async (threadId, note = '') => {
   return { error };
 };
 
+export const resolveSupabaseSupportThread = async (threadId) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc('resolve_support_thread', { p_thread_id: threadId });
+  return { error };
+};
+
+export const startNewSupabaseSupportTopic = async (threadId) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  const { error } = await supabase.rpc('start_new_support_topic', { p_thread_id: threadId });
+  return { error };
+};
+
 export const getOrCreateSupabaseSupportThread = async () => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const { data, error } = await supabase.rpc('get_or_create_support_thread');
@@ -708,7 +727,7 @@ export const setSupabaseSupportThreadStatus = async (threadId, status) => {
   return { error };
 };
 
-// Interview locations are managed by the Admissions Office Head; RLS refuses
+// Interview locations are managed by the Admissions Office Admin; RLS refuses
 // every other role. Archiving (isActive false) replaces deletion.
 export const saveSupabaseInterviewLocation = async (location) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
@@ -766,7 +785,7 @@ export const createSupabaseInterviewNote = async ({ applicationId, authorId, aut
 };
 
 // Department review records mirror historical Department Chair decisions for
-// schema-level auditing. Endorsement is now the Admissions Office Head's
+// schema-level auditing. Endorsement is now the Admissions Office Admin's
 // decision and is recorded on the application itself, so nothing writes here for
 // a new case. Kept async so it always returns a real Promise: a Postgrest builder
 // is only a thenable (no .catch/.finally), and a fire-and-forget caller needs
@@ -808,6 +827,21 @@ export const createSupabaseApplication = async ({ id, studentId, scholarshipId, 
   const links = await supabase.from('application_documents').insert(attachedDocuments.map((documentId) => ({ application_id: result.data.id, document_id: documentId })));
   return links.error ? { data: result.data, error: links.error } : result;
 };
+
+// open_application_for_student: the Admissions Office Admin opens a Draft for a
+// student as an eligibility exception. The RPC re-checks the role, the student,
+// the track, the deadline, and duplicates, files the reason in the staff-only
+// review thread, and notifies the student without the reason.
+export const openSupabaseApplicationForStudent = ({ id, studentId, scholarshipId, reason }) => (
+  ensureReady()
+    ? supabase.rpc('open_application_for_student', {
+      p_application_id: id,
+      p_student_id: studentId,
+      p_scholarship_id: scholarshipId,
+      p_reason: reason,
+    }).then(({ data, error }) => ({ data, error }))
+    : Promise.resolve({ data: null, error: { message: 'Supabase is not configured.' } })
+);
 
 // Draft-only document links; RLS refuses them once the application is submitted.
 export const attachSupabaseApplicationDocument = (applicationId, documentId) => (
@@ -990,7 +1024,7 @@ export const deleteSupabaseCustomDeadline = (id) => (
 // Office planning dates on the Admissions Office calendar. The client generates
 // `office-<uuid>` ids so an entry keeps one identity on the calendar and in the
 // database. The database policies keep publishing and removing them to the
-// Admissions Office Head; both office lanes and Department Chairs read them.
+// Admissions Office Admin; both office lanes and Department Chairs read them.
 export const createSupabaseOfficeCalendarEntry = ({ id, title, entryDate, kind, notes, createdBy }) => (
   ensureReady()
     ? supabase
@@ -1008,7 +1042,7 @@ export const deleteSupabaseOfficeCalendarEntry = (id) => (
   ensureReady() ? supabase.from('office_calendar_entries').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
 
-// The Head's approval-level settings (SOP step 7 routing). One row per school,
+// The Admin's approval-level settings (SOP step 7 routing). One row per school,
 // or per cluster inside a school; an unset scope defaults to the Chairperson.
 export const saveSupabaseApprovalLevel = async ({ id, school, cluster, approverRole }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
@@ -1023,7 +1057,7 @@ export const deleteSupabaseApprovalLevel = (id) => (
   ensureReady() ? supabase.from('approval_levels').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
 
-// Records a scholarship's batch release (record_results_release, Head only). The
+// Records a scholarship's batch release (record_results_release, Admin only). The
 // row's insert trigger sends the non-acceptance letters; the browser call below
 // is the retry for the in-app and email channels.
 export const recordSupabaseResultsRelease = async (scholarshipId) => {
@@ -1172,9 +1206,9 @@ export const invokeSupabaseInterviewEvent = (body) => invokeEmailFunction('manag
 // Browser retry for the document-verification notification; the database
 // trigger (20261021000001) is the primary sender and owns the SMS channel.
 export const notifySupabaseDocumentVerification = (documentId) => invokeEmailFunction('notify-document-verification', { documentId });
-// Account provisioning (the Admissions Office Head's Accounts page; see
+// Account provisioning (the Admissions Office Admin's Accounts page; see
 // 20261051000000_account_provisioning.sql). Every write is an RPC that re-checks
-// the caller, so a non-Head session is refused by the database, not just the UI.
+// the caller, so a non-Admin session is refused by the database, not just the UI.
 // A project that has not applied the migration answers `missing: true`.
 const toAccountProfile = (row) => ({
   userId: row.user_id,

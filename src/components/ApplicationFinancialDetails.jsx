@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { loadSupabaseApplicationFinancialDetails } from '../lib/supabaseData';
 import { getFinancialDetailSections } from '../lib/financialDetails';
+import { Skeleton, SkeletonRegion, SkeletonText } from './Skeleton';
 
 // Loads one application's office-only financial details for the Admissions
 // Office: the answers the student wrote and the financial profile the database
@@ -50,5 +51,13 @@ const NOTICE_TEXT = {
 // groups are not (or not yet) shown.
 export function FinancialDetailsNotice({ status }) {
   if (status === 'ready' || !NOTICE_TEXT[status]) return null;
+  if (status === 'loading') {
+    return (
+      <SkeletonRegion label="Loading the financial details" className="grid gap-2.5 pt-2">
+        <Skeleton className="h-3 w-40" />
+        <SkeletonText lines={3} />
+      </SkeletonRegion>
+    );
+  }
   return <p className="m-0 pt-2 text-xs text-app-muted" role="status">{NOTICE_TEXT[status]}</p>;
 }

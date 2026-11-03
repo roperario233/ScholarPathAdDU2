@@ -32,7 +32,7 @@ const MARK_LABELS = {
   custom: (count) => `${count} reminder${count === 1 ? '' : 's'}`,
 };
 
-// The office calendar's own planning entries. The Admissions Office Head
+// The office calendar's own planning entries. The Admissions Office Admin
 // publishes them; both office lanes and Department Chairs read them. They carry
 // a date only, so they are work-planning markers, not reminder deliveries.
 export const OFFICE_ENTRY_KIND_LABELS = {
@@ -46,7 +46,7 @@ export const OFFICE_ENTRY_KINDS = Object.keys(OFFICE_ENTRY_KIND_LABELS);
 export const getOfficeEntryKindLabel = (kind) => OFFICE_ENTRY_KIND_LABELS[kind] || OFFICE_ENTRY_KIND_LABELS.office;
 
 // The stages whose recorded decision belongs on the office calendar: the
-// Admissions Office Head's endorsement (SOP step 4), the sub-committee
+// Admissions Office Admin's endorsement (SOP step 4), the sub-committee
 // recommendation, approval, and the release of results (SOP steps 6-8). The
 // hand-off (`For Endorsement`) is an open queue state, not a decision, so it
 // stays off this layer.
