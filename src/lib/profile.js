@@ -1338,6 +1338,11 @@ export const validateAcademicSection = (form = {}, academicPrograms = [], { full
     const firstChoice = String(result.values.degreeProgram ?? '').trim();
     const secondChoice = String(result.values.programChoice2 ?? '').trim();
     const thirdChoice = String(result.values.programChoice3 ?? '').trim();
+    // An incoming first-year must rank all three choices.
+    if (standing.requiresProgramChoices) {
+      if (!secondChoice && !result.errors.programChoice2) result.errors.programChoice2 = 'Choose your 2nd choice program.';
+      if (!thirdChoice && !result.errors.programChoice3) result.errors.programChoice3 = 'Choose your 3rd choice program.';
+    }
     if (secondChoice && secondChoice === firstChoice) {
       result.errors.programChoice2 = 'Choose a different program from your 1st choice.';
     }
@@ -1578,6 +1583,11 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     // and an incoming first-year are never asked for one.
     if (requiresStudentNumber(profile)) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
     add('application', 'degreeProgram', standing.isIncomingFirstYear ? 'Program to be enrolled' : 'Degree program', 'academic', !isBlank(profile.degreeProgram));
+    // An incoming first-year ranks a 2nd and 3rd program choice behind the first.
+    if (standing.requiresProgramChoices) {
+      add('application', 'programChoice2', '2nd choice program', 'academic', !isBlank(profile.programChoice2));
+      add('application', 'programChoice3', '3rd choice program', 'academic', !isBlank(profile.programChoice3));
+    }
     add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
     if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);
     if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);

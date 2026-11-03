@@ -22,11 +22,12 @@ const renderModal = (props = {}) => renderToStaticMarkup(
 
 describe('first-login academic profile marks', () => {
   it('marks the answers the Continue gate still needs', () => {
-    // Nothing answered: applicant status, year standing, the senior high school
-    // strand, program, academic standing, citizenship, and household income. The
-    // QPI and student number only appear once a standing is picked.
+    // Nothing answered: applicant status, the senior high school strand, program,
+    // academic standing, citizenship, and household income. The year standing, QPI,
+    // and student number only appear once an applicant status is picked.
     const html = renderModal();
-    expect(countMarks(html)).toBe(7);
+    expect(countMarks(html)).toBe(6);
+    expect(html).not.toContain('Year standing');
     expect(html).toContain('Applicant status');
     expect(html).not.toContain('Mobile number');
     expect(html).not.toContain('Annual QPI');
@@ -49,6 +50,9 @@ describe('first-login academic profile marks', () => {
     const incoming = renderModal({ initialYearStanding: 'incoming-1st' });
     expect(incoming).toContain('Applicant status');
     expect(incoming).not.toContain('Year standing');
+    // The ranked 2nd and 3rd choices are required of an incoming first-year.
+    expect(incoming).toContain('2nd choice program');
+    expect(incoming).toContain('3rd choice program');
     // A transferee's record belongs to the institution they left, so the student
     // number is not asked for.
     const transferee = renderModal({ initialYearStanding: '2nd', initialIsTransferee: 'Yes' });
