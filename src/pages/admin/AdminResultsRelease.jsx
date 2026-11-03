@@ -8,7 +8,8 @@ import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue
 import { getActorRoleLabel } from '../../lib/applicationRequirements';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
-import { describeGrantAmount, getGrantAmountForApplication } from '../../lib/grantAmount';
+import FinalCheckToggle from '../../components/FinalCheckToggle';
+import { getGrantAmountForApplication } from '../../lib/grantAmount';
 import { fmtDate, plural } from '../../lib/formatters';
 
 // The Admissions Office Admin's last step (Consultation 2, #13): the school
@@ -64,6 +65,7 @@ export default function AdminResultsRelease({
   // The final check needs the grant amount recorded first, so a case without one
   // can neither be ticked nor counted toward the release.
   const isFinalChecked = (applicationId) => Boolean(checked[applicationId]) && Boolean(grantFor(applicationId));
+  const setFinalChecked = (applicationId, value) => setChecked((previous) => ({ ...previous, [applicationId]: value }));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
 
   // The review surface offers the Admin's override at Recommended and the final
@@ -209,23 +211,11 @@ export default function AdminResultsRelease({
                             </ul>
                           ) : null}
                           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-3">
-                            <div className="grid min-w-0 gap-1">
-                              <label
-                                className={`flex min-h-10 items-center gap-2.5 rounded-xl border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-blue-500/40 ${grant ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'} ${isFinalChecked(entry.id) ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : `border-app-border bg-app-surface text-app-text ${grant ? 'hover:bg-app-card' : ''}`}`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed"
-                                  checked={isFinalChecked(entry.id)}
-                                  disabled={!grant}
-                                  onChange={(event) => setChecked((previous) => ({ ...previous, [entry.id]: event.target.checked }))}
-                                />
-                                {isFinalChecked(entry.id) ? 'Final check done' : 'Mark final check as done'}
-                              </label>
-                              <span className={`text-xs ${grant ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
-                                {grant ? `Grant amount: ${describeGrantAmount(grant)}` : 'Set the grant amount before the final check.'}
-                              </span>
-                            </div>
+                            <FinalCheckToggle
+                              checked={isFinalChecked(entry.id)}
+                              grant={grant}
+                              onChange={(value) => setFinalChecked(entry.id, value)}
+                            />
                             <div className="flex flex-wrap items-center gap-2">
                               <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'endorsement')}>Case notes</Button>
                               <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'grant')}>Grant amount</Button>
@@ -370,6 +360,13 @@ export default function AdminResultsRelease({
           students={students}
           role={role}
           initialTab={openTab}
+          // The same final-check tick as the list, offered in the modal's footer
+          // while the case is still Approved and awaiting its release.
+          finalCheck={selected.status === 'Approved' ? {
+            checked: isFinalChecked(selected.id),
+            grant: grantFor(selected.id),
+            onChange: (value) => setFinalChecked(selected.id, value),
+          } : null}
           onClose={closeCase}
           onStatusChange={handleStatusChange}
           onRejectApplication={onRejectApplication}

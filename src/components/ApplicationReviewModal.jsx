@@ -12,7 +12,8 @@ import EndorsementCasePanel from './EndorsementCasePanel';
 import EndorsementDecisionModal from './EndorsementDecisionModal';
 import InterviewPanel from './InterviewPanel';
 import GrantAmountPanel from './GrantAmountPanel';
-import { getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
+import FinalCheckToggle from './FinalCheckToggle';
+import { describeGrantAmount, getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
@@ -168,6 +169,10 @@ export default function ApplicationReviewModal({
   currentUserId = '',
   onJoinCase,
   onLeaveCase,
+  // The Admin's final-check tick for an approved case (Final check and release):
+  // `{ checked, grant, onChange }`. Shown in the footer so it sits beside the
+  // stage actions; without it the footer is unchanged.
+  finalCheck = null,
 }) {
   // Since Consultation 2 the Admin verifies the files, forwards the case to the
   // interviewers of its scope, and does the final check and release; Staff read
@@ -281,6 +286,9 @@ export default function ApplicationReviewModal({
   const grantTabVisible = Boolean(interviewWorkspace)
     && isGrantAmountStage(application.status)
     && (isAdmissionsReviewer || Boolean(stageContext.isApprover));
+  const finalCheckToggle = finalCheck && isAdmissionsAdmin ? (
+    <FinalCheckToggle checked={finalCheck.checked} grant={finalCheck.grant} onChange={finalCheck.onChange} showHint={false} />
+  ) : null;
   const [interviewDraft, setInterviewDraft] = useState(() => createInterviewDraft(application, applicationPanelists));
   const [interviewShowErrors, setInterviewShowErrors] = useState(false);
   const interviewErrors = validateInterviewSchedule(interviewDraft, {
@@ -934,6 +942,20 @@ export default function ApplicationReviewModal({
           </div>
         ) : null}
 
+        {finalCheckToggle ? (
+          <div className="grid gap-1">
+            {finalCheck.grant ? (
+              <p className="m-0 text-xs text-app-muted">
+                {`Grant amount: ${describeGrantAmount(finalCheck.grant)}`}
+              </p>
+            ) : (
+              <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+                No grant amount recorded yet, so the final check is unavailable. In the Grant amount tab, enter a coverage percent, an amount per semester, or both.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         {actionError ? (
           <p className="m-0 rounded-[14px] border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200" role="alert">
             {actionError}
@@ -947,7 +969,8 @@ export default function ApplicationReviewModal({
             <div className="flex flex-wrap gap-2">
               {canReject ? <Button className="max-w-full" type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
             </div>
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+              {finalCheckToggle}
               {/* The footer carries no visible stage notice: the header badge, the
                   Documents tab badge, and each disabled button's title report the
                   gate on screen. This hidden text keeps the reason available to
@@ -982,7 +1005,12 @@ export default function ApplicationReviewModal({
               })}
             </div>
           </div>
-        ) : <p className="m-0 text-sm text-app-muted">{idleMessage}</p>}
+        ) : (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="m-0 text-sm text-app-muted">{idleMessage}</p>
+            {finalCheckToggle}
+          </div>
+        )}
       </footer>
     </ModalShell>
     {endorsementDecision ? (
