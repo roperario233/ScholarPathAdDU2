@@ -939,7 +939,8 @@ export const getProfileSnapshotSections = (snapshot) => {
     rows: [
       printedName ? row('Name of applicant (Last, First, Middle)', printedName) : row('Name', snapshot.fullName),
       ...(snapshot.studentNumber ? [row('Student number', snapshot.studentNumber)] : []),
-      row('Program', snapshot.degreeProgram),
+      // An incoming first-year ranks three programs, and the degree program is the first.
+      row(snapshot.yearStanding === 'incoming-1st' ? '1st choice Program' : 'Program', snapshot.degreeProgram),
       row('Year standing', snapshot.yearStandingLabel),
       row(academic.label || 'Academic record', academicValue, academic.verification),
       row('Household income', snapshot.householdIncome?.value == null ? '' : fmtCurrency(snapshot.householdIncome.value), snapshot.householdIncome?.verification),
