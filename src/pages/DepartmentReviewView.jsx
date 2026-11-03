@@ -9,6 +9,7 @@ import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getRev
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getActorRoleLabel, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { downloadApplicantSummary, getApplicantSummaryFileName } from '../lib/admissionsOffice';
 import { getLatestPanelRecommendation } from '../lib/interview';
+import { getGrantAmountForApplication } from '../lib/grantAmount';
 import { fmtCurrency, fmtDate, plural } from '../lib/formatters';
 
 const queueTone = (status) => {
@@ -74,6 +75,7 @@ export default function DepartmentReviewView({
   const exportSummary = () => downloadApplicantSummary(decidedInScope, {
     scopeOf: (entry) => getApplicationScope(entry, programIndex),
     recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id)),
+    grantOf: (entry) => getGrantAmountForApplication(interviewWorkspace?.grantAmounts, entry.id),
     source: {
       origin: `${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace › Recommendations`,
       contents: 'Every recommended, approved, and released application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',

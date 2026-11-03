@@ -79,6 +79,7 @@ export default function AdminResultsRelease({
   const exportOptions = (source) => ({
     scopeOf: (entry) => getApplicationScope(entry, programIndex),
     recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id)),
+    grantOf: (entry) => grantFor(entry.id),
     source: { exportedBy: getActorRoleLabel(role), ...source },
   });
 
@@ -87,6 +88,15 @@ export default function AdminResultsRelease({
     contents: 'Every approved and released application, all scholarships. Approved cases are still awaiting their scholarship’s release.',
     releasedIds: resultsReleases.flatMap((release) => release.applicationIds || []),
   }), getApplicantSummaryFileName('final_check'));
+
+  // One scholarship's card: the approved cases awaiting the final check plus the
+  // decided cases still held, exactly the rows the card lists.
+  const exportGroup = (group) => downloadApplicantSummary([...group.approved, ...group.decided], exportOptions({
+    origin: 'Final check and release › Final check by scholarship',
+    contents: `Every approved case awaiting the final check and every decided case still held for ${group.title}. Nothing here has been released yet.`,
+    scholarship: group.title,
+    releasedIds: resultsReleases.flatMap((release) => release.applicationIds || []),
+  }), getApplicantSummaryFileName(group.title, 'final_check'));
 
   const releaseApplications = (release) => {
     const ids = new Set(release.applicationIds || []);
@@ -179,6 +189,7 @@ export default function AdminResultsRelease({
                 <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="m-0 min-w-0 text-base font-semibold">{group.title}</h3>
                   <div className="flex flex-wrap items-center gap-1.5">
+                    <ExportButton disabled={!group.approved.length && !group.decided.length} onClick={() => exportGroup(group)} />
                     <StatusBadge tone="success" className="whitespace-nowrap">{plural(group.approved.length, 'approved case')}</StatusBadge>
                     {notAccepted ? <StatusBadge tone="warning" className="whitespace-nowrap">{notAccepted} not accepted · held</StatusBadge> : null}
                     {group.decided.length > notAccepted ? <StatusBadge tone="info" className="whitespace-nowrap">{group.decided.length - notAccepted} decided · held</StatusBadge> : null}

@@ -525,6 +525,7 @@ describe('applicant summary workbook', () => {
   const options = {
     scopeOf: () => ({ school: 'School of Arts and Sciences (SAS)', cluster: 'Computer Studies', department: 'Computer Science Department' }),
     recommendationOf: (entry) => (entry.id === 'sum-1' ? { label: 'Highly recommended', authorName: 'Prof. Santos' } : null),
+    grantOf: (entry) => (entry.id === 'sum-1' ? { coveragePercent: 50, amountPerSemester: 12500 } : null),
     source: {
       origin: 'Final check and release › Released results',
       contents: 'Every application covered by this release',
@@ -577,7 +578,12 @@ describe('applicant summary workbook', () => {
     expect(second['Recommended on']).toBe('N/A');
     expect(first['Release reference']).toBe('N/A');
     expect(second['Released on']).toBeGreaterThan(0);
-    expect(applicants.autoFilter).toMatch(/^A\d+:W\d+$/);
+    // A recorded grant amount is exported; a case without one reads N/A.
+    expect(first['Grant coverage (% of tuition)']).toBe(50);
+    expect(first['Grant amount per semester (PHP)']).toBe(12500);
+    expect(second['Grant coverage (% of tuition)']).toBe('N/A');
+    expect(second['Grant amount per semester (PHP)']).toBe('N/A');
+    expect(applicants.autoFilter).toMatch(/^A\d+:Y\d+$/);
   });
 
   it('writes a valid .xlsx package with escaped text and an About sheet', () => {

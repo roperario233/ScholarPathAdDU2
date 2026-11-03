@@ -426,6 +426,8 @@ const APPLICANT_SUMMARY_COLUMNS = [
   ['School decision on', 13, (entry) => dateCell(getStatusEventAt(entry, 'Approved') || getStatusEventAt(entry, 'Rejected'))],
   ['Released on', 13, (entry, ctx) => dateCell(getStatusEventAt(entry, 'Released') || (ctx.releasedIds.has(entry.id) ? ctx.releasedAt : null))],
   ['Release reference', 20, (entry) => entry.release?.reference || ''],
+  ['Grant coverage (% of tuition)', 16, (entry, ctx) => ({ value: numberOrNull(ctx.grant(entry).coveragePercent), style: 'number' })],
+  ['Grant amount per semester (PHP)', 18, (entry, ctx) => ({ value: numberOrNull(ctx.grant(entry).amountPerSemester), style: 'number' })],
 ];
 
 const COLUMN_NOTES = {
@@ -440,6 +442,8 @@ const COLUMN_NOTES = {
   'Recommended on': 'Manila date the interview panel’s recommendation was sent to the school.',
   'School decision on': 'Manila date the approving level approved or did not accept the case.',
   'Released on': 'Manila date the scholarship’s results were released.',
+  'Grant coverage (% of tuition)': 'The coverage percent the approving level or the Admissions Office Admin recorded. N/A when no grant amount is recorded yet. A recorded figure, never a disbursement.',
+  'Grant amount per semester (PHP)': 'The peso amount per semester recorded with the grant. N/A when none is recorded. A recorded figure, never a disbursement.',
 };
 
 const summaryCountsLine = (list, releasedIds) => {
@@ -461,10 +465,13 @@ const summaryCountsLine = (list, releasedIds) => {
 //     contents: 'Every application covered by this release',
 //     scholarship, releasedAt, releasedIds, exportedBy, now }
 // Every field is optional; a missing line is left out of the header block.
-export const buildApplicantSummarySheets = (applications = [], { scopeOf, recommendationOf, source = {} } = {}) => {
+// `grantOf(entry)` returns the recorded grant amount row (or null); a case with
+// none reads N/A in the two grant columns.
+export const buildApplicantSummarySheets = (applications = [], { scopeOf, recommendationOf, grantOf, source = {} } = {}) => {
   const list = asList(applications);
   const releasedIds = source.releasedIds instanceof Set ? source.releasedIds : new Set(asList(source.releasedIds));
   const ctx = {
+    grant: (entry) => (typeof grantOf === 'function' ? grantOf(entry) : null) || {},
     scope: (entry) => (typeof scopeOf === 'function' ? scopeOf(entry) : null) || {},
     recommendation: (entry) => (typeof recommendationOf === 'function' ? recommendationOf(entry) : null) || {},
     releasedIds,
