@@ -216,16 +216,62 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
+  // A pick (vault file, device file, or camera photo) is only staged. Nothing is
+  // sent, and the reverted file is not swapped, until the student confirms.
+  const [staged, setStaged] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState('');
   const photoType = isPhotoDocumentType(uploadType)
     ? uploadType
     : documentTypes.length === 1 && isPhotoDocumentType(documentTypes[0]) ? documentTypes[0] : '';
 
-  const run = async (payload) => {
+  const stagedFile = staged?.file || null;
+  useEffect(() => {
+    if (!stagedFile || !stagedFile.type?.startsWith('image/')) {
+      setPreviewUrl('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(stagedFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [stagedFile]);
+
+  const confirmReplacement = async () => {
+    if (!staged || busy) return;
     setBusy(true);
     setError('');
+    const payload = staged.file
+      ? { file: staged.file, documentType: staged.documentType }
+      : { documentId: staged.documentId };
     const result = await onReplace(doc.id, payload);
     setBusy(false);
     if (result?.error) setError(result.error);
+    else setStaged(null);
+  };
+
+  const cancelStaged = () => {
+    setStaged(null);
+    setError('');
+  };
+
+  const handleVaultPick = (event) => {
+    const candidate = candidates.find((entry) => entry.id === event.target.value);
+    if (!candidate) return;
+    setError('');
+    setStaged({
+      documentId: candidate.id,
+      name: candidate.title,
+      detail: `From your Document Vault · ${getDocumentStatusLabel(candidate.verificationStatus)} · ${fmtDate(candidate.uploadedAt)}`,
+    });
+  };
+
+  const stageFile = (file, documentType) => {
+    setError('');
+    setStaged({
+      file,
+      documentType,
+      name: file.name,
+      detail: `New upload as ${getDocumentTypeLabel(documentType)} · ${Math.max(1, Math.round(file.size / 1024))} KB · saved to your Document Vault`,
+    });
   };
 
   const handleFile = (event) => {
@@ -236,13 +282,13 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
       setError('Files must be 10 MB or smaller.');
       return;
     }
-    run({ file, documentType: uploadType });
+    stageFile(file, uploadType);
   };
 
-  // A replacement photo is normalized by the capture modal, then uploaded into
-  // the vault first (the same path as a file-picker replacement).
+  // A captured photo is normalized by the capture modal; it is then staged like
+  // any other pick and only uploaded into the vault on confirmation.
   const useCameraPhoto = (file) => {
-    run({ file, documentType: photoType });
+    stageFile(file, photoType);
     return { ok: true };
   };
 
@@ -256,15 +302,15 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
             <span className="whitespace-pre-line">{doc.rejectionReason}</span>
           </p>
         ) : null}
-        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to verification.</p>
+        <p className="m-0 text-xs text-app-muted">Pick a replacement, then review it and confirm. Your application keeps its current status, and the new file goes to verification.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid content-start gap-1 text-xs font-semibold text-app-muted">
           <span>Choose from your Document Vault</span>
           <select
-            value=""
+            value={staged?.documentId || ''}
             disabled={busy || !candidates.length}
-            onChange={(event) => { if (event.target.value) run({ documentId: event.target.value }); }}
+            onChange={handleVaultPick}
             aria-label={`Choose a replacement for ${doc.title}`}
           >
             <option value="">{candidates.length ? 'Select a file…' : 'No other matching files in your vault'}</option>
@@ -274,7 +320,7 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
           </select>
         </label>
         <div className="grid content-start gap-1 text-xs font-semibold text-app-muted">
-          <span>Or upload a corrected file</span>
+          <span>Or choose a corrected file from your device</span>
           <div className="flex min-w-0 flex-wrap gap-2">
             {documentTypes.length > 1 ? (
               <select className="min-w-0 flex-1" value={uploadType} onChange={(event) => setUploadType(event.target.value)} aria-label={`Document type for the replacement of ${doc.title}`} disabled={busy}>
@@ -287,13 +333,13 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
                   <Camera size={16} aria-hidden="true" /> Take photo
                 </Button>
                 <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-                  {busy ? 'Working...' : 'Upload photo'}
+                  Choose photo
                   <input type="file" accept={PHOTO_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
                 </label>
               </>
             ) : (
               <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-                {busy ? 'Working...' : 'Upload file'}
+                Choose file
                 <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
               </label>
             )}
@@ -301,6 +347,27 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
         </div>
       </div>
       {photoType ? <PhotoGuide documentType={photoType} defaultOpen /> : null}
+      {staged ? (
+        <div className="grid gap-3 rounded-xl border border-blue-500/35 bg-blue-500/10 p-3" role="group" aria-label={`Confirm the replacement for ${doc.title}`}>
+          <div className="flex min-w-0 items-center gap-3">
+            {previewUrl ? <img src={previewUrl} alt="" className="h-14 w-14 shrink-0 rounded-lg border border-app-border object-cover" /> : null}
+            <div className="grid min-w-0 gap-0.5">
+              <p className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-app-muted">Replacement ready to submit</p>
+              <p className="m-0 min-w-0 text-sm font-semibold text-app-text [overflow-wrap:anywhere]">{staged.name}</p>
+              <p className="m-0 text-xs text-app-muted">{staged.detail}</p>
+            </div>
+          </div>
+          <p className="m-0 text-xs text-app-muted">
+            This replaces “{doc.title}” on this application. You can pick a different file above until you confirm.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={confirmReplacement} disabled={busy}>
+              {busy ? 'Replacing…' : 'Replace document'}
+            </Button>
+            <Button type="button" variant="secondary" onClick={cancelStaged} disabled={busy}>Cancel</Button>
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="form-error m-0" role="alert">{error}</p> : null}
       {cameraOpen ? (
         <PhotoCaptureModal
