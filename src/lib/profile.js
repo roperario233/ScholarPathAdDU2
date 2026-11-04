@@ -1338,6 +1338,11 @@ export const validateAcademicSection = (form = {}, academicPrograms = [], { full
     const firstChoice = String(result.values.degreeProgram ?? '').trim();
     const secondChoice = String(result.values.programChoice2 ?? '').trim();
     const thirdChoice = String(result.values.programChoice3 ?? '').trim();
+    // An incoming first-year must rank all three choices.
+    if (standing.requiresProgramChoices) {
+      if (!secondChoice && !result.errors.programChoice2) result.errors.programChoice2 = 'Choose your 2nd choice program.';
+      if (!thirdChoice && !result.errors.programChoice3) result.errors.programChoice3 = 'Choose your 3rd choice program.';
+    }
     if (secondChoice && secondChoice === firstChoice) {
       result.errors.programChoice2 = 'Choose a different program from your 1st choice.';
     }
@@ -1372,13 +1377,19 @@ export const isGrantListActive = (form = {}) => (
   || Boolean(form.hasActiveGovernmentGrant)
   || Boolean(form.hasOtherActiveScholarship)
   || Boolean(form.isOnPrepaidPlan)
-  || (Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
+  // An explicit "No" hides the list; the rows stay in the draft (so switching back
+  // to Yes restores them) and the validator drops them on save.
+  || (form.previousGrantsAnswered !== 'No' && Array.isArray(form.previousGrants) && form.previousGrants.length > 0)
 );
 
 export const validateBackgroundSection = (form = {}) => {
   const honorsRank = form.honorsRank || '';
   // "No" is an answer: it clears the list so a hidden grant is never submitted.
-  const grants = validateRows(form.previousGrantsAnswered === 'No' ? [] : form.previousGrants, {
+  // An aid toggle keeps the list open, though, so a row the student can still see
+  // is validated and saved instead of being dropped behind their back.
+  const aidToggleOn = Boolean(form.hasActiveGovernmentGrant || form.hasOtherActiveScholarship || form.isOnPrepaidPlan);
+  const answeredNo = form.previousGrantsAnswered === 'No';
+  const grants = validateRows(answeredNo && !aidToggleOn ? [] : form.previousGrants, {
     max: MAX_GRANT_ROWS,
     label: 'Grant',
     columns: {
@@ -1426,7 +1437,8 @@ export const validateBackgroundSection = (form = {}) => {
     result.values.graduatingClassSize = '';
     delete result.errors.graduatingClassSize;
   }
-  if (grantListActive && !result.values.previousGrants.length && !result.errors.previousGrants) {
+  // An explicit "No" is a complete answer, so an open list never demands a row.
+  if (grantListActive && !answeredNo && !result.values.previousGrants.length && !result.errors.previousGrants) {
     result.errors.previousGrants = 'Add the grant you applied for or received, or answer No to the financial aid question.';
   }
   return result;
@@ -1578,6 +1590,11 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     // and an incoming first-year are never asked for one.
     if (requiresStudentNumber(profile)) add('application', 'studentNumber', 'AdDU student number', 'academic', !validateStudentNumber(profile.studentNumber).error);
     add('application', 'degreeProgram', standing.isIncomingFirstYear ? 'Program to be enrolled' : 'Degree program', 'academic', !isBlank(profile.degreeProgram));
+    // An incoming first-year ranks a 2nd and 3rd program choice behind the first.
+    if (standing.requiresProgramChoices) {
+      add('application', 'programChoice2', '2nd choice program', 'academic', !isBlank(profile.programChoice2));
+      add('application', 'programChoice3', '3rd choice program', 'academic', !isBlank(profile.programChoice3));
+    }
     add('application', 'academicStanding', 'Academic standing', 'academic', academicStandingOptions.some((option) => option.value === profile.academicStanding));
     if (standing.requiresQpi) add('application', 'qpi', 'Annual QPI', 'academic', !validateQpi(profile.qpi).error);
     if (standing.requiresHsStanding) add('application', 'hsAverage', 'Senior high school general average', 'academic', !isBlank(profile.hsAverage) && !validateOptionalInteger(profile.hsAverage, HS_AVERAGE_RULE).error);

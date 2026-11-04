@@ -27,7 +27,7 @@ describe('My Profile academic profile', () => {
     expect(html).not.toContain('Choose year standing');
     // A ranked list belongs to the incoming first-year, and so do the senior high
     // school answers.
-    expect(html).toContain('Ranked program choices');
+    expect(html).toContain('2nd choice program');
     expect(html).toContain('Senior high school strand');
     expect(html).toContain('Senior high school last attended');
   });
@@ -37,7 +37,7 @@ describe('My Profile academic profile', () => {
     expect(html).toContain('Year standing');
     expect(html).toContain('Incoming 2nd year');
     expect(html).not.toContain('Incoming 1st year');
-    expect(html).not.toContain('Ranked program choices');
+    expect(html).not.toContain('2nd choice program');
     expect(html).toContain('AdDU student number');
   });
 

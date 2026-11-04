@@ -1,8 +1,8 @@
-import { getApplicationStatusGuidance } from './constants';
+import { getApplicationStatusGuidance, getStudentApplicationStatusLabel } from './constants';
 import { getScholarshipGuideCards } from './scholarshipGuide';
 import { ADMISSIONS_OFFICE_HOURS, normalizeSupportMessageBody } from './supportMessages';
 
-const SENSITIVE_TERMS = /\b(appeal|why (?:was|were) i rejected|why did you reject|why (?:was|were) my (?:application|document|file) rejected|rejection reason|reason (?:for|why) (?:my )?(?:application )?rejection|why was (?:my )?application not accepted|deliberation reason|financial hardship|emergency|another student|someone else's|other applicant)\b/i;
+const SENSITIVE_TERMS = /\b(appeal|why (?:was|were) i rejected|why did you reject|why (?:was|were) my (?:application|document|file) rejected|rejection reason|reason (?:for|why) (?:my )?(?:application )?rejection|why was (?:my )?application not accepted|why (?:was|am) i waitlisted|waitlist (?:position|rank|number)|what number (?:am i )?on the waitlist|deliberation reason|financial hardship|emergency|another student|someone else's|other applicant)\b/i;
 const VERDICT_TERMS = /\b(am i eligible|do i qualify|will i get|will i receive|will i be approved|guarantee(d)?)\b/i;
 
 export const SUPPORT_QUICK_REPLIES = [
@@ -66,7 +66,8 @@ export const buildAssistantKnowledge = ({ scholarships = [], applications = [], 
     tracks,
     applications: applications.map((application) => ({
       title: application.scholarshipTitle || application.scholarshipName || 'Scholarship application',
-      status: application.status,
+      // The student's own label: "Accepted" / "Not accepted", never the stored word.
+      status: getStudentApplicationStatusLabel(application.status),
       guidance: getApplicationStatusGuidance(application.status),
       interview: application.interview || null,
       documents: (application.attachedDocuments || []).map((entry) => {

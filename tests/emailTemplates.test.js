@@ -208,11 +208,26 @@ describe('describeApplicationStatusUpdate', () => {
       .toBe('Your application status was updated to Interview through the Admissions Office. Sign in to review the next steps.');
   });
 
-  it('describes the endorsement phase for the stored Endorsed status', () => {
+  it('describes the For Interview stage for the stored Endorsed status', () => {
     const message = describeApplicationStatusUpdate('Endorsed', 'the Office of Admissions & Aid');
-    expect(message).toContain('endorsement phase');
-    expect(message).toContain('Office of Admissions & Aid');
-    expect(message).toContain('interview');
+    expect(message).toContain('now for interview');
+    expect(message).toContain('interviewer from your school');
+    expect(message).not.toContain('endorsement');
+  });
+
+  it('asks an accepted applicant to confirm by the release date', () => {
+    const message = describeApplicationStatusUpdate('Released', 'the Admissions Office Admin', { release: { confirmBy: '2026-11-20' } });
+    expect(message).toContain('accepted');
+    expect(message).toContain('confirm or decline');
+    expect(message).toContain('2026');
+    expect(describeApplicationStatusUpdate('Released', 'x', { release: { promoted: true } })).toContain('waitlist');
+  });
+
+  it('never prints the stored Rejected status in a student email', () => {
+    const email = renderApplicationStatusEmail({ subject: 'Scholarship results: GIA', body: 'Letter', scholarshipTitle: 'GIA', status: 'Rejected', siteUrl: 'https://example.test' });
+    expect(email.html).not.toMatch(/rejected/i);
+    expect(email.text).not.toMatch(/rejected/i);
+    expect(email.text).toContain('Not accepted');
   });
 
   it('describes the hand-off for endorsement without naming the Department Chair', () => {

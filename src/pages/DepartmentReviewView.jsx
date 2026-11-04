@@ -3,18 +3,21 @@ import { CalendarClock, CheckCircle2, ClipboardCheck, Layers, SendHorizontal, Us
 import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isInterviewerRole } from '../lib/reviewScope';
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getActorRoleLabel, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { downloadApplicantSummary, getApplicantSummaryFileName } from '../lib/admissionsOffice';
 import { getLatestPanelRecommendation } from '../lib/interview';
+import { getGrantAmountForApplication } from '../lib/grantAmount';
 import { fmtCurrency, fmtDate, plural } from '../lib/formatters';
 
 const queueTone = (status) => {
   if (['Approved', 'Released'].includes(status)) return 'success';
   if (status === 'Rejected') return 'danger';
-  if (['For Verification', 'Endorsed', 'Recommended'].includes(status)) return 'warning';
+  if (status === 'Declined') return 'neutral';
+  if (['For Verification', 'Endorsed', 'Recommended', 'Waitlisted'].includes(status)) return 'warning';
   return 'info';
 };
 
@@ -32,6 +35,7 @@ export default function DepartmentReviewView({
   reviewComments = [],
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onApproveApplication,
   onRecordDeliberation,
   onAddComment,
@@ -54,9 +58,13 @@ export default function DepartmentReviewView({
   const awaitingApproval = isInterviewer ? [] : queue.filter((entry) => (
     entry.status === 'Recommended' && stageContextFor(entry).isApprover
   ));
-  const decidedInScope = queue.filter((entry) => ['Recommended', 'Approved', 'Released'].includes(entry.status));
+  const decidedInScope = queue.filter((entry) => ['Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
   const programIndex = buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []);
+  // After a stage move the case's row in the work lists glows, or a notice says
+  // where it went. The all-applications list is left out: it always holds the
+  // case, so pointing there would scroll the page away from the work.
+  const moved = useMovedCase([...awaitingInterview, ...inInterview, ...awaitingApproval].map((entry) => entry.id));
 
   const openCase = (entry, tab = null) => {
     setReviewTab(tab);
@@ -74,9 +82,10 @@ export default function DepartmentReviewView({
   const exportSummary = () => downloadApplicantSummary(decidedInScope, {
     scopeOf: (entry) => getApplicationScope(entry, programIndex),
     recommendationOf: (entry) => getLatestPanelRecommendation(notesFor(entry.id)),
+    grantOf: (entry) => getGrantAmountForApplication(interviewWorkspace?.grantAmounts, entry.id),
     source: {
       origin: `${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace › Recommendations`,
-      contents: 'Every recommended, approved, and released application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',
+      contents: 'Every recommended, approved, waitlisted, released, and declined application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',
       exportedBy: `${profile.fullName ? `${profile.fullName}, ` : ''}${getActorRoleLabel(role)}${getReviewScopeLabel(profile) ? ` (${getReviewScopeLabel(profile)})` : ''}`,
     },
   }, getApplicantSummaryFileName(getReviewScopeLabel(profile) || 'scope', 'recommendations'));
@@ -85,7 +94,7 @@ export default function DepartmentReviewView({
     const onPanel = panelApplicationIds.has(entry.id);
     const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
     return (
-      <article key={entry.id} className={getCaseCardClass('warning')}>
+      <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
           <div className="min-w-0 w-full">
             <h3 className="truncate">{entry.studentName}</h3>
@@ -152,6 +161,8 @@ export default function DepartmentReviewView({
         )}
       </AdminPageHeader>
 
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It stays listed under All applications in your scope." />
+
       <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
         <StatCard icon={UserCheck} tone="info" label="Interviews on your panel" value={panelInterviews.length} />
@@ -170,7 +181,7 @@ export default function DepartmentReviewView({
             {awaitingApproval.length ? awaitingApproval.map((entry) => {
               const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
               return (
-                <article key={entry.id} className={getCaseCardClass('warning')}>
+                <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
                     <div className="min-w-0 w-full">
                       <h3 className="truncate">{entry.studentName}</h3>
@@ -244,9 +255,10 @@ export default function DepartmentReviewView({
           initialTab={reviewTab}
           reviewComments={reviewComments}
           onAddComment={onAddComment}
-          onClose={() => { setSelectedId(null); setReviewTab(null); }}
+          onClose={(result) => { setSelectedId(null); setReviewTab(null); moved.handleClose(result); }}
           onStatusChange={handleStatusChange}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onRecordDeliberation={onRecordDeliberation}
           interviewWorkspace={interviewWorkspace}
         />

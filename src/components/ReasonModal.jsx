@@ -23,6 +23,8 @@ export default function ReasonModal({
   notesHint = '',
   confirmLabel = 'Confirm',
   confirmVariant = 'danger',
+  // A free-text note that may be left blank (the waitlist note).
+  optional = false,
   onConfirm,
   onClose,
 }) {
@@ -53,7 +55,7 @@ export default function ReasonModal({
       }
       value = notesRequired ? trimmed : [selected.label, trimmed].filter(Boolean).join(' — ');
     } else {
-      if (!trimmed) {
+      if (!trimmed && !optional) {
         setError('A reason is required before this action can be recorded.');
         return;
       }
@@ -104,7 +106,7 @@ export default function ReasonModal({
           </>
         ) : (
           <label className="grid gap-2 text-sm text-app-text">
-            <span className="font-semibold">{label}</span>
+            <span className="font-semibold">{label}{optional ? ' (optional)' : ''}</span>
             <textarea
               rows="3"
               value={reason}

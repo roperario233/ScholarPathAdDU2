@@ -616,7 +616,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 // Verified. Manuscript Section 3.3.3: an application linked to a Pending or
 // Rejected document cannot proceed to interview or subcommittee evaluation, so
 // the endorsement and every later stage are blocked. Rejection is always allowed.
-export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released'];
 export const ENDORSEMENT_BLOCKED_STATUSES = ENDORSEMENT_STAGE_STATUSES;
 
 // SOP step 4 (endorsement) starts when the Admissions Office Staff hand the case
@@ -642,7 +642,7 @@ export const areDocumentsReviewable = (status) => {
 // surface gates on this; the verification queue and its metrics use
 // `areDocumentsReviewable` alone, since no document decision is pending there.
 export const areApplicationDocumentsVisible = (status) => (
-  status === 'Rejected' || areDocumentsReviewable(status)
+  status === 'Rejected' || status === 'Declined' || areDocumentsReviewable(status)
 );
 
 // The vault files attached to an application, resolved against the loaded
@@ -939,11 +939,19 @@ export const getProfileSnapshotSections = (snapshot) => {
     rows: [
       printedName ? row('Name of applicant (Last, First, Middle)', printedName) : row('Name', snapshot.fullName),
       ...(snapshot.studentNumber ? [row('Student number', snapshot.studentNumber)] : []),
-      row('Program', snapshot.degreeProgram),
+      // An incoming first-year ranks three programs, and the degree program is the first.
+      row(snapshot.yearStanding === 'incoming-1st' ? '1st choice Program' : 'Program', snapshot.degreeProgram),
       row('Year standing', snapshot.yearStandingLabel),
       row(academic.label || 'Academic record', academicValue, academic.verification),
       row('Household income', snapshot.householdIncome?.value == null ? '' : fmtCurrency(snapshot.householdIncome.value), snapshot.householdIncome?.verification),
       row('Citizenship', snapshot.citizenship?.value, snapshot.citizenship?.verification),
+      // The contact details stay in the always-open group so a reviewer never has
+      // to unfold "Personal and address" to reach the applicant. A snapshot frozen
+      // before they were recorded shows a blank row.
+      ...(snapshot.version ? [
+        row('Email address', snapshot.personal?.email),
+        row('Contact number', snapshot.personal?.phone),
+      ] : []),
     ],
   }];
   if (!snapshot.version) return { legacy: true, sections };
@@ -996,8 +1004,6 @@ export const getProfileSnapshotSections = (snapshot) => {
         ] : []),
         row('Civil status', optionLabel(civilStatusOptions, personal.civilStatus)),
         row('Religion', [optionLabel(religionOptions, personal.religion), personal.religionOther].filter(Boolean).join(' · ')),
-        ...(personal.email ? [row('Email address', personal.email)] : []),
-        ...(personal.phone ? [row('Contact number', personal.phone)] : []),
         row('Complete address', address.completeAddress, address.verification?.completeAddress),
         row('Residing address', address.residingAddress, address.verification?.residingAddress),
         ...(snapshot.version >= 3 && address.housingType

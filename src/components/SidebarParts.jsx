@@ -82,21 +82,18 @@ export function SidebarNav({ items, activeView, onNavigate, className = '' }) {
 // name is its role label shows no pill).
 export function SidebarProfile({ avatarUrl, name, roleLine = '', detailLine = '' }) {
   return (
-    <div className="relative flex items-center gap-2.5 overflow-hidden rounded-2xl border border-app-border bg-gradient-to-br from-blue-500/15 via-blue-500/5 to-transparent p-2.5">
-      <ProfileAvatar src={avatarUrl} name={name} size="lg" rounded="rounded-xl" className="!h-11 !w-11 !text-base ring-2 ring-blue-500/25" />
-      <div className="min-w-0 flex-1">
-        <h2 className="m-0 text-sm font-bold leading-snug text-app-text [overflow-wrap:anywhere]">{name}</h2>
-        {roleLine || detailLine ? (
-          // One row for the role pill and the department, so the card stays two
-          // lines tall under a long name; the full department is in the tooltip.
-          <div className="mt-1 flex min-w-0 items-center gap-1.5">
-            {roleLine ? (
-              <span className="shrink-0 rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[0.65rem] font-bold leading-tight text-blue-700 dark:text-blue-200">{roleLine}</span>
-            ) : null}
-            {detailLine ? <span className="min-w-0 truncate text-[0.7rem] text-app-muted" title={detailLine}>{detailLine}</span> : null}
-          </div>
-        ) : null}
+    <div className="relative grid gap-2 overflow-hidden rounded-2xl border border-app-border bg-gradient-to-br from-blue-500/15 via-blue-500/5 to-transparent p-2.5">
+      <div className="flex items-center gap-2.5">
+        <ProfileAvatar src={avatarUrl} name={name} size="lg" rounded="rounded-xl" className="!h-10 !w-10 shrink-0 !text-sm ring-2 ring-blue-500/25" />
+        <div className="min-w-0 flex-1">
+          <h2 className="m-0 text-sm font-bold leading-snug text-app-text [overflow-wrap:anywhere]">{name}</h2>
+          {roleLine ? (
+            <span className="mt-1 inline-block rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[0.65rem] font-bold leading-tight text-blue-700 dark:text-blue-200">{roleLine}</span>
+          ) : null}
+        </div>
       </div>
+      {/* The department takes the full card width and wraps instead of truncating. */}
+      {detailLine ? <p className="m-0 text-[0.7rem] leading-snug text-app-muted [overflow-wrap:anywhere]">{detailLine}</p> : null}
     </div>
   );
 }

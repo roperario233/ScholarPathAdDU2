@@ -370,11 +370,19 @@ const getStatusEventAt = (entry, status) => {
 const readRecommendation = (value) => (typeof value === 'string' ? { label: value } : value || {});
 
 // What the case came to, in words a finance reader does not need the SOP for. A
-// decided application stays "held" until its scholarship's results are released.
-const describeSummaryResult = (entry, releasedIds) => {
+// decided application stays "held" until its scholarship's results are released;
+// an accepted applicant's answer to the offer is part of the result.
+const describeSummaryResult = (entry, releasedIds, offer = null) => {
   const released = releasedIds.has(entry.id);
-  if (entry.status === 'Released') return { text: 'Accepted — released', style: 'good' };
+  if (entry.status === 'Released') {
+    if (offer?.response === 'confirmed') return { text: 'Accepted — confirmed', style: 'good' };
+    return { text: offer ? 'Accepted — awaiting confirmation' : 'Accepted — released', style: 'good' };
+  }
   if (entry.status === 'Approved') return { text: 'Approved — awaiting release', style: 'good' };
+  if (entry.status === 'Waitlisted') return { text: released ? 'Waitlisted — released' : 'Waitlisted — held until release', style: 'pending' };
+  if (entry.status === 'Declined') {
+    return { text: offer ? 'Declined the offer' : 'Withdrew from the waitlist', style: 'bad' };
+  }
   if (entry.status === 'Rejected') return { text: released ? 'Not accepted — released' : 'Not accepted — held until release', style: 'bad' };
   if (entry.status === 'Recommended') return { text: 'Recommended — awaiting the school’s approval', style: 'pending' };
   return { text: `In progress — ${getApplicationStatusLabel(entry.status)}`, style: 'pending' };
@@ -402,9 +410,10 @@ const APPLICANT_SUMMARY_COLUMNS = [
   ['Student number', 15, (entry) => entry.profileSnapshot?.studentNumber || ''],
   ['Scholarship', 26, (entry) => entry.scholarshipTitle || ''],
   ['Result', 32, (entry, ctx) => {
-    const result = describeSummaryResult(entry, ctx.releasedIds);
+    const result = describeSummaryResult(entry, ctx.releasedIds, ctx.offer(entry));
     return { value: result.text, style: result.style };
   }],
+  ['Waitlist position', 11, (entry, ctx) => ({ value: entry.status === 'Waitlisted' ? numberOrNull(ctx.rank(entry)) : null, style: 'integer' })],
   ['Application stage', 18, (entry) => getApplicationStatusLabel(entry.status)],
   ['Interview recommendation', 24, (entry, ctx) => readRecommendation(ctx.recommendation(entry)).label || ''],
   ['Recommended by', 22, (entry, ctx) => readRecommendation(ctx.recommendation(entry)).authorName || ''],
@@ -426,11 +435,16 @@ const APPLICANT_SUMMARY_COLUMNS = [
   ['School decision on', 13, (entry) => dateCell(getStatusEventAt(entry, 'Approved') || getStatusEventAt(entry, 'Rejected'))],
   ['Released on', 13, (entry, ctx) => dateCell(getStatusEventAt(entry, 'Released') || (ctx.releasedIds.has(entry.id) ? ctx.releasedAt : null))],
   ['Release reference', 20, (entry) => entry.release?.reference || ''],
+  ['Confirm by', 13, (entry, ctx) => dateCell(ctx.offer(entry)?.confirmBy)],
+  ['Offer answered on', 13, (entry, ctx) => dateCell(ctx.offer(entry)?.respondedAt)],
+  ['Grant coverage (% of tuition)', 16, (entry, ctx) => ({ value: numberOrNull(ctx.grant(entry).coveragePercent), style: 'number' })],
+  ['Grant amount per semester (PHP)', 18, (entry, ctx) => ({ value: numberOrNull(ctx.grant(entry).amountPerSemester), style: 'number' })],
 ];
 
 const COLUMN_NOTES = {
   Result: 'What the case came to. A decided application is held until the Admissions Office Admin releases its scholarship’s results; students see “Under deliberation” until then.',
-  'Application stage': 'The workflow stage as the app shows it (For Interview is the stage after document verification).',
+  'Waitlist position': 'The order the Admissions Office Admin offers a slot that opens. Staff-only; a waitlisted student never sees a position.',
+  'Application stage': 'The workflow stage as the app shows it (For Interview is the stage after document verification; Not accepted is stored as Rejected).',
   'Interview recommendation': 'The latest recommendation level recorded by the interview panel. Staff-only; students never see it.',
   'Recommended by': 'The panel member who recorded that recommendation.',
   School: 'School, Cluster, Department, and Program are resolved from the applicant’s degree program.',
@@ -440,16 +454,24 @@ const COLUMN_NOTES = {
   'Recommended on': 'Manila date the interview panel’s recommendation was sent to the school.',
   'School decision on': 'Manila date the approving level approved or did not accept the case.',
   'Released on': 'Manila date the scholarship’s results were released.',
+  'Confirm by': 'The date an accepted applicant was asked to confirm or decline the award by.',
+  'Offer answered on': 'Manila date the accepted applicant confirmed or declined, in ScholarPath or as recorded by the Admissions Office.',
+  'Grant coverage (% of tuition)': 'The coverage percent the approving level or the Admissions Office Admin recorded. N/A when no grant amount is recorded yet. A recorded figure, never a disbursement.',
+  'Grant amount per semester (PHP)': 'The peso amount per semester recorded with the grant. N/A when none is recorded. A recorded figure, never a disbursement.',
 };
 
 const summaryCountsLine = (list, releasedIds) => {
   const accepted = list.filter((entry) => ['Approved', 'Released'].includes(entry.status)).length;
+  const waitlisted = list.filter((entry) => entry.status === 'Waitlisted').length;
+  const declined = list.filter((entry) => entry.status === 'Declined').length;
   const notAccepted = list.filter((entry) => entry.status === 'Rejected').length;
-  const inProgress = list.length - accepted - notAccepted;
+  const inProgress = list.length - accepted - waitlisted - declined - notAccepted;
   const released = list.filter((entry) => releasedIds.has(entry.id) || entry.status === 'Released').length;
   return [
     `${list.length} applicant${list.length === 1 ? '' : 's'}`,
     accepted ? `${accepted} accepted` : '',
+    waitlisted ? `${waitlisted} waitlisted` : '',
+    declined ? `${declined} declined` : '',
     notAccepted ? `${notAccepted} not accepted` : '',
     inProgress ? `${inProgress} awaiting a decision` : '',
     released ? `${released} released` : '',
@@ -461,12 +483,17 @@ const summaryCountsLine = (list, releasedIds) => {
 //     contents: 'Every application covered by this release',
 //     scholarship, releasedAt, releasedIds, exportedBy, now }
 // Every field is optional; a missing line is left out of the header block.
-export const buildApplicantSummarySheets = (applications = [], { scopeOf, recommendationOf, source = {} } = {}) => {
+// `grantOf(entry)` returns the recorded grant amount row (or null); a case with
+// none reads N/A in the two grant columns.
+export const buildApplicantSummarySheets = (applications = [], { scopeOf, recommendationOf, grantOf, offerOf, rankOf, source = {} } = {}) => {
   const list = asList(applications);
   const releasedIds = source.releasedIds instanceof Set ? source.releasedIds : new Set(asList(source.releasedIds));
   const ctx = {
+    grant: (entry) => (typeof grantOf === 'function' ? grantOf(entry) : null) || {},
     scope: (entry) => (typeof scopeOf === 'function' ? scopeOf(entry) : null) || {},
     recommendation: (entry) => (typeof recommendationOf === 'function' ? recommendationOf(entry) : null) || {},
+    offer: (entry) => (typeof offerOf === 'function' ? offerOf(entry) : null) || null,
+    rank: (entry) => (typeof rankOf === 'function' ? rankOf(entry) : null),
     releasedIds,
     releasedAt: source.releasedAt || null,
   };
@@ -575,7 +602,7 @@ export const getFinalCheckHints = (application, applications = []) => {
     : [];
   const pendingCases = list.filter((entry) => (
     entry.studentId === application?.studentId
-    && !['Draft', 'Released', 'Rejected'].includes(entry.status)
+    && !['Draft', 'Released', 'Declined', 'Rejected'].includes(entry.status)
   ));
   return { siblingsOnGrant, pendingCases, selfDeclaredSibling: Boolean(application?.profileSnapshot?.eligibility?.hasSiblingOnAid) };
 };

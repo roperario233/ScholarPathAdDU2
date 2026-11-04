@@ -7,7 +7,7 @@
  * HTML (table layouts, inline longhand styles, no images, no JavaScript)
  * alongside a plain-text alternative.
  */
-import { getApplicationStatusLabel } from './applicationStatus.js';
+import { getStudentApplicationStatusLabel } from './applicationStatus.js';
 import { describeInterviewForStudent, formatInterviewWhen, getInterviewModeLabel, isStructuredInterview, summarizeInterview } from './interview.js';
 
 // Ateneo blue visual identity, matching the app's theme primitives.
@@ -224,11 +224,13 @@ export const renderReminderEmail = ({ title, itemTitle, deadline, daysBefore, si
  * The next-step sentence used by the application status email and in-app row.
  * "For Verification" is the SOP document-verification stage, so it names the
  * office holding the files and tells the applicant when to expect the next
- * message instead of the generic "status changed" copy. "Endorsed" is stored as
- * the Office of Admissions & Aid decision but shown as the step-4 endorsement
- * phase.
+ * message instead of the generic "status changed" copy. "Endorsed" is shown as
+ * "For Interview": the Admin forwarded the verified case to the interviewers.
+ * "Released" is the acceptance and carries the date to confirm by
+ * (`release.confirmBy`); a case promoted from the waitlist says a slot opened.
+ * Every label is the student's own ("Accepted", "Not accepted").
  */
-export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office', { interview = null } = {}) => {
+export const describeApplicationStatusUpdate = (status, actorLabel = 'the reviewing office', { interview = null, release = null } = {}) => {
   if (status === 'For Verification') {
     return 'Your documents are now with the Admissions Office for verification. You will be notified when each file is verified or if a replacement is needed.';
   }
@@ -236,7 +238,7 @@ export const describeApplicationStatusUpdate = (status, actorLabel = 'the review
     return 'Your documents are verified and the Admissions Office has sent your application for endorsement. No action is needed from you right now.';
   }
   if (status === 'Endorsed') {
-    return 'Your application is in the endorsement phase: the Office of Admissions & Aid has endorsed it, and the Admissions Office will schedule your interview with a panel from your school next.';
+    return 'Your documents are verified and your application is now for interview. An interviewer from your school will schedule your interview next.';
   }
   // SOP step 5: the first schedule rides the status notification, so the
   // message carries the date, the mode, and the location or meeting link.
@@ -249,8 +251,27 @@ export const describeApplicationStatusUpdate = (status, actorLabel = 'the review
   if (status === 'Rejected') {
     return 'Your application was not accepted. No further action is needed for this application period.';
   }
-  return `Your application status was updated to ${getApplicationStatusLabel(status)} through ${actorLabel}. Sign in to review the next steps.`;
+  if (status === 'Released') {
+    const opening = release?.promoted
+      ? 'A slot has opened and you have been accepted for this scholarship from the waitlist.'
+      : 'Congratulations, you have been accepted for this scholarship.';
+    const confirm = release?.confirmBy
+      ? ` Please confirm or decline the award in ScholarPath by ${formatDeadlineLabel(release.confirmBy)}.`
+      : ' Please confirm or decline the award in ScholarPath.';
+    return `${opening}${confirm}`;
+  }
+  if (status === 'Declined') {
+    return 'Your response was recorded: you declined this scholarship. No further action is needed.';
+  }
+  return `Your application status was updated to ${getStudentApplicationStatusLabel(status)} through ${actorLabel}. Sign in to review the next steps.`;
 };
+
+// The waitlist letter, sent with the release of the accepted and waitlisted
+// applicants (results_releases.kind = 'offers'). It never names a position: the
+// rank stays with the Admissions Office and can change.
+export const describeWaitlistLetter = ({ scholarshipTitle = '' } = {}) => (
+  `Thank you for applying for the ${scholarshipTitle || 'scholarship'}. Your application has been placed on the waitlist. You may still be offered this scholarship if a slot opens, and we will notify you if it does. If you no longer wish to be considered, you can withdraw from the waitlist in ScholarPath.`
+);
 
 // Consultation 2 (#8): applicants who were not accepted receive one general
 // letter when the scholarship's results are released, with no reason (the
@@ -278,7 +299,8 @@ const interviewRows = (interview) => {
  * Renders an application status-change email for the application workspace.
  */
 export const renderApplicationStatusEmail = ({ subject, body, scholarshipTitle, status, siteUrl, interview = null }) => {
-  const statusLabel = getApplicationStatusLabel(status);
+  // The student's own words: "Accepted", "Not accepted", never the stored value.
+  const statusLabel = getStudentApplicationStatusLabel(status);
   const heading = subject || `Application update: ${statusLabel}`;
   const intro = body || `Your application status was updated to ${statusLabel}.`;
   const link = `${siteUrl}?view=applications`;

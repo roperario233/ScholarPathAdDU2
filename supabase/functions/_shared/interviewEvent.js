@@ -187,6 +187,9 @@ const cancelAction = async ({ config, payload, application, supabase, fetchImpl,
   const storedEventId = String(interview?.calendar?.eventId || '').trim();
   const liveLedger = await readLiveLedger(supabase, applicationId);
   const ledgerEventId = String(liveLedger?.event_id || '').trim();
+  // A decision that closes the interview stage deletes silently (see
+  // cancelGoogleInterviewEvent); an explicit cancellation still emails everyone.
+  const notifyAttendees = payload?.notifyAttendees !== false;
 
   if (requestedEventId && storedEventId && storedEventId !== requestedEventId) {
     return jsonResult({ error: 'That calendar event does not belong to this application' }, 409);
@@ -215,7 +218,7 @@ const cancelAction = async ({ config, payload, application, supabase, fetchImpl,
 
   const failed = [];
   for (const target of targets) {
-    const result = await cancelGoogleInterviewEvent({ config, accessToken, eventId: target, fetchImpl });
+    const result = await cancelGoogleInterviewEvent({ config, accessToken, eventId: target, notifyAttendees, fetchImpl });
     if (result.ok) {
       await writeLedger(supabase, {
         application_id: applicationId,

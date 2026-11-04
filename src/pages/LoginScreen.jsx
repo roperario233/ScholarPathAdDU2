@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search, Sun } from 'lucide-react';
-import bgImage from '../../pictures/picture1.png';
+import bgImage from '../../pictures/background.jpg';
 import logoImage from '../../pictures/logo.png';
 import { signInWithGoogle } from '../lib/auth';
 import { clearPendingSessionStart, markPendingSessionStart } from '../lib/sessionTimeout';

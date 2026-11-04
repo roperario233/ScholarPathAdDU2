@@ -47,6 +47,14 @@ import {
 import { checkAdduInternalGate } from '../src/lib/eligibility';
 
 const programs = [{ value: 'BS Information Technology', label: 'BS Information Technology', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' }];
+// An incoming first-year ranks a 1st, 2nd, and 3rd choice, so the validators need
+// three distinct programs to pick from.
+const rankedPrograms = [
+  ...programs,
+  { value: 'BS Computer Science', label: 'BS Computer Science', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' },
+  { value: 'BS Information Systems', label: 'BS Information Systems', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' },
+];
+const rankedChoices = { programChoice2: 'BS Computer Science', programChoice3: 'BS Information Systems' };
 
 // Minimal fixtures for the completeness tests. They replace the demo-user
 // records that were removed along with demo mode.
@@ -342,8 +350,12 @@ describe('section validators', () => {
       hsStrand: 'STEM',
       schoolLastAttended: { name: 'Davao SHS', city: 'Davao City', province: 'Davao del Sur' },
     };
-    const incoming = validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, programs);
+    const incoming = validateAcademicSection({ ...base, ...rankedChoices, studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, rankedPrograms);
     expect(incoming.errors).toEqual({});
+    // An incoming first-year must rank a 2nd and 3rd choice; no one else is asked.
+    const unranked = validateAcademicSection({ ...base, studentNumber: '', yearStanding: 'incoming-1st', hsStrand: 'STEM', hsAverage: '94', qpi: '' }, rankedPrograms);
+    expect(unranked.errors.programChoice2).toBeTruthy();
+    expect(unranked.errors.programChoice3).toBeTruthy();
     expect(incoming.values).toMatchObject({ yearStanding: 'incoming-1st', applicantType: 'first-year', yearLevel: 1, qpi: '' });
 
     const continuing = validateAcademicSection({ ...base, studentNumber: '2023001', yearStanding: '3rd', qpi: '3.1' }, programs);
@@ -481,6 +493,8 @@ describe('section validators', () => {
     expect(isGrantListActive({ hasSiblingOnAid: true })).toBe(false);
     // A saved row keeps the list open, so a recorded grant never becomes unreachable.
     expect(isGrantListActive({ previousGrants: [{ name: 'CHED' }] })).toBe(true);
+    // An explicit No hides the list even though rows remain in the draft.
+    expect(isGrantListActive({ previousGrantsAnswered: 'No', previousGrants: [{ name: 'CHED' }] })).toBe(false);
   });
 
   it('requires at least one grant while the list is open', () => {
@@ -495,6 +509,17 @@ describe('section validators', () => {
     });
     expect(completed.errors).toEqual({});
     expect(completed.values.previousGrants).toEqual([{ type: 'Government', name: 'CHED', level: '', status: 'accepted', institution: 'CHED', amount: 12000 }]);
+  });
+
+  it('keeps a visible grant row when "No" is answered but an aid toggle holds the list open', () => {
+    const row = { type: 'Government', name: 'CHED', level: 'Senior high school', status: 'accepted', institution: 'School', amount: '132' };
+    const base = { citizenship: 'Filipino', householdIncome: '240000', previousGrantsAnswered: 'No' };
+    const kept = validateBackgroundSection({ ...base, hasActiveGovernmentGrant: true, previousGrants: [row] });
+    expect(kept.errors).toEqual({});
+    expect(kept.values.previousGrants).toHaveLength(1);
+    // An explicit No never demands a row, and without a toggle it still clears the list.
+    expect(validateBackgroundSection({ ...base, hasActiveGovernmentGrant: true, previousGrants: [] }).errors.previousGrants).toBeUndefined();
+    expect(validateBackgroundSection({ ...base, previousGrants: [row] }).values.previousGrants).toEqual([]);
   });
 
   it('never asks for a grant when no aid answer is on', () => {
@@ -681,7 +706,7 @@ describe('getProfileCompleteness', () => {
   });
 
   it('asks an incoming first-year for senior high school standing instead of a student number and QPI', () => {
-    const incoming = { ...completeStudent, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsStrand: '', hsAverage: '' };
+    const incoming = { ...completeStudent, ...rankedChoices, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsStrand: '', hsAverage: '' };
     const completeness = getProfileCompleteness(incoming, 'student');
     const keys = completeness.items.map((item) => item.key);
     // Items that do not apply are left out, not counted as done.
@@ -690,7 +715,11 @@ describe('getProfileCompleteness', () => {
     expect(keysOf(completeness, 'application')).toContain('hsAverage');
     expect(keysOf(completeness, 'application')).toContain('hsStrand');
     expect(completeness.items.find((item) => item.key === 'degreeProgram').label).toBe('Program to be enrolled');
+    expect(keysOf(completeness, 'application')).toEqual(expect.arrayContaining(['programChoice2', 'programChoice3']));
     expect(completeness.items.filter((item) => !item.done).map((item) => item.key)).toEqual(['hsAverage', 'hsStrand']);
+    // The 2nd and 3rd choices are asked of an incoming first-year only.
+    expect(getProfileCompleteness({ ...incoming, programChoice2: '', programChoice3: '' }, 'student').items.filter((item) => !item.done).map((item) => item.key)).toEqual(['programChoice2', 'programChoice3', 'hsAverage', 'hsStrand']);
+    expect(getProfileCompleteness(completeStudent, 'student').items.map((item) => item.key)).not.toContain('programChoice2');
 
     const filled = getProfileCompleteness({ ...incoming, hsStrand: 'STEM', hsAverage: 92 }, 'student');
     expect(filled.percent).toBe(100);
@@ -762,20 +791,23 @@ describe('validateOnboardingEssentials', () => {
     expect(ranked.errors.programChoice2).toBeTruthy();
 
     // A choice cannot repeat in a later slot either; three distinct programs pass.
-    const rankedPrograms = [...programs, { value: 'BS Computer Science', label: 'BS Computer Science', department: 'College of Computer Studies (CCS)', category: 'Computer Studies' }];
     expect(validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Computer Science', programChoice3: 'BS Computer Science' }, rankedPrograms).errors.programChoice3).toBeTruthy();
-    expect(validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Computer Science', programChoice3: '' }, rankedPrograms).errors).toEqual({});
 
-    const clean = validateOnboardingEssentials({ ...incoming, programChoice2: '', programChoice3: '' }, programs);
+    // Both ranked choices are required for an incoming first-year.
+    const missing = validateOnboardingEssentials({ ...incoming, programChoice2: 'BS Computer Science', programChoice3: '' }, rankedPrograms);
+    expect(missing.errors.programChoice3).toBeTruthy();
+    expect(validateOnboardingEssentials({ ...incoming, programChoice2: '', programChoice3: '' }, rankedPrograms).errors.programChoice2).toBeTruthy();
+
+    const clean = validateOnboardingEssentials({ ...incoming, ...rankedChoices }, rankedPrograms);
     expect(clean.errors).toEqual({});
-    expect(clean.values).toMatchObject({ programChoice2: '', programChoice3: '' });
+    expect(clean.values).toMatchObject(rankedChoices);
   });
 
   it('reuses the shared section rules for the essentials', () => {
     expect(validateOnboardingEssentials({ ...base, citizenship: '' }, programs).errors.citizenship).toBeTruthy();
     // An incoming first-year needs senior high school standing, not a QPI.
     expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '' }, programs).errors.hsAverage).toBeTruthy();
-    expect(validateOnboardingEssentials({ ...base, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, programs).errors).toEqual({});
+    expect(validateOnboardingEssentials({ ...base, ...rankedChoices, yearStanding: 'incoming-1st', qpi: '', hsStrand: 'STEM', hsAverage: '94' }, rankedPrograms).errors).toEqual({});
     expect(validateOnboardingEssentials({ ...base, householdIncome: '' }, programs).errors.householdIncome).toBeTruthy();
     // The mobile number is My Profile's contact number, so the first-login
     // essentials neither ask for it nor validate a value a caller passes along.
@@ -892,9 +924,11 @@ describe('getApplicationProfileGate', () => {
   });
 
   it('asks an incoming first-year for the senior high school average instead of a QPI', () => {
-    const gate = getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '' });
+    const gate = getApplicationProfileGate({ ...complete, ...rankedChoices, yearStanding: 'incoming-1st', studentNumber: '', qpi: '' });
     expect(gate.missing.map((item) => item.key)).toEqual(['hsAverage']);
-    expect(getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 91 }).allowed).toBe(true);
+    expect(getApplicationProfileGate({ ...complete, ...rankedChoices, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 91 }).allowed).toBe(true);
+    // The 2nd and 3rd program choices are needed to apply as an incoming first-year.
+    expect(getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 91 }).missing.map((item) => item.key)).toEqual(['programChoice2', 'programChoice3']);
   });
 });
 
@@ -950,7 +984,7 @@ describe('FORM 230-SCH core answers', () => {
       ['employed', 'background'],
       ['phone', 'personal'],
     ]);
-    const incoming = { ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, hsStrand: '' };
+    const incoming = { ...complete, ...rankedChoices, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, hsStrand: '' };
     expect(getApplicationProfileGate(incoming).missing.map((item) => [item.key, item.section])).toEqual([['hsStrand', 'academic']]);
     // A current Ateneo student is not asked for the strand; a transferee is.
     expect(getApplicationProfileGate({ ...complete, hsStrand: '' }).missing).toEqual([]);
@@ -962,7 +996,7 @@ describe('FORM 230-SCH core answers', () => {
     expect(getApplicationProfileGate(incomplete).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
     // A continuing student answers the printed form's school line too.
     expect(getApplicationProfileGate({ ...complete, schoolLastAttended: { name: 'Davao SHS', city: '', province: '' } }).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
-    expect(getApplicationProfileGate({ ...complete, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, schoolLastAttended: { name: '' } }).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
+    expect(getApplicationProfileGate({ ...complete, ...rankedChoices, yearStanding: 'incoming-1st', studentNumber: '', qpi: '', hsAverage: 90, schoolLastAttended: { name: '' } }).missing.map((item) => item.key)).toEqual(['schoolLastAttended']);
   });
 
   it('counts a deceased parent as answered and accepts a 0 income', () => {

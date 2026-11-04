@@ -459,10 +459,22 @@ export const buildInterviewRecord = ({ draft, previous = null, location = null, 
   };
 };
 
-export const buildCancelledInterview = ({ previous, actorId = null, reason = '', now = new Date() }) => {
+// `closure: 'stage-closed'` marks a cancellation made because a decision closed
+// the interview stage (the recommendation, or a Not accepted at Interview), not
+// because the interview itself was called off. The applicant is not told about
+// it — the outcome stays held until the results release — and their card reads
+// "Interview stage closed" instead of "Cancelled".
+export const INTERVIEW_STAGE_CLOSED = 'stage-closed';
+
+export const isInterviewStageClosed = (interview) => (
+  isStructuredInterview(interview) && interview.state === 'cancelled' && interview.closure === INTERVIEW_STAGE_CLOSED
+);
+
+export const buildCancelledInterview = ({ previous, actorId = null, reason = '', closure = null, now = new Date() }) => {
   const at = toDate(now).toISOString();
   return {
     ...previous,
+    ...(closure ? { closure } : {}),
     state: 'cancelled',
     revision: (Number(previous?.revision) || 1) + 1,
     history: [...(Array.isArray(previous?.history) ? previous.history : []), {
@@ -522,7 +534,9 @@ export const describeInterviewForStudent = (interview) => {
   return {
     legacy: false,
     state: interview.state,
-    stateLabel: getInterviewStateLabel(interview.state),
+    stateLabel: interview.state === 'cancelled' && interview.closure === INTERVIEW_STAGE_CLOSED
+      ? 'Interview stage closed'
+      : getInterviewStateLabel(interview.state),
     modeLabel: getInterviewModeLabel(interview.mode),
     when: formatInterviewWhen(interview.startsAt, interview.durationMinutes),
     where: interview.mode === 'online' ? 'Online meeting' : (interview.locationLabel || 'Location to be announced'),

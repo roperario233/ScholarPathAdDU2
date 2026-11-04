@@ -2,6 +2,7 @@ import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader'
 import { useState } from 'react';
 import { CalendarClock } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import { InterviewDayGroup, InterviewRosterRow } from '../components/InterviewRoster';
 import { Card, EmptyState, StatusBadge } from '../components/ui';
 import {
@@ -32,6 +33,7 @@ export default function DepartmentInterviewsView({
   reviewComments = [],
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onApproveApplication,
   onRecordDeliberation,
   onAddComment,
@@ -68,6 +70,8 @@ export default function DepartmentInterviewsView({
     return panelEntries.filter((entry) => !(entry.live && entry.state === 'scheduled'));
   })();
   const groups = groupInterviewsByDate(visibleEntries);
+  // After a stage move the case's row glows, or a notice says where it went.
+  const moved = useMovedCase(visibleEntries.map((entry) => entry.applicationId));
 
   return (
     <div className="grid content-start gap-5 self-start">
@@ -81,6 +85,8 @@ export default function DepartmentInterviewsView({
           {...getNextInterviewTile(panelUpcoming, { label: 'Next on your panel', emptyNote: 'Interviews you sit on appear here.' })}
         />
       </AdminPageHeader>
+
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} />
 
       <Card
         title="Interviews"
@@ -130,13 +136,14 @@ export default function DepartmentInterviewsView({
           initialTab="interview"
           reviewComments={reviewComments}
           onAddComment={onAddComment}
-          onClose={() => setSelectedId(null)}
+          onClose={(result) => { setSelectedId(null); moved.handleClose(result); }}
           onStatusChange={(applicationId, status, options) => (
             status === 'Approved' && onApproveApplication
               ? onApproveApplication(applicationId, options?.note)
               : onChangeApplication?.(applicationId, status, options)
           )}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onRecordDeliberation={onRecordDeliberation}
           interviewWorkspace={interviewWorkspace}
         />

@@ -173,6 +173,7 @@ export const SectionContinueContext = createContext(null);
 
 function SectionForm({ title, description, form, submitLabel = 'Save changes', children }) {
   const proceed = useContext(SectionContinueContext);
+  const showContinue = Boolean(proceed && (form.isDirty || proceed.next));
   return (
     <Card title={title}>
       {description && <p className="-mt-1 mb-5 text-sm text-app-muted">{description}</p>}
@@ -180,12 +181,14 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
         {children}
         <ProofImpactWarning warnings={form.proofWarnings} />
         <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-4">
-          <Button variant="primary" type="submit" disabled={!form.isDirty || form.isSaving}>
-            {form.isSaving ? 'Saving…' : submitLabel}
-          </Button>
+          {/* Where a continue action is offered it is the primary path and comes
+              first, so plain Save changes steps back to the quiet treatment.
+              Enter still submits through Save changes: the continue button is
+              type="button", so it is never the form's default button. */}
           {/* Unsaved input is saved first; a clean form simply steps to the next part. */}
-          {proceed && (form.isDirty || proceed.next) && (
+          {showContinue && (
             <Button
+              variant="primary"
               type="button"
               className="gap-2"
               disabled={form.isSaving}
@@ -195,6 +198,9 @@ function SectionForm({ title, description, form, submitLabel = 'Save changes', c
               <ArrowRight size={16} aria-hidden="true" />
             </Button>
           )}
+          <Button variant={showContinue ? 'secondary' : 'primary'} type="submit" disabled={!form.isDirty || form.isSaving}>
+            {form.isSaving ? 'Saving…' : submitLabel}
+          </Button>
           {form.isDirty && (
             <Button type="button" onClick={form.reset} disabled={form.isSaving}>Discard changes</Button>
           )}
@@ -1046,6 +1052,8 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
     isTransferee: values.isTransferee,
     studentNumber: values.studentNumber,
     degreeProgram: values.degreeProgram,
+    programChoice2: values.programChoice2,
+    programChoice3: values.programChoice3,
     academicStanding: values.academicStanding,
     qpi: values.qpi,
     hsStrand: values.hsStrand,
@@ -1113,24 +1121,39 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
         {needsStudentNumber && <FormField fieldKey="studentNumber" label="AdDU student number" hint="4–12 digits from your AdDU record." error={errors.studentNumber} required={need.has('studentNumber')}><input className={controlClass} value={values.studentNumber} onChange={(event) => update({ studentNumber: event.target.value.replace(/\D/g, '').slice(0, 12) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 1234567" aria-invalid={Boolean(errors.studentNumber)} /></FormField>}
       </div>
       <div className="grid gap-2" data-field="degreeProgram">
-        <SelectPicker label={standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} idPrefix="profile-degree-program" required={need.has('degreeProgram')} />
+        <SelectPicker label={standing.requiresProgramChoices ? '1st choice Program / Course (to be enrolled)' : standing.programLabel} value={values.degreeProgram} onChange={(value) => update({ degreeProgram: value }, ['programChoice2', 'programChoice3'])} options={choiceOptions.degreeProgram} error={errors.degreeProgram} placeholder="Choose program" idPrefix="profile-degree-program" required={need.has('degreeProgram')} />
       </div>
-      {selectedProgram && (
+      {/* The ranked choices sit with the 1st choice, so the three programs read as one
+          list; the school, cluster, and department below follow the 1st choice. */}
+      {standing.requiresProgramChoices && (
         <div className="grid gap-4 md:grid-cols-2">
-          <ReadOnlyField
-            label="School"
-            value={selectedProgram.school}
-            note="Updates with your degree program."
-            className={selectedProgram.cluster ? '' : 'md:col-span-2'}
-          />
-          {selectedProgram.cluster && <ReadOnlyField label="Cluster" value={selectedProgram.cluster} />}
-          <ReadOnlyField label="Academic department" value={selectedProgram.department} className="md:col-span-2" />
+          <SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} placeholder="Choose 2nd choice program" idPrefix="profile-program-choice-2" required={need.has('programChoice2')} />
+          <SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} placeholder="Choose 3rd choice program" idPrefix="profile-program-choice-3" required={need.has('programChoice3')} />
+          <small className="field-hint -mt-2 block md:col-span-2">List other programs you would take, in order of preference.</small>
+        </div>
+      )}
+      {selectedProgram && (
+        <div className="grid gap-3 rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3" data-field="programPlacement">
+          <p className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-app-muted">{standing.requiresProgramChoices ? 'Where your 1st choice sits' : 'Where your program sits'}</p>
+          <dl className={`m-0 grid gap-x-6 gap-y-3 ${selectedProgram.cluster ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+            <div className="min-w-0">
+              <dt className="text-xs text-app-muted">School</dt>
+              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.school}</dd>
+            </div>
+            {selectedProgram.cluster && (
+              <div className="min-w-0">
+                <dt className="text-xs text-app-muted">Cluster</dt>
+                <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.cluster}</dd>
+              </div>
+            )}
+            <div className="min-w-0">
+              <dt className="text-xs text-app-muted">Academic department</dt>
+              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.department}</dd>
+            </div>
+          </dl>
         </div>
       )}
       <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="note">{COURSE_SHIFT_REMINDER}</p>
-      {standing.requiresProgramChoices && (
-        <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface/60 p-4"><div><p className="m-0 text-sm font-semibold text-app-text">Ranked program choices</p><small className="field-hint mt-1 block">Each program can be chosen once.</small></div><div className="grid gap-3 md:grid-cols-2"><SelectPicker label="2nd choice program" value={values.programChoice2} onChange={(value) => update({ programChoice2: value }, ['programChoice3'])} options={choiceOptions.programChoice2} error={errors.programChoice2} idPrefix="profile-program-choice-2" /><SelectPicker label="3rd choice program" value={values.programChoice3} onChange={(value) => update({ programChoice3: value })} options={choiceOptions.programChoice3} error={errors.programChoice3} idPrefix="profile-program-choice-3" /></div></div>
-      )}
       <div className="grid gap-4 md:grid-cols-2">
         <SelectField fieldKey="academicStanding" label="Academic standing" value={values.academicStanding} onChange={(value) => update({ academicStanding: value })} options={academicStandingOptions} placeholder="Choose standing" error={errors.academicStanding} required={need.has('academicStanding')} labelAdornment={<AttributeVerification attributeKey="academicStanding" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {standing.requiresQpi && <FormField fieldKey="qpi" label="Annual QPI" hint="Self-reported; not Registrar-verified." error={errors.qpi} required={need.has('qpi')} labelAdornment={<AttributeVerification attributeKey="qpi" attributeVerifications={verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}><input className={controlClass} value={values.qpi} onChange={(event) => update({ qpi: event.target.value.replace(/[^\d.]/g, '').replace(/(\..*)\./g, '$1').slice(0, 4) })} inputMode="decimal" autoComplete="off" placeholder="e.g. 3.25" aria-invalid={Boolean(errors.qpi)} /></FormField>}
@@ -1256,14 +1279,14 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       </div>
       <fieldset data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid" className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
-        <small className="field-hint block">The three toggles are exclusion rules the Smart Eligibility Checker reads, and any of them (or a Yes above) opens the grant list below. A sibling on AdDU financial aid is about your sibling, not about you.</small>
+        <small className="field-hint block">The government grant, other scholarship, and prepaid plan toggles are exclusion rules the Smart Eligibility Checker reads, and any of them (or a Yes above) opens the grant list below. A sibling on AdDU financial aid does not stop you from applying: the office considers it when it decides.</small>
         <div className="grid gap-4 md:grid-cols-2">
           <SelectField
             fieldKey="previousGrantsAnswered"
             label="Did you enjoy financial aid in senior high school, or apply for or receive a grant?"
             hint="Needed to apply. Answer Yes to list each grant below."
             value={values.previousGrantsAnswered}
-            onChange={(value) => update(value === 'No' ? { previousGrantsAnswered: value, previousGrants: [] } : { previousGrantsAnswered: value })}
+            onChange={(value) => update({ previousGrantsAnswered: value })}
             options={grantHistoryOptions}
             error={errors.previousGrantsAnswered}
             required={need.has('previousGrantsAnswered')}
@@ -1273,7 +1296,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
           <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
           <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
           <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
-          <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
+          <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid. You can still apply; the office considers it in its decision." />
         </div>
       </fieldset>
       {grantListActive && (
@@ -1286,7 +1309,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
           </p>
           <RepeatableRows
             legend="Grant"
-            required={grantListActive && !values.previousGrants.length}
+            required={grantListActive && values.previousGrantsAnswered !== 'No' && !values.previousGrants.length}
             rows={values.previousGrants}
             max={MAX_GRANT_ROWS}
             addLabel="Add a grant applied for or received"

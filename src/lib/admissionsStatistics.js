@@ -163,7 +163,7 @@ export const filterStatisticsApplications = (applications = [], filters = {}, pr
 
 const decisionTime = (entry) => {
   const times = getStatusEntryTimes(entry);
-  const decided = [times.Approved, times.Rejected].filter((value) => value != null);
+  const decided = [times.Approved, times.Waitlisted, times.Rejected].filter((value) => value != null);
   return decided.length ? Math.min(...decided) : null;
 };
 
@@ -174,6 +174,10 @@ export const getHeadlineStats = (applications = []) => {
   const list = asList(applications).filter(isSubmittedApplication);
   const accepted = list.filter((entry) => ACCEPTED_STATUSES.includes(entry.status)).length;
   const notAccepted = list.filter((entry) => entry.status === 'Rejected').length;
+  // The waitlist and the declined offers are school decisions too; a declined
+  // offer was an acceptance the applicant turned down.
+  const waitlisted = list.filter((entry) => entry.status === 'Waitlisted').length;
+  const declined = list.filter((entry) => entry.status === 'Declined').length;
   const decisionDays = list
     .map((entry) => {
       const start = toTime(entry.submittedAt);
@@ -189,13 +193,15 @@ export const getHeadlineStats = (applications = []) => {
     released: list.filter((entry) => entry.status === 'Released').length,
     accepted,
     notAccepted,
-    decided: accepted + notAccepted,
-    acceptanceRate: ratio(accepted, accepted + notAccepted),
+    waitlisted,
+    declined,
+    decided: accepted + notAccepted + waitlisted + declined,
+    acceptanceRate: ratio(accepted, accepted + notAccepted + waitlisted + declined),
     medianDaysToDecision: percentile(decisionDays, 50),
   };
 };
 
-const CLOSED_STATUSES = ['Approved', 'Released', 'Rejected'];
+const CLOSED_STATUSES = ['Approved', 'Waitlisted', 'Released', 'Declined', 'Rejected'];
 
 // The Staff headline: where the volume sits, never how it was decided.
 export const getVolumeHeadlineStats = (applications = []) => {
@@ -215,7 +221,7 @@ export const getVolumeHeadlineStats = (applications = []) => {
 
 // The statuses in SOP order, for the "where every case stands now" bars. The
 // legacy `For Endorsement` hand-off only appears when a row still holds it.
-const DISTRIBUTION_ORDER = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
+const DISTRIBUTION_ORDER = ['Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined', 'Rejected'];
 
 // Without outcomes the three closing statuses fold into one "Closed" row, so the
 // spread never tells an approval from a rejection.
@@ -224,7 +230,7 @@ export const getStatusDistribution = (applications = [], { outcomes = true } = {
   const rows = DISTRIBUTION_ORDER
     .filter((status) => outcomes || !CLOSED_STATUSES.includes(status))
     .map((status) => ({ status, label: getApplicationStatusLabel(status), count: list.filter((entry) => entry.status === status).length }))
-    .filter((row) => row.count > 0 || row.status !== 'For Endorsement');
+    .filter((row) => row.count > 0 || !['For Endorsement', 'Waitlisted', 'Declined'].includes(row.status));
   if (outcomes) return rows;
   return [...rows, { status: 'Closed', label: 'Closed', count: list.filter((entry) => CLOSED_STATUSES.includes(entry.status)).length }];
 };
@@ -240,6 +246,7 @@ const MILESTONE_RANK = {
   Interview: 3,
   Recommended: 4,
   Approved: 5,
+  Waitlisted: 5,
   Released: 6,
 };
 
@@ -276,7 +283,7 @@ export const TURNAROUND_STEPS = [
   { key: 'verification', label: 'Document verification to forward for interview', from: ['For Verification'], to: ['Endorsed'] },
   { key: 'scheduling', label: 'Forward to interview scheduled', from: ['Endorsed'], to: ['Interview'] },
   { key: 'interview', label: 'Interview to panel recommendation', from: ['Interview'], to: ['Recommended'] },
-  { key: 'approval', label: 'Recommendation to school decision', from: ['Recommended'], to: ['Approved', 'Rejected'] },
+  { key: 'approval', label: 'Recommendation to school decision', from: ['Recommended'], to: ['Approved', 'Waitlisted', 'Rejected'] },
   { key: 'release', label: 'Approval to results release', from: ['Approved'], to: ['Released'] },
 ];
 
@@ -365,9 +372,11 @@ const summarize = (list, { outcomes = true } = {}) => {
   }
   const accepted = list.filter((entry) => ACCEPTED_STATUSES.includes(entry.status)).length;
   const notAccepted = list.filter((entry) => entry.status === 'Rejected').length;
+  // A waitlisted or declined case is decided but neither accepted nor Not accepted.
+  const otherDecided = list.filter((entry) => ['Waitlisted', 'Declined'].includes(entry.status)).length;
   return {
     applied: list.length,
-    inProgress: list.length - accepted - notAccepted,
+    inProgress: list.length - accepted - notAccepted - otherDecided,
     accepted,
     notAccepted,
     acceptanceRate: ratio(accepted, accepted + notAccepted),
@@ -500,18 +509,20 @@ export const getApproverStats = (applications = [], profile = {}, approvalLevels
   const decisionDays = mine
     .map((entry) => {
       const times = getStatusEntryTimes(entry);
-      const decided = [times.Approved, times.Rejected].filter((value) => value != null && times.Recommended != null && value >= times.Recommended);
+      const decided = [times.Approved, times.Waitlisted, times.Rejected].filter((value) => value != null && times.Recommended != null && value >= times.Recommended);
       return decided.length ? (Math.min(...decided) - times.Recommended) / DAY_MS : null;
     })
     .filter((value) => value != null);
   const withLevel = mine.map((entry) => ({ entry, recommendation: getLatestPanelRecommendation(notesByApplication.get(entry.id) || []) }));
   const approved = mine.filter((entry) => ACCEPTED_STATUSES.includes(entry.status)).length;
   const notAccepted = mine.filter((entry) => entry.status === 'Rejected').length;
+  const waitlisted = mine.filter((entry) => entry.status === 'Waitlisted').length;
   return {
     total: mine.length,
     awaiting: mine.filter((entry) => entry.status === 'Recommended').length,
     approved,
     notAccepted,
+    waitlisted,
     approvalRate: ratio(approved, approved + notAccepted),
     medianDaysToDecision: percentile(decisionDays, 50),
     byLevel: [...INTERVIEW_RECOMMENDATION_LEVELS, { value: '', label: 'No level recorded' }]
@@ -716,6 +727,8 @@ const headlineRows = (headline, outcomes) => (outcomes ? [
   ['Awaiting the school’s approval', intCell(headline.awaitingApproval)],
   ['Approved, awaiting release', intCell(headline.awaitingRelease)],
   ['Released (accepted)', intCell(headline.released)],
+  ['Waitlisted', intCell(headline.waitlisted)],
+  ['Declined by the applicant', intCell(headline.declined)],
   ['Not accepted', intCell(headline.notAccepted)],
   ['Acceptance rate (decided cases)', rateCell(headline.acceptanceRate)],
   ['Median days, submission to decision', daysCell(headline.medianDaysToDecision)],

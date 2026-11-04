@@ -2,6 +2,7 @@ import { CheckCircle2, ChevronDown, Clock, FilePlus2, Inbox, Search, UserCheck, 
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import FilterChips from '../../components/FilterChips';
 import OpenApplicationForStudentModal from '../../components/OpenApplicationForStudentModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
@@ -56,6 +57,7 @@ export default function AdminIntakePool({
   onPickUpApplication,
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onEndorseApplication,
   interviewWorkspace = null,
   onRecordDeliberation,
@@ -114,6 +116,8 @@ export default function AdminIntakePool({
     return days.length ? Math.max(...days) : null;
   }, [unclaimed, today]);
   const selected = applications.find((entry) => entry.id === selectedId);
+  // After a stage move the case's row glows, or a notice says where it went.
+  const moved = useMovedCase(visible.map((entry) => entry.id));
 
   const updateFilter = (patch) => {
     setFilters((previous) => ({ ...previous, ...patch }));
@@ -128,9 +132,10 @@ export default function AdminIntakePool({
     setReviewTab(null);
     setSelectedId(applicationId);
   };
-  const closeReview = () => {
+  const closeReview = (result) => {
     setSelectedId(null);
     setReviewTab(null);
+    moved.handleClose(result);
   };
 
   // Picking up runs the join before the modal opens, so a failed pickup reports
@@ -176,7 +181,7 @@ export default function AdminIntakePool({
     ));
     const routedTo = getRoutedInterviewers(entry, staffDirectory, programIndex);
     return (
-      <article key={entry.id} className={getCaseCardClass(days != null && days >= WAITING_THRESHOLD_DAYS ? 'warning' : getStatusTone(entry.status))}>
+      <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass(days != null && days >= WAITING_THRESHOLD_DAYS ? 'warning' : getStatusTone(entry.status))}>
         <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
           <div className="w-full min-w-0 flex-1">
             <h3>{entry.studentName}</h3>
@@ -231,6 +236,8 @@ export default function AdminIntakePool({
           <AdminHeaderTile icon={CheckCircle2} tone="success" label="Unclaimed" title="Nothing waiting" note="Every open case has an officer." />
         )}
       </AdminPageHeader>
+
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It no longer appears under these filters." />
 
       {openedNotice && (
         <div
@@ -501,6 +508,7 @@ export default function AdminIntakePool({
           onClose={closeReview}
           onStatusChange={onChangeApplication}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

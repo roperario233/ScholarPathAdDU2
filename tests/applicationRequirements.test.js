@@ -499,6 +499,13 @@ describe('profile snapshot sections', () => {
     expect(sections[0].rows.map((row) => row.label)).toEqual(['Name', 'Student number', 'Program', 'Year standing', 'Annual QPI', 'Household income', 'Citizenship']);
   });
 
+  it('names the degree program the 1st choice for an incoming first-year', () => {
+    const programLabel = (profile) => getProfileSnapshotSections(buildProfileSnapshot(profile)).sections[0].rows
+      .find((row) => row.value === profile.degreeProgram).label;
+    expect(programLabel(incomingProfile)).toBe('1st choice Program');
+    expect(programLabel(continuingProfile)).toBe('Program');
+  });
+
   it('is empty without a snapshot', () => {
     expect(getProfileSnapshotSections(null)).toEqual({ legacy: false, sections: [] });
   });
@@ -633,7 +640,7 @@ describe('document verification readiness for endorsement', () => {
   const doc = (id, verificationStatus) => ({ id, verificationStatus });
 
   it('flags the SOP stages that require every attached document verified', () => {
-    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released']);
+    expect(ENDORSEMENT_BLOCKED_STATUSES).toEqual(['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released']);
     expect(ENDORSEMENT_BLOCKED_STATUSES).not.toContain('Rejected');
   });
 

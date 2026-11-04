@@ -11,6 +11,7 @@
     --bg-veil: radial-gradient(circle at 8% 0%, rgba(37, 99, 235, 0.34), transparent 30%), radial-gradient(circle at 96% 8%, rgba(14, 165, 233, 0.22), transparent 26%), linear-gradient(145deg, rgba(6, 19, 43, 0.88) 0%, rgba(11, 29, 58, 0.88) 48%, rgba(7, 20, 38, 0.88) 100%);
     /* The top bar: a solid colour a step darker than the page. */
     --header-bg: #030a18;
+    --header-gradient: linear-gradient(100deg, #030a18 0%, #050f24 55%, #08183a 100%);
     --card: rgba(10, 28, 58, 0.88);
     --card-border: rgba(125, 182, 255, 0.24);
     --surface: rgba(20, 46, 88, 0.82);
@@ -42,6 +43,7 @@
     --bg-veil: radial-gradient(circle at 0% 0%, rgba(37, 99, 235, 0.14), transparent 30%), radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.12), transparent 28%), linear-gradient(180deg, rgba(245, 249, 255, 0.88) 0%, rgba(237, 244, 255, 0.88) 52%, rgba(248, 251, 255, 0.88) 100%);
     /* A step lighter than the page. */
     --header-bg: #fcfdff;
+    --header-gradient: linear-gradient(100deg, #fcfdff 0%, #f5f8ff 55%, #eaf1ff 100%);
     --card: rgba(255, 255, 255, 0.94);
     --card-border: rgba(30, 78, 140, 0.14);
     --surface: rgba(239, 246, 255, 0.92);

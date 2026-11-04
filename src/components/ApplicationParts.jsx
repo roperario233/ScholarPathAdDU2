@@ -12,7 +12,7 @@ import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { APPLICATION_REJECTION_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
+import { APPLICATION_REJECTION_NOTICE, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getStudentApplicationStatusLabel, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtDate } from '../lib/formatters';
 
@@ -30,19 +30,19 @@ import { fmtDate } from '../lib/formatters';
 // under a caption naming the position; the status badge beside the applicant
 // already names the current stage. The stage names stay in the markup for
 // assistive tech, so the list reads the same at every width.
-const STAGE_BAR_TONES = {
+export const STAGE_BAR_TONES = {
   done: 'bg-emerald-500',
   current: 'bg-sky-500 dark:bg-sky-400',
   upcoming: 'bg-app-border',
 };
 
-const STAGE_LABEL_TONES = {
+export const STAGE_LABEL_TONES = {
   done: 'font-semibold text-emerald-800 dark:text-emerald-300',
   current: 'font-bold text-app-text',
   upcoming: 'font-medium text-app-muted',
 };
 
-function StageIcon({ tone }) {
+export function StageIcon({ tone }) {
   const props = { size: 13, 'aria-hidden': 'true', className: 'hidden shrink-0 md:block' };
   if (tone === 'done') return <CheckCircle2 {...props} className={`${props.className} text-emerald-600 dark:text-emerald-400`} />;
   if (tone === 'current') return <CircleDot {...props} className={`${props.className} text-sky-600 dark:text-sky-300`} />;
@@ -72,7 +72,9 @@ export function SopStageTrack({ status }) {
               className="grid min-w-0 gap-1.5"
               title={label}
             >
-              <span className={`h-1.5 rounded-full ${STAGE_BAR_TONES[tone]}`} aria-hidden="true" />
+              {/* The colour eases, so a stage move visibly advances the track in
+                  the review modal header instead of snapping. */}
+              <span className={`h-1.5 rounded-full transition-colors duration-500 motion-reduce:transition-none ${STAGE_BAR_TONES[tone]}`} aria-hidden="true" />
               <span className="sr-only sm:not-sr-only sm:flex sm:min-w-0 sm:items-center sm:gap-1 text-[11px] leading-tight">
                 <StageIcon tone={tone} />
                 <span className={`min-w-0 sm:truncate ${STAGE_LABEL_TONES[tone]}`}>{label}</span>
@@ -132,16 +134,21 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
   // place. Document resubmission reasons are not affected — they tell the student
   // what to correct.
   const studentSurface = !showActorName;
-  const rejectionNote = (status, note) => (
-    studentSurface && status === 'Rejected' ? APPLICATION_REJECTION_NOTICE : note
-  );
+  // The waitlist note follows the same rule: the approver's reason is staff-only.
+  const rejectionNote = (status, note) => {
+    if (studentSurface && status === 'Rejected') return APPLICATION_REJECTION_NOTICE;
+    if (studentSurface && status === 'Waitlisted') return APPLICATION_WAITLIST_NOTICE;
+    return note;
+  };
+  // A student reads "Accepted" and "Not accepted", never the stored words.
+  const statusLabel = studentSurface ? getStudentApplicationStatusLabel : getApplicationStatusLabel;
   if (statusLog.length) {
     return (
       <>
         <ol className="m-0 grid gap-2 pl-5">
           {statusLog.map((event) => (
             <li key={event.id} className="text-sm text-app-muted">
-              <strong className="text-app-text">{event.fromStatus ? getApplicationStatusLabel(event.fromStatus) : 'New'} → {getApplicationStatusLabel(event.toStatus)}</strong>
+              <strong className="text-app-text">{event.fromStatus ? statusLabel(event.fromStatus) : 'New'} → {statusLabel(event.toStatus)}</strong>
               {event.reason ? <span> · {rejectionNote(event.toStatus, event.reason)}</span> : null}
               <span className="block text-xs">{describeStatusActor(event, showActorName)} · {fmtDate(event.at)}</span>
             </li>
@@ -156,7 +163,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
       <ol className="m-0 grid gap-2 pl-5">
         {timeline.map((event) => (
           <li key={event.id} className="text-sm text-app-muted">
-            <strong className="text-app-text">{getApplicationStatusLabel(event.stage)}</strong> · {rejectionNote(event.stage, event.note)}
+            <strong className="text-app-text">{statusLabel(event.stage)}</strong> · {rejectionNote(event.stage, event.note)}
             <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
           </li>
         ))}
@@ -214,16 +221,62 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
+  // A pick (vault file, device file, or camera photo) is only staged. Nothing is
+  // sent, and the reverted file is not swapped, until the student confirms.
+  const [staged, setStaged] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState('');
   const photoType = isPhotoDocumentType(uploadType)
     ? uploadType
     : documentTypes.length === 1 && isPhotoDocumentType(documentTypes[0]) ? documentTypes[0] : '';
 
-  const run = async (payload) => {
+  const stagedFile = staged?.file || null;
+  useEffect(() => {
+    if (!stagedFile || !stagedFile.type?.startsWith('image/')) {
+      setPreviewUrl('');
+      return undefined;
+    }
+    const url = URL.createObjectURL(stagedFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [stagedFile]);
+
+  const confirmReplacement = async () => {
+    if (!staged || busy) return;
     setBusy(true);
     setError('');
+    const payload = staged.file
+      ? { file: staged.file, documentType: staged.documentType }
+      : { documentId: staged.documentId };
     const result = await onReplace(doc.id, payload);
     setBusy(false);
     if (result?.error) setError(result.error);
+    else setStaged(null);
+  };
+
+  const cancelStaged = () => {
+    setStaged(null);
+    setError('');
+  };
+
+  const handleVaultPick = (event) => {
+    const candidate = candidates.find((entry) => entry.id === event.target.value);
+    if (!candidate) return;
+    setError('');
+    setStaged({
+      documentId: candidate.id,
+      name: candidate.title,
+      detail: `From your Document Vault · ${getDocumentStatusLabel(candidate.verificationStatus)} · ${fmtDate(candidate.uploadedAt)}`,
+    });
+  };
+
+  const stageFile = (file, documentType) => {
+    setError('');
+    setStaged({
+      file,
+      documentType,
+      name: file.name,
+      detail: `New upload as ${getDocumentTypeLabel(documentType)} · ${Math.max(1, Math.round(file.size / 1024))} KB · saved to your Document Vault`,
+    });
   };
 
   const handleFile = (event) => {
@@ -234,13 +287,13 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
       setError('Files must be 10 MB or smaller.');
       return;
     }
-    run({ file, documentType: uploadType });
+    stageFile(file, uploadType);
   };
 
-  // A replacement photo is normalized by the capture modal, then uploaded into
-  // the vault first (the same path as a file-picker replacement).
+  // A captured photo is normalized by the capture modal; it is then staged like
+  // any other pick and only uploaded into the vault on confirmation.
   const useCameraPhoto = (file) => {
-    run({ file, documentType: photoType });
+    stageFile(file, photoType);
     return { ok: true };
   };
 
@@ -254,15 +307,15 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
             <span className="whitespace-pre-line">{doc.rejectionReason}</span>
           </p>
         ) : null}
-        <p className="m-0 text-xs text-app-muted">Your application keeps its current status. The new file goes to verification.</p>
+        <p className="m-0 text-xs text-app-muted">Pick a replacement, then review it and confirm. Your application keeps its current status, and the new file goes to verification.</p>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="grid content-start gap-1 text-xs font-semibold text-app-muted">
           <span>Choose from your Document Vault</span>
           <select
-            value=""
+            value={staged?.documentId || ''}
             disabled={busy || !candidates.length}
-            onChange={(event) => { if (event.target.value) run({ documentId: event.target.value }); }}
+            onChange={handleVaultPick}
             aria-label={`Choose a replacement for ${doc.title}`}
           >
             <option value="">{candidates.length ? 'Select a file…' : 'No other matching files in your vault'}</option>
@@ -272,7 +325,7 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
           </select>
         </label>
         <div className="grid content-start gap-1 text-xs font-semibold text-app-muted">
-          <span>Or upload a corrected file</span>
+          <span>Or choose a corrected file from your device</span>
           <div className="flex min-w-0 flex-wrap gap-2">
             {documentTypes.length > 1 ? (
               <select className="min-w-0 flex-1" value={uploadType} onChange={(event) => setUploadType(event.target.value)} aria-label={`Document type for the replacement of ${doc.title}`} disabled={busy}>
@@ -285,13 +338,13 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
                   <Camera size={16} aria-hidden="true" /> Take photo
                 </Button>
                 <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-                  {busy ? 'Working...' : 'Upload photo'}
+                  Choose photo
                   <input type="file" accept={PHOTO_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
                 </label>
               </>
             ) : (
               <label className={`inline-flex min-h-10 cursor-pointer items-center justify-center rounded-xl border border-blue-500/35 bg-app-card px-4 py-2 text-sm font-semibold text-app-text transition hover:-translate-y-px focus-within:ring-4 focus-within:ring-blue-500/20 ${busy ? 'pointer-events-none opacity-60' : ''}`}>
-                {busy ? 'Working...' : 'Upload file'}
+                Choose file
                 <input type="file" accept={DOCUMENT_ACCEPT} className="sr-only" onChange={handleFile} disabled={busy} />
               </label>
             )}
@@ -299,6 +352,27 @@ export function RejectedDocumentReplacer({ doc, options, onReplace }) {
         </div>
       </div>
       {photoType ? <PhotoGuide documentType={photoType} defaultOpen /> : null}
+      {staged ? (
+        <div className="grid gap-3 rounded-xl border border-blue-500/35 bg-blue-500/10 p-3" role="group" aria-label={`Confirm the replacement for ${doc.title}`}>
+          <div className="flex min-w-0 items-center gap-3">
+            {previewUrl ? <img src={previewUrl} alt="" className="h-14 w-14 shrink-0 rounded-lg border border-app-border object-cover" /> : null}
+            <div className="grid min-w-0 gap-0.5">
+              <p className="m-0 text-xs font-semibold uppercase tracking-[0.08em] text-app-muted">Replacement ready to submit</p>
+              <p className="m-0 min-w-0 text-sm font-semibold text-app-text [overflow-wrap:anywhere]">{staged.name}</p>
+              <p className="m-0 text-xs text-app-muted">{staged.detail}</p>
+            </div>
+          </div>
+          <p className="m-0 text-xs text-app-muted">
+            This replaces “{doc.title}” on this application. You can pick a different file above until you confirm.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" onClick={confirmReplacement} disabled={busy}>
+              {busy ? 'Replacing…' : 'Replace document'}
+            </Button>
+            <Button type="button" variant="secondary" onClick={cancelStaged} disabled={busy}>Cancel</Button>
+          </div>
+        </div>
+      ) : null}
       {error ? <p className="form-error m-0" role="alert">{error}</p> : null}
       {cameraOpen ? (
         <PhotoCaptureModal
@@ -531,6 +605,35 @@ export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
   );
 }
 
+// The photos of the residence the application attaches, as a thumbnail grid.
+// Like the 2x2 photo they come from the Document Vault through signed URLs and
+// are not frozen into the snapshot JSON, so a replacement before endorsement
+// shows the newer file.
+function ResidencePhotoGrid({ photos, onPreview }) {
+  return (
+    <div className="grid grid-cols-2 gap-2 pb-2 pl-3 sm:grid-cols-3">
+      {photos.map((doc, index) => {
+        const picture = (
+          <span className="block aspect-[4/3] overflow-hidden rounded-[10px] border border-app-border bg-app-surface">
+            <SignedVaultImage doc={doc} alt={`Photo of the residence ${index + 1}`} className="h-full w-full object-cover" />
+          </span>
+        );
+        return onPreview ? (
+          <button
+            key={doc.id}
+            type="button"
+            onClick={() => onPreview(doc)}
+            aria-label={`Open photo of the residence ${index + 1}`}
+            className="cursor-pointer rounded-[10px] text-left transition hover:opacity-90 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+          >
+            {picture}
+          </button>
+        ) : <div key={doc.id}>{picture}</div>;
+      })}
+    </div>
+  );
+}
+
 // Values are self-reported; a badge only reflects Document Vault proof reviewed
 // by the Admissions Office, never a Registrar record. The answers the
 // application needs stay open; the other groups fold so long snapshots stay
@@ -539,7 +642,9 @@ export function ApplicantPhotoThumb({ doc = null, onPreview, className = '' }) {
 // `applicantPhoto` is the 2x2 ID photo the application currently attaches
 // (getApplicantPhotoDocument), shown first so the applicant is recognized at a
 // glance; `onPreviewPhoto` opens the full document where the surface has one.
-export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, onPreviewPhoto, extraSections = [] }) {
+// `residencePhotos` are the attached Photos of Residence files, listed in their
+// own group after the snapshot rows.
+export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto = null, residencePhotos = [], onPreviewPhoto, extraSections = [] }) {
   if (!snapshot) return <p className="m-0 text-sm text-app-muted">No profile snapshot was recorded.</p>;
   const { legacy, sections } = getProfileSnapshotSections(snapshot);
   const [primary, ...snapshotGroups] = sections;
@@ -575,6 +680,15 @@ export function ProfileSnapshotList({ snapshot, expanded = false, applicantPhoto
           </div>
         </details>
       ))}
+      <details open={expanded} className="group border-b border-app-border/60 last:border-b-0">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 py-2 text-sm font-semibold text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 [&::-webkit-details-marker]:hidden">
+          <span>Photos of residence ({residencePhotos.length})</span>
+          <span aria-hidden="true" className="text-app-muted transition group-open:rotate-180">▾</span>
+        </summary>
+        {residencePhotos.length
+          ? <ResidencePhotoGrid photos={residencePhotos} onPreview={onPreviewPhoto} />
+          : <p className="m-0 pb-2 pl-3 text-xs text-app-muted">No photos of the residence are attached.</p>}
+      </details>
       {legacy ? <p className="m-0 pt-2 text-xs text-app-muted">Submitted before the extended profile details were recorded.</p> : null}
       {snapshot.capturedAt ? <p className="m-0 pt-2 text-xs text-app-muted">Self-reported values as of {fmtDate(snapshot.capturedAt)}.</p> : null}
     </div>

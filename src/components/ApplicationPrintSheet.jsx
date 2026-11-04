@@ -5,6 +5,7 @@ import { Button } from './ui';
 import { ApplicantPhotoThumb, SignedVaultImage } from './ApplicationParts';
 import { getProfileSnapshotSections } from '../lib/applicationRequirements';
 import { fmtDate } from '../lib/formatters';
+import { getStudentApplicationStatusLabel } from '../lib/constants';
 import { summarizeInterview } from '../lib/interview';
 
 // The order follows FORM 230-SCH: applicant, education, family, finances, other.
@@ -94,7 +95,7 @@ export function ApplicationPrintSheet({
       <section className="mt-3 grid grid-cols-4 divide-x divide-slate-300 rounded-[3px] border border-slate-300 bg-slate-50">
         <SummaryCell label="Applying for" value={application?.scholarshipTitle} />
         <SummaryCell label="Reference" value={application?.id} />
-        <SummaryCell label="Status" value={application?.status} />
+        <SummaryCell label="Status" value={application?.status ? getStudentApplicationStatusLabel(application.status) : ''} />
         <SummaryCell label="Submitted" value={application?.submittedAt ? fmtDate(application.submittedAt) : 'Not yet submitted'} />
       </section>
 

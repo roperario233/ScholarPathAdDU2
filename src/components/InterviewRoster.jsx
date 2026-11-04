@@ -44,7 +44,7 @@ export function InterviewRosterRow({
     : (entry.locationLabel || 'Location to be announced');
 
   return (
-    <article className={getCaseCardClass(getInterviewStateTone(entry.state))}>
+    <article data-application-id={entry.applicationId} className={getCaseCardClass(getInterviewStateTone(entry.state))}>
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h3 className="truncate text-base">{entry.studentName}</h3>

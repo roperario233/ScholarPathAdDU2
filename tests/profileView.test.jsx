@@ -114,7 +114,9 @@ describe('My Profile as the application form', () => {
   it('keeps the plain profile page for staff', () => {
     const html = render({ profile: { fullName: 'Office Staff', phone: '' }, role: 'admissions_office' });
     expect(html).toContain('Profile and account details');
-    expect(html).toContain('Profile complete');
+    expect(html).not.toContain('Profile complete');
+    expect(html).not.toContain('Overview');
+    expect(html).toContain('Personal information');
     expect(html).not.toContain('Your scholarship application form');
     expect(html).not.toContain('Continue:');
   });

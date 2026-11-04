@@ -7,7 +7,7 @@ import { getDocumentChecklist } from '../lib/applicationRequirements';
 import { getApplicationFormProgress, getNextApplicationFormSection, getProfileCompleteness } from '../lib/profile';
 
 const sections = [
-  { key: 'overview', label: 'Overview', icon: LayoutDashboard, studentOnly: false },
+  { key: 'overview', label: 'Overview', icon: LayoutDashboard, studentOnly: true },
   { key: 'personal', label: 'Personal information', icon: UserRound, studentOnly: false },
   { key: 'address', label: 'Address', icon: MapPin, studentOnly: true },
   { key: 'family', label: 'Family details', icon: Users, studentOnly: true },
@@ -70,9 +70,11 @@ export default function ProfileView({
   const isStudent = role === 'student';
   const visibleSections = sections.filter((section) => isStudent || !section.studentOnly);
   // A Smart Eligibility Checker link opens the section that edits the failed
-  // answer; any other entry, or a section this role cannot see, opens Overview.
+  // answer; any other entry, or a section this role cannot see, opens the first
+  // section (Overview for a student, Personal information for staff, who have
+  // no Overview).
   const [activeSection, setActiveSection] = useState(() => (
-    visibleSections.some((section) => section.key === initialSection) ? initialSection : 'overview'
+    visibleSections.some((section) => section.key === initialSection) ? initialSection : visibleSections[0].key
   ));
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   // The section a "Save and continue" left from. The next section is chosen on
@@ -218,6 +220,11 @@ export default function ProfileView({
           <div className="page-title-copy">
             <span className="page-section-label">{isStudent ? 'Application Form' : 'My Profile'}</span>
             <h2>{isStudent ? 'Your scholarship application form' : 'Profile and account details'}</h2>
+            {!isStudent && (
+              <p className="mb-0 mt-2 max-w-2xl text-sm text-app-muted">
+                Keep your name and mobile number up to date. Your role and review scope are managed by the Admissions Office Admin.
+              </p>
+            )}
             {isStudent && (
               <p className="mb-0 mt-2 max-w-2xl text-sm text-app-muted">
                 Every AdDU scholarship application you submit copies these answers. Complete each part once. Answers marked{' '}
@@ -251,12 +258,7 @@ export default function ProfileView({
               <strong>{formProgress.readyToApply ? 'Ready' : `${formProgress.answersMissing}`}</strong>
               <span>{formProgress.readyToApply ? 'to apply' : formProgress.answersMissing === 1 ? 'answer to go' : 'answers to go'}</span>
             </div>
-          ) : (
-            <div className="page-metric rounded-2xl border border-app-border bg-app-surface p-4 text-center sm:min-w-36">
-              <strong>{completeness.percent}%</strong>
-              <span>Profile complete</span>
-            </div>
-          )}
+          ) : null}
         </div>
         {formProgress && (
           // A labelled glance at the six parts; the menu below is the interactive

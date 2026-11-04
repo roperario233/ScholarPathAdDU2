@@ -1,7 +1,7 @@
 import { buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
 
 export const coverageTypes = ['all', 'Full Tuition', 'Partial Tuition', 'Allowance'];
-export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released', 'Rejected'];
+export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined', 'Rejected'];
 
 // Standard Procedure for Scholarship Applications stage sequence (SOP steps 3-8),
 // as the Admissions Office runs it since Consultation 2. Step 2 (Submission) maps
@@ -21,9 +21,13 @@ const nextStatusMap = {
   'For Endorsement': ['Endorsed', 'Rejected'],
   Endorsed: ['Interview', 'Rejected'],
   Interview: ['Recommended', 'Rejected'],
-  Recommended: ['Approved', 'Rejected'],
+  Recommended: ['Approved', 'Waitlisted', 'Rejected'],
   Approved: ['Released'],
+  // The waitlist, a promotion, and a recorded decline are the Admin's moves
+  // (roleNextStatusMap); a student answers an offer only through the RPCs.
+  Waitlisted: [],
   Released: [],
+  Declined: [],
   Rejected: [],
 };
 
@@ -60,12 +64,23 @@ const roleNextStatusMap = {
     // Superset override on the interview and approval moves.
     Endorsed: ['Interview', 'Rejected'],
     Interview: ['Recommended', 'Rejected'],
-    Recommended: ['Approved', 'Rejected'],
+    Recommended: ['Approved', 'Waitlisted', 'Rejected'],
     // The final check before release: a sibling already on a grant or a pending
     // case ends the application here.
     Approved: ['Released', 'Rejected'],
+    // The waitlist after the offers are released: "Offer to next" promotes the
+    // top-ranked case (Released), the Admin can close one as Not accepted, and a
+    // student's withdrawal given outside the app is recorded as Declined. All
+    // three run from the release page (RESULTS_LANE_STATUSES), never the modal.
+    Waitlisted: ['Released', 'Rejected', 'Declined'],
+    // An accepted applicant who turns the award down.
+    Released: ['Declined'],
   },
 };
+
+// Moves that belong to the Admin's release page (offers, promotions, recorded
+// responses) and are therefore never rendered in the review modal's action bar.
+export const RESULTS_LANE_STATUSES = ['Released', 'Declined'];
 
 // A scoped reviewer's moves depend on the case, not only the role: any reviewer
 // in scope may schedule, only a panel member recommends, and only the approving
@@ -73,7 +88,7 @@ const roleNextStatusMap = {
 const reviewerNextStatuses = (status, role, { isPanelist = false, isApprover = false } = {}) => {
   if (status === 'Endorsed') return ['Interview'];
   if (status === 'Interview') return isPanelist ? ['Recommended'] : [];
-  if (status === 'Recommended' && role !== 'interviewer' && isApprover) return ['Approved', 'Rejected'];
+  if (status === 'Recommended' && role !== 'interviewer' && isApprover) return ['Approved', 'Waitlisted', 'Rejected'];
   return [];
 };
 
@@ -124,8 +139,10 @@ const stageActionLabels = {
   Interview: 'Schedule interview',
   Recommended: 'Recommend for approval',
   Approved: 'Approve',
+  Waitlisted: 'Waitlist…',
   Released: 'Release results',
-  Rejected: 'Reject…',
+  Declined: 'Record declined',
+  Rejected: 'Mark not accepted…',
 };
 
 // Scheduling and the recommendation belong to the interviewers of the applicant's
@@ -136,6 +153,7 @@ const adminOverrideLabels = {
   Interview: 'Schedule as Admin (override)',
   Recommended: 'Recommend as Admin (override)',
   Approved: 'Approve as Admin (override)',
+  Waitlisted: 'Waitlist as Admin (override)…',
 };
 
 export const isAdminOverrideAction = (status, role) => (
@@ -155,6 +173,11 @@ export const getStageActionLabel = (status, role) => (
 // student-visible: they tell the student what to correct.
 export const APPLICATION_REJECTION_NOTICE = 'Application not accepted.';
 export const APPLICATION_REJECTION_REASON_PREFIX = 'Rejection reason — ';
+
+// The waitlist works the same way: the timeline carries this fixed notice and the
+// approver's optional note is filed in the staff-only thread with this prefix.
+export const APPLICATION_WAITLIST_NOTICE = 'Placed on the waitlist.';
+export const APPLICATION_WAITLIST_NOTE_PREFIX = 'Waitlist note — ';
 
 // An application the Admissions Office Admin opens for a student who does not
 // meet a qualification rule (open_application_for_student). The reason is filed
@@ -180,53 +203,122 @@ const applicationStatusGuidance = {
   Endorsed: 'Documents verified. An interviewer from your school will schedule your interview next.',
   Interview: 'Your interview is scheduled. Open the application for the details.',
   Recommended: 'Your interviewer has sent a recommendation to your school for its decision.',
-  // Approved and Rejected are never shown to a student before the results are
-  // released (getStudentFacingStatus); "Under deliberation" stands in for both.
+  // The held results never reach a student before release
+  // (getStudentFacingStatus): "Under deliberation" or "Processed" stands in.
   'Under deliberation': 'Your school and the Admissions Office are deciding. Results are released to every applicant at the same time.',
+  Processed: 'The Admissions Office has finished processing this application. Results are released to every applicant of this scholarship at the same time.',
   Approved: 'Approved and awaiting release of results.',
-  Released: 'Results released. Open the application to review the outcome.',
-  Rejected: 'The application was not accepted. No further action is needed for this application period.',
+  Waitlisted: 'You are on the waitlist. You may still be offered this scholarship if a slot opens, and you will be notified if it does.',
+  Released: 'You were accepted. Open the application to confirm or decline the award.',
+  Declined: 'You declined this scholarship. No further action is needed.',
+  Rejected: 'The application was not accepted for this application period. No further action is needed.',
 };
 
-// Results reach every applicant of a scholarship at the same time (Consultation
-// 2, #8 and #13): until the Admissions Office Admin releases them, an Approved
-// application and a Rejected one both read "Under deliberation" on the student's
-// own surfaces, and no notice is sent. A Rejected application is unmasked once a
-// `results_releases` row covers it. This is a display hold: the stored status
-// stays the authority for every staff surface and policy.
+// Results reach every applicant of a scholarship together (Consultation 2, #8
+// and #13), in two waves: the Admissions Office Admin first releases the
+// accepted and waitlisted applicants (results_releases.kind = 'offers'), and
+// sends the Not accepted letters only when it closes the round once the accepted
+// applicants have confirmed (kind = 'closing'; rows recorded before the
+// waitlist are 'legacy' and behave like a closing). Until then a held outcome
+// reads "Under deliberation" on the student's own surfaces, or "Processed" for a
+// case the office closed before the interview, and no notice is sent. This is a
+// display hold: the stored status stays the authority for every staff surface
+// and policy.
 export const STUDENT_DELIBERATION_STATUS = 'Under deliberation';
+export const STUDENT_PROCESSED_STATUS = 'Processed';
 
-export const isApplicationResultReleased = (application = {}, resultsReleases = []) => (
+// The stages a case closed "early" can leave from: the office ended it before
+// the interview (an incomplete or ineligible application), not the school after
+// deliberation.
+const EARLY_CLOSURE_FROM_STATUSES = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed'];
+
+const releaseKindOf = (release) => release?.kind || 'legacy';
+const releasesCovering = (application, resultsReleases) => (
   (Array.isArray(resultsReleases) ? resultsReleases : [])
-    .some((release) => Array.isArray(release?.applicationIds) && release.applicationIds.includes(application.id))
+    .filter((release) => Array.isArray(release?.applicationIds) && release.applicationIds.includes(application?.id))
 );
+
+// True once a release of the given kinds covers the application. With no kinds,
+// any release counts.
+export const isApplicationResultReleased = (application = {}, resultsReleases = [], kinds = null) => (
+  releasesCovering(application, resultsReleases)
+    .some((release) => !kinds || kinds.includes(releaseKindOf(release)))
+);
+
+// A Not accepted letter goes out with a closing (or pre-waitlist legacy) release;
+// the offers release never covers a Rejected case.
+export const isNotAcceptedReleased = (application, resultsReleases) => (
+  isApplicationResultReleased(application, resultsReleases, ['closing', 'legacy'])
+);
+
+export const isWaitlistReleased = (application, resultsReleases) => (
+  isApplicationResultReleased(application, resultsReleases, ['offers'])
+);
+
+// The stage the case was at when it was closed as Not accepted: the status log
+// when it is loaded, otherwise the timeline entry before the closing one.
+export const getNotAcceptedFromStatus = (application = {}) => {
+  const log = Array.isArray(application?.statusLog) ? application.statusLog : [];
+  for (let index = log.length - 1; index >= 0; index -= 1) {
+    if (log[index]?.toStatus === 'Rejected') return log[index].fromStatus || null;
+  }
+  const timeline = Array.isArray(application?.timeline) ? application.timeline : [];
+  for (let index = timeline.length - 1; index > 0; index -= 1) {
+    if (timeline[index]?.stage === 'Rejected') return timeline[index - 1]?.stage || null;
+  }
+  return null;
+};
+
+export const isEarlyClosure = (application) => EARLY_CLOSURE_FROM_STATUSES.includes(getNotAcceptedFromStatus(application));
 
 export const getStudentFacingStatus = (application = {}, resultsReleases = []) => {
   const status = application?.status;
   if (status === 'Approved') return STUDENT_DELIBERATION_STATUS;
-  if (status === 'Rejected' && !isApplicationResultReleased(application, resultsReleases)) return STUDENT_DELIBERATION_STATUS;
+  if (status === 'Waitlisted') {
+    return isWaitlistReleased(application, resultsReleases) ? 'Waitlisted' : STUDENT_DELIBERATION_STATUS;
+  }
+  if (status === 'Rejected' && !isNotAcceptedReleased(application, resultsReleases)) {
+    // A waitlisted student whose place the Admin closed keeps reading
+    // "Waitlisted" until the round closes and the letters go out.
+    if (getNotAcceptedFromStatus(application) === 'Waitlisted' && isWaitlistReleased(application, resultsReleases)) return 'Waitlisted';
+    return isEarlyClosure(application) ? STUDENT_PROCESSED_STATUS : STUDENT_DELIBERATION_STATUS;
+  }
   return status;
 };
 
 // The student's own copy of an application while its result is held: the
-// status reads "Under deliberation" and the held Approved/Rejected entries drop
-// out of the timeline and the status log, so no surface built on the record can
-// reveal the outcome early. A released result passes through unchanged.
-const HELD_RESULT_STATUSES = ['Approved', 'Rejected'];
+// status reads the stand-in above and the held entries drop out of the timeline
+// and the status log, so no surface built on the record can reveal the outcome
+// early. A released result passes through unchanged.
+const HELD_RESULT_STATUSES = ['Approved', 'Waitlisted', 'Rejected'];
 
 export const maskApplicationForStudent = (application, resultsReleases = []) => {
   if (!application) return application;
   const status = getStudentFacingStatus(application, resultsReleases);
   if (status === application.status) return application;
+  // A released waitlist entry stays in the history; everything held drops out.
+  const keep = (value) => !HELD_RESULT_STATUSES.includes(value) || (value === 'Waitlisted' && status === 'Waitlisted');
   return {
     ...application,
     status,
     statusLog: (Array.isArray(application.statusLog) ? application.statusLog : [])
-      .filter((entry) => !HELD_RESULT_STATUSES.includes(entry?.toStatus)),
+      .filter((entry) => keep(entry?.toStatus)),
     timeline: (Array.isArray(application.timeline) ? application.timeline : [])
-      .filter((entry) => !HELD_RESULT_STATUSES.includes(entry?.stage)),
+      .filter((entry) => keep(entry?.stage)),
   };
 };
+
+// The label a student reads for their own (masked) application status:
+// "Accepted" for a released result and "Not accepted" for a released
+// non-acceptance; never the stored word.
+export { getStudentApplicationStatusLabel } from '../../supabase/functions/_shared/applicationStatus.js';
+
+// The status values a student can see on their own applications, in pipeline
+// order, for the Applications filter. Approved never reaches a student.
+export const studentApplicationStatuses = [
+  'Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended',
+  STUDENT_DELIBERATION_STATUS, STUDENT_PROCESSED_STATUS, 'Waitlisted', 'Released', 'Declined', 'Rejected',
+];
 
 export const getApplicationStatusGuidance = (status) => applicationStatusGuidance[status] || '';
 
@@ -234,8 +326,9 @@ export const getApplicationStatusGuidance = (status) => applicationStatusGuidanc
 // Admissions Office workspace.
 export const getStatusTone = (status) => {
   if (status === 'Rejected') return 'danger';
+  if (status === 'Declined') return 'neutral';
   if (['Released', 'Approved'].includes(status)) return 'success';
-  if (['For Verification', 'For Endorsement', 'Endorsed', 'Under deliberation'].includes(status)) return 'warning';
+  if (['For Verification', 'For Endorsement', 'Endorsed', 'Under deliberation', 'Waitlisted'].includes(status)) return 'warning';
   return 'info';
 };
 
@@ -309,8 +402,13 @@ export const countApplicationsToReview = (applications = [], { role, studentId, 
   )).length;
 };
 
+// `For Endorsement` sits with verification, and a waitlisted case has reached
+// the school's decision, so it sits with Approved. Declined, like Not accepted,
+// has left the pipeline.
+const SOP_STAGE_ALIASES = { 'For Endorsement': 'For Verification', Waitlisted: 'Approved' };
+
 export const sopStageIndex = (status) => {
-  const index = sopStages.indexOf(status === 'For Endorsement' ? 'For Verification' : status);
+  const index = sopStages.indexOf(SOP_STAGE_ALIASES[status] || status);
   return index === -1 ? null : index;
 };
 
