@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ADMISSIONS_ADMIN_DECISION_STATUSES, AUTOMATIC_STAGE_STATUSES, STUDENT_DELIBERATION_STATUS, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel, getStudentFacingStatus, maskApplicationForStudent, sopStageIndex, sopStages } from '../src/lib/constants';
+import { ADMISSIONS_ADMIN_DECISION_STATUSES, AUTOMATIC_STAGE_STATUSES, STUDENT_DELIBERATION_STATUS, STUDENT_PROCESSED_STATUS, applicationStatuses, countApplicationsToReview, getApplicationStatusGuidance, getApplicationStatusLabel, getNextApplicationStatuses, getStageActionLabel, getStudentApplicationStatusLabel, getStudentFacingStatus, maskApplicationForStudent, sopStageIndex, sopStages } from '../src/lib/constants';
 import { academicPrograms } from '../src/lib/academicPrograms';
 
 const application = (overrides = {}) => ({
@@ -30,10 +30,13 @@ describe('role-aware application stage actions', () => {
     expect(getNextApplicationStatuses('For Endorsement', 'admissions_admin')).toEqual(['Endorsed', 'Rejected']);
     expect(getNextApplicationStatuses('Endorsed', 'admissions_admin')).toEqual(['Interview', 'Rejected']);
     expect(getNextApplicationStatuses('Interview', 'admissions_admin')).toEqual(['Recommended', 'Rejected']);
-    expect(getNextApplicationStatuses('Recommended', 'admissions_admin')).toEqual(['Approved', 'Rejected']);
+    expect(getNextApplicationStatuses('Recommended', 'admissions_admin')).toEqual(['Approved', 'Waitlisted', 'Rejected']);
     // The final check may still end the application before release.
     expect(getNextApplicationStatuses('Approved', 'admissions_admin')).toEqual(['Released', 'Rejected']);
-    expect(getNextApplicationStatuses('Released', 'admissions_admin')).toEqual([]);
+    // The release page: promote a waitlisted case, close one, or record a decline.
+    expect(getNextApplicationStatuses('Waitlisted', 'admissions_admin')).toEqual(['Released', 'Rejected', 'Declined']);
+    expect(getNextApplicationStatuses('Released', 'admissions_admin')).toEqual(['Declined']);
+    expect(getNextApplicationStatuses('Declined', 'admissions_admin')).toEqual([]);
   });
 
   it('lets an interviewer schedule, and recommend only from the panel, but never reject or approve', () => {
@@ -49,7 +52,9 @@ describe('role-aware application stage actions', () => {
       expect(getNextApplicationStatuses('Endorsed', role)).toEqual(['Interview']);
       expect(getNextApplicationStatuses('Interview', role, { isPanelist: true })).toEqual(['Recommended']);
       expect(getNextApplicationStatuses('Recommended', role)).toEqual([]);
-      expect(getNextApplicationStatuses('Recommended', role, { isApprover: true })).toEqual(['Approved', 'Rejected']);
+      expect(getNextApplicationStatuses('Recommended', role, { isApprover: true })).toEqual(['Approved', 'Waitlisted', 'Rejected']);
+      // The waitlist after release is the Admin's.
+      expect(getNextApplicationStatuses('Waitlisted', role, { isApprover: true })).toEqual([]);
       // Verification and release stay with the Admin.
       expect(getNextApplicationStatuses('For Verification', role, { isApprover: true })).toEqual([]);
       expect(getNextApplicationStatuses('Approved', role, { isApprover: true })).toEqual([]);
@@ -207,6 +212,31 @@ describe('department chair transition map', () => {
 describe('student-facing results hold', () => {
   const releases = [{ id: 'r-1', applicationIds: ['released-reject'] }];
 
+  it('reads Processed for a case the office closed before the interview', () => {
+    const early = { id: 'early', status: 'Rejected', statusLog: [{ fromStatus: 'For Verification', toStatus: 'Rejected' }] };
+    expect(getStudentFacingStatus(early, [])).toBe(STUDENT_PROCESSED_STATUS);
+    // The timeline stands in when the log is not loaded.
+    const fromTimeline = { id: 'early-2', status: 'Rejected', timeline: [{ stage: 'Submitted' }, { stage: 'Rejected' }] };
+    expect(getStudentFacingStatus(fromTimeline, [])).toBe(STUDENT_PROCESSED_STATUS);
+    const late = { id: 'late', status: 'Rejected', statusLog: [{ fromStatus: 'Recommended', toStatus: 'Rejected' }] };
+    expect(getStudentFacingStatus(late, [])).toBe(STUDENT_DELIBERATION_STATUS);
+  });
+
+  it('releases a waitlist with the offers and a Not accepted only with the closing', () => {
+    const offers = [{ id: 'o', kind: 'offers', applicationIds: ['wait', 'closed-wait'] }];
+    expect(getStudentFacingStatus({ id: 'wait', status: 'Waitlisted' }, [])).toBe(STUDENT_DELIBERATION_STATUS);
+    expect(getStudentFacingStatus({ id: 'wait', status: 'Waitlisted' }, offers)).toBe('Waitlisted');
+    // An offers release never uncovers a Not accepted result.
+    const late = { id: 'wait', status: 'Rejected', statusLog: [{ fromStatus: 'Recommended', toStatus: 'Rejected' }] };
+    expect(getStudentFacingStatus(late, offers)).toBe(STUDENT_DELIBERATION_STATUS);
+    // A waitlisted case the Admin closed keeps reading Waitlisted until the round closes.
+    const closedWait = { id: 'closed-wait', status: 'Rejected', statusLog: [{ fromStatus: 'Waitlisted', toStatus: 'Rejected' }] };
+    expect(getStudentFacingStatus(closedWait, offers)).toBe('Waitlisted');
+    const closing = [...offers, { id: 'c', kind: 'closing', applicationIds: ['closed-wait'] }];
+    expect(getStudentFacingStatus(closedWait, closing)).toBe('Rejected');
+    expect(getStudentApplicationStatusLabel(getStudentFacingStatus(closedWait, closing))).toBe('Not accepted');
+  });
+
   it('holds Approved and an unreleased Rejected as Under deliberation', () => {
     expect(getStudentFacingStatus({ id: 'a', status: 'Approved' }, releases)).toBe(STUDENT_DELIBERATION_STATUS);
     expect(getStudentFacingStatus({ id: 'held-reject', status: 'Rejected' }, releases)).toBe(STUDENT_DELIBERATION_STATUS);
@@ -252,8 +282,16 @@ describe('transition map completeness', () => {
 
   it('keeps every other status label identical to the stored value', () => {
     applicationStatuses
-      .filter((status) => !['Endorsed', 'For Endorsement'].includes(status))
+      .filter((status) => !['Endorsed', 'For Endorsement', 'Rejected'].includes(status))
       .forEach((status) => expect(getApplicationStatusLabel(status)).toBe(status));
+  });
+
+  // The office asked that no one read the word "reject" on an application.
+  it('shows the stored Rejected status as Not accepted on every surface', () => {
+    expect(getApplicationStatusLabel('Rejected')).toBe('Not accepted');
+    expect(getStudentApplicationStatusLabel('Rejected')).toBe('Not accepted');
+    expect(getStudentApplicationStatusLabel('Released')).toBe('Accepted');
+    expect(getStageActionLabel('Rejected', 'admissions_admin')).not.toMatch(/reject/i);
   });
 
   it('labels the Admin forwarding a verified case to interview', () => {
@@ -304,7 +342,9 @@ describe('transition map completeness', () => {
 
   it('never lets a role advance out of a terminal status', () => {
     roles.forEach((role) => {
-      expect(getNextApplicationStatuses('Released', role)).toEqual([]);
+      // Only the Admin records an accepted applicant's decline.
+      expect(getNextApplicationStatuses('Released', role)).toEqual(role === 'admissions_admin' ? ['Declined'] : []);
+      expect(getNextApplicationStatuses('Declined', role)).toEqual([]);
       expect(getNextApplicationStatuses('Rejected', role)).toEqual([]);
     });
   });

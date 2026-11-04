@@ -134,6 +134,7 @@ export default function AdminCalendar({
   onAddComment,
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
@@ -432,6 +433,7 @@ export default function AdminCalendar({
           onClose={(result) => { setSelectedId(null); moved.handleClose(result); }}
           onStatusChange={onChangeApplication}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

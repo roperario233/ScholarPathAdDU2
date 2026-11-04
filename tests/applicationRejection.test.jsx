@@ -36,7 +36,7 @@ describe('application rejection notice', () => {
   it('is the one sentence a student is told', () => {
     expect(APPLICATION_REJECTION_NOTICE).toBe('Application not accepted.');
     expect(getApplicationStatusGuidance('Rejected')).toBe(
-      'The application was not accepted. No further action is needed for this application period.',
+      'The application was not accepted for this application period. No further action is needed.',
     );
   });
 
@@ -142,5 +142,50 @@ describe('the staff-only rejection reason', () => {
       />,
     );
     expect(html).not.toContain('Internal notes');
+  });
+});
+
+// The office does not want a student to read the word "reject" anywhere: the
+// stored Rejected status reads "Not accepted" on every student surface.
+describe('no "reject" on a student surface', () => {
+  const releasedNotAccepted = {
+    id: 'app-9',
+    status: 'Rejected',
+    scholarshipId: 'gia',
+    scholarshipTitle: 'Grant-in-Aid (GIA)',
+    updatedAt: '2026-11-01',
+    submittedAt: '2026-10-01',
+    attachedDocuments: [],
+    timeline: [{ id: 'ev-1', stage: 'Rejected', note: 'Household income exceeds the ceiling.', actor: 'Admissions Office Admin', at: '2026-11-01' }],
+    statusLog: [{ id: 'log-9', fromStatus: 'Recommended', toStatus: 'Rejected', actorRole: 'dean', reason: 'Household income exceeds the ceiling.', at: '2026-11-01' }],
+  };
+
+  it('renders the status history as Not accepted', () => {
+    const html = renderToStaticMarkup(<StatusHistoryList statusLog={releasedNotAccepted.statusLog} />);
+    expect(html).toContain('Not accepted');
+    expect(html).not.toMatch(/reject/i);
+  });
+
+  it('renders the Applications card without the word', async () => {
+    const { default: ApplicationsView } = await import('../src/pages/ApplicationsView');
+    const html = renderToStaticMarkup(
+      <ApplicationsView
+        applications={[releasedNotAccepted]}
+        documents={[]}
+        scholarships={[{ id: 'gia', title: 'Grant-in-Aid (GIA)', category: 'Internal', rule_family: 'general-pool', ruleFamily: 'general-pool', deadline: '2026-12-01', requiredDocuments: [] }]}
+        profile={{}}
+        openApplicationId={null}
+        onOpenApplication={() => {}}
+      />,
+    );
+    // What the student reads: the text, not the stored option values.
+    const text = html.replace(/<[^>]*>/g, ' ');
+    expect(text).toContain('Not accepted');
+    expect(text).not.toMatch(/reject/i);
+  });
+
+  it('keeps the general letter and texts free of the word', () => {
+    expect(describeApplicationStatusUpdate('Rejected', 'the Admissions Office')).not.toMatch(/reject/i);
+    expect(renderApplicationStatusSms({ scholarshipTitle: 'GIA', status: 'Rejected' }).message).not.toMatch(/reject/i);
   });
 });

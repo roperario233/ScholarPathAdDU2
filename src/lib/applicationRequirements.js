@@ -616,7 +616,7 @@ export const getApplicationReadiness = ({ application = {}, scholarship, documen
 // Verified. Manuscript Section 3.3.3: an application linked to a Pending or
 // Rejected document cannot proceed to interview or subcommittee evaluation, so
 // the endorsement and every later stage are blocked. Rejection is always allowed.
-export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+export const ENDORSEMENT_STAGE_STATUSES = ['For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released'];
 export const ENDORSEMENT_BLOCKED_STATUSES = ENDORSEMENT_STAGE_STATUSES;
 
 // SOP step 4 (endorsement) starts when the Admissions Office Staff hand the case
@@ -642,7 +642,7 @@ export const areDocumentsReviewable = (status) => {
 // surface gates on this; the verification queue and its metrics use
 // `areDocumentsReviewable` alone, since no document decision is pending there.
 export const areApplicationDocumentsVisible = (status) => (
-  status === 'Rejected' || areDocumentsReviewable(status)
+  status === 'Rejected' || status === 'Declined' || areDocumentsReviewable(status)
 );
 
 // The vault files attached to an application, resolved against the loaded

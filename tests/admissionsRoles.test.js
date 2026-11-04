@@ -50,7 +50,7 @@ describe('Admissions Office lane authority', () => {
   });
 
   it('keeps the Admin approval override and gives the Admin the final check', () => {
-    expect(getNextApplicationStatuses('Recommended', 'admissions_admin')).toEqual(['Approved', 'Rejected']);
+    expect(getNextApplicationStatuses('Recommended', 'admissions_admin')).toEqual(['Approved', 'Waitlisted', 'Rejected']);
     expect(getNextApplicationStatuses('Approved', 'admissions_admin')).toEqual(['Released', 'Rejected']);
     expect(ADMISSIONS_APPROVAL_STATUSES).toEqual(['Approved']);
   });

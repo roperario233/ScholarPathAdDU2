@@ -15,7 +15,7 @@ import GrantAmountPanel from './GrantAmountPanel';
 import FinalCheckToggle from './FinalCheckToggle';
 import StageOutcomeCard, { StageMoveStrip } from './StageOutcomeCard';
 import { describeGrantAmount, getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
-import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, RESULTS_LANE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
@@ -24,13 +24,19 @@ import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getLatestPanelRecommendation, validateInterviewSchedule } from '../lib/interview';
 import { describeStageOutcome } from '../lib/stageOutcome';
 
-const TERMINAL_STATUSES = ['Released', 'Rejected'];
+const TERMINAL_STATUSES = ['Released', 'Rejected', 'Declined'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
 // Aid has endorsed the application and stays readable afterwards.
-const INTERVIEW_TAB_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Released'];
+const INTERVIEW_TAB_STATUSES = ['Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined'];
 const WIDE_QUERY = '(min-width: 1024px)';
 
-const statusTone = (status) => (['Released', 'Approved'].includes(status) ? 'success' : status === 'Rejected' ? 'danger' : 'info');
+const statusTone = (status) => {
+  if (['Released', 'Approved'].includes(status)) return 'success';
+  if (status === 'Rejected') return 'danger';
+  if (status === 'Waitlisted') return 'warning';
+  if (status === 'Declined') return 'neutral';
+  return 'info';
+};
 const verificationTone = (status) => (status === 'Verified' ? 'success' : status === 'Rejected' ? 'danger' : 'warning');
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
 
@@ -155,6 +161,9 @@ export default function ApplicationReviewModal({
   // it the reject action refuses rather than writing a reason the student can
   // read.
   onRejectApplication,
+  // The approving level's third outcome (Consultation 2 follow-up): the optional
+  // note is staff-only, like a rejection reason (App.jsx waitlistApplication).
+  onWaitlistApplication,
   onEndorse,
   // SOP step 5 data and actions (App.jsx interviewWorkspace). Without it the
   // Interview tab is not shown.
@@ -284,7 +293,7 @@ export default function ApplicationReviewModal({
   const grantRecord = getGrantAmountForApplication(interviewWorkspace?.grantAmounts, application.id);
   const canEditGrantAmount = (isAdmissionsAdmin || Boolean(stageContext.isApprover))
     && Boolean(interviewWorkspace?.onSaveGrantAmount)
-    && isGrantAmountEditableStage(application.status);
+    && isGrantAmountEditableStage(application.status, { isAdmin: isAdmissionsAdmin });
   const grantTabVisible = Boolean(interviewWorkspace)
     && isGrantAmountStage(application.status)
     && (isAdmissionsReviewer || Boolean(stageContext.isApprover));
@@ -317,6 +326,7 @@ export default function ApplicationReviewModal({
   const [actionBusy, setActionBusy] = useState(false);
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
   // Verification is attributed to the signed-in Admissions Office account and
   // dated by the database, so it is confirmed before it is written.
@@ -534,11 +544,18 @@ export default function ApplicationReviewModal({
   // render as buttons.
   // Results are released per scholarship from the Admin's final-check lane, so a
   // single case never releases on its own (Consultation 2, #8 and #13).
+  // The offers, promotions, and recorded declines belong to that lane too
+  // (RESULTS_LANE_STATUSES), and the waitlist sits beside Not accepted on the left.
   const forwardStatuses = nextStatuses.filter((status) => (
-    status !== 'Rejected' && status !== 'Released' && !AUTOMATIC_STAGE_STATUSES.includes(status)
+    status !== 'Rejected' && status !== 'Waitlisted' && !RESULTS_LANE_STATUSES.includes(status)
+    && !AUTOMATIC_STAGE_STATUSES.includes(status)
     && (status !== 'Interview' || canCoordinateInterview)
   ));
   const canReject = nextStatuses.includes('Rejected');
+  const canWaitlist = nextStatuses.includes('Waitlisted') && application.status === 'Recommended';
+  // A sibling on AdDU financial aid no longer blocks the application; it is the
+  // approver's cue to consider the waitlist instead.
+  const declaredSiblingOnAid = Boolean(application.profileSnapshot?.eligibility?.hasSiblingOnAid);
   // The recommendation belongs to the panel and the approval to the school's
   // approving level (Consultation 2); the Admin's version of either move is an
   // override, so the footer says who the move normally belongs to. Scheduling is
@@ -555,8 +572,8 @@ export default function ApplicationReviewModal({
         )
         : '';
       return approver
-        ? `The school's ${REVIEW_ROLE_LABELS[approver] || 'approving level'} approves or rejects this.`
-        : 'The school’s approving level approves or rejects this.';
+        ? `The school's ${REVIEW_ROLE_LABELS[approver] || 'approving level'} decides this recommendation.`
+        : 'The school’s approving level decides this recommendation.';
     }
     return '';
   })();
@@ -582,6 +599,10 @@ export default function ApplicationReviewModal({
       // A rejection must carry a recorded reason. The reason stays with the
       // office (internal notes); the student receives the general notice.
       setRejectReasonOpen(true);
+      return;
+    }
+    if (status === 'Waitlisted') {
+      setWaitlistOpen(true);
       return;
     }
     // The hand-off for endorsement records an optional note, so the action bar
@@ -661,7 +682,9 @@ export default function ApplicationReviewModal({
         ? "Awaiting the approval of the applicant's school."
         : application.status === 'Approved'
           ? 'Release this result with its scholarship from Final check and release.'
-          : 'No stage action is available at this stage.')
+          : application.status === 'Waitlisted'
+            ? 'On the waitlist. Offer a slot or close the waitlist from Final check and release.'
+            : 'No stage action is available at this stage.')
       : !isReviewerRole(role)
         ? 'Admissions Office Staff have a read-only view of applications.'
         : ['Submitted', 'Under Review', 'For Verification', 'For Endorsement'].includes(application.status)
@@ -672,7 +695,9 @@ export default function ApplicationReviewModal({
               ? "The approving level for the applicant's school decides this recommendation."
               : application.status === 'Approved'
                 ? 'Approved. The Admissions Office Admin does the final check and releases the results.'
-                : 'No stage action is available to your role at this stage.';
+                : application.status === 'Waitlisted'
+                  ? 'Waitlisted. The Admissions Office Admin orders the waitlist and offers any slot that opens.'
+                  : 'No stage action is available to your role at this stage.';
 
   return (
     <>
@@ -1010,10 +1035,27 @@ export default function ApplicationReviewModal({
 
         {adminOverrideNote ? <AdminOverrideNotice>{adminOverrideNote}</AdminOverrideNotice> : null}
 
+        {canWaitlist && declaredSiblingOnAid ? (
+          <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+            The applicant declared a sibling on AdDU financial aid. Consider placing this application on the waitlist.
+          </p>
+        ) : null}
+
         {nextStatuses.length ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2">
               {canReject ? <Button className="max-w-full" type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
+              {canWaitlist ? (
+                <Button
+                  className="max-w-full"
+                  type="button"
+                  disabled={actionBusy || Boolean(blockReasonFor('Waitlisted'))}
+                  title={blockReasonFor('Waitlisted') || undefined}
+                  onClick={() => runAction('Waitlisted')}
+                >
+                  {getStageActionLabel('Waitlisted', role)}
+                </Button>
+              ) : null}
             </div>
             <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
               {finalCheckToggle}
@@ -1071,10 +1113,10 @@ export default function ApplicationReviewModal({
     ) : null}
     {rejectReasonOpen ? (
       <ReasonModal
-        title="Reject application"
-        label="Reason for rejection (staff only)"
-        hint="Recorded in the internal notes for the office. The applicant only sees a general notice that the application was not accepted."
-        confirmLabel="Reject application"
+        title="Mark as not accepted"
+        label="Reason (staff only)"
+        hint="Recorded in the internal notes for the office. The applicant only receives the general letter when the scholarship's results are closed."
+        confirmLabel="Mark not accepted"
         onConfirm={async (note) => {
           const result = onRejectApplication
             ? await onRejectApplication(application.id, note)
@@ -1085,6 +1127,26 @@ export default function ApplicationReviewModal({
           return result;
         }}
         onClose={() => setRejectReasonOpen(false)}
+      />
+    ) : null}
+    {waitlistOpen ? (
+      <ReasonModal
+        title="Place on the waitlist"
+        label="Note for the office (staff only)"
+        hint="Recorded in the internal notes. The applicant is told only that they are on the waitlist, and never their position."
+        confirmLabel="Waitlist"
+        confirmVariant="primary"
+        optional
+        onConfirm={async (note) => {
+          const result = onWaitlistApplication
+            ? await onWaitlistApplication(application.id, note)
+            : { error: 'The waitlist is not available on this page.' };
+          if (result?.error) return result;
+          setWaitlistOpen(false);
+          recordStageMove('Waitlisted');
+          return result;
+        }}
+        onClose={() => setWaitlistOpen(false)}
       />
     ) : null}
     {documentRejectTarget ? (

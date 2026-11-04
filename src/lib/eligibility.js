@@ -203,7 +203,10 @@ export const checkUniversalGate = (profile) => {
 export const checkAdduInternalGate = (profile) => {
   const issues = [];
   if (profile.isOnPrepaidPlan) issues.push(issue('On a prepaid tuition-and-fee plan — excluded from AdDU financial aid.', 'isOnPrepaidPlan'));
-  if (profile.hasSiblingOnAid) issues.push(issue('A sibling is currently on AdDU financial aid — automatically waitlisted.', 'hasSiblingOnAid'));
+  // A sibling already on AdDU financial aid no longer blocks the application:
+  // the school's approving level sees the declaration and may place the case on
+  // the waitlist instead (20261061000000). It stays a declared answer the
+  // snapshot freezes and the final check reads.
   if (profile.hasOtherActiveScholarship) issues.push(issue('Holds another scholarship without College Scholarship Committee approval.', 'hasOtherActiveScholarship'));
   if (profile.academicStanding === 'disqualified') issues.push(issue('Academically disqualified students are ineligible for AdDU-administered aid.', 'academicStanding'));
   return { passed: issues.length === 0, reasons: toReasons(issues), issues };
@@ -453,10 +456,13 @@ export const getApplicationProgress = (status) => {
     case 'Endorsed': return 65;
     case 'Interview': return 75;
     case 'Recommended': return 85;
-    // The student-facing stand-in while an Approved or Rejected result is held.
+    // The student-facing stand-ins while a result is held.
     case 'Under deliberation': return 90;
     case 'Approved': return 95;
+    case 'Waitlisted': return 95;
     case 'Released': return 100;
+    case 'Declined': return 100;
+    case 'Processed': return 100;
     case 'Rejected': return 100;
     default: return 0;
   }

@@ -104,6 +104,7 @@ export default function AdminInterviews({
   onAddComment,
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onEndorseApplication,
   onRecordDeliberation,
   onReleaseResults,
@@ -286,6 +287,7 @@ export default function AdminInterviews({
           onClose={(result) => { setSelectedId(null); moved.handleClose(result); }}
           onStatusChange={onChangeApplication}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

@@ -16,13 +16,16 @@
 // covers a self-service submission). A repeated call is idempotent via the
 // source key.
 //
-// Results are held (Consultation 2, #8 and #13): an Approved or Rejected status
-// sends the student nothing. The Admissions Office Admin releases a scholarship's
-// results in one batch; the accepted applicants hear through the normal
-// Released notice, and the `results-release` mode below sends every covered,
-// non-accepted applicant the general letter with the number of applicants and
-// the number accepted (the results_releases insert trigger is its primary
-// caller, the Admin's browser the retry).
+// Results are held (Consultation 2, #8 and #13): an Approved, Waitlisted, or
+// Rejected status sends the student nothing. The Admissions Office Admin
+// releases a scholarship's results in two waves. The first
+// (results_releases.kind = 'offers') releases the accepted applicants, who hear
+// through the normal Released notice with the date to confirm by, and the
+// waitlisted applicants, who get the waitlist letter from the
+// `results-release` mode below. The second (kind = 'closing', once every offer
+// is answered) sends every covered Not accepted applicant the general letter
+// with the number of applicants and the number accepted. The results_releases
+// insert trigger is that mode's primary caller, the Admin's browser the retry.
 //
 // A record is written to notification_email_log keyed by
 // `application-status-<applicationId>-<status>` so a repeated save never
@@ -33,10 +36,10 @@
 // IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { getApplicationStatusLabel } from '../_shared/applicationStatus.js';
-import { describeApplicationStatusUpdate, describeNonAcceptanceLetter, isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
+import { getStudentApplicationStatusLabel } from '../_shared/applicationStatus.js';
+import { describeApplicationStatusUpdate, describeNonAcceptanceLetter, describeWaitlistLetter, isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
-import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, renderNonAcceptanceLetterSms, sendSms } from '../_shared/sms.js';
+import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, renderNonAcceptanceLetterSms, renderWaitlistLetterSms, sendSms } from '../_shared/sms.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -44,7 +47,7 @@ const corsHeaders = {
 };
 
 // The statuses whose notice waits for the batch release.
-const HELD_STATUSES = ['Approved', 'Rejected'];
+const HELD_STATUSES = ['Approved', 'Waitlisted', 'Rejected'];
 
 // The scoped reviewers (Consultation 2): an interviewer and the Chairperson,
 // Assistant Dean, or Dean of the applicant's school. Their scope is decided by
@@ -60,12 +63,15 @@ const callerScopesToStudent = async (token, studentId) => {
   return !error && data === true;
 };
 
-// One general non-acceptance letter per covered applicant, deduped on
-// `results-release-<releaseId>-<applicationId>` for every channel.
+// One letter per covered applicant, deduped on
+// `results-release-<releaseId>-<applicationId>` for every channel. An offers
+// release writes to the waitlisted applicants; a closing (or legacy) release
+// sends the general non-acceptance letter.
 const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDatabaseCaller, env }) => {
+  // select('*') so a project whose `kind` column is still pending reads as legacy.
   const { data: release, error: releaseError } = await supabaseAdmin
     .from('results_releases')
-    .select('id, scholarship_id, applicant_count, accepted_count, application_ids')
+    .select('*')
     .eq('id', releaseId)
     .maybeSingle();
   if (releaseError) return json({ error: 'Unable to load the results release' }, 500);
@@ -73,13 +79,20 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
 
   const ids = Array.isArray(release.application_ids) ? release.application_ids : [];
   if (!ids.length) return json({ ok: true, sent: 0 });
+  const isOffers = release.kind === 'offers';
+  const letterStatus = isOffers ? 'Waitlisted' : 'Rejected';
   const [{ data: scholarship }, { data: rejected }] = await Promise.all([
     supabaseAdmin.from('scholarships').select('title').eq('id', release.scholarship_id).maybeSingle(),
-    supabaseAdmin.from('applications').select('id, student_id').in('id', ids).eq('status', 'Rejected'),
+    supabaseAdmin.from('applications').select('id, student_id').in('id', ids).eq('status', letterStatus),
   ]);
   const scholarshipTitle = scholarship?.title || 'scholarship';
   const counts = { applicantCount: release.applicant_count, acceptedCount: release.accepted_count };
-  const body = describeNonAcceptanceLetter({ scholarshipTitle, ...counts });
+  const body = isOffers
+    ? describeWaitlistLetter({ scholarshipTitle })
+    : describeNonAcceptanceLetter({ scholarshipTitle, ...counts });
+  const smsText = isOffers
+    ? renderWaitlistLetterSms({ scholarshipTitle }).message
+    : renderNonAcceptanceLetterSms({ scholarshipTitle, ...counts }).message;
   const resend = getResendConfig(env);
   const sms = getSmsConfig(env);
   let sent = 0;
@@ -97,7 +110,7 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
       subject: `Scholarship results: ${scholarshipTitle}`,
       body,
       scholarshipTitle,
-      status: 'Rejected',
+      status: letterStatus,
       siteUrl: resolveSiteUrl(env),
     });
 
@@ -132,7 +145,7 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
       ? await sendSms({
           apiToken: sms.apiToken,
           phoneNumber: smsTo,
-          message: renderNonAcceptanceLetterSms({ scholarshipTitle, ...counts }).message,
+          message: smsText,
           provider: sms.provider,
         })
       : { ok: false, skipped: true };
@@ -162,7 +175,7 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
       });
     }
   }
-  return json({ ok: true, letters: (rejected || []).length, sent });
+  return json({ ok: true, kind: release.kind || 'legacy', letters: (rejected || []).length, sent });
 };
 
 const json = (body, status = 200) =>
@@ -239,7 +252,7 @@ Deno.serve(async (req) => {
 
   const { data: application, error: applicationError } = await supabaseAdmin
     .from('applications')
-    .select('id, student_id, scholarship_id, status, interview')
+    .select('id, student_id, scholarship_id, status, interview, release')
     .eq('id', applicationId)
     .maybeSingle();
   if (applicationError) {
@@ -354,11 +367,15 @@ Deno.serve(async (req) => {
   // The first interview schedule rides this notification (SOP step 5), so the
   // Interview message carries the date, mode, and location or meeting link.
   const interview = status === 'Interview' ? application.interview : null;
-  const statusUpdate = describeApplicationStatusUpdate(status, actorLabel, { interview });
+  // The acceptance carries the date to confirm by and whether it came from the waitlist.
+  const release = status === 'Released' ? application.release : null;
+  const statusUpdate = describeApplicationStatusUpdate(status, actorLabel, { interview, release });
   const message = renderApplicationStatusEmail({
     subject: status === 'For Verification'
       ? 'Application update: documents under verification'
-      : `Application status: ${getApplicationStatusLabel(status)}`,
+      : status === 'Released'
+        ? `Scholarship results: ${scholarship?.title || 'scholarship'}`
+        : `Application status: ${getStudentApplicationStatusLabel(status)}`,
     body: statusUpdate,
     scholarshipTitle: scholarship?.title || 'Scholarship application',
     status,
@@ -409,6 +426,7 @@ Deno.serve(async (req) => {
           scholarshipTitle: scholarship?.title,
           status,
           interview,
+          release,
         }).message,
         provider: sms.provider,
       })

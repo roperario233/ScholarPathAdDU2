@@ -113,6 +113,7 @@ export default function DepartmentCalendarView({
   reviewComments = [],
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onApproveApplication,
   onRecordDeliberation,
   onAddComment,
@@ -324,6 +325,7 @@ export default function DepartmentCalendarView({
               : onChangeApplication?.(applicationId, status, options)
           )}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onRecordDeliberation={onRecordDeliberation}
           interviewWorkspace={interviewWorkspace}
         />

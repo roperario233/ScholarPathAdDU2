@@ -583,7 +583,7 @@ describe('applicant summary workbook', () => {
     expect(first['Grant amount per semester (PHP)']).toBe(12500);
     expect(second['Grant coverage (% of tuition)']).toBe('N/A');
     expect(second['Grant amount per semester (PHP)']).toBe('N/A');
-    expect(applicants.autoFilter).toMatch(/^A\d+:Y\d+$/);
+    expect(applicants.autoFilter).toMatch(/^A\d+:AB\d+$/);
   });
 
   it('writes a valid .xlsx package with escaped text and an About sheet', () => {

@@ -12,7 +12,7 @@ import { getSupabaseDocumentUrl } from '../lib/supabaseData';
 // Re-exported so the staff surfaces (review modal, console) keep importing it
 // from here while the implementation and its tests live in the lib layer.
 export { describeStatusActor };
-import { APPLICATION_REJECTION_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
+import { APPLICATION_REJECTION_NOTICE, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusLabel, getStudentApplicationStatusLabel, getDocumentStatusLabel, getDocumentTypeLabel, isPhotoDocumentType, sopStageIndex, sopStages } from '../lib/constants';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtDate } from '../lib/formatters';
 
@@ -30,19 +30,19 @@ import { fmtDate } from '../lib/formatters';
 // under a caption naming the position; the status badge beside the applicant
 // already names the current stage. The stage names stay in the markup for
 // assistive tech, so the list reads the same at every width.
-const STAGE_BAR_TONES = {
+export const STAGE_BAR_TONES = {
   done: 'bg-emerald-500',
   current: 'bg-sky-500 dark:bg-sky-400',
   upcoming: 'bg-app-border',
 };
 
-const STAGE_LABEL_TONES = {
+export const STAGE_LABEL_TONES = {
   done: 'font-semibold text-emerald-800 dark:text-emerald-300',
   current: 'font-bold text-app-text',
   upcoming: 'font-medium text-app-muted',
 };
 
-function StageIcon({ tone }) {
+export function StageIcon({ tone }) {
   const props = { size: 13, 'aria-hidden': 'true', className: 'hidden shrink-0 md:block' };
   if (tone === 'done') return <CheckCircle2 {...props} className={`${props.className} text-emerald-600 dark:text-emerald-400`} />;
   if (tone === 'current') return <CircleDot {...props} className={`${props.className} text-sky-600 dark:text-sky-300`} />;
@@ -134,16 +134,21 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
   // place. Document resubmission reasons are not affected — they tell the student
   // what to correct.
   const studentSurface = !showActorName;
-  const rejectionNote = (status, note) => (
-    studentSurface && status === 'Rejected' ? APPLICATION_REJECTION_NOTICE : note
-  );
+  // The waitlist note follows the same rule: the approver's reason is staff-only.
+  const rejectionNote = (status, note) => {
+    if (studentSurface && status === 'Rejected') return APPLICATION_REJECTION_NOTICE;
+    if (studentSurface && status === 'Waitlisted') return APPLICATION_WAITLIST_NOTICE;
+    return note;
+  };
+  // A student reads "Accepted" and "Not accepted", never the stored words.
+  const statusLabel = studentSurface ? getStudentApplicationStatusLabel : getApplicationStatusLabel;
   if (statusLog.length) {
     return (
       <>
         <ol className="m-0 grid gap-2 pl-5">
           {statusLog.map((event) => (
             <li key={event.id} className="text-sm text-app-muted">
-              <strong className="text-app-text">{event.fromStatus ? getApplicationStatusLabel(event.fromStatus) : 'New'} → {getApplicationStatusLabel(event.toStatus)}</strong>
+              <strong className="text-app-text">{event.fromStatus ? statusLabel(event.fromStatus) : 'New'} → {statusLabel(event.toStatus)}</strong>
               {event.reason ? <span> · {rejectionNote(event.toStatus, event.reason)}</span> : null}
               <span className="block text-xs">{describeStatusActor(event, showActorName)} · {fmtDate(event.at)}</span>
             </li>
@@ -158,7 +163,7 @@ export function StatusHistoryList({ statusLog = [], timeline = [], showActorName
       <ol className="m-0 grid gap-2 pl-5">
         {timeline.map((event) => (
           <li key={event.id} className="text-sm text-app-muted">
-            <strong className="text-app-text">{getApplicationStatusLabel(event.stage)}</strong> · {rejectionNote(event.stage, event.note)}
+            <strong className="text-app-text">{statusLabel(event.stage)}</strong> · {rejectionNote(event.stage, event.note)}
             <span className="block text-xs">{event.actor} · {fmtDate(event.at)}</span>
           </li>
         ))}

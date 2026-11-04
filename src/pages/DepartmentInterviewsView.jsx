@@ -33,6 +33,7 @@ export default function DepartmentInterviewsView({
   reviewComments = [],
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onApproveApplication,
   onRecordDeliberation,
   onAddComment,
@@ -142,6 +143,7 @@ export default function DepartmentInterviewsView({
               : onChangeApplication?.(applicationId, status, options)
           )}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onRecordDeliberation={onRecordDeliberation}
           interviewWorkspace={interviewWorkspace}
         />

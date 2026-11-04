@@ -158,6 +158,31 @@ const toResultsRelease = (row) => ({
   applicantCount: row.applicant_count ?? 0,
   acceptedCount: row.accepted_count ?? 0,
   applicationIds: Array.isArray(row.application_ids) ? row.application_ids : [],
+  // 'offers' releases the accepted and waitlisted applicants, 'closing' sends the
+  // Not accepted letters; rows recorded before the waitlist read 'legacy'.
+  kind: row.kind || 'legacy',
+});
+// An accepted applicant's offer and their answer to it (scholarship_offers, from
+// 20261061000000). RLS: the owning student, the office, and the scoped ladder.
+const toScholarshipOffer = (row) => ({
+  applicationId: row.application_id,
+  scholarshipId: row.scholarship_id,
+  studentId: row.student_id,
+  offeredAt: row.offered_at,
+  confirmBy: row.confirm_by || null,
+  origin: row.origin || 'release',
+  response: row.response || 'pending',
+  respondedAt: row.responded_at || null,
+  respondedBy: row.responded_by || null,
+  respondedByRole: row.responded_by_role || '',
+  declineReason: row.decline_reason || '',
+});
+// The Admin's waitlist order (application_waitlist_ranks). Office sessions only.
+const toWaitlistRank = (row) => ({
+  applicationId: row.application_id,
+  scholarshipId: row.scholarship_id,
+  rank: Number(row.rank) || 0,
+  updatedAt: row.updated_at,
 });
 const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at });
 const toDepartmentReview = (row) => ({
@@ -387,6 +412,23 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     }
   }
 
+  // Offers and their answers (scholarship_offers, from 20261061000000). Every
+  // role reads them through RLS: the student their own, the office all, the
+  // ladder its scope. The waitlist order is office-only. A pending migration
+  // yields no rows and reports scholarshipOffersReady: false.
+  let scholarshipOffers = [];
+  let scholarshipOffersReady = true;
+  let waitlistRanks = [];
+  if (applicationIds.length) {
+    const offersResult = await supabase.from('scholarship_offers').select('*').in('application_id', applicationIds);
+    if (offersResult.error) scholarshipOffersReady = false;
+    else scholarshipOffers = (offersResult.data || []).map(toScholarshipOffer);
+  }
+  if (role === 'admissions_office' || role === 'admissions_admin') {
+    const ranksResult = await supabase.from('application_waitlist_ranks').select('*').order('rank', { ascending: true });
+    if (!ranksResult.error) waitlistRanks = (ranksResult.data || []).map(toWaitlistRank);
+  }
+
   // The Admissions Office case-officer roster (application_case_officers, from
   // 20261027043147). Admissions Office sessions only: the student and the
   // Department Chair never receive these rows. The roster is what splits the
@@ -459,6 +501,9 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     departmentReviews: (reviewsResult.data || []).map(toDepartmentReview),
     reviewComments,
     grantAmounts,
+    scholarshipOffers,
+    scholarshipOffersReady,
+    waitlistRanks,
     staffDirectory,
     // Staff-only case-officer roster: which Admissions Office accounts have
     // opened which application. Empty for a student or Department Chair session.
@@ -1107,6 +1152,41 @@ export const recordSupabaseResultsRelease = async (scholarshipId) => {
   const result = await supabase.rpc('record_results_release', { p_scholarship_id: scholarshipId });
   const row = Array.isArray(result.data) ? result.data[0] : result.data;
   return { error: result.error, data: row ? toResultsRelease(row) : null };
+};
+
+// The second wave of a scholarship's results (close_results_round, Admin only):
+// the applicants still waitlisted become Not accepted and the closing release's
+// insert trigger sends every Not accepted applicant the general letter.
+export const closeSupabaseResultsRound = async (scholarshipId) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.rpc('close_results_round', { p_scholarship_id: scholarshipId });
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  return { error: result.error, data: row ? toResultsRelease(row) : null };
+};
+
+// The Admin's waitlist order for one scholarship, highest first.
+export const setSupabaseWaitlistOrder = async (scholarshipId, applicationIds) => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  return supabase.rpc('set_waitlist_order', { p_scholarship_id: scholarshipId, p_application_ids: applicationIds });
+};
+
+// An accepted applicant's answer to the offer, or the Admin recording one given
+// outside the app. A decline moves the application to Declined in the same call.
+export const respondSupabaseScholarshipOffer = async (applicationId, response, reason = '') => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.rpc('respond_to_scholarship_offer', {
+    p_application_id: applicationId,
+    p_response: response,
+    p_reason: reason || null,
+  });
+  const row = Array.isArray(result.data) ? result.data[0] : result.data;
+  return { error: result.error, data: row ? toScholarshipOffer(row) : null };
+};
+
+// A waitlisted applicant leaving the waitlist (or the Admin recording it).
+export const withdrawSupabaseFromWaitlist = async (applicationId, reason = '') => {
+  if (!ensureReady()) return { error: { message: 'Supabase is not configured.' } };
+  return supabase.rpc('withdraw_from_waitlist', { p_application_id: applicationId, p_reason: reason || null });
 };
 
 // FORM 230-SCH financial details live in two office-only tables (see
