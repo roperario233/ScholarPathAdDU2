@@ -78,8 +78,12 @@ describe('ApplicationReviewModal default tab', () => {
   const selectedTab = (html) => (html.match(/id="review-tab-([a-z]+)"[^>]*aria-selected="true"/) || [])[1];
 
   it('opens on the tab for the stage the application is in', () => {
-    expect(selectedTab(render({ application: application({ status: 'For Verification' }), role: 'admissions_office' })))
+    // Document decisions are the Admin's since Consultation 2, so the Documents
+    // tab only exists for that lane; Staff open the same case on Overview.
+    expect(selectedTab(render({ application: application({ status: 'For Verification' }), role: 'admissions_admin' })))
       .toBe('documents');
+    expect(selectedTab(render({ application: application({ status: 'For Verification' }), role: 'admissions_office' })))
+      .toBe('overview');
     expect(selectedTab(render({ application: application({ status: 'For Endorsement' }), role: 'admissions_office' })))
       .toBe('endorsement');
     expect(selectedTab(render({ application: application({ status: 'Endorsed' }), role: 'admissions_office', interviewWorkspace: workspace() })))
