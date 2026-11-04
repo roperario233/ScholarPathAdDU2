@@ -16,7 +16,8 @@ import { fmtCurrency, fmtDate, plural } from '../lib/formatters';
 const queueTone = (status) => {
   if (['Approved', 'Released'].includes(status)) return 'success';
   if (status === 'Rejected') return 'danger';
-  if (['For Verification', 'Endorsed', 'Recommended'].includes(status)) return 'warning';
+  if (status === 'Declined') return 'neutral';
+  if (['For Verification', 'Endorsed', 'Recommended', 'Waitlisted'].includes(status)) return 'warning';
   return 'info';
 };
 
@@ -34,6 +35,7 @@ export default function DepartmentReviewView({
   reviewComments = [],
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onApproveApplication,
   onRecordDeliberation,
   onAddComment,
@@ -56,7 +58,7 @@ export default function DepartmentReviewView({
   const awaitingApproval = isInterviewer ? [] : queue.filter((entry) => (
     entry.status === 'Recommended' && stageContextFor(entry).isApprover
   ));
-  const decidedInScope = queue.filter((entry) => ['Recommended', 'Approved', 'Released'].includes(entry.status));
+  const decidedInScope = queue.filter((entry) => ['Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status));
   const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
   const programIndex = buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []);
   // After a stage move the case's row in the work lists glows, or a notice says
@@ -83,7 +85,7 @@ export default function DepartmentReviewView({
     grantOf: (entry) => getGrantAmountForApplication(interviewWorkspace?.grantAmounts, entry.id),
     source: {
       origin: `${REVIEW_ROLE_LABELS[role] || 'Reviewer'} workspace › Recommendations`,
-      contents: 'Every recommended, approved, and released application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',
+      contents: 'Every recommended, approved, waitlisted, released, and declined application in this scope, including cases you have already decided. Recommended cases are still awaiting the school’s approval.',
       exportedBy: `${profile.fullName ? `${profile.fullName}, ` : ''}${getActorRoleLabel(role)}${getReviewScopeLabel(profile) ? ` (${getReviewScopeLabel(profile)})` : ''}`,
     },
   }, getApplicantSummaryFileName(getReviewScopeLabel(profile) || 'scope', 'recommendations'));
@@ -256,6 +258,7 @@ export default function DepartmentReviewView({
           onClose={(result) => { setSelectedId(null); setReviewTab(null); moved.handleClose(result); }}
           onStatusChange={handleStatusChange}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onRecordDeliberation={onRecordDeliberation}
           interviewWorkspace={interviewWorkspace}
         />

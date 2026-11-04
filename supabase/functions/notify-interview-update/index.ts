@@ -249,7 +249,10 @@ Deno.serve(async (req) => {
   const results = [];
   const summary = summarizeInterview(interview);
 
-  if (kind !== 'scheduled' && student?.user_id) {
+  // A decision that closed the interview stage (closure: 'stage-closed') is not
+  // announced to the applicant: it would reveal the held outcome before release.
+  const stageClosed = kind === 'cancelled' && interview.closure === 'stage-closed';
+  if (kind !== 'scheduled' && !stageClosed && student?.user_id) {
     const message = renderInterviewUpdateEmail({ audience: 'student', kind, interview, scholarshipTitle, reason, siteUrl });
     results.push(await deliver({
       recipient: student,

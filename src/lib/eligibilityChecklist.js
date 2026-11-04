@@ -33,7 +33,6 @@ export const getEligibilityChecklist = (profile = {}, scholarship = {}) => {
   const isGeneralPool = ruleFamily === 'general-pool';
   const exclusionAnswers = [
     profile.isOnPrepaidPlan && 'Prepaid tuition plan',
-    profile.hasSiblingOnAid && 'Sibling on AdDU aid',
     profile.hasOtherActiveScholarship && 'Another active scholarship',
   ].filter(Boolean);
   const deadline = getDeadlineStatus(scholarship.deadline);
@@ -80,9 +79,9 @@ export const getEligibilityChecklist = (profile = {}, scholarship = {}) => {
     {
       key: 'exclusions',
       label: 'Exclusion Flag Hierarchy',
-      fields: ['isOnPrepaidPlan', 'hasSiblingOnAid', 'hasOtherActiveScholarship'],
+      fields: ['isOnPrepaidPlan', 'hasOtherActiveScholarship'],
       answer: exclusionAnswers.length ? exclusionAnswers.join(', ') : 'None declared',
-      required: 'No prepaid plan, sibling on AdDU aid, or other scholarship',
+      required: 'No prepaid plan or other scholarship',
     },
     {
       key: 'program',

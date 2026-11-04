@@ -339,11 +339,13 @@ export const ensureGoogleMeetConference = async ({ config, accessToken, eventId,
 
 /**
  * Deletes the interview event. An event that is already gone (404/410) counts as
- * cancelled, so retrying a delete is safe.
+ * cancelled, so retrying a delete is safe. `notifyAttendees: false` deletes it
+ * without Google's cancellation email: a decision that closes the interview
+ * stage must not hint the outcome to the applicant before the results release.
  */
-export const cancelGoogleInterviewEvent = async ({ config, accessToken, eventId, fetchImpl = fetch }) => {
+export const cancelGoogleInterviewEvent = async ({ config, accessToken, eventId, notifyAttendees = true, fetchImpl = fetch }) => {
   const result = await requestGoogle({
-    url: eventsUrl(config, `/${encodeURIComponent(eventId)}`, { sendUpdates: 'all' }),
+    url: eventsUrl(config, `/${encodeURIComponent(eventId)}`, { sendUpdates: notifyAttendees ? 'all' : 'none' }),
     init: { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } },
     fetchImpl,
   });

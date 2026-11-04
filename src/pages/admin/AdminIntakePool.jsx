@@ -57,6 +57,7 @@ export default function AdminIntakePool({
   onPickUpApplication,
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onEndorseApplication,
   interviewWorkspace = null,
   onRecordDeliberation,
@@ -507,6 +508,7 @@ export default function AdminIntakePool({
           onClose={closeReview}
           onStatusChange={onChangeApplication}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

@@ -7,7 +7,7 @@ import { mergeWorkspaceRefresh, WORKSPACE_REFRESH_INTERVAL_MS } from './lib/work
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
-import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
+import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, APPLICATION_WAITLIST_NOTE_PREFIX, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
 import { getUpcomingInterviews } from './lib/interviewRoster';
@@ -17,8 +17,8 @@ import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAt
 import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
-import { buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, recordSupabaseResultsRelease, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { INTERVIEW_STAGE_CLOSED, buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, recordSupabaseResultsRelease, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -51,7 +51,8 @@ import SettingsViewPage from './pages/SettingsView';
 import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
-import { isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
+import { getGrantAmountForApplication, isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
+import { getOfferForApplication, isOfferRoundClosed, isValidConfirmBy } from './lib/resultsRound';
 import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
 import { countUnreadSupportMessages, getStudentVisibleMessages, getSupportUnreadTotal, isSupportInboxChannel, mergeSupportInboxState, SUPPORT_BACKGROUND_POLL_MS, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
@@ -1896,6 +1897,9 @@ function App() {
         action: 'cancel',
         applicationId,
         eventId: application.interview.calendar.eventId,
+        // Silently: Google's cancellation email would tell the applicant the
+        // outcome before the results release.
+        notifyAttendees: false,
       }).catch(() => undefined);
     }
     // The database trigger (20261014000003) is the primary sender; this is the
@@ -1931,6 +1935,33 @@ function App() {
     const note = await addReviewComment(applicationId, `${APPLICATION_REJECTION_REASON_PREFIX}${trimmed}`);
     if (note?.error) return { error: note.error };
     return changeApplicationStatus(applicationId, 'Rejected', { note: APPLICATION_REJECTION_NOTICE });
+  };
+
+  // The approving level's third outcome. A waitlisted application can still be
+  // offered the scholarship when an accepted applicant declines; the Admin orders
+  // the waitlist on Final check and release. Like a rejection, the optional note
+  // is staff-only (internal notes) and the timeline carries a fixed notice, so
+  // the student never reads the approver's reasoning or a position.
+  const waitlistApplication = async (applicationId, note = '') => {
+    if (state.viewerRole === 'student') {
+      return { error: 'Only a reviewer can waitlist an application.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (application.status !== 'Recommended'
+      || !getNextApplicationStatuses(application.status, state.viewerRole, stageContextFor(application)).includes('Waitlisted')) {
+      return { error: "Only the approving level for the applicant's school can waitlist this recommendation." };
+    }
+    const trimmed = String(note || '').trim();
+    const maxLength = 2000 - APPLICATION_WAITLIST_NOTE_PREFIX.length;
+    if (trimmed.length > maxLength) {
+      return { error: `Keep the note to ${maxLength.toLocaleString()} characters or fewer.` };
+    }
+    if (trimmed) {
+      const recorded = await addReviewComment(applicationId, `${APPLICATION_WAITLIST_NOTE_PREFIX}${trimmed}`);
+      if (recorded?.error) return { error: recorded.error };
+    }
+    return changeApplicationStatus(applicationId, 'Waitlisted', { note: APPLICATION_WAITLIST_NOTICE });
   };
 
   // Case officers. Opening an Admissions Office application joins the officer to
@@ -2107,8 +2138,8 @@ function App() {
     if (!isAdmissionsAdminRole(state.viewerRole) && !stageContextFor(application).isApprover) {
       return { error: 'Only the approving level for this applicant or the Admissions Office Admin can record a grant amount.' };
     }
-    if (!isGrantAmountEditableStage(application.status)) {
-      return { error: 'A grant amount can be recorded only while the application is Recommended or Approved.' };
+    if (!isGrantAmountEditableStage(application.status, { isAdmin: isAdmissionsAdminRole(state.viewerRole) })) {
+      return { error: 'A grant amount can be recorded only while the application is Recommended or Approved, or by the Admin while it is Waitlisted.' };
     }
     const { values, errors } = validateGrantAmount(input);
     const firstError = errors.form || errors.coveragePercent || errors.amount || errors.note;
@@ -2348,7 +2379,9 @@ function App() {
   // next schedule creates a second one. Shared by the explicit Cancel action and
   // the interview waiver that precedes a recommendation; `note` lets the waiver
   // record its own timeline wording.
-  const cancelInterviewRecord = async (application, reason, note = '') => {
+  // `stageClosed` marks a cancellation forced by a decision (the recommendation):
+  // Google deletes silently and the applicant is not told (isInterviewStageClosed).
+  const cancelInterviewRecord = async (application, reason, note = '', { stageClosed = false } = {}) => {
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the interview could not be saved.' };
     }
@@ -2361,12 +2394,18 @@ function App() {
         action: 'cancel',
         applicationId: application.id,
         eventId,
+        ...(stageClosed ? { notifyAttendees: false } : {}),
       }).catch(() => null);
       if (removal?.ok) removedAt = new Date().toISOString();
       else removalError = removal?.reason || removal?.error || 'The Google Calendar event could not be removed.';
     }
     const record = {
-      ...buildCancelledInterview({ previous: application.interview, actorId: currentProfile.id, reason }),
+      ...buildCancelledInterview({
+        previous: application.interview,
+        actorId: currentProfile.id,
+        reason,
+        closure: stageClosed ? INTERVIEW_STAGE_CLOSED : null,
+      }),
       calendar: eventId
         ? { provider: calendar?.provider || 'google', eventId, htmlLink: calendar?.htmlLink || '', removedAt }
         : null,
@@ -2581,6 +2620,7 @@ function App() {
         application,
         'The recommendation was recorded, closing the interview stage.',
         'Interview schedule closed when the recommendation was recorded.',
+        { stageClosed: true },
       );
       if (closed.error) return closed;
       base = closed.application;
@@ -2625,8 +2665,9 @@ function App() {
     });
   };
 
-  // SOP step 8 — the Admin releases the approved result to the applicant.
-  const releaseApplicationResults = (applicationId) => {
+  // SOP step 8 — the Admin releases the approved result to the applicant, with
+  // the date to confirm the award by (the offer, scholarship_offers).
+  const releaseApplicationResults = (applicationId, { confirmBy = null } = {}) => {
     if (!isAdmissionsAdminRole(state.viewerRole)) {
       return Promise.resolve({ error: 'Only the Admissions Office Admin can release results.' });
     }
@@ -2638,6 +2679,7 @@ function App() {
       releasedTo: 'Admissions Office',
       releasedAt: new Date().toISOString().slice(0, 10),
       reference: `OAA-${applicationId.slice(0, 8).toUpperCase()}`,
+      ...(confirmBy ? { confirmBy } : {}),
     };
     // Routed through changeApplicationStatus so the release honours the same
     // document-verification guard, timeline, and persistence path as every other
@@ -2648,14 +2690,15 @@ function App() {
     });
   };
 
-  // Results reach every applicant of a scholarship at the same time (Consultation
-  // 2, #8 and #13). After the Admin's final check, the remaining approved cases
-  // are released one by one (each Released notice goes out as usual), then the
-  // release is recorded with the number of applicants and the number accepted.
-  // Recording it unmasks the held Rejected results and sends their general
-  // letter: the results_releases insert trigger is the primary sender and this
-  // browser call the retry.
-  const releaseScholarshipResults = async (scholarshipId) => {
+  // Results reach a scholarship's applicants in two waves (Consultation 2, #8 and
+  // #13, and the waitlist that followed). First wave: after the Admin's final
+  // check, the approved cases are released one by one with their confirm-by date
+  // (each Released notice goes out as usual and the database opens the offer),
+  // then the release is recorded. Recording it unmasks the waitlisted results and
+  // sends their letter: the results_releases insert trigger is the primary sender
+  // and this browser call the retry. The Not accepted letters wait for
+  // closeResultsRound.
+  const releaseScholarshipResults = async (scholarshipId, { confirmBy = '', waitlistOrder = [] } = {}) => {
     if (!isAdmissionsAdminRole(state.viewerRole)) {
       return { error: 'Only the Admissions Office Admin can release results.' };
     }
@@ -2663,17 +2706,228 @@ function App() {
       return { error: 'Supabase is not configured, so the results could not be released.' };
     }
     const approved = state.applications.filter((entry) => entry.scholarshipId === scholarshipId && entry.status === 'Approved');
+    if (approved.length && !isValidConfirmBy(confirmBy)) {
+      return { error: 'Choose the date the accepted applicants must confirm by (today or later).' };
+    }
+    // The waitlist order is saved first, so the offers never go out without it.
+    if (waitlistOrder.length) {
+      const ordered = await saveWaitlistOrder(scholarshipId, waitlistOrder);
+      if (ordered?.error) return ordered;
+    }
     for (const entry of approved) {
-      const result = await releaseApplicationResults(entry.id);
+      const result = await releaseApplicationResults(entry.id, { confirmBy });
       if (result?.error) return { error: `${entry.studentName || 'An applicant'}: ${result.error}` };
     }
     const recorded = await recordSupabaseResultsRelease(scholarshipId);
     if (recorded.error || !recorded.data) {
       return { error: recorded.error?.message || 'The results release could not be recorded. Confirm the release migration is applied.' };
     }
+    const offeredAt = new Date().toISOString();
     setState((previous) => ({
       ...previous,
       resultsReleases: [...(previous.resultsReleases || []), recorded.data],
+      // The database opened these offers; mirror them until the next refresh.
+      scholarshipOffers: [
+        ...(previous.scholarshipOffers || []).filter((offer) => !approved.some((entry) => entry.id === offer.applicationId)),
+        ...approved.map((entry) => ({
+          applicationId: entry.id,
+          scholarshipId,
+          studentId: entry.studentId,
+          offeredAt,
+          confirmBy,
+          origin: 'release',
+          response: 'pending',
+        })),
+      ],
+    }));
+    notifySupabaseResultsRelease(recorded.data.id).catch(() => undefined);
+    return { ok: true, release: recorded.data };
+  };
+
+  // The order waitlisted applicants are offered a slot that opens (staff-only).
+  const saveWaitlistOrder = async (scholarshipId, applicationIds = []) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can order the waitlist.' };
+    }
+    const result = await setSupabaseWaitlistOrder(scholarshipId, applicationIds);
+    if (result?.error) return { error: result.error.message || 'The waitlist order could not be saved.' };
+    const updatedAt = new Date().toISOString();
+    setState((previous) => ({
+      ...previous,
+      waitlistRanks: [
+        ...(previous.waitlistRanks || []).filter((row) => row.scholarshipId !== scholarshipId),
+        ...applicationIds.map((applicationId, index) => ({ applicationId, scholarshipId, rank: index + 1, updatedAt })),
+      ],
+    }));
+    return { ok: true };
+  };
+
+  // "Offer to next": an accepted applicant declined, so the Admin offers the slot
+  // to the top of the waitlist. The grant amount is recorded first so every offer
+  // carries a figure; the move is an ordinary status write (Waitlisted ->
+  // Released) that notifies the applicant and opens their offer.
+  const offerToWaitlisted = async (applicationId, confirmBy = '') => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can offer a slot.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || application.status !== 'Waitlisted') {
+      return { error: 'This application is no longer on the waitlist.' };
+    }
+    if (!getGrantAmountForApplication(state.grantAmounts, applicationId)) {
+      return { error: 'Record the grant amount before offering the slot.' };
+    }
+    if (!isValidConfirmBy(confirmBy)) {
+      return { error: 'Choose the date the applicant must confirm by (today or later).' };
+    }
+    const reference = `OAA-${applicationId.slice(0, 8).toUpperCase()}`;
+    const result = await changeApplicationStatus(applicationId, 'Released', {
+      note: `A slot opened. Offered from the waitlist through the Admissions Office (${reference}).`,
+      release: {
+        releasedTo: 'Admissions Office',
+        releasedAt: new Date().toISOString().slice(0, 10),
+        reference,
+        confirmBy,
+        promoted: true,
+      },
+    });
+    if (result?.error) return result;
+    setState((previous) => ({
+      ...previous,
+      waitlistRanks: (previous.waitlistRanks || []).filter((row) => row.applicationId !== applicationId),
+      scholarshipOffers: [
+        ...(previous.scholarshipOffers || []).filter((offer) => offer.applicationId !== applicationId),
+        {
+          applicationId,
+          scholarshipId: application.scholarshipId,
+          studentId: application.studentId,
+          offeredAt: new Date().toISOString(),
+          confirmBy,
+          origin: 'promotion',
+          response: 'pending',
+        },
+      ],
+    }));
+    return result;
+  };
+
+  // An accepted applicant confirms or declines the award. The student answers
+  // their own offer until the round closes; the Admin records an answer given
+  // outside the app (or marks a lapsed offer declined). A decline moves the
+  // application to Declined in the same database call.
+  const respondToOffer = async (applicationId, response, reason = '') => {
+    const isAdmin = isAdmissionsAdminRole(state.viewerRole);
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    const offer = getOfferForApplication(state.scholarshipOffers, applicationId);
+    if (!application || !offer || application.status !== 'Released') {
+      return { error: 'There is no open offer on this application.' };
+    }
+    if (!isAdmin && (state.viewerRole !== 'student' || application.studentId !== currentProfile.id)) {
+      return { error: 'Only the applicant or the Admissions Office Admin can answer this offer.' };
+    }
+    if (!isAdmin && isOfferRoundClosed(offer, state.resultsReleases)) {
+      return { error: 'The results for this scholarship are closed. Contact the Admissions Office to change your response.' };
+    }
+    if (response === 'declined' && !isAdmin && !String(reason || '').trim()) {
+      return { error: 'Tell the Admissions Office why you are declining.' };
+    }
+    const result = await respondSupabaseScholarshipOffer(applicationId, response, String(reason || '').trim());
+    if (result.error || !result.data) {
+      return { error: result.error?.message || 'Your response could not be saved.' };
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    setState((previous) => ({
+      ...previous,
+      scholarshipOffers: (previous.scholarshipOffers || []).map((entry) => (
+        entry.applicationId === applicationId ? { ...entry, ...result.data } : entry
+      )),
+      applications: response === 'declined'
+        ? previous.applications.map((entry) => (entry.id === applicationId ? {
+          ...entry,
+          status: 'Declined',
+          updatedAt: today,
+          timeline: [...(entry.timeline || []), {
+            id: `ev-${crypto.randomUUID()}`,
+            stage: 'Declined',
+            note: isAdmin ? 'Offer declined (recorded by the Admissions Office).' : 'Offer declined by the applicant.',
+            actor: isAdmin ? 'Admissions Office Admin' : 'Student',
+            at: today,
+          }],
+        } : entry))
+        : previous.applications,
+    }));
+    if (response === 'declined') notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+    return { ok: true, offer: result.data };
+  };
+
+  // A waitlisted applicant leaves the waitlist (or the Admin records it).
+  const withdrawFromWaitlist = async (applicationId, reason = '') => {
+    const isAdmin = isAdmissionsAdminRole(state.viewerRole);
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application) return { error: 'The application could not be found.' };
+    if (!isAdmin && (state.viewerRole !== 'student' || application.studentId !== currentProfile.id)) {
+      return { error: 'Only the applicant or the Admissions Office Admin can withdraw from the waitlist.' };
+    }
+    if (application.status !== 'Waitlisted') return { error: 'This application is not on the waitlist.' };
+    if (!isAdmin && !String(reason || '').trim()) {
+      return { error: 'Tell the Admissions Office why you are leaving the waitlist.' };
+    }
+    const result = await withdrawSupabaseFromWaitlist(applicationId, String(reason || '').trim());
+    if (result?.error) return { error: result.error.message || 'The waitlist could not be updated.' };
+    const today = new Date().toISOString().slice(0, 10);
+    setState((previous) => ({
+      ...previous,
+      waitlistRanks: (previous.waitlistRanks || []).filter((row) => row.applicationId !== applicationId),
+      applications: previous.applications.map((entry) => (entry.id === applicationId ? {
+        ...entry,
+        status: 'Declined',
+        updatedAt: today,
+        timeline: [...(entry.timeline || []), {
+          id: `ev-${crypto.randomUUID()}`,
+          stage: 'Declined',
+          note: isAdmin ? 'Withdrawal from the waitlist recorded by the Admissions Office.' : 'Withdrew from the waitlist.',
+          actor: isAdmin ? 'Admissions Office Admin' : 'Student',
+          at: today,
+        }],
+      } : entry)),
+    }));
+    notifySupabaseApplicationStatus(applicationId).catch(() => undefined);
+    return { ok: true };
+  };
+
+  // Second wave: once every accepted applicant has answered, the Admin closes the
+  // round. The database turns the remaining waitlist into Not accepted and records
+  // the closing release, whose insert trigger sends every Not accepted applicant
+  // the general letter together; this browser call is the retry.
+  const closeResultsRound = async (scholarshipId) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can close the results.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the results could not be closed.' };
+    }
+    const recorded = await closeSupabaseResultsRound(scholarshipId);
+    if (recorded.error || !recorded.data) {
+      return { error: recorded.error?.message || 'The results could not be closed. Confirm the waitlist migration is applied.' };
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    setState((previous) => ({
+      ...previous,
+      resultsReleases: [...(previous.resultsReleases || []), recorded.data],
+      waitlistRanks: (previous.waitlistRanks || []).filter((row) => row.scholarshipId !== scholarshipId),
+      applications: previous.applications.map((entry) => (
+        entry.scholarshipId === scholarshipId && entry.status === 'Waitlisted' ? {
+          ...entry,
+          status: 'Rejected',
+          updatedAt: today,
+          timeline: [...(entry.timeline || []), {
+            id: `ev-${crypto.randomUUID()}`,
+            stage: 'Rejected',
+            note: APPLICATION_REJECTION_NOTICE,
+            actor: 'Admissions Office Admin',
+            at: today,
+          }],
+        } : entry)),
     }));
     notifySupabaseResultsRelease(recorded.data.id).catch(() => undefined);
     return { ok: true, release: recorded.data };
@@ -3515,6 +3769,10 @@ function App() {
               documents={studentDocuments}
               scholarships={state.scholarships || []}
               grantAmounts={state.grantAmounts || []}
+              scholarshipOffers={state.scholarshipOffers || []}
+              resultsReleases={state.resultsReleases || []}
+              onRespondToOffer={respondToOffer}
+              onWithdrawFromWaitlist={withdrawFromWaitlist}
               profile={studentMatchProfile}
               openApplicationId={openApplicationId}
               onOpenApplication={setOpenApplicationId}
@@ -3570,6 +3828,7 @@ function App() {
               onPickUpApplication={joinCaseReview}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onEndorseApplication={endorseApplication}
               interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
@@ -3600,6 +3859,7 @@ function App() {
               reviewerName={state.authUser?.fullName || ''}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onEndorseApplication={endorseApplication}
               interviewWorkspace={interviewWorkspace}
               onRecordDeliberation={recordDeliberation}
@@ -3628,6 +3888,7 @@ function App() {
               onAddComment={addReviewComment}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onEndorseApplication={endorseApplication}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
@@ -3656,6 +3917,7 @@ function App() {
               onAddComment={addReviewComment}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onEndorseApplication={endorseApplication}
               onRecordDeliberation={recordDeliberation}
               onReleaseResults={releaseApplicationResults}
@@ -3683,9 +3945,18 @@ function App() {
               scholarships={state.scholarships || []}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onApproveApplication={approveApplication}
               onReleaseResults={releaseApplicationResults}
               onReleaseScholarshipResults={releaseScholarshipResults}
+              onSaveWaitlistOrder={saveWaitlistOrder}
+              onOfferToWaitlisted={offerToWaitlisted}
+              onRespondToOffer={respondToOffer}
+              onWithdrawFromWaitlist={withdrawFromWaitlist}
+              onCloseResultsRound={closeResultsRound}
+              scholarshipOffers={state.scholarshipOffers || []}
+              scholarshipOffersReady={state.scholarshipOffersReady !== false}
+              waitlistRanks={state.waitlistRanks || []}
               resultsReleases={state.resultsReleases || []}
               academicPrograms={activeAcademicPrograms}
               interviewWorkspace={interviewWorkspace}
@@ -3728,6 +3999,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onApproveApplication={approveApplication}
               onRecordDeliberation={recordDeliberation}
               onAddComment={addReviewComment}
@@ -3744,6 +4016,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onApproveApplication={approveApplication}
               onRecordDeliberation={recordDeliberation}
               onAddComment={addReviewComment}
@@ -3773,6 +4046,7 @@ function App() {
               reviewComments={state.reviewComments || []}
               onChangeApplication={changeApplicationStatus}
               onRejectApplication={rejectApplication}
+              onWaitlistApplication={waitlistApplication}
               onApproveApplication={approveApplication}
               onRecordDeliberation={recordDeliberation}
               onAddComment={addReviewComment}

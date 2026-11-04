@@ -54,7 +54,7 @@ const OUTCOMES = {
     tone: 'info',
     title: 'Recommended for approval',
     holder: `With the school's ${REVIEW_ROLE_LABELS[approverRole] || 'approving level'}.`,
-    next: 'They approve or reject the recommendation next.',
+    next: 'They approve, waitlist, or decide not to accept the recommendation next.',
     goTab: null,
   }),
   Approved: () => ({
@@ -64,11 +64,25 @@ const OUTCOMES = {
     next: 'The result is released with its scholarship from Final check and release. Until then the student sees “Under deliberation”.',
     goTab: null,
   }),
+  Waitlisted: () => ({
+    tone: 'warning',
+    title: 'Waitlisted',
+    holder: 'With the Admissions Office Admin, who orders the waitlist before release.',
+    next: 'The student is told they are on the waitlist when the scholarship\'s offers are released. If an accepted applicant declines, the Admin offers the slot to the next waitlisted applicant.',
+    goTab: null,
+  }),
   Rejected: () => ({
     tone: 'neutral',
     title: 'Not accepted',
     holder: 'Closed. The reason is saved in the internal notes.',
-    next: 'The student receives only the general notice, never the reason, once the results are released.',
+    next: 'The student receives only the general letter, never the reason, when the Admin closes the scholarship\'s results.',
+    goTab: null,
+  }),
+  Declined: () => ({
+    tone: 'neutral',
+    title: 'Declined',
+    holder: 'Closed. The applicant turned the offer down or left the waitlist.',
+    next: 'The Admin can offer the slot to the next waitlisted applicant from Final check and release.',
     goTab: null,
   }),
   Released: () => ({

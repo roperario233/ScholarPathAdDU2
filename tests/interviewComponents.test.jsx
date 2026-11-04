@@ -261,7 +261,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     expect(buttonLabels(html)).not.toContain('Approve');
     expect(html).toContain('Admin override — not the intended flow.');
     // No approval_levels row for the school, so the default approver is named.
-    expect(html).toContain('The school&#x27;s Chairperson approves or rejects this.');
+    expect(html).toContain('The school&#x27;s Chairperson decides this recommendation.');
   });
   it('still offers the calendar repair after the recommendation waived the interview', () => {
     // The waiver cancels the schedule while the application is at Interview. If

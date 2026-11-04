@@ -132,6 +132,12 @@ const createDefaultState = () => ({
   // and the approving level read them, a student only after a release covers the
   // application.
   grantAmounts: [],
+  // Offers to the accepted applicants and their answers (scholarship_offers), and
+  // the Admin's waitlist order (staff-only; a student never sees a position).
+  // `scholarshipOffersReady` turns false while the waitlist migration is pending.
+  scholarshipOffers: [],
+  scholarshipOffersReady: true,
+  waitlistRanks: [],
   // The Admissions Office case-officer roster: which office accounts have opened
   // which application. Staff-only, so a student or Department Chair session always
   // keeps this empty. `caseOfficersReady` turns false when the roster migration is
@@ -235,6 +241,9 @@ export const createInitialState = () => {
     announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
     reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
     grantAmounts: Array.isArray(stored.grantAmounts) ? stored.grantAmounts : defaults.grantAmounts,
+    scholarshipOffers: Array.isArray(stored.scholarshipOffers) ? stored.scholarshipOffers : defaults.scholarshipOffers,
+    scholarshipOffersReady: stored.scholarshipOffersReady === false ? false : defaults.scholarshipOffersReady,
+    waitlistRanks: Array.isArray(stored.waitlistRanks) ? stored.waitlistRanks : defaults.waitlistRanks,
     caseOfficers: Array.isArray(stored.caseOfficers) ? stored.caseOfficers : defaults.caseOfficers,
     caseOfficersReady: stored.caseOfficersReady === false ? false : defaults.caseOfficersReady,
     staffDirectory: Array.isArray(stored.staffDirectory) ? stored.staffDirectory : defaults.staffDirectory,

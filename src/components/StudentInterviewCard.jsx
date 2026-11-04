@@ -1,5 +1,5 @@
 import { Button, Panel, StatusBadge } from './ui';
-import { buildGoogleCalendarTemplateUrl, describeInterviewForStudent, downloadInterviewIcs, isStructuredInterview } from '../lib/interview';
+import { buildGoogleCalendarTemplateUrl, describeInterviewForStudent, downloadInterviewIcs, isInterviewStageClosed, isStructuredInterview } from '../lib/interview';
 
 const stateTone = (state) => ({ scheduled: 'info', completed: 'success', no_show: 'warning', cancelled: 'danger' }[state] || 'info');
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
@@ -16,6 +16,8 @@ export default function StudentInterviewCard({ application, scholarshipTitle = '
   if (!view) return null;
   const structured = isStructuredInterview(interview);
   const isActive = structured && interview.state === 'scheduled';
+  // Closed by a decision, not called off: no "cancelled" alarm for the student.
+  const stageClosed = isInterviewStageClosed(interview);
   const templateUrl = isActive ? buildGoogleCalendarTemplateUrl({ interview, scholarshipTitle }) : '';
 
   return (
@@ -24,10 +26,12 @@ export default function StudentInterviewCard({ application, scholarshipTitle = '
         <h3 className={sectionHeading}>Interview</h3>
         <div className="flex flex-wrap gap-2">
           {view.rescheduled ? <StatusBadge tone="warning">Rescheduled</StatusBadge> : null}
-          <StatusBadge tone={stateTone(view.state)}>{view.stateLabel}</StatusBadge>
+          <StatusBadge tone={stageClosed ? 'neutral' : stateTone(view.state)}>{view.stateLabel}</StatusBadge>
         </div>
       </div>
-      {structured && interview.state === 'cancelled' ? (
+      {stageClosed ? (
+        <p className="m-0 text-sm text-app-text">The interview stage is closed. Results are released to every applicant at the same time.</p>
+      ) : structured && interview.state === 'cancelled' ? (
         <p className="m-0 text-sm text-app-text">This interview was cancelled. The Admissions Office will notify you if it is rescheduled.</p>
       ) : null}
       <dl className="m-0 grid gap-3 sm:grid-cols-2">

@@ -17,7 +17,7 @@
  */
 
 import { formatDeadlineLabel } from './email.js';
-import { getApplicationStatusLabel } from './applicationStatus.js';
+import { getStudentApplicationStatusLabel } from './applicationStatus.js';
 import { formatInterviewDateShort, isStructuredInterview } from './interview.js';
 
 export const IPROGSMS_ENDPOINT = 'https://www.iprogsms.com/api/v1/sms_messages';
@@ -158,13 +158,26 @@ export const renderReminderSms = ({ title, itemTitle, deadline, daysBefore }) =>
 };
 
 /** Renders an application status-change text message for the application workspace. */
-export const renderApplicationStatusSms = ({ scholarshipTitle, status, interview = null }) => ({
-  message: status === 'Rejected'
+export const renderApplicationStatusSms = ({ scholarshipTitle, status, interview = null, release = null }) => {
+  const title = scholarshipTitle || 'a scholarship';
+  if (status === 'Rejected') {
     // A general notice: the recorded reason stays with the Admissions Office.
-    ? `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} was not accepted. Sign in to view details.`
-    : status === 'Interview' && isStructuredInterview(interview)
-      ? `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview is on ${formatInterviewDateShort(interview.startsAt)} (${interview.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.`
-      : `ScholarPath AdDU: your application for ${scholarshipTitle || 'a scholarship'} is now ${status ? getApplicationStatusLabel(status) : 'updated'}. Sign in to view details.`,
+    return { message: `ScholarPath AdDU: your application for ${title} was not accepted. Sign in to view details.` };
+  }
+  if (status === 'Released') {
+    const lead = release?.promoted ? `a slot opened and you are accepted for ${title}` : `you are accepted for ${title}`;
+    const confirm = release?.confirmBy ? ` Confirm or decline in ScholarPath by ${formatDeadlineLabel(release.confirmBy)}.` : ' Sign in to confirm or decline.';
+    return { message: `ScholarPath AdDU: ${lead}.${confirm}` };
+  }
+  if (status === 'Interview' && isStructuredInterview(interview)) {
+    return { message: `ScholarPath AdDU: your ${scholarshipTitle || 'scholarship'} interview is on ${formatInterviewDateShort(interview.startsAt)} (${interview.mode === 'online' ? 'online' : 'on-site'}). Sign in for the details.` };
+  }
+  return { message: `ScholarPath AdDU: your application for ${title} is now ${status ? getStudentApplicationStatusLabel(status) : 'updated'}. Sign in to view details.` };
+};
+
+/** Renders the waitlist letter sent with the release of the accepted and waitlisted applicants. */
+export const renderWaitlistLetterSms = ({ scholarshipTitle }) => ({
+  message: `ScholarPath AdDU: ${scholarshipTitle || 'scholarship'} results are out. Your application is on the waitlist; you may still be offered the scholarship if a slot opens. Sign in for the letter.`,
 });
 
 /** Renders the general non-acceptance letter sent when a scholarship's results are released. */

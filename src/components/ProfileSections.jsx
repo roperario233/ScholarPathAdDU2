@@ -1279,7 +1279,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
       </div>
       <fieldset data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid" className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
-        <small className="field-hint block">The three toggles are exclusion rules the Smart Eligibility Checker reads, and any of them (or a Yes above) opens the grant list below. A sibling on AdDU financial aid is about your sibling, not about you.</small>
+        <small className="field-hint block">The government grant, other scholarship, and prepaid plan toggles are exclusion rules the Smart Eligibility Checker reads, and any of them (or a Yes above) opens the grant list below. A sibling on AdDU financial aid does not stop you from applying: the office considers it when it decides.</small>
         <div className="grid gap-4 md:grid-cols-2">
           <SelectField
             fieldKey="previousGrantsAnswered"
@@ -1296,7 +1296,7 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
           <SettingToggle checked={values.hasActiveGovernmentGrant} onChange={(checked) => update({ hasActiveGovernmentGrant: checked })} title="Active government grant" description="Excludes scholarships that cannot be combined with another government grant." />
           <SettingToggle checked={values.hasOtherActiveScholarship} onChange={(checked) => update({ hasOtherActiveScholarship: checked })} title="Another active scholarship" description="Held without College Scholarship Committee approval." />
           <SettingToggle checked={values.isOnPrepaidPlan} onChange={(checked) => update({ isOnPrepaidPlan: checked })} title="Prepaid tuition plan" description="Covered by a prepaid educational plan." />
-          <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid." />
+          <SettingToggle checked={values.hasSiblingOnAid} onChange={(checked) => update({ hasSiblingOnAid: checked })} title="Sibling on AdDU financial aid" description="A sibling receives AdDU financial aid. You can still apply; the office considers it in its decision." />
         </div>
       </fieldset>
       {grantListActive && (

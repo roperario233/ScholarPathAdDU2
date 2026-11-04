@@ -51,6 +51,7 @@ export const mergeWorkspaceRefresh = (previous, workspace, ownerId) => {
       interviewNotes: [],
       officeCalendarEntries: [],
       approvalLevels: [],
+      waitlistRanks: [],
     } : {}),
   };
 };

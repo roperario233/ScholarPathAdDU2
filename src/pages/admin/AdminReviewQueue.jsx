@@ -34,6 +34,7 @@ export default function AdminReviewQueue({
   reviewerName = '',
   onChangeApplication,
   onRejectApplication,
+  onWaitlistApplication,
   onEndorseApplication,
   interviewWorkspace = null,
   onRecordDeliberation,
@@ -240,6 +241,7 @@ export default function AdminReviewQueue({
           onClose={closeReview}
           onStatusChange={handleStatusChange}
           onRejectApplication={onRejectApplication}
+          onWaitlistApplication={onWaitlistApplication}
           onEndorse={onEndorseApplication}
           interviewWorkspace={interviewWorkspace}
           onRecordDeliberation={onRecordDeliberation}

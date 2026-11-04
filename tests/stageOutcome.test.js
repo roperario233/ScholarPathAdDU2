@@ -63,7 +63,7 @@ describe('describeStageOutcome', () => {
     const outcome = describeStageOutcome({ application, fromStatus: 'Recommended', toStatus: 'Rejected', reason: 'Income above the ceiling' });
     expect(JSON.stringify(outcome)).not.toContain('Income above the ceiling');
     expect(outcome.holder).toContain('internal notes');
-    expect(outcome.next).toContain('general notice');
+    expect(outcome.next).toContain('general letter');
   });
 
   it('returns null for a status it does not describe', () => {

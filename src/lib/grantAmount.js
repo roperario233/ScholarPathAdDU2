@@ -5,12 +5,16 @@ import { fmtCurrency } from './formatters';
 // disbursement. `validateGrantAmount` mirrors the checks in
 // set_application_grant_amount().
 
-export const GRANT_AMOUNT_STATUSES = ['Recommended', 'Approved', 'Released'];
+export const GRANT_AMOUNT_STATUSES = ['Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined'];
 export const GRANT_AMOUNT_EDITABLE_STATUSES = ['Recommended', 'Approved'];
 export const GRANT_NOTE_MAX_LENGTH = 500;
 
 export const isGrantAmountStage = (status) => GRANT_AMOUNT_STATUSES.includes(status);
-export const isGrantAmountEditableStage = (status) => GRANT_AMOUNT_EDITABLE_STATUSES.includes(status);
+// The Admin also records the figure of a waitlisted case before offering it a
+// slot that opened (set_application_grant_amount, 20261061000000).
+export const isGrantAmountEditableStage = (status, { isAdmin = false } = {}) => (
+  GRANT_AMOUNT_EDITABLE_STATUSES.includes(status) || (isAdmin && status === 'Waitlisted')
+);
 
 export const getGrantAmountForApplication = (rows = [], applicationId) => (
   (Array.isArray(rows) ? rows : []).find((entry) => entry?.applicationId === applicationId) || null
