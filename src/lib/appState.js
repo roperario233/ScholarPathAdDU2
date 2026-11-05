@@ -1,5 +1,6 @@
 import { academicPrograms, isHierarchyProgram } from './academicPrograms';
 import { pageViewKeys } from './constants';
+import { createDefaultConsentChoice, normalizeConsentChoice } from './privacyConsent';
 
 // The app's local persistence key. It was renamed from the old
 // `scholarpath-addu-demo-state` key when the seeded demo data and the demo
@@ -88,6 +89,10 @@ const createDefaultState = () => ({
   isAuthenticated: false,
   hasLoggedInBefore: false,
   studentSupportHintSeen: false,
+  // The browser-storage notice choice (cookies and storage policy). It is a device
+  // preference, not identity: an unanswered record means the notice has not been
+  // shown yet, and a version mismatch asks again.
+  privacyChoice: createDefaultConsentChoice(),
   showFirstLoginWelcome: false,
   authUser: null,
   rememberMe: false,
@@ -214,6 +219,7 @@ export const createInitialState = () => {
     authUser,
     hasLoggedInBefore: stored.hasLoggedInBefore ?? defaults.hasLoggedInBefore,
     studentSupportHintSeen: stored.studentSupportHintSeen ?? defaults.studentSupportHintSeen,
+    privacyChoice: normalizeConsentChoice(stored.privacyChoice),
     showFirstLoginWelcome: stored.showFirstLoginWelcome ?? defaults.showFirstLoginWelcome,
     rememberMe: stored.rememberMe ?? defaults.rememberMe,
     savedEmail: stored.savedEmail ?? defaults.savedEmail,
@@ -277,8 +283,10 @@ export const createInitialState = () => {
 //
 // Only non-identifying values belong here. The "remember me" email and role are
 // the previous user's data, so they reset with the rest of the session instead
-// of staying prefilled on a shared testing machine (RA 10173).
-export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore', 'studentSupportHintSeen'];
+// of staying prefilled on a shared testing machine (RA 10173). The storage-notice
+// choice stays because it is a preference with no identity in it, and re-asking
+// the same browser on every sign-out would be noise rather than consent.
+export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore', 'studentSupportHintSeen', 'privacyChoice'];
 
 // A fresh state for sign-out: every session-scoped slice resets to its default
 // (including `ownerId`), while the caller's device preferences carry over.

@@ -1,6 +1,6 @@
 import {
   Award, BarChart3, Bell, CalendarClock, CalendarDays, ClipboardCheck, ClipboardList, Compass, FolderOpen,
-  GraduationCap, Inbox, LayoutDashboard, LibraryBig, ListChecks, Megaphone, Settings, UserCog, UserRound, Users, Vault,
+  GraduationCap, Inbox, LayoutDashboard, LibraryBig, ListChecks, Megaphone, Settings, ShieldCheck, UserCog, UserRound, Users, Vault,
 } from 'lucide-react';
 import ProfileAvatar from './ProfileAvatar';
 import { Skeleton } from './Skeleton';
@@ -28,6 +28,8 @@ const NAV_ICONS = {
   'chair-calendar': CalendarDays,
   'chair-statistics': BarChart3,
   settings: Settings,
+  // The privacy and storage surface is one route with three documents.
+  legal: ShieldCheck,
 };
 
 const getNavIcon = (item) => {

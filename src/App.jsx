@@ -8,7 +8,7 @@ import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureD
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, rankScholarships, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
 import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, APPLICATION_WAITLIST_NOTE_PREFIX, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, countApplicationsToReview, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
-import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfileReviewScope, getSupabaseSession, getUserProfile, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
+import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfilePrivacyConsent, getProfileReviewScope, getSupabaseSession, getUserProfile, recordProfilePrivacyConsent, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
 import { getUpcomingInterviews } from './lib/interviewRoster';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
@@ -54,7 +54,12 @@ import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeout
 import { getGrantAmountForApplication, isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
 import { getOfferForApplication, isOfferRoundClosed, isValidConfirmBy } from './lib/resultsRound';
 import { buildProgramScopeIndex, getReviewPageLabel, getReviewerScope, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
-import { getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
+import { getSupportChatConfig, getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
+import { LEGAL_DOCUMENT_KEYS, LEGAL_DOCUMENT_SHORT_LABELS, PRIVACY_NOTICE_VERSION, getLegalDocumentTitle } from './lib/legalDocs';
+import { createDefaultConsentChoice, normalizeConsentChoice } from './lib/privacyConsent';
+import LegalViewPage, { LegalDocumentDialog } from './pages/LegalView';
+import PrivacyConsentBanner from './components/PrivacyConsentBanner';
+import PrivacyConsentModal from './components/PrivacyConsentModal';
 import { countUnreadSupportMessages, getStudentVisibleMessages, getSupportUnreadTotal, isSupportInboxChannel, mergeSupportInboxState, SUPPORT_BACKGROUND_POLL_MS, SUPPORT_OPEN_POLL_MS } from './lib/supportMessages';
 import { replyFor, shouldAssistantReply } from './lib/supportAssistant';
 import StudentSupportChat from './components/StudentSupportChat';
@@ -62,6 +67,10 @@ import AdminSupportInboxPage from './pages/admin/AdminSupportInbox';
 
 const SUPPORT_INBOX_CHANNEL_ENABLED = isSupportInboxChannel();
 const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT ?? 'true').trim().toLowerCase() !== 'false';
+// The optional tawk.to live chat is the only third party in the build that can set a
+// cookie, so the storage notice offers it only when this deployment really uses it:
+// the in-app Support inbox (the default) loads no third-party script at all.
+const SUPPORT_CHAT_WIDGET_CONFIGURED = !SUPPORT_INBOX_CHANNEL_ENABLED && getSupportChatConfig().configured;
 
 const roleLabels = {
   student: 'Student',
@@ -237,6 +246,9 @@ const devicePreferencesOf = (state) => ({
   theme: state.theme,
   hasLoggedInBefore: state.hasLoggedInBefore,
   studentSupportHintSeen: state.studentSupportHintSeen,
+  // The cookie and storage notice choice is a preference with no identity in it, so
+  // the same browser is not asked again on every sign-out.
+  privacyChoice: state.privacyChoice,
 });
 
 // FORM 230-SCH financial details are sensitive and office-only, so they live in
@@ -355,6 +367,16 @@ function App() {
   // Admissions Office tries to schedule. Without a working integration an online
   // interview needs a pasted meeting link.
   const [interviewCalendar, setInterviewCalendar] = useState({ ...emptyInterviewCalendarState, checked: false, checking: true });
+  // Which privacy document the legal page or the pre-login dialog opens on. Kept
+  // apart from the route so an entry point can name the document it links to.
+  const [legalDoc, setLegalDoc] = useState('');
+  const [legalDocDialog, setLegalDocDialog] = useState(null);
+  // The account-level consent record (profiles.privacy_consent_*). `ready` is false
+  // while the migration is pending, which disables the blocking card instead of
+  // asking for consent the project cannot store.
+  const [privacyConsent, setPrivacyConsent] = useState(null);
+  const [isSavingPrivacyConsent, setIsSavingPrivacyConsent] = useState(false);
+  const [privacyConsentError, setPrivacyConsentError] = useState('');
 
   const updateState = (updater) => setState((previous) => {
     const nextState = typeof updater === 'function' ? updater(previous) : updater;
@@ -388,6 +410,11 @@ function App() {
     setDeadlineSync(null);
     setAvatarPreview({ path: '', url: '' });
     setFinancial(emptyFinancialState);
+    // The consent record slice and the open policy dialog belong to the account that
+    // is leaving; the next person on this browser starts from a clean read.
+    setPrivacyConsent(null);
+    setPrivacyConsentError('');
+    setLegalDocDialog(null);
     setSessionTimeoutState(null);
     setSessionNotice(notice);
     setIsSessionChecked(true);
@@ -450,6 +477,8 @@ function App() {
           role: state.viewerRole,
           ownerId: state.authUser?.id || '',
           visitor: supportChatVisitorRef.current,
+          // The third-party widget waits for the storage notice's optional category.
+          consentChoice: state.privacyChoice,
         });
       } else {
         teardownSupportChat();
@@ -458,7 +487,7 @@ function App() {
     }
     teardownSupportChat();
     return undefined;
-  }, [state.isAuthenticated, state.viewerRole, state.authUser?.id]);
+  }, [state.isAuthenticated, state.viewerRole, state.authUser?.id, state.privacyChoice]);
 
   useEffect(() => {
     if (SUPPORT_INBOX_CHANNEL_ENABLED || !state.isAuthenticated || state.viewerRole !== 'student' || !state.authUser?.id) return;
@@ -466,8 +495,82 @@ function App() {
       role: state.viewerRole,
       ownerId: state.authUser.id,
       visitor: getSupportChatVisitor({ fullName: state.authUser.fullName, email: state.authUser.email }),
+      consentChoice: state.privacyChoice,
     });
-  }, [state.isAuthenticated, state.viewerRole, state.authUser?.id, state.authUser?.fullName, state.authUser?.email]);
+  }, [state.isAuthenticated, state.viewerRole, state.authUser?.id, state.authUser?.fullName, state.authUser?.email, state.privacyChoice]);
+  // The account-level consent record, read in its own tolerant query (a pending
+  // migration answers ready:false and the blocking card stays off). The slice is
+  // stamped with the account it belongs to, so a record read for one account can
+  // never stand in for another; `endSession` clears it on the way out.
+  useEffect(() => {
+    let active = true;
+    const userId = state.authUser?.id;
+    if (!state.isAuthenticated || !userId) {
+      return () => { active = false; };
+    }
+
+    getProfilePrivacyConsent(userId).then((result) => {
+      if (active) setPrivacyConsent({ ...result, userId });
+    });
+
+    return () => { active = false; };
+  }, [state.isAuthenticated, state.authUser?.id]);
+
+  // The consent card is shown when this account has no recorded consent for the
+  // current notice version. `ready:false` (migration pending) never shows it.
+  const needsAccountConsent = Boolean(state.isAuthenticated)
+    && privacyConsent?.ready === true
+    && privacyConsent.userId === state.authUser?.id
+    && privacyConsent.version !== PRIVACY_NOTICE_VERSION;
+
+  // RA 10173 consent, recorded once per account per notice version. A failure is
+  // shown in the card instead of closing it, so the person can retry or sign out.
+  const acceptPrivacyConsent = async () => {
+    setIsSavingPrivacyConsent(true);
+    setPrivacyConsentError('');
+    const result = await recordProfilePrivacyConsent(PRIVACY_NOTICE_VERSION);
+    setIsSavingPrivacyConsent(false);
+    if (!result.ok) {
+      setPrivacyConsentError(result.message || 'Your consent could not be recorded.');
+      return;
+    }
+    setPrivacyConsent({
+      version: PRIVACY_NOTICE_VERSION,
+      consentedAt: new Date().toISOString(),
+      ready: true,
+      userId: state.authUser?.id || null,
+    });
+  };
+
+  const declinePrivacyConsent = () => {
+    setPrivacyConsentError('');
+    logout();
+  };
+
+  // The browser-storage notice choice is a device preference: it is written to the
+  // persisted state so it survives sign-out and is only asked again when the notice
+  // version changes.
+  const decidePrivacyChoice = (nextChoice) => updateState({ privacyChoice: nextChoice });
+
+  // Forgetting the notice choice (a device preference) makes the notice ask again on
+  // the next paint. Nothing about the account or its recorded consent changes.
+  const resetPrivacyChoice = () => updateState({ privacyChoice: createDefaultConsentChoice() });
+
+  // Surfaces with unsaved work (the application workspace, the vault) open the policy
+  // over themselves rather than navigating away from it.
+  const openPrivacyDocumentDialog = (doc) => setLegalDocDialog(doc || 'privacy');
+
+  const openPrivacyDocument = (doc) => {
+    // While the account consent card is up the reader cannot leave the page, so the
+    // document opens on top of that card instead of behind it.
+    if (state.isAuthenticated && !needsAccountConsent) {
+      navigate('legal', { doc });
+      return;
+    }
+    setLegalDocDialog(doc || 'privacy');
+  };
+
+
 
   useEffect(() => {
     if (!SUPPORT_INBOX_CHANNEL_ENABLED || !isSupabaseWorkspaceLoaded || !state.isAuthenticated || !state.authUser?.id) {
@@ -1337,6 +1440,9 @@ function App() {
     setProfilePresetSection(view === 'profile' ? (options.section || '') : '');
     setProfilePresetField(view === 'profile' ? (options.field || '') : '');
     setOpenApplicationId(view === 'applications' ? (options.applicationId || null) : null);
+    // A privacy document is named by the entry point that links to it; navigating to
+    // the route without one keeps the tab the reader was last on.
+    if (view === 'legal' && options.doc) setLegalDoc(options.doc);
     updateState({ activeView: view });
     setIsMobileNavOpen(false);
   };
@@ -3572,11 +3678,31 @@ function App() {
     <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className} />
   );
 
-  // Settings reads only local preferences and Accounts fetches its own list, so
-  // neither waits on the workspace.
+  // The privacy documents are one quiet footer row rather than three more page
+  // links, so the role-aware page list stays the list of routes. Each link opens the
+  // legal page on its own document.
+  const renderLegalLinks = (className = '') => (
+    <nav className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${className}`} aria-label="Privacy, storage, and terms">
+      <span className="text-[0.65rem] font-bold uppercase tracking-wide text-app-muted">Privacy</span>
+      {LEGAL_DOCUMENT_KEYS.map((key) => (
+        <button
+          key={key}
+          type="button"
+          className="proof-action text-xs font-semibold text-app-muted transition hover:text-app-text"
+          title={getLegalDocumentTitle(key)}
+          onClick={() => navigate('legal', { doc: key })}
+        >
+          {LEGAL_DOCUMENT_SHORT_LABELS[key]}
+        </button>
+      ))}
+    </nav>
+  );
+
+  // Settings reads only local preferences, Accounts fetches its own list, and the
+  // privacy documents are static copy, so none of them waits on the workspace.
   const showViewSkeleton = state.isAuthenticated
     && !isWorkspaceSettled
-    && !['settings', 'admin-accounts'].includes(state.activeView);
+    && !['settings', 'admin-accounts', 'legal'].includes(state.activeView);
 
   if (isBooting || !isSessionChecked) {
     return (
@@ -3597,16 +3723,30 @@ function App() {
 
   if (!state.isAuthenticated) {
     return (
-      <LoginScreenPage
-        onLogin={login}
-        onSignUp={signup}
-        onForgotPassword={requestPasswordReset}
-        rememberedEmail={state.savedEmail}
-        isRemembered={state.rememberMe}
-        theme={state.theme}
-        onToggleTheme={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
-        sessionNotice={sessionNotice}
-      />
+      <>
+        <LoginScreenPage
+          onLogin={login}
+          onSignUp={signup}
+          onForgotPassword={requestPasswordReset}
+          rememberedEmail={state.savedEmail}
+          isRemembered={state.rememberMe}
+          theme={state.theme}
+          onToggleTheme={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+          sessionNotice={sessionNotice}
+          onOpenLegalDocument={openPrivacyDocument}
+        />
+        {/* The notice is shown before sign-in too: the browser storage it describes
+            already exists at this point. */}
+        <PrivacyConsentBanner
+          choice={state.privacyChoice}
+          onDecide={decidePrivacyChoice}
+          onOpenDocument={openPrivacyDocument}
+          chatWidgetConfigured={SUPPORT_CHAT_WIDGET_CONFIGURED}
+        />
+        {legalDocDialog && (
+          <LegalDocumentDialog doc={legalDocDialog} onClose={() => setLegalDocDialog(null)} />
+        )}
+      </>
     );
   }
 
@@ -3720,6 +3860,7 @@ function App() {
               <button type="button" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text" onClick={() => setIsMobileNavOpen(false)} aria-label="Close page navigation"><X size={18} /></button>
             </div>
             {renderNavigation()}
+            {renderLegalLinks('mt-5 border-t border-app-border pt-4')}
           </aside>
         </>
       )}
@@ -3736,6 +3877,7 @@ function App() {
           <div className="border-t border-app-border pt-4">
             <SidebarStats items={sidebarStats} loading={!isWorkspaceSettled} />
           </div>
+          {renderLegalLinks('mt-4')}
         </aside>
 
         <section className="blue-action-view grid min-w-0 content-start gap-5">
@@ -3773,6 +3915,7 @@ function App() {
               resultsReleases={state.resultsReleases || []}
               onRespondToOffer={respondToOffer}
               onWithdrawFromWaitlist={withdrawFromWaitlist}
+              onOpenPrivacyDocument={openPrivacyDocumentDialog}
               profile={studentMatchProfile}
               openApplicationId={openApplicationId}
               onOpenApplication={setOpenApplicationId}
@@ -3800,6 +3943,7 @@ function App() {
               onResolveDocument={(applicationId) => navigate('applications', { applicationId })}
               presetAttribute={vaultPreset.attribute}
               presetDocumentType={vaultPreset.documentType}
+              onOpenPrivacyDocument={openPrivacyDocumentDialog}
             />
           )}
 
@@ -4118,7 +4262,16 @@ function App() {
               onSendTestEmail={isSupabaseWorkspaceLoaded ? sendSupabaseTestEmail : null}
               onSendTestSms={isSupabaseWorkspaceLoaded ? sendSupabaseTestSms : null}
               mobileNumber={currentIdentity.phone || ''}
+              privacyChoice={normalizeConsentChoice(state.privacyChoice)}
+              privacyConsent={privacyConsent}
+              privacyNoticeVersion={PRIVACY_NOTICE_VERSION}
+              onOpenPrivacyDocument={openPrivacyDocument}
+              onResetPrivacyChoice={resetPrivacyChoice}
             />
+          )}
+
+          {state.activeView === 'legal' && (
+            <LegalViewPage initialDoc={legalDoc || 'privacy'} />
           )}
 
           {state.activeView === 'calendar' && (
@@ -4157,6 +4310,14 @@ function App() {
           )}
         </section>
       </main>
+      {/* The storage notice asks once per browser per notice version, and never
+          blocks the app: only the optional third-party live chat depends on it. */}
+      <PrivacyConsentBanner
+        choice={state.privacyChoice}
+        onDecide={decidePrivacyChoice}
+        onOpenDocument={openPrivacyDocument}
+        chatWidgetConfigured={SUPPORT_CHAT_WIDGET_CONFIGURED}
+      />
       {state.isAuthenticated && state.viewerRole === 'student' && SUPPORT_INBOX_CHANNEL_ENABLED && (
         <StudentSupportChat
           thread={supportThread}
@@ -4177,6 +4338,22 @@ function App() {
           onOpenChange={setIsStudentSupportOpen}
           onDismissHint={dismissSupportChatHint}
         />
+      )}
+      {/* RA 10173 account consent, once per account per notice version. It stays off
+          when the migration is pending (privacyConsent.ready is false) so the app is
+          never blocked on a record it cannot store. */}
+      {needsAccountConsent && (
+        <PrivacyConsentModal
+          roleLabel={roleLabels[state.viewerRole] || 'Student'}
+          onAccept={acceptPrivacyConsent}
+          onDecline={declinePrivacyConsent}
+          onOpenDocument={openPrivacyDocument}
+          isSaving={isSavingPrivacyConsent}
+          errorMessage={privacyConsentError}
+        />
+      )}
+      {legalDocDialog && (
+        <LegalDocumentDialog doc={legalDocDialog} onClose={() => setLegalDocDialog(null)} />
       )}
     </div>
   );

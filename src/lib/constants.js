@@ -357,6 +357,9 @@ export const pageViewKeys = [
   'chair-statistics',
   'profile',
   'settings',
+  // The privacy, cookie and storage, and terms surface. It is reachable from every
+  // role and from the login screen, so a saved session restores it.
+  'legal',
 ];
 
 // The open office queue. Staff read it without acting; `Recommended` waits on the

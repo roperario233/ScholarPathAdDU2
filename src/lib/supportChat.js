@@ -4,6 +4,10 @@ export const SUPPORT_CHAT_OWNER_KEY = '__scholarpathSupportChatOwner';
 // modal (z-index 1000), while above ordinary page controls.
 export const SUPPORT_CHAT_Z_INDEX = 40;
 
+// The optional widget is third-party code that sets cookies, so it is gated on the
+// storage notice's choice rather than only on the build configuration.
+import { canLoadSupportChat } from './privacyConsent';
+
 export const getSupportChatConfig = (env = import.meta.env) => {
   const propertyId = String(env?.VITE_TAWK_PROPERTY_ID || '').trim();
   const widgetId = String(env?.VITE_TAWK_WIDGET_ID || '').trim() || 'default';
@@ -89,7 +93,7 @@ export const teardownSupportChat = ({ win = globalThis.window, doc = globalThis.
   delete win[SUPPORT_CHAT_OWNER_KEY];
 };
 
-export const syncSupportChat = ({ role, ownerId, visitor, env = import.meta.env, win = globalThis.window, doc = globalThis.document } = {}) => {
+export const syncSupportChat = ({ role, ownerId, visitor, consentChoice = null, env = import.meta.env, win = globalThis.window, doc = globalThis.document } = {}) => {
   if (role !== 'student') {
     teardownSupportChat({ win, doc });
     return { ok: false, reason: 'role-not-eligible' };
@@ -98,6 +102,13 @@ export const syncSupportChat = ({ role, ownerId, visitor, env = import.meta.env,
   if (!config.configured || !ownerId) {
     teardownSupportChat({ win, doc });
     return { ok: false, reason: config.configured ? 'missing-owner' : 'not-configured' };
+  }
+  // The cookie and storage notice is the only way this third-party widget can run:
+  // it sets cookies of its own, so it waits for the optional category to be granted
+  // and unloads again if the choice is withdrawn.
+  if (!canLoadSupportChat(consentChoice)) {
+    teardownSupportChat({ win, doc });
+    return { ok: false, reason: 'consent-not-given' };
   }
   return loadSupportChat({ ownerId, visitor, config, win, doc });
 };
