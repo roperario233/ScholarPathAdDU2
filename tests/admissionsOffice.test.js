@@ -552,6 +552,10 @@ describe('applicant summary workbook', () => {
     const [applicants] = buildApplicantSummarySheets([approved, rejected], options);
     const headerIndex = applicants.rows.findIndex((row) => row[0]?.value === 'No.');
     const header = applicants.rows[headerIndex].map((cell) => cell.value);
+    // The hierarchy columns the office asked to drop are gone; School and Program stay.
+    expect(header).not.toContain('Cluster');
+    expect(header).not.toContain('Department');
+    expect(header).toEqual(expect.arrayContaining(['School', 'Program']));
     const first = Object.fromEntries(header.map((label, index) => [label, applicants.rows[headerIndex + 1][index].value]));
     const second = Object.fromEntries(header.map((label, index) => [label, applicants.rows[headerIndex + 2][index].value]));
     expect(first).toMatchObject({
@@ -561,7 +565,7 @@ describe('applicant summary workbook', () => {
       Result: 'Approved — awaiting release',
       'Interview recommendation': 'Highly recommended',
       'Recommended by': 'Prof. Santos',
-      Cluster: 'Computer Studies',
+      School: 'School of Arts and Sciences (SAS)',
       'Year level': 'Incoming 2nd year',
       'Academic measure': 'QPI',
       'Academic value': 3.4,
@@ -583,7 +587,7 @@ describe('applicant summary workbook', () => {
     expect(first['Grant amount per semester (PHP)']).toBe(12500);
     expect(second['Grant coverage (% of tuition)']).toBe('N/A');
     expect(second['Grant amount per semester (PHP)']).toBe('N/A');
-    expect(applicants.autoFilter).toMatch(/^A\d+:AB\d+$/);
+    expect(applicants.autoFilter).toMatch(/^A\d+:Z\d+$/);
   });
 
   it('writes a valid .xlsx package with escaped text and an About sheet', () => {
