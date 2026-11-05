@@ -138,8 +138,8 @@ and `src/lib/supportChat.js` (support channel).
 ### Existing project
 
 Apply the migrations under `supabase/migrations/` in version order (`supabase db push` or
-`supabase migration up`). There are 82 migration files; the current head is
-`20261061000000_add_waitlist_and_offer_confirmation.sql`. Never re-run `schema.sql` on a
+`supabase migration up`). There are 83 migration files; the current head is
+`20261062000000_tighten_staff_access_and_require_rejection_reason.sql`. Never re-run `schema.sql` on a
 deployed project — it is the reference for fresh ones, and the two are kept aligned.
 
 Areas worth knowing before you apply a batch:
@@ -156,6 +156,7 @@ Areas worth knowing before you apply a batch:
 | `20261058000000` | Office-opened applications (Admin eligibility exception) |
 | `20261059000000`, `20261060000000` | Recorded grant amounts |
 | `20261061000000` | Waitlist outcome, offers, and offer confirmation |
+| `20261062000000` | Staff access tightening (read-only application documents, scoped Chairperson profile read) and a database-required rejection reason |
 
 ### Storage
 
