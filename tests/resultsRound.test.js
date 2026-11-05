@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatAcademicYear,
+  getConfirmByDaysRemaining,
   getDefaultConfirmBy,
   getRoundAcademicYear,
   getOfferState,
@@ -21,6 +22,14 @@ describe('confirm-by dates', () => {
     expect(isValidConfirmBy('2026-11-04', NOW)).toBe(true);
     expect(isValidConfirmBy('2026-11-03', NOW)).toBe(false);
     expect(isValidConfirmBy('next week', NOW)).toBe(false);
+  });
+
+  it('counts down whole Manila calendar days to the confirm-by date', () => {
+    expect(getConfirmByDaysRemaining('2026-11-11', NOW)).toBe(7);
+    expect(getConfirmByDaysRemaining('2026-11-05', NOW)).toBe(1);
+    expect(getConfirmByDaysRemaining('2026-11-04', NOW)).toBe(0);
+    expect(getConfirmByDaysRemaining('2026-11-03', NOW)).toBe(-1);
+    expect(getConfirmByDaysRemaining('2026-02-30', NOW)).toBe(null);
   });
 
   it('reads an unanswered offer past its date as lapsed', () => {

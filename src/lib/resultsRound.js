@@ -74,6 +74,15 @@ export const isValidConfirmBy = (value, now = new Date()) => (
   /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && String(value) >= getManilaToday(now)
 );
 
+export const getConfirmByDaysRemaining = (value, now = new Date()) => {
+  const date = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const dueAt = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(dueAt) || new Date(dueAt).toISOString().slice(0, 10) !== date) return null;
+  const todayAt = Date.parse(`${getManilaToday(now)}T00:00:00.000Z`);
+  return (dueAt - todayAt) / 86_400_000;
+};
+
 export const getOfferForApplication = (offers = [], applicationId) => (
   asList(offers).find((entry) => entry?.applicationId === applicationId) || null
 );

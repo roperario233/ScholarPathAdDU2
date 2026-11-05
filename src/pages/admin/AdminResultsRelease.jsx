@@ -18,6 +18,7 @@ import {
   OFFER_STATE_LABELS,
   formatAcademicYear,
   OFFER_STATE_TONES,
+  getConfirmByDaysRemaining,
   getDefaultConfirmBy,
   getManilaToday,
   getOfferForApplication,
@@ -181,9 +182,20 @@ function ApplicantDetails({ children }) {
 }
 
 function ConfirmByField({ id, value, onChange, label = 'Confirm by' }) {
+  const daysRemaining = getConfirmByDaysRemaining(value);
+  const countdown = daysRemaining === null
+    ? null
+    : daysRemaining === 0
+      ? 'Due today'
+      : daysRemaining < 0
+        ? `Overdue by ${plural(Math.abs(daysRemaining), 'day')}`
+        : `In ${plural(daysRemaining, 'day')}`;
   return (
     <label htmlFor={id} className="grid gap-1 text-xs font-semibold text-app-muted">
-      {label}
+      <span className="flex items-center justify-between gap-2">
+        <span>{label}</span>
+        {countdown ? <span className="font-medium text-blue-700 dark:text-sky-300">{countdown}</span> : null}
+      </span>
       <input
         id={id}
         type="date"
@@ -902,7 +914,7 @@ export default function AdminResultsRelease({
             <footer className="shrink-0 pt-4">
               <Panel className="!overflow-hidden !border-blue-500/40 !p-0">
                 <div className={`grid ${view.step <= 1 || view.step === 3 ? 'md:grid-cols-[minmax(0,1fr)_17rem]' : ''}`}>
-                  <div className="grid content-center gap-3 p-4 sm:p-5">
+                  <div className="grid content-start gap-3 p-4 sm:p-5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Next step</h3>
                       <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
