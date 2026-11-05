@@ -342,6 +342,29 @@ describe('findRosterConflicts', () => {
     const cancelled = overlapping({ interview: { ...overlapping().interview, state: 'cancelled' } });
     expect(findRosterConflicts([scheduled(), cancelled], panelists)).toEqual([]);
   });
+
+  it('handles a large non-overlapping roster without pairwise scans', () => {
+    const base = Date.parse(NOW);
+    const applications = Array.from({ length: 1200 }, (_, index) => {
+      const entry = scheduled({
+        id: `app-${index}`,
+        interview: {
+          ...scheduled().interview,
+          startsAt: new Date(base + index * 30 * 60_000).toISOString(),
+          durationMinutes: 30,
+        },
+      });
+      return entry;
+    });
+    const roster = applications.map((entry) => ({
+      applicationId: entry.id,
+      profileId: 'chair-sea',
+      name: 'Ana Reyes',
+      removedAt: null,
+    }));
+
+    expect(findRosterConflicts(applications, roster)).toEqual([]);
+  });
 });
 
 describe('needsInterviewCalendarRepair', () => {

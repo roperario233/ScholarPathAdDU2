@@ -38,6 +38,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { getStudentApplicationStatusLabel } from '../_shared/applicationStatus.js';
 import { describeApplicationStatusUpdate, describeNonAcceptanceLetter, describeWaitlistLetter, isEmailEnabledForUser, isInAppEnabledForUser, renderApplicationStatusEmail, resolveSiteUrl } from '../_shared/email.js';
+import { buildDeliveryAttempts, channelAttempt, inAppAttempt, recordDeliveryAttempts } from '../_shared/deliveryAttempts.js';
 import { getResendConfig, sendEmail } from '../_shared/resend.js';
 import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderApplicationStatusSms, renderNonAcceptanceLetterSms, renderWaitlistLetterSms, sendSms } from '../_shared/sms.js';
 
@@ -63,28 +64,107 @@ const callerScopesToStudent = async (token, studentId) => {
   return !error && data === true;
 };
 
+const DELIVERY_PAGE_SIZE = 500;
+const DELIVERY_IN_BATCH_SIZE = 100;
+const DELIVERY_CONCURRENCY = 4;
+
+const chunksOf = (values, size = DELIVERY_IN_BATCH_SIZE) => {
+  const chunks = [];
+  for (let offset = 0; offset < values.length; offset += size) chunks.push(values.slice(offset, offset + size));
+  return chunks;
+};
+
+const fetchAllPages = async (createQuery, pageSize = DELIVERY_PAGE_SIZE) => {
+  const rows = [];
+  for (let offset = 0; ; offset += pageSize) {
+    const { data, error } = await createQuery().range(offset, offset + pageSize - 1);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if ((data || []).length < pageSize) return { data: rows, error: null };
+  }
+};
+
+const fetchByIdBatches = async (ids, createQuery) => {
+  const batches = chunksOf([...new Set(ids.filter(Boolean))]);
+  const rows = [];
+  for (let offset = 0; offset < batches.length; offset += DELIVERY_CONCURRENCY) {
+    const results = await Promise.all(batches.slice(offset, offset + DELIVERY_CONCURRENCY).map((batch) => (
+      fetchAllPages(() => createQuery(batch))
+    )));
+    const failed = results.find((result) => result.error);
+    if (failed) return { data: null, error: failed.error };
+    results.forEach((result) => rows.push(...result.data));
+  }
+  return { data: rows, error: null };
+};
+
+const runBounded = async (items, concurrency, task, onError = () => {}) => {
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      try {
+        await task(items[index], index);
+      } catch (error) {
+        onError(error, index);
+      }
+    }
+  });
+  await Promise.all(workers);
+};
+
 // One letter per covered applicant, deduped on
 // `results-release-<releaseId>-<applicationId>` for every channel. An offers
 // release writes to the waitlisted applicants; a closing (or legacy) release
 // sends the general non-acceptance letter.
 const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDatabaseCaller, env }) => {
-  // select('*') so a project whose `kind` column is still pending reads as legacy.
   const { data: release, error: releaseError } = await supabaseAdmin
     .from('results_releases')
-    .select('*')
+    .select('id, scholarship_id, kind, applicant_count, accepted_count')
     .eq('id', releaseId)
     .maybeSingle();
   if (releaseError) return json({ error: 'Unable to load the results release' }, 500);
   if (!release) return json({ error: 'Results release not found' }, 404);
 
-  const ids = Array.isArray(release.application_ids) ? release.application_ids : [];
-  if (!ids.length) return json({ ok: true, sent: 0 });
+  const [{ data: coverage, error: coverageError }, { data: scholarship, error: scholarshipError }] = await Promise.all([
+    fetchAllPages(() => supabaseAdmin
+      .from('results_release_applications')
+      .select('application_id')
+      .eq('release_id', release.id)
+      .order('application_id', { ascending: true })),
+    supabaseAdmin.from('scholarships').select('title').eq('id', release.scholarship_id).maybeSingle(),
+  ]);
+  if (coverageError || scholarshipError) return json({ error: 'Unable to load the release coverage' }, 500);
+  const ids = (coverage || []).map((row) => row.application_id);
+  if (!ids.length) return json({ ok: true, sent: 0, letters: 0 });
   const isOffers = release.kind === 'offers';
   const letterStatus = isOffers ? 'Waitlisted' : 'Rejected';
-  const [{ data: scholarship }, { data: rejected }] = await Promise.all([
-    supabaseAdmin.from('scholarships').select('title').eq('id', release.scholarship_id).maybeSingle(),
-    supabaseAdmin.from('applications').select('id, student_id').in('id', ids).eq('status', letterStatus),
+  const { data: applicants, error: applicantsError } = await fetchByIdBatches(ids, (batch) => supabaseAdmin
+    .from('applications')
+    .select('id, student_id')
+    .in('id', batch)
+    .eq('status', letterStatus)
+    .order('id', { ascending: true }));
+  if (applicantsError) return json({ error: 'Unable to load applicants for the results release' }, 500);
+  const rejected = applicants || [];
+  if (!rejected.length) return json({ ok: true, sent: 0, letters: 0 });
+
+  const studentIds = [...new Set(rejected.map((application) => application.student_id))];
+  const sourceKeys = rejected.map((application) => `results-release-${release.id}-${application.id}`);
+  const [{ data: profiles, error: profilesError }, { data: deliveries, error: deliveriesError }] = await Promise.all([
+    fetchByIdBatches(studentIds, (batch) => supabaseAdmin.from('profiles')
+      .select('user_id, email, phone, notification_preferences')
+      .in('user_id', batch)
+      .order('user_id', { ascending: true })),
+    fetchByIdBatches(sourceKeys, (batch) => supabaseAdmin.from('notification_email_log')
+      .select('source_key, user_id, email_status, email_id, email_to, sms_status, sms_message_id, sms_to')
+      .in('source_key', batch)
+      .order('source_key', { ascending: true })),
   ]);
+  if (profilesError || deliveriesError) return json({ error: 'Unable to load recipient notification context' }, 500);
+  const profileById = new Map((profiles || []).map((profile) => [profile.user_id, profile]));
+  const deliveryByKey = new Map((deliveries || []).map((delivery) => [delivery.source_key, delivery]));
   const scholarshipTitle = scholarship?.title || 'scholarship';
   const counts = { applicantCount: release.applicant_count, acceptedCount: release.accepted_count };
   const body = isOffers
@@ -96,15 +176,13 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
   const resend = getResendConfig(env);
   const sms = getSmsConfig(env);
   let sent = 0;
+  let ledgerFailed = 0;
+  let recipientFailed = 0;
 
-  for (const application of rejected || []) {
+  await runBounded(rejected, DELIVERY_CONCURRENCY, async (application) => {
     const sourceKey = `results-release-${release.id}-${application.id}`;
-    const [{ data: studentProfile }, { data: existing }] = await Promise.all([
-      supabaseAdmin.from('profiles').select('email, phone, notification_preferences').eq('user_id', application.student_id).maybeSingle(),
-      supabaseAdmin.from('notification_email_log')
-        .select('email_status, email_id, email_to, sms_status, sms_message_id, sms_to')
-        .eq('source_key', sourceKey).eq('user_id', application.student_id).maybeSingle(),
-    ]);
+    const studentProfile = profileById.get(application.student_id);
+    const existing = deliveryByKey.get(sourceKey);
     const preferences = studentProfile?.notification_preferences ?? {};
     const message = renderApplicationStatusEmail({
       subject: `Scholarship results: ${scholarshipTitle}`,
@@ -114,8 +192,10 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
       siteUrl: resolveSiteUrl(env),
     });
 
-    if (isInAppEnabledForUser(preferences)) {
-      await supabaseAdmin.from('notifications').upsert({
+    const letterWantsInApp = isInAppEnabledForUser(preferences);
+    let letterInAppError = null;
+    if (letterWantsInApp) {
+      const { error: inAppError } = await supabaseAdmin.from('notifications').upsert({
         profile_id: application.student_id,
         title: message.subject,
         body,
@@ -123,6 +203,8 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
         status: 'Unread',
         source_key: sourceKey,
       }, { onConflict: 'profile_id,source_key', ignoreDuplicates: true });
+      letterInAppError = inAppError;
+      if (inAppError) logDeliveryFailure('results_release_in_app_write_failed', inAppError);
     }
 
     const emailAlreadySent = existing?.email_status === 'sent';
@@ -150,9 +232,20 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
         })
       : { ok: false, skipped: true };
 
+    await recordDeliveryAttempts(supabaseAdmin, buildDeliveryAttempts({
+      functionName: 'notify-application-status',
+      sourceKey,
+      userId: application.student_id,
+      attempts: [
+        inAppAttempt({ wanted: letterWantsInApp, error: letterInAppError }),
+        ...(emailAlreadySent ? [] : [channelAttempt({ channel: 'email', wanted: wantsEmail, result: emailResult })]),
+        ...(smsAlreadySent ? [] : [channelAttempt({ channel: 'sms', wanted: wantsSms, result: smsResult })]),
+      ],
+    }));
+
     if (emailResult.ok || smsResult.ok) {
       sent += 1;
-      await supabaseAdmin.from('notification_email_log').upsert({
+      const { error: ledgerError } = await supabaseAdmin.from('notification_email_log').upsert({
         source_key: sourceKey,
         user_id: application.student_id,
         reminder_title: message.subject,
@@ -172,10 +265,24 @@ const sendResultsReleaseLetters = async ({ supabaseAdmin, releaseId, isTrustedDa
               sms_status: existing?.sms_status ?? null,
               sms_message_id: existing?.sms_message_id ?? null,
             }),
-      });
+      }, { onConflict: 'source_key,user_id' });
+      if (ledgerError) {
+        ledgerFailed += 1;
+        logDeliveryFailure('results_release_delivery_ledger_failed', ledgerError);
+      }
     }
-  }
-  return json({ ok: true, kind: release.kind || 'legacy', letters: (rejected || []).length, sent });
+  }, (error) => {
+    recipientFailed += 1;
+    logDeliveryFailure('results_release_recipient_failed', error);
+  });
+  // A recipient whose work threw is reported as a server error, so the outbox
+  // (20261105000006) retries the whole release; recipients already in the ledger
+  // are skipped on the retry. A ledger-write failure alone is not retried: the
+  // send already happened and repeating an SMS is not safe.
+  return json(
+    { ok: recipientFailed === 0, kind: release.kind || 'legacy', letters: rejected.length, sent, ledgerFailed, recipientFailed },
+    recipientFailed === 0 ? 200 : 500,
+  );
 };
 
 const json = (body, status = 200) =>
@@ -183,6 +290,11 @@ const json = (body, status = 200) =>
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
+
+const logDeliveryFailure = (event, error) => {
+  if (!error) return;
+  console.error(JSON.stringify({ event, code: error.code || 'unknown' }));
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -386,6 +498,7 @@ Deno.serve(async (req) => {
   let inAppSent = false;
   let inAppAlreadyExists = false;
   let inAppError = null;
+  let ledgerFailed = false;
   if (wantsInApp) {
     const { error } = await supabaseAdmin
       .from('notifications')
@@ -438,6 +551,17 @@ Deno.serve(async (req) => {
           : 'The database delivery path owns the SMS channel for this update',
       };
 
+  await recordDeliveryAttempts(supabaseAdmin, buildDeliveryAttempts({
+    functionName: 'notify-application-status',
+    sourceKey,
+    userId: application.student_id,
+    attempts: [
+      ...(wantsInApp ? [inAppAttempt({ wanted: true, error: inAppError })] : []),
+      ...(emailAlreadySent ? [] : [channelAttempt({ channel: 'email', wanted: wantsEmail, result: emailResult })]),
+      ...(smsAlreadySent ? [] : [channelAttempt({ channel: 'sms', wanted: wantsSms, result: smsResult })]),
+    ],
+  }));
+
   if (emailResult.ok || smsResult.ok) {
     // Log only real email/SMS deliveries. In-app rows have their own source-key
     // uniqueness and must not suppress a later retry of a failed gateway send.
@@ -457,7 +581,7 @@ Deno.serve(async (req) => {
           sms_message_id: existingEmailDelivery?.sms_message_id ?? null,
         };
 
-    await supabaseAdmin
+    const { error: ledgerError } = await supabaseAdmin
       .from('notification_email_log')
       .upsert({
         source_key: sourceKey,
@@ -468,7 +592,11 @@ Deno.serve(async (req) => {
         email_id: emailResult.id ?? existingEmailDelivery?.email_id ?? null,
         email_error: emailResult.error ?? null,
         ...smsLedger,
-      });
+      }, { onConflict: 'source_key,user_id' });
+    if (ledgerError) {
+      ledgerFailed = true;
+      logDeliveryFailure('application_status_delivery_ledger_failed', ledgerError);
+    }
   }
 
   if (!emailResult.ok && !smsResult.ok && !inAppSent && !inAppAlreadyExists) {
@@ -485,6 +613,7 @@ Deno.serve(async (req) => {
     sent: Boolean(emailResult.ok || smsResult.ok || inAppSent),
     inAppSent,
     emailSmsAlreadyDelivered: Boolean(emailAlreadySent || smsAlreadySent),
+    ledgerFailed,
     to: emailResult.ok ? studentProfile.email : null,
     emailId: emailResult.id ?? null,
     smsTo: smsResult.ok ? smsTo : null,

@@ -443,7 +443,11 @@ export default function StatisticsWorkspace({
       </section>
 
       {!inView.length ? (
-        <EmptyState title="No submitted applications in this view" description="Choose another academic year or scholarship, or reset the filters." />
+        <EmptyState
+          title="No submitted applications in this view"
+          description="Choose another academic year or scholarship, or reset the filters."
+          className="border-solid bg-app-card shadow-app"
+        />
       ) : (
         <>
           {showDecisions ? (

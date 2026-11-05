@@ -647,11 +647,23 @@ export const areApplicationDocumentsVisible = (status) => (
 
 // The vault files attached to an application, resolved against the loaded
 // documents. Attached ids whose document is not loaded are skipped.
-export const getLinkedDocuments = (application, documents = []) => (
-  (application?.attachedDocuments || [])
-    .map((id) => (Array.isArray(documents) ? documents : []).find((doc) => doc.id === id))
-    .filter(Boolean)
-);
+const documentIndexes = new WeakMap();
+const getDocumentIndex = (documents) => {
+  if (!Array.isArray(documents)) return new Map();
+  let index = documentIndexes.get(documents);
+  if (!index) {
+    index = new Map(documents.map((document) => [document.id, document]));
+    documentIndexes.set(documents, index);
+  }
+  return index;
+};
+
+export const getLinkedDocuments = (application, documents = []) => {
+  const documentIndex = getDocumentIndex(documents);
+  return (application?.attachedDocuments || [])
+    .map((id) => documentIndex.get(id))
+    .filter(Boolean);
+};
 
 // The applicant's 2x2 ID photo is a Document Vault requirement on every in-scope
 // track, and the profile snapshot view leads with it so a reviewer can put a face

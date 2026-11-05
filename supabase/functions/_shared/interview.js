@@ -370,43 +370,51 @@ export const findRosterConflicts = (applications = [], panelists = []) => {
     }))
     .filter((row) => row.start && row.end);
 
-  const activePanel = (applicationId) => (Array.isArray(panelists) ? panelists : [])
-    .filter((row) => row.applicationId === applicationId && !row.removedAt && row.profileId);
-
   const conflicts = [];
-  for (let index = 0; index < scheduled.length; index += 1) {
-    const left = scheduled[index];
-    for (let next = index + 1; next < scheduled.length; next += 1) {
-      const right = scheduled[next];
-      if (!(left.start < right.end && right.start < left.end)) continue;
-      const rightPanelIds = new Set(activePanel(right.entry.id).map((row) => row.profileId));
-      activePanel(left.entry.id).forEach((row) => {
-        if (!rightPanelIds.has(row.profileId)) return;
+  const groups = new Map();
+  const addToGroup = (key, row, kind, resource = {}) => {
+    if (!groups.has(key)) groups.set(key, { kind, resource, rows: [] });
+    groups.get(key).rows.push(row);
+  };
+  const activePanelByApplication = new Map();
+  (Array.isArray(panelists) ? panelists : []).forEach((panelist) => {
+    if (panelist.removedAt || !panelist.profileId) return;
+    if (!activePanelByApplication.has(panelist.applicationId)) activePanelByApplication.set(panelist.applicationId, new Map());
+    activePanelByApplication.get(panelist.applicationId).set(panelist.profileId, panelist);
+  });
+
+  scheduled.forEach((row) => {
+    const panelById = activePanelByApplication.get(row.entry.id);
+    panelById?.forEach((panelist, profileId) => {
+      addToGroup(`panelist:${profileId}`, row, 'panelist', { profileId, name: panelist.name || 'A panel member' });
+    });
+    const { interview } = row.entry;
+    if (interview.mode === 'onsite' && interview.locationId) {
+      addToGroup(`location:${interview.locationId}`, row, 'location', { name: interview.locationLabel || 'This location' });
+    }
+  });
+
+  groups.forEach(({ kind, resource, rows }) => {
+    rows.sort((left, right) => left.start - right.start || left.end - right.end || String(left.entry.id).localeCompare(String(right.entry.id)));
+    const active = [];
+    rows.forEach((right) => {
+      for (let index = active.length - 1; index >= 0; index -= 1) {
+        if (active[index].end <= right.start) active.splice(index, 1);
+      }
+      active.forEach((left) => {
         conflicts.push({
-          kind: 'panelist',
-          profileId: row.profileId,
-          name: row.name || 'A panel member',
+          kind,
+          ...resource,
+          ...(kind === 'location' ? { name: left.entry.interview.locationLabel || resource.name } : {}),
           startsAt: left.entry.interview.startsAt,
           applicationIds: [left.entry.id, right.entry.id],
           studentNames: [left.entry.studentName || 'an applicant', right.entry.studentName || 'an applicant'],
         });
       });
-      if (
-        left.entry.interview.mode === 'onsite'
-        && right.entry.interview.mode === 'onsite'
-        && left.entry.interview.locationId
-        && left.entry.interview.locationId === right.entry.interview.locationId
-      ) {
-        conflicts.push({
-          kind: 'location',
-          name: left.entry.interview.locationLabel || 'This location',
-          startsAt: left.entry.interview.startsAt,
-          applicationIds: [left.entry.id, right.entry.id],
-          studentNames: [left.entry.studentName || 'an applicant', right.entry.studentName || 'an applicant'],
-        });
-      }
-    }
-  }
+      active.push(right);
+    });
+  });
+
   return conflicts;
 };
 

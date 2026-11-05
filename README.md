@@ -11,7 +11,7 @@ for the capstone manuscript and evaluated with ISO/IEC 25010 and a SUS usability
 - **Delivery:** Supabase Edge Functions (Deno) for Resend email, iprogSMS text messages, and
   Google Calendar/Meet interview events.
 
-Supabase is required. There is no demo mode, no seeded data, and no fallback login: without
+Supabase is required. There is no demo mode, no demo seed data, and no fallback login: without
 `VITE_SUPABASE_URL` and a publishable/anon key the app shows a "not configured" message and
 cannot sign in.
 
@@ -96,10 +96,12 @@ open the printed `Network:` URL.
 | `npm run dev` | Vite dev server on `0.0.0.0:5173` |
 | `npm run build` | Production build into `dist/` |
 | `npm run preview` | Serves the built bundle on port 4173 |
-| `npm test` | Vitest suite (63 test files) |
+| `npm test` | Vitest suite |
 | `npm run lint` | ESLint over the repository |
 | `npm run google:auth` | Mints the Google Calendar refresh token (see **Google Calendar and Meet**) |
 | `npm run cleanup:storage` | Lists (or with `--apply` deletes) Storage objects no row references |
+| `npm run applications:import -- --manifest <path>` | Dry-run validates a version-1 operational application import manifest |
+| `npm run applications:import -- --manifest <path> --apply` | Imports approved Submitted cases and their existing owners' files, idempotently |
 
 ## Environment variables
 
@@ -138,9 +140,11 @@ and `src/lib/supportChat.js` (support channel).
 ### Existing project
 
 Apply the migrations under `supabase/migrations/` in version order (`supabase db push` or
-`supabase migration up`). There are 84 migration files; the current head is
-`20261063000000_add_privacy_consent.sql`. Never re-run `schema.sql` on a
-deployed project — it is the reference for fresh ones, and the two are kept aligned.
+`supabase migration up`). The repository head is `20261105000006_notification_outbox.sql`.
+The currently deployed project was last verified through `20261063000000_add_privacy_consent.sql`;
+check the target with `supabase migration list` before shipping the client. Never re-run
+`schema.sql` on a deployed project — it is the reference for fresh ones, and the two are kept
+aligned.
 
 Areas worth knowing before you apply a batch:
 
@@ -158,6 +162,13 @@ Areas worth knowing before you apply a batch:
 | `20261061000000` | Waitlist outcome, offers, and offer confirmation |
 | `20261062000000` | Staff access tightening (read-only application documents, scoped Chairperson profile read) and a database-required rejection reason |
 | `20261063000000` | Account-level privacy consent (`privacy_consent_version`, `privacy_consented_at`, `record_privacy_consent()`); the guard trigger refuses a direct client write, and the app must ship with it |
+| `20261105000000` | Normalized release coverage and role-scoped release reads; raw `application_ids` are no longer directly selectable |
+| `20261105000001` | Application, document, notification, reminder, and later-added actor-FK indexes |
+| `20261105000002` | Update cursors used by delta workspace refreshes |
+| `20261105000003` | Private application-import audit tables and a service-role-only, validated batch RPC |
+| `20261105000004` | Atomic, request-idempotent first-wave release RPC |
+| `20261105000005` | Role-scoped stage totals (`get_application_stage_counts()`, security invoker) used as a refresh integrity check |
+| `20261105000006` | Notification outbox (bounded, retried dispatch from the status and release triggers; pg_cron worker) and the append-only delivery-attempt history |
 
 ### Storage
 
@@ -175,7 +186,7 @@ Seven functions live in `supabase/functions/`:
 
 | Function | Auth | Purpose |
 | --- | --- | --- |
-| `process-deadline-reminders` | `--no-verify-jwt`; `REMINDER_CRON_SECRET` or a user JWT | 7-day / 3-day / 1-day reminders in-app, by email, and by SMS |
+| `process-deadline-reminders` | `--no-verify-jwt`; `REMINDER_CRON_SECRET` or a user JWT | Paged 7-day / 3-day / 1-day reminders; SMS only for the trusted scheduled caller |
 | `notify-application-status` | `--no-verify-jwt`; same secret | Status email and SMS, plus the results-release and hold behavior |
 | `notify-document-verification` | `--no-verify-jwt`; same secret | Verify/revert notices for Document Vault files |
 | `notify-interview-update` | `--no-verify-jwt`; same secret | Schedule, reschedule, and cancellation notices to the student and the panel |
@@ -194,7 +205,7 @@ supabase functions deploy send-test-sms
 ```
 
 Add `--use-api` when Docker is unavailable. Deploying one function updates only that function,
-so a change in `supabase/functions/_shared/email.js` needs every consumer redeployed.
+so changes in `_shared/email.js`, `resend.js`, or `sms.js` require redeploying every consumer.
 
 Edge Function secrets (server-side only, never `VITE_`):
 
@@ -649,11 +660,12 @@ toggles: `inAppEnabled`, `emailEnabled`, `smsEnabled`, and the three `deadlineRe
 A reminder needs its channel *and* its offset.
 
 **The ledger.** Every real delivery is recorded in `notification_email_log` with its channel status
-and the Resend or iprogSMS message id. A skipped or failed send is left **out** of the ledger so the
-next run retries it. In-app rows dedupe on `notifications(profile_id, source_key)`; email dedupes
-through a Resend idempotency key. SMS has neither, so it is sent only for the trusted database
-caller — the browser retry covers in-app and email and preserves whatever the database path
-recorded.
+and the Resend or iprogSMS message id. Ledger writes upsert on `(source_key,user_id)`; stable source
+keys dedupe in-app rows and Resend uses an idempotency key. The reminder runner pages its inputs,
+isolates recipient failures, and caps concurrency. Resend uses bounded timeouts and retries only
+when a stable idempotency key is present. SMS has no provider idempotency, so it is sent only for the
+trusted scheduled caller and is never automatically retried after an ambiguous timeout; the 200
+response still means queue acceptance, not carrier delivery.
 
 **SMS caveats.** A 200 response from iprogSMS confirms *queue accept* only, and there are no
 delivery webhooks (poll `GET /sms_messages/status`). Globe, TM, DITO, and GOMO recipients use the
@@ -714,11 +726,11 @@ src/
   styles.css              component CSS, print rules, pseudo-elements, keyframes
 supabase/
   schema.sql              reference schema for a fresh project
-  migrations/             84 incremental migrations, applied in order
+  migrations/             89 incremental migrations, applied in order
   functions/              seven Edge Functions + _shared/ modules
   maintenance_*.sql       manual operator scripts (never migrations)
-scripts/                  google-calendar-auth.mjs, cleanup-orphaned-storage.mjs
-tests/                    67 vitest files
+scripts/                  Google auth, storage cleanup, and application import operators
+tests/                    72 vitest files
 ```
 
 | Module | Responsibility |
@@ -735,6 +747,84 @@ tests/                    67 vitest files
 | `src/lib/applicationForm.js` | FORM 230-SCH copy: essay topic, data-privacy notice, affidavit clauses |
 | `src/lib/legalDocs.js` | Privacy policy, cookie and storage notice, and terms of use as data, plus the reader matrix and `PRIVACY_NOTICE_VERSION` |
 | `src/lib/privacyConsent.js` | The browser-storage choice: categories, normalization, version matching, and the live-chat gate |
+
+## Operational application import
+
+`scripts/import-applications.mjs` imports existing submissions for already-provisioned students; it
+does not create Auth users or profiles. The manifest must be version 1 and contain a stable
+`batchId`, unique `sourceId` values, valid owner/scholarship IDs, and workflow-complete Submitted
+records with a version-4 FORM 230-SCH snapshot, frozen `financial_snapshot`, financial answers,
+certification/submission times, and all linked proof documents. New files are relative to the
+manifest directory (PDF/JPEG/PNG, up to 10 MB); `{ "existing": true, "id": "<document-uuid>" }`
+reuses an existing owner-owned Document Vault row. Rows are checked against the as-submitted
+snapshot, current required-document/proof rules, financial-answer gate, scholarship scope/eligibility,
+and the Manila deadline as of `submitted_at`. Imported documents enter `Pending` unless they are already verified
+vault files; the importer never fabricates a verification actor or decision.
+
+The manifest shape is explicit; replace the placeholder values with actual source rows, not with
+sample/test records:
+
+```json
+{
+  "version": 1,
+  "batchId": "<stable-uuid>",
+  "records": [
+    {
+      "sourceId": "<opaque-source-key>",
+      "application": {
+        "id": "<stable-application-uuid>",
+        "student_id": "<existing-student-user-uuid>",
+        "scholarship_id": "<in-scope-scholarship-uuid>",
+        "submitted_at": "2026-10-30T02:00:00Z",
+        "certified_at": "2026-10-30T02:00:00Z",
+        "statement": "<submitted statement>",
+        "profile_snapshot": { "version": 4 },
+        "financial_snapshot": { "<submitted household-finance snapshot>": "..." },
+        "financial_answers": { "<FORM 230-SCH financial situation answers>": "..." }
+      },
+      "documents": [
+        {
+          "id": "<stable-document-uuid>",
+          "document_type": "<Document Vault type>",
+          "file_name": "proof.pdf",
+          "file_path": "files/proof.pdf",
+          "uploaded_at": "2026-10-29T02:00:00Z",
+          "linked_attributes": ["<profile attribute>"],
+          "attested_values": { "<profile attribute>": "<submitted value>" }
+        }
+      ]
+    }
+  ]
+}
+```
+
+The command is **dry-run by default**. Its service-role key is shell-only, and `--apply` also needs
+the expected project ref and an explicit approval matching the manifest batch ID:
+
+```powershell
+$env:SUPABASE_URL="https://<project-ref>.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY="<service-role-key>"
+$env:APPLICATION_IMPORT_EXPECTED_PROJECT_REF="<project-ref>"
+npm run applications:import -- --manifest .\incoming\applications.json
+$env:APPLICATION_IMPORT_APPROVED_BATCH="<manifest-batch-uuid>"
+npm run applications:import -- --manifest .\incoming\applications.json --apply
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+Remove-Item Env:APPLICATION_IMPORT_APPROVED_BATCH
+```
+
+Apply migrations through `20261105000006_notification_outbox.sql` on the isolated staging
+project first. The operator path uploads bytes to deterministic private object paths, commits up to
+25 cases per RPC call, validates each case inside its own transaction savepoint, and records only
+hashed source keys/checksums in the import ledger. A retry with the same batch and identical content
+skips already imported rows; changing a batch's manifest requires a new `batchId`. Row errors are
+written to a sidecar with row number, SQLSTATE, and a validation message (no owner/source IDs). Failed rows remain absent from the application queue;
+successful rows are visible even if other rows in the batch fail, so reconcile the batch's `partial`
+status and import-error report before treating the whole seed as complete. Uploaded but unreferenced
+objects can be retried at the same path and audited with `npm run cleanup:storage`.
+
+Do not use this path for demo fixtures, unlinked application-only rows, Auth-user provisioning, or a
+load test. Never put the service-role key in `.env`, a `VITE_` variable, browser code, a manifest, or
+the repository. Run load tests with anonymized staging data and provision student owners separately.
 
 ## Database maintenance
 
@@ -781,10 +871,46 @@ the space.
 ## Tests and validation
 
 ```powershell
-npm test        # vitest run: 67 files
+npm test        # vitest run: 72 files
 npm run build   # Vite production build
 npm run lint    # ESLint
 ```
+
+The staging-only read-load harness is `tests/load/application-volume.k6.js`. It refuses the known
+live project ref and requires `K6_TARGET_ENV=staging`, the matching `K6_STAGING_PROJECT_REF`, a
+staging URL/anon key, 151 unique JWTs for each role (k6 VU IDs are global across the role scenarios),
+and a separate office JWT for the exhaustive pagination audit. It ramps 25 → 50 → 100 → 150
+concurrent authenticated readers plus the audit VU, exercises 50-row paged lists and
+bounded related-ID reads, and checks for duplicate/missing page IDs. Run it only after loading at
+least 1,000 anonymized staging applications and reviewing the Supabase plan/connection limits:
+
+```powershell
+$env:K6_TARGET_ENV="staging"
+$env:K6_STAGING_PROJECT_REF="<staging-project-ref>"
+$env:SUPABASE_URL="https://<staging-project-ref>.supabase.co"
+$env:SUPABASE_ANON_KEY="<staging-anon-key>"
+$env:K6_STUDENT_TOKENS="<151 staging student JWTs, comma-separated>"
+$env:K6_OFFICE_TOKENS="<151 staging office JWTs, comma-separated>"
+$env:K6_OFFICE_AUDIT_TOKEN="<separate staging office JWT>"
+$env:K6_REVIEWER_TOKENS="<151 staging reviewer JWTs, comma-separated>"
+$env:K6_EXPECTED_APPLICATIONS="1000"
+k6 run tests/load/application-volume.k6.js
+```
+
+The default k6 run is read-only. An optional destructive `idempotent_release_replay` scenario is
+disabled unless `K6_ENABLE_STAGING_WRITES=1`; it requires a disposable staging scholarship, a fresh
+request UUID, a confirm-by date, an Admin JWT, and
+`K6_WRITE_CONFIRM="release:<staging-project-ref>:<request-id>"`. It concurrently replays one
+`release_scholarship_results` request to exercise request idempotency. Before enabling it, confirm
+the selected staging cases and their notification preferences are test-only and disable all external
+email/SMS secrets; it consumes Approved statuses. Never point either scenario at production. Use
+disposable staging accounts and expire/revoke their tokens afterward.
+
+`supabase/application_volume_health.sql` is a read-only operator snapshot for relation/index sizes,
+top normalized query timing, connection waits, and failed/timed-out `pg_net` requests. Run it before
+and after each staging ramp, and use Supabase Postgres/API/Edge Function dashboards for CPU, memory,
+pool saturation, 429/5xx rates, and function duration. The script intentionally excludes `pg_net`
+request/response bodies and all student-level rows.
 
 The suite covers the shared email/SMS templates and clients, reminder math, eligibility rules,
 application requirements and readiness, the rejection notice and staff-only reason, the

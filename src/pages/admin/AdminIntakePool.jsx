@@ -1,3 +1,4 @@
+import { useDebouncedValue } from '../../lib/useDebouncedValue';
 import { CheckCircle2, ChevronDown, Clock, FilePlus2, Inbox, Search, UserCheck, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
@@ -106,9 +107,13 @@ export default function AdminIntakePool({
     [applications, caseOfficers, isAdmin],
   );
   const facets = useMemo(() => getIntakePoolFacets(applications), [applications]);
+  // The search box answers every keystroke, but the filter over the whole pool
+  // runs once the typing pauses.
+  const settledQuery = useDebouncedValue(filters.query, 250);
+  const settledFilters = useMemo(() => ({ ...filters, query: settledQuery }), [filters, settledQuery]);
   const filtered = useMemo(
-    () => filterIntakePool(applications, caseOfficers, filters, today),
-    [applications, caseOfficers, filters, today],
+    () => filterIntakePool(applications, caseOfficers, settledFilters, today),
+    [applications, caseOfficers, settledFilters, today],
   );
   const visible = filtered.slice(0, visibleCount);
   const oldestWait = useMemo(() => {

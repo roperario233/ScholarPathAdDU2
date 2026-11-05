@@ -178,6 +178,7 @@ export const getResultsRounds = ({
     .flatMap((release) => asList(release.applicationIds)));
   const offersCovered = coveredBy(['offers']);
   const lettersSent = coveredBy(['closing', 'legacy']);
+  const offerByApplicationId = new Map(asList(offers).map((offer) => [offer.applicationId, offer]));
   const byScholarship = new Map();
   asList(applications).forEach((entry) => {
     if (!byScholarship.has(entry.scholarshipId)) byScholarship.set(entry.scholarshipId, []);
@@ -194,7 +195,7 @@ export const getResultsRounds = ({
     const waitlist = sortWaitlist(list.filter((entry) => entry.status === 'Waitlisted'), { ranks, recommendationOf });
     const heldWaitlist = waitlist.filter((entry) => !offersCovered.has(entry.id));
     const roundOffers = list
-      .map((entry) => ({ application: entry, offer: getOfferForApplication(offers, entry.id) }))
+      .map((entry) => ({ application: entry, offer: offerByApplicationId.get(entry.id) || null }))
       .filter(({ application, offer }) => offer && time(offer.offeredAt) > since
         && ['Released', 'Declined'].includes(application.status))
       .map((row) => ({ ...row, state: getOfferState(row.offer, now) }));

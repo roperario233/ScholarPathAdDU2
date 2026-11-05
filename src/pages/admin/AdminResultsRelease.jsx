@@ -13,7 +13,7 @@ import { getApplicationStatusLabel, isEarlyClosure } from '../../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import FinalCheckToggle from '../../components/FinalCheckToggle';
-import { describeGrantAmount, getGrantAmountForApplication } from '../../lib/grantAmount';
+import { describeGrantAmount } from '../../lib/grantAmount';
 import {
   OFFER_STATE_LABELS,
   formatAcademicYear,
@@ -21,13 +21,15 @@ import {
   getConfirmByDaysRemaining,
   getDefaultConfirmBy,
   getManilaToday,
-  getOfferForApplication,
   getOfferState,
   getResultsRounds,
   isValidConfirmBy,
   moveInOrder,
 } from '../../lib/resultsRound';
 import { fmtDate, plural } from '../../lib/formatters';
+
+const EMPTY_LIST = [];
+const RESULT_LIST_PAGE_SIZE = 50;
 
 // What a released case came to, for the history list and its badges.
 const coveredResult = (entry, offer) => {
@@ -261,6 +263,8 @@ export default function AdminResultsRelease({
   };
   const [checked, setChecked] = useState({});
   const [confirmByFor, setConfirmByFor] = useState({});
+  const [releaseRequestIds, setReleaseRequestIds] = useState({});
+  const [visibleCounts, setVisibleCounts] = useState({});
   const [busyKey, setBusyKey] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [expandedReleases, setExpandedReleases] = useState({});
@@ -272,6 +276,18 @@ export default function AdminResultsRelease({
   const [withdrawTarget, setWithdrawTarget] = useState(null);
   const [closeTarget, setCloseTarget] = useState(null);
   const [closeError, setCloseError] = useState('');
+  const visibleRowsFor = (scholarshipId, section, rows) => rows.slice(0, visibleCounts[`${scholarshipId}:${section}`] || RESULT_LIST_PAGE_SIZE);
+  const showMoreRows = (scholarshipId, section, visibleLength, totalLength) => visibleLength < totalLength ? (
+    <Button
+      type="button"
+      variant="secondary"
+      className="w-full"
+      onClick={() => setVisibleCounts((current) => ({
+        ...current,
+        [`${scholarshipId}:${section}`]: (current[`${scholarshipId}:${section}`] || RESULT_LIST_PAGE_SIZE) + RESULT_LIST_PAGE_SIZE,
+      }))}
+    >Show {Math.min(RESULT_LIST_PAGE_SIZE, totalLength - visibleLength)} more</Button>
+  ) : null;
   // The scholarship whose results workspace is open in its own modal.
   const [openRoundId, setOpenRoundId] = useState(initialOpenRoundId);
   // The outcome tab chosen in that modal; until one is chosen it opens on the first
@@ -284,42 +300,54 @@ export default function AdminResultsRelease({
 
   const programIndex = useMemo(() => buildProgramScopeIndex(academicPrograms), [academicPrograms]);
   const approvalLevels = interviewWorkspace?.approvalLevels || [];
-  const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
-  const recommendationOf = (entry) => getLatestPanelRecommendation(notesFor(entry.id));
+  const notesByApplication = useMemo(() => {
+    const grouped = new Map();
+    (interviewWorkspace?.notes || EMPTY_LIST).forEach((note) => {
+      if (!grouped.has(note.applicationId)) grouped.set(note.applicationId, []);
+      grouped.get(note.applicationId).push(note);
+    });
+    return grouped;
+  }, [interviewWorkspace?.notes]);
+  const recommendationByApplication = useMemo(() => new Map(
+    [...notesByApplication].map(([applicationId, notes]) => [applicationId, getLatestPanelRecommendation(notes)]),
+  ), [notesByApplication]);
+  const recommendationOf = (entry) => recommendationByApplication.get(entry.id) || null;
   const awaitingSchool = useMemo(() => getApprovalQueue(applications), [applications]);
-  const rounds = getResultsRounds({
+  const rounds = useMemo(() => getResultsRounds({
     applications,
     scholarships,
     resultsReleases,
     offers: scholarshipOffers,
     ranks: waitlistRanks,
-    recommendationOf,
-  });
+    recommendationOf: (entry) => recommendationByApplication.get(entry.id) || null,
+  }), [applications, scholarships, resultsReleases, scholarshipOffers, waitlistRanks, recommendationByApplication]);
   const openRound = rounds.find((round) => round.scholarshipId === openRoundId) || null;
   const approvedCount = rounds.reduce((total, round) => total + round.approved.length, 0);
   const waitlistedCount = rounds.reduce((total, round) => total + round.waitlist.length, 0);
   const unansweredCount = rounds.reduce((total, round) => total + round.pendingOffers + round.lapsedOffers, 0);
   const openSlotCount = rounds.reduce((total, round) => total + round.openSlots, 0);
-  const finalList = applications.filter((entry) => ['Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status));
+  const finalList = useMemo(() => applications.filter((entry) => ['Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status)), [applications]);
   const selected = applications.find((entry) => entry.id === openId);
   // After a stage move the case's row glows, or a notice says where it went.
   const moved = useMovedCase([
     ...awaitingSchool,
     ...rounds.flatMap((round) => [...round.approved, ...round.waitlist, ...round.offers.map((row) => row.application)]),
   ].map((entry) => entry.id));
-  const releasedHistory = [...resultsReleases].filter((release) => release.releasedBy).reverse();
-  const titleById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title]));
-  const grantAmounts = interviewWorkspace?.grantAmounts || [];
-  const grantFor = (applicationId) => getGrantAmountForApplication(grantAmounts, applicationId);
+  const releasedHistory = useMemo(() => [...resultsReleases].filter((release) => release.releasedBy).reverse(), [resultsReleases]);
+  const visibleAwaitingSchool = visibleRowsFor('all', 'awaiting-school', awaitingSchool);
+  const visibleReleasedHistory = visibleRowsFor('all', 'released-history', releasedHistory);
+  const titleById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title])), [scholarships]);
+  const grantAmounts = interviewWorkspace?.grantAmounts || EMPTY_LIST;
+  const grantByApplication = useMemo(() => new Map(grantAmounts.map((entry) => [entry.applicationId, entry])), [grantAmounts]);
+  const grantFor = (applicationId) => grantByApplication.get(applicationId) || null;
   // The final check needs the grant amount recorded first, so a case without one
   // can neither be ticked nor counted toward the release.
   const isFinalChecked = (applicationId) => Boolean(checked[applicationId]) && Boolean(grantFor(applicationId));
   const setFinalChecked = (applicationId, value) => setChecked((previous) => ({ ...previous, [applicationId]: value }));
-  const rankOf = (applicationId) => {
-    const row = waitlistRanks.find((entry) => entry.applicationId === applicationId);
-    return row ? row.rank : null;
-  };
-  const offerOf = (applicationId) => getOfferForApplication(scholarshipOffers, applicationId);
+  const rankByApplication = useMemo(() => new Map(waitlistRanks.map((entry) => [entry.applicationId, entry.rank])), [waitlistRanks]);
+  const rankOf = (applicationId) => rankByApplication.get(applicationId) ?? null;
+  const offerByApplication = useMemo(() => new Map(scholarshipOffers.map((entry) => [entry.applicationId, entry])), [scholarshipOffers]);
+  const offerOf = (applicationId) => offerByApplication.get(applicationId) || null;
 
   // The review surface offers the Admin's override at Recommended and the final
   // check's Not accepted at Approved; every other move stays with the role map.
@@ -337,7 +365,7 @@ export default function AdminResultsRelease({
     rankOf: (entry) => rankOf(entry.id),
     source: { exportedBy: getActorRoleLabel(role), ...source },
   });
-  const allReleasedIds = resultsReleases.flatMap((release) => release.applicationIds || []);
+  const allReleasedIds = useMemo(() => new Set(resultsReleases.flatMap((release) => release.applicationIds || [])), [resultsReleases]);
 
   const exportFinalList = () => downloadApplicantSummary(finalList, exportOptions({
     origin: 'Final check and release › Results by scholarship',
@@ -396,10 +424,33 @@ export default function AdminResultsRelease({
       return;
     }
     const confirmBy = confirmByOf(round.scholarshipId);
-    run(`release-${round.scholarshipId}`, () => onReleaseScholarshipResults?.(round.scholarshipId, {
-      confirmBy,
-      waitlistOrder: round.waitlist.map((entry) => entry.id),
-    }), () => `${round.title}: ${plural(round.approved.length, 'accepted applicant')} notified to confirm by ${fmtDate(confirmBy)}${round.heldWaitlist.length ? `, and ${plural(round.heldWaitlist.length, 'waitlisted applicant')} told they are on the waitlist` : ''}. The Not accepted letters wait until you close the results.`);
+    const requestKey = `${round.scholarshipId}:${confirmBy}`;
+    const requestId = releaseRequestIds[requestKey] || crypto.randomUUID();
+    setReleaseRequestIds((current) => ({ ...current, [requestKey]: requestId }));
+    const expectedIds = round.approved.map((entry) => entry.id);
+    run(`release-${round.scholarshipId}`, async () => {
+      const result = await onReleaseScholarshipResults?.(round.scholarshipId, {
+        confirmBy,
+        requestId,
+        waitlistOrder: round.waitlist.map((entry) => entry.id),
+      });
+      if (result?.error) return result;
+      const releasedIds = new Set(result?.releasedApplicationIds || []);
+      if (!expectedIds.every((id) => releasedIds.has(id))) {
+        setReleaseRequestIds((current) => {
+          const next = { ...current };
+          delete next[requestKey];
+          return next;
+        });
+        return { error: 'A previous release request completed for a different set of cases. The workspace was refreshed; review the remaining approved cases before retrying.' };
+      }
+      setReleaseRequestIds((current) => {
+        const next = { ...current };
+        delete next[requestKey];
+        return next;
+      });
+      return result;
+    }, () => `${round.title}: ${plural(round.approved.length, 'accepted applicant')} notified to confirm by ${fmtDate(confirmBy)}${round.heldWaitlist.length ? `, and ${plural(round.heldWaitlist.length, 'waitlisted applicant')} told they are on the waitlist` : ''}. The Not accepted letters wait until you close the results.`);
   };
 
   const moveWaitlisted = (round, applicationId, direction) => {
@@ -513,9 +564,10 @@ export default function AdminResultsRelease({
   const renderWaitlist = (round) => {
     const ordering = busyKey === `order-${round.scholarshipId}`;
     const released = new Set(round.waitlist.filter((entry) => !round.heldWaitlist.includes(entry)).map((entry) => entry.id));
+    const entries = visibleRowsFor(round.scholarshipId, 'waitlisted', round.waitlist);
     return (
       <ol className={LIST_CLASS}>
-        {round.waitlist.map((entry, index) => {
+        {entries.map((entry, index) => {
           const recommendation = recommendationOf(entry);
           const grant = grantFor(entry.id);
           const isNext = round.nextWaitlisted?.id === entry.id;
@@ -560,13 +612,18 @@ export default function AdminResultsRelease({
             </li>
           );
         })}
+        {entries.length < round.waitlist.length ? (
+          <li className="list-none">{showMoreRows(round.scholarshipId, 'waitlisted', entries.length, round.waitlist.length)}</li>
+        ) : null}
       </ol>
     );
   };
 
-  const renderOffers = (round) => (
-    <ul className={LIST_CLASS}>
-      {round.offers.map(({ application: entry, offer, state }) => (
+  const renderOffers = (round) => {
+    const entries = visibleRowsFor(round.scholarshipId, 'offers', round.offers);
+    return (
+      <ul className={LIST_CLASS}>
+      {entries.map(({ application: entry, offer, state }) => (
         <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
           <div className="grid min-w-0 gap-2">
             <ApplicantHeading name={entry.studentName}>
@@ -595,14 +652,20 @@ export default function AdminResultsRelease({
           </div>
         </li>
       ))}
-    </ul>
-  );
+      {entries.length < round.offers.length ? (
+        <li className="list-none">{showMoreRows(round.scholarshipId, 'offers', entries.length, round.offers.length)}</li>
+      ) : null}
+      </ul>
+    );
+  };
 
   // The Not accepted cases still held: named, so the Admin sees who receives the
   // general letter when the results are closed.
-  const renderNotAccepted = (round) => (
-    <ul className={LIST_CLASS}>
-      {round.notAcceptedHeld.map((entry) => (
+  const renderNotAccepted = (round) => {
+    const entries = visibleRowsFor(round.scholarshipId, 'not-accepted', round.notAcceptedHeld);
+    return (
+      <ul className={LIST_CLASS}>
+      {entries.map((entry) => (
         <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
           <div className="grid min-w-0 gap-2">
             <ApplicantHeading name={entry.studentName}>
@@ -619,8 +682,12 @@ export default function AdminResultsRelease({
           </div>
         </li>
       ))}
-    </ul>
-  );
+      {entries.length < round.notAcceptedHeld.length ? (
+        <li className="list-none">{showMoreRows(round.scholarshipId, 'not-accepted', entries.length, round.notAcceptedHeld.length)}</li>
+      ) : null}
+      </ul>
+    );
+  };
 
   return (
     <div className="grid content-start gap-5">
@@ -737,7 +804,7 @@ export default function AdminResultsRelease({
 
       <Card title="Awaiting the school's approval" action={<StatusBadge tone={awaitingSchool.length ? 'info' : 'success'}>{awaitingSchool.length} with the schools</StatusBadge>}>
         <div className="grid max-h-[520px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {awaitingSchool.length ? awaitingSchool.map((entry) => {
+          {awaitingSchool.length ? visibleAwaitingSchool.map((entry) => {
             const approver = getApproverRoleForApplication(entry, approvalLevels, programIndex);
             return (
               <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
@@ -753,14 +820,16 @@ export default function AdminResultsRelease({
             );
           }) : <EmptyState title="No recommendations with the schools" />}
         </div>
+        {showMoreRows('all', 'awaiting-school', visibleAwaitingSchool.length, awaitingSchool.length)}
       </Card>
 
       {releasedHistory.length ? (
         <Card title="Released results">
           <ul className="m-0 grid gap-2 p-0">
-            {releasedHistory.map((release) => {
+            {visibleReleasedHistory.map((release) => {
               const title = titleById[release.scholarshipId] || 'Scholarship';
               const covered = releaseApplications(release);
+              const visibleCovered = visibleRowsFor(release.id, 'coverage', covered);
               const open = Boolean(expandedReleases[release.id]);
               const panelId = `release-${release.id}`;
               const isOffers = release.kind === 'offers';
@@ -797,7 +866,7 @@ export default function AdminResultsRelease({
                       </div>
                       {covered.length ? (
                         <ul className="m-0 grid max-h-[320px] list-none gap-1.5 overflow-y-auto p-0 pr-1">
-                          {covered.map((entry) => {
+                          {visibleCovered.map((entry) => {
                             const result = coveredResult(entry, offerOf(entry.id));
                             return (
                               <li key={entry.id} className="flex min-w-0 flex-col items-start gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
@@ -812,6 +881,9 @@ export default function AdminResultsRelease({
                               </li>
                             );
                           })}
+                          {visibleCovered.length < covered.length ? (
+                            <li className="list-none">{showMoreRows(release.id, 'coverage', visibleCovered.length, covered.length)}</li>
+                          ) : null}
                         </ul>
                       ) : null}
                     </div>
@@ -819,6 +891,9 @@ export default function AdminResultsRelease({
                 </li>
               );
             })}
+            {visibleReleasedHistory.length < releasedHistory.length ? (
+              <li className="list-none">{showMoreRows('all', 'released-history', visibleReleasedHistory.length, releasedHistory.length)}</li>
+            ) : null}
           </ul>
         </Card>
       ) : null}
@@ -829,6 +904,7 @@ export default function AdminResultsRelease({
         const progress = round.approved.length ? Math.round((view.checkedCount / round.approved.length) * 100) : 0;
         const releasing = busyKey === `release-${round.scholarshipId}`;
         const confirmBy = confirmByOf(round.scholarshipId);
+        const approvedVisible = visibleRowsFor(round.scholarshipId, 'approved', round.approved);
         const releaseBlocked = !view.allChecked || (round.approved.length > 0 && !isValidConfirmBy(confirmBy));
         const { declinedOffers } = view;
         const activeTab = roundTab
@@ -882,7 +958,12 @@ export default function AdminResultsRelease({
                     </p>
                     {view.acceptedCount ? (
                       <>
-                        {round.approved.length ? <ul className={LIST_CLASS}>{round.approved.map(renderApprovedRow)}</ul> : null}
+                        {round.approved.length ? (
+                          <>
+                            <ul className={LIST_CLASS}>{approvedVisible.map(renderApprovedRow)}</ul>
+                            {showMoreRows(round.scholarshipId, 'approved', approvedVisible.length, round.approved.length)}
+                          </>
+                        ) : null}
                         {round.offers.length ? renderOffers(round) : null}
                       </>
                     ) : <p className={EMPTY_CLASS}>No accepted applicants in this round.</p>}

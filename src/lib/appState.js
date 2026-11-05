@@ -7,6 +7,43 @@ import { createDefaultConsentChoice, normalizeConsentChoice } from './privacyCon
 // fallback login were removed and Supabase became the required backend.
 export const storageKey = 'scholarpath-addu-state';
 
+// Supabase is authoritative for these collections. Persisting them duplicated
+// multi-megabyte workspace responses in synchronous localStorage and could make
+// a later state write fail at the browser quota limit.
+const serverBackedStateKeys = [
+  'scholarships',
+  'applications',
+  'documents',
+  'students',
+  'departmentReviews',
+  'announcements',
+  'reviewComments',
+  'grantAmounts',
+  'scholarshipOffers',
+  'scholarshipOffersReady',
+  'waitlistRanks',
+  'caseOfficers',
+  'caseOfficersReady',
+  'staffDirectory',
+  'interviewLocations',
+  'interviewPanelists',
+  'interviewNotes',
+  'officeCalendarEntries',
+  'approvalLevels',
+  'resultsReleases',
+  'resultsReleasesReady',
+  'workspaceDetailsReady',
+  'detailsDeferred',
+];
+
+export const serializePersistedState = (state = {}) => {
+  const localNotifications = (Array.isArray(state.notifications) ? state.notifications : [])
+    .filter((entry) => entry?.sourceKey && (!state.ownerId || !entry.ownerId || entry.ownerId === state.ownerId));
+  const persisted = { ...state, notifications: localNotifications };
+  serverBackedStateKeys.forEach((key) => delete persisted[key]);
+  return JSON.stringify(persisted);
+};
+
 // Read once so a device that still holds the old demo-state record carries over
 // its user-chosen theme, notification preferences, and custom deadlines instead
 // of losing them. Seeded demo records are intentionally dropped because
@@ -125,9 +162,11 @@ const createDefaultState = () => ({
   },
   // Server-backed domains start empty. Supabase is required, so
   // loadSupabaseWorkspace fills these once a session is hydrated.
+  scholarships: [],
   applications: [],
   documents: [],
   students: {},
+  departmentReviews: [],
   notifications: [],
   announcements: [],
   // The internal endorsement thread. Staff-only rows; a student session always
@@ -169,6 +208,10 @@ const createDefaultState = () => ({
   // nothing is held that the project could not release.
   resultsReleases: [],
   resultsReleasesReady: false,
+  // False while a staff session's per-case history (status log, internal comments,
+  // interview notes) is still loading after the first screen; true once it is in.
+  // A student's own rows load with the workspace, so theirs is true from the start.
+  workspaceDetailsReady: false,
   profileSkipped: false,
   theme: 'light',
   academicPrograms,
@@ -213,6 +256,7 @@ export const createInitialState = () => {
   return {
     ...defaults,
     ...stored,
+    scholarships: defaults.scholarships,
     activeView,
     viewerRole: ROLE_KEYS.includes(viewerRole) ? viewerRole : defaults.viewerRole,
     theme: stored.theme ?? 'light',
@@ -240,27 +284,31 @@ export const createInitialState = () => {
         ...(stored.notificationPreferences?.deadlineReminders ?? {}),
       },
     },
-    applications: Array.isArray(stored.applications) ? stored.applications.map(normalizeApplication) : defaults.applications,
-    documents: Array.isArray(stored.documents) ? stored.documents.map(normalizeDocument) : defaults.documents,
-    students: stored.students && typeof stored.students === 'object' && !Array.isArray(stored.students) ? stored.students : defaults.students,
-    notifications: Array.isArray(stored.notifications) ? stored.notifications : defaults.notifications,
-    announcements: Array.isArray(stored.announcements) ? stored.announcements : defaults.announcements,
-    reviewComments: Array.isArray(stored.reviewComments) ? stored.reviewComments : defaults.reviewComments,
-    grantAmounts: Array.isArray(stored.grantAmounts) ? stored.grantAmounts : defaults.grantAmounts,
-    scholarshipOffers: Array.isArray(stored.scholarshipOffers) ? stored.scholarshipOffers : defaults.scholarshipOffers,
-    scholarshipOffersReady: stored.scholarshipOffersReady === false ? false : defaults.scholarshipOffersReady,
-    waitlistRanks: Array.isArray(stored.waitlistRanks) ? stored.waitlistRanks : defaults.waitlistRanks,
-    caseOfficers: Array.isArray(stored.caseOfficers) ? stored.caseOfficers : defaults.caseOfficers,
-    caseOfficersReady: stored.caseOfficersReady === false ? false : defaults.caseOfficersReady,
-    staffDirectory: Array.isArray(stored.staffDirectory) ? stored.staffDirectory : defaults.staffDirectory,
-    interviewLocations: Array.isArray(stored.interviewLocations) ? stored.interviewLocations : defaults.interviewLocations,
-    interviewPanelists: Array.isArray(stored.interviewPanelists) ? stored.interviewPanelists : defaults.interviewPanelists,
-    interviewNotes: Array.isArray(stored.interviewNotes) ? stored.interviewNotes : defaults.interviewNotes,
+    applications: defaults.applications,
+    documents: defaults.documents,
+    students: defaults.students,
+    departmentReviews: defaults.departmentReviews,
+    notifications: Array.isArray(stored.notifications)
+      ? stored.notifications.filter((entry) => entry?.sourceKey && (!stored.ownerId || !entry.ownerId || entry.ownerId === stored.ownerId))
+      : defaults.notifications,
+    announcements: defaults.announcements,
+    reviewComments: defaults.reviewComments,
+    grantAmounts: defaults.grantAmounts,
+    scholarshipOffers: defaults.scholarshipOffers,
+    scholarshipOffersReady: defaults.scholarshipOffersReady,
+    waitlistRanks: defaults.waitlistRanks,
+    caseOfficers: defaults.caseOfficers,
+    caseOfficersReady: defaults.caseOfficersReady,
+    staffDirectory: defaults.staffDirectory,
+    interviewLocations: defaults.interviewLocations,
+    interviewPanelists: defaults.interviewPanelists,
+    interviewNotes: defaults.interviewNotes,
     customDeadlines: Array.isArray(stored.customDeadlines) ? stored.customDeadlines : defaults.customDeadlines,
-    officeCalendarEntries: Array.isArray(stored.officeCalendarEntries) ? stored.officeCalendarEntries : defaults.officeCalendarEntries,
-    approvalLevels: Array.isArray(stored.approvalLevels) ? stored.approvalLevels : defaults.approvalLevels,
-    resultsReleases: Array.isArray(stored.resultsReleases) ? stored.resultsReleases : defaults.resultsReleases,
-    resultsReleasesReady: stored.resultsReleasesReady === true,
+    officeCalendarEntries: defaults.officeCalendarEntries,
+    approvalLevels: defaults.approvalLevels,
+    resultsReleases: defaults.resultsReleases,
+    resultsReleasesReady: defaults.resultsReleasesReady,
+    workspaceDetailsReady: defaults.workspaceDetailsReady,
     // A cached catalog written before the four-level hierarchy existed carries the
     // retired `College of …` school names and no department, so it is discarded
     // rather than used for the pre-load paint.

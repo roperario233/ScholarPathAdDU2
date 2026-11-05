@@ -1,3 +1,4 @@
+import { useEnsureCaseDetails } from '../lib/caseDetailsContext';
 import { useEffect, useRef, useState } from 'react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview, useDocumentPreviewUrl } from './DocumentPreviewModal';
@@ -185,6 +186,9 @@ export default function ApplicationReviewModal({
   // stage actions; without it the footer is unchanged.
   finalCheck = null,
 }) {
+  // A staff session loads each case's history after the first screen; opening a case
+  // fetches its own immediately instead of waiting for the full read.
+  useEnsureCaseDetails(application?.id);
   // Since Consultation 2 the Admin verifies the files, forwards the case to the
   // interviewers of its scope, and does the final check and release; Staff read
   // the office workspace without acting. A scoped reviewer (an interviewer or a

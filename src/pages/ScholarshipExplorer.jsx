@@ -209,6 +209,25 @@ function ScholarshipCard({ scholarship, profile, profileGate, onApply, onOpenPro
   );
 }
 
+// The search field keeps its own draft and hands the text to the app once typing
+// pauses: the query lives in the app-wide state, so committing every keystroke
+// re-rendered the whole shell for each letter. A change that comes from outside
+// (the reset action) replaces the draft immediately.
+function DebouncedSearchBox({ value, onCommit, delayMs = 200, ...inputProps }) {
+  const [draft, setDraft] = useState(value);
+  const [adoptedValue, setAdoptedValue] = useState(value);
+  if (value !== adoptedValue) {
+    setAdoptedValue(value);
+    setDraft(value);
+  }
+  useEffect(() => {
+    if (draft === value) return undefined;
+    const timer = setTimeout(() => onCommit(draft), delayMs);
+    return () => clearTimeout(timer);
+  }, [draft, value, onCommit, delayMs]);
+  return <input {...inputProps} value={draft} onChange={(event) => setDraft(event.target.value)} />;
+}
+
 export default function ScholarshipExplorer({ profile, scholarships, searchQuery, filters, onSearchChange, onFilterChange, onApply, onOpenProfileSection }) {
   const [applyErrors, setApplyErrors] = useState({});
   const handleApply = async (scholarship) => {
@@ -251,7 +270,7 @@ export default function ScholarshipExplorer({ profile, scholarships, searchQuery
         </div>
         <label className="explorer-search-field">
           <span className="sr-only">Search scholarships</span>
-          <input value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} placeholder="Search by name, category, coverage, or origin" aria-label="Search scholarships" />
+          <DebouncedSearchBox value={searchQuery} onCommit={onSearchChange} placeholder="Search by name, category, coverage, or origin" aria-label="Search scholarships" />
         </label>
         <div className="explorer-filter-toolbar">
           <div className="explorer-filter-slot">
