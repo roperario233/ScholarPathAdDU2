@@ -130,12 +130,33 @@ function OutcomeTabs({ tabs, active, onChange }) {
 
 // One applicant row, in the same surface tile the review modal uses for its facts.
 // One fact about a round: the review modal's FactTile (label, value, note).
-function RoundFact({ label, value, note = '' }) {
+function RoundFact({ label, value, note = '', progress = null }) {
   return (
     <div className="grid content-start gap-0.5 rounded-[14px] border border-app-border bg-app-card p-3">
       <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{label}</span>
       <strong className="text-base text-app-text">{value}</strong>
       {note ? <span className="text-xs text-app-muted">{note}</span> : null}
+      {progress ? <RoundProgress {...progress} /> : null}
+    </div>
+  );
+}
+
+function RoundProgress({ checked, total, title }) {
+  if (!total) return null;
+  const progress = Math.round((checked / total) * 100);
+  return (
+    <div className="mt-1 flex items-center gap-2" aria-label={`${checked} of ${total} final checks complete`}>
+      <div
+        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
+        role="progressbar"
+        aria-label={`Final checks for ${title}`}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={checked}
+      >
+        <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="shrink-0 text-[11px] font-semibold tabular-nums text-app-muted">{progress}%</span>
     </div>
   );
 }
@@ -621,10 +642,17 @@ export default function AdminResultsRelease({
           {rounds.length ? rounds.map((round) => {
             const view = roundView(round);
             return (
-              <article key={round.scholarshipId} className={`${getCaseCardClass('info')} sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-5`}>
-                <div className="grid min-w-0 gap-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <h3 className="m-0 min-w-0 text-base font-semibold">{round.title}</h3>
+              <article key={round.scholarshipId} className={`${getCaseCardClass('info')} group isolate border-blue-300/60 bg-gradient-to-br from-blue-50/80 via-app-surface to-sky-50/50 p-4 pl-5 shadow-md hover:border-blue-400/70 hover:shadow-lg dark:from-blue-950/25 dark:via-app-surface dark:to-sky-950/10 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch sm:gap-5 sm:p-5 sm:pl-6`}>
+                <div className="pointer-events-none absolute -right-14 -top-16 -z-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl transition duration-500 group-hover:bg-blue-400/20" aria-hidden="true" />
+                <div className="grid min-w-0 gap-3.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-blue-300/50 bg-white/80 text-blue-800 shadow-sm dark:border-blue-300/20 dark:bg-blue-950/60 dark:text-sky-200" aria-hidden="true">
+                      <Award className="h-5 w-5" />
+                    </span>
+                    <div className="grid min-w-0 flex-1 gap-1">
+                      <h3 className="m-0 min-w-0 text-base font-bold leading-snug text-app-text [overflow-wrap:anywhere] sm:text-lg">{round.title}</h3>
+                      <span className="text-xs font-medium text-app-muted">{round.applicantCount} {round.applicantCount === 1 ? 'applicant' : 'applicants'} in this results round</span>
+                    </div>
                     <StatusBadge tone="neutral" className="whitespace-nowrap">Academic year {view.yearLabel}</StatusBadge>
                     <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
                   </div>
@@ -639,6 +667,7 @@ export default function AdminResultsRelease({
                       label="Final check"
                       value={round.approved.length ? `${view.checkedCount} of ${round.approved.length} checked` : 'Done'}
                       note={round.approved.length ? `${view.grantsSet} of ${round.approved.length} grant amounts set` : 'Accepted applicants released'}
+                      progress={round.approved.length ? { checked: view.checkedCount, total: round.approved.length, title: round.title } : null}
                     />
                     <RoundFact
                       label="Confirmations"
@@ -653,9 +682,17 @@ export default function AdminResultsRelease({
                     <StatusBadge tone={round.waitlist.length ? 'warning' : 'neutral'} className="whitespace-nowrap">{round.waitlist.length} waitlisted{round.openSlots ? ` · ${plural(round.openSlots, 'slot')} open` : ''}</StatusBadge>
                     <StatusBadge tone="neutral" className="whitespace-nowrap">{round.notAcceptedHeld.length} not accepted</StatusBadge>
                   </div>
-                  <p className="m-0 text-sm text-app-muted"><strong className="font-semibold text-app-text">Next:</strong> {view.nextStep}</p>
+                  <p className="m-0 rounded-xl border border-blue-200/70 bg-white/60 px-3 py-2 text-sm leading-relaxed text-app-muted dark:border-blue-300/15 dark:bg-slate-950/20"><strong className="font-semibold text-app-text">Next:</strong> {view.nextStep}</p>
                 </div>
-                <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={() => openRoundWorkspace(round)}>Open results</Button>
+                <div className="flex w-full flex-col gap-2 border-t border-blue-200/60 pt-3 sm:w-40 sm:shrink-0 sm:items-stretch sm:justify-center sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0 dark:border-blue-300/15">
+                  <ExportButton
+                    className="!min-h-10 w-full justify-center !rounded-xl !border-blue-200 !bg-white !px-3 !py-2 !text-sm !text-blue-950 hover:!border-blue-400 hover:!bg-blue-50 dark:!border-blue-200 dark:!bg-white dark:!text-blue-950 dark:hover:!bg-blue-50"
+                    aria-label={`Export ${round.title} results to Excel`}
+                    title={`Export ${round.title} results to Excel`}
+                    onClick={() => exportRound(round)}
+                  >Excel export</ExportButton>
+                  <Button type="button" variant="primary" className="w-full" onClick={() => openRoundWorkspace(round)}>Open results</Button>
+                </div>
               </article>
             );
           }) : <EmptyState title="Nothing to release yet" description="Approved and waitlisted applications appear here after the school's decision." />}

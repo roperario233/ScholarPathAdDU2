@@ -7,14 +7,17 @@ const app = (id, status, name, extra = {}) => ({
   studentProgram: 'BS Information Technology', submittedAt: '2026-10-01', updatedAt: '2026-11-03', timeline: [], statusLog: [], ...extra,
 });
 
-const render = (applications, extra = {}) => renderToStaticMarkup(
+const renderMarkup = (applications, extra = {}) => renderToStaticMarkup(
   <AdminResultsRelease
     applications={applications}
     scholarships={[{ id: 'gia', title: 'Grant-in-Aid (GIA)' }]}
     interviewWorkspace={{ grantAmounts: [{ applicationId: 'a1', amountPerSemester: 213 }], notes: [], approvalLevels: [] }}
     {...extra}
   />,
-).replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
+);
+
+const render = (applications, extra = {}) => renderMarkup(applications, extra)
+  .replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ');
 
 const mixed = [
   app('a1', 'Approved', 'Arvin, Kath Karl'),
@@ -34,6 +37,8 @@ describe('Final check and release', () => {
     // The card says which round this is and where it stands.
     ['Academic year 2026–2027', 'Applicants', 'Application deadline', 'Final check', '0 of 2 checked', '1 of 2 grant amounts set', 'Confirmations', 'Not released yet']
       .forEach((part) => expect(text).toContain(part));
+    expect(text).toContain('Excel export');
+    expect(text.match(/Export to Excel/g)).toHaveLength(1); // overall export
     // The applicant rows live in the workspace modal, not on the page.
     expect(text).not.toContain('Santos, Ana');
   });
@@ -48,6 +53,21 @@ describe('Final check and release', () => {
     // The other outcomes live on their own tabs, so each list scrolls on its own.
     expect(text).not.toContain('Micheal, Reeves Myers');
     expect(text).not.toContain('Close results…');
+  });
+
+  it('provides a separately scoped workbook export on every scholarship card', () => {
+    const applications = [
+      app('a1', 'Approved', 'Arvin, Kath Karl'),
+      app('j1', 'Waitlisted', 'Miral, Pette Samuel', { scholarshipId: 'jsf', scholarshipTitle: 'Jubilee Scholarship Fund (JSF)' }),
+    ];
+    const markup = renderMarkup(applications, {
+      scholarships: [
+        { id: 'gia', title: 'Grant-in-Aid (GIA)' },
+        { id: 'jsf', title: 'Jubilee Scholarship Fund (JSF)' },
+      ],
+    });
+    expect(markup).toContain('aria-label="Export Grant-in-Aid (GIA) results to Excel"');
+    expect(markup).toContain('aria-label="Export Jubilee Scholarship Fund (JSF) results to Excel"');
   });
 
   it('opens on the waitlist when no one is waiting for the final check', () => {
