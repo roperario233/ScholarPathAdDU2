@@ -45,14 +45,23 @@ describe('Final check and release', () => {
 
   it('opens the workspace with one tab per outcome and the accepted list first', () => {
     const text = render(mixed, { initialOpenRoundId: 'gia' });
+    const markup = renderMarkup(mixed, { initialOpenRoundId: 'gia' });
     // The tab strip carries each outcome's count.
     expect(text).toContain('Accepted 2 Waitlisted 1 Not accepted 1');
     ['Arvin, Kath Karl', 'Miral, Pette Samuel', 'Student hears:', 'Next step Step 1 of 4 · Final check'].forEach((part) => expect(text).toContain(part));
+    expect(text.match(/Mark final check/g)).toHaveLength(2);
+    expect(text).not.toContain('Mark final check as done');
+    expect(text).toContain('Grant amount not set');
+    expect(text).not.toContain('Set the grant amount before the final check.');
+    expect(markup.match(/w-\[12\.5rem\] shrink-0/g)).toHaveLength(2); // fixed width with and without the grant hint
     // The header names the round: academic year, deadline, and applicants.
     expect(text).toContain('Academic year 2026–2027 · Application deadline No deadline set · 4 applicants');
     // The other outcomes live on their own tabs, so each list scrolls on its own.
     expect(text).not.toContain('Micheal, Reeves Myers');
     expect(text).not.toContain('Close results…');
+    const layoutMarkup = renderMarkup(mixed, { initialOpenRoundId: 'gia' });
+    expect(layoutMarkup).toContain('md:grid-cols-[minmax(0,1fr)_17rem]');
+    expect(layoutMarkup).toContain('md:border-l');
   });
 
   it('provides a separately scoped workbook export on every scholarship card', () => {

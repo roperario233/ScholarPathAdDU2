@@ -162,9 +162,23 @@ function RoundProgress({ checked, total, title }) {
 }
 
 const LIST_CLASS = 'm-0 grid list-none gap-2 p-0';
-const ROW_CLASS = 'grid gap-3 rounded-[14px] border border-app-border bg-app-surface p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-4';
+const ROW_CLASS = 'relative grid gap-3 overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-r from-white via-blue-50/60 to-sky-50/60 p-3.5 pl-5 shadow-sm transition hover:-translate-y-px hover:border-blue-300 hover:shadow-md before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-full before:bg-gradient-to-b before:from-blue-500 before:to-sky-300 dark:border-blue-300/15 dark:from-slate-900 dark:via-blue-950/30 dark:to-slate-900 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-4';
+const ROW_ACTION_CLASS = 'flex min-w-0 flex-wrap items-start gap-2 lg:justify-end';
 const NOTE_CLASS = 'm-0 text-sm text-app-muted';
 const EMPTY_CLASS = 'm-0 rounded-[14px] border border-dashed border-app-border px-3 py-8 text-center text-sm text-app-muted';
+
+function ApplicantHeading({ name, children }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <strong className="min-w-0 text-sm font-bold text-app-text [overflow-wrap:anywhere]">{name}</strong>
+      {children}
+    </div>
+  );
+}
+
+function ApplicantDetails({ children }) {
+  return <div className="flex min-w-0 flex-wrap gap-1.5 text-xs text-app-muted">{children}</div>;
+}
 
 function ConfirmByField({ id, value, onChange, label = 'Confirm by' }) {
   return (
@@ -454,23 +468,27 @@ export default function AdminResultsRelease({
     ];
     return (
       <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-        <div className="grid min-w-0 gap-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <strong className="min-w-0 text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
+        <div className="grid min-w-0 gap-2">
+          <ApplicantHeading name={entry.studentName}>
             <StatusBadge tone={flags.length ? 'warning' : 'success'} className="whitespace-nowrap">{flags.length ? 'Check before release' : 'No flags'}</StatusBadge>
-          </div>
-          <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'}{grant ? ` · Grant amount: ${describeGrantAmount(grant)}` : ''}</span>
+          </ApplicantHeading>
+          <ApplicantDetails>
+            <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">{entry.studentProgram || 'Program on file'}</span>
+            {grant ? <span className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-2.5 py-1 font-semibold text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-950/35 dark:text-emerald-200">Grant amount · {describeGrantAmount(grant)}</span> : null}
+            {!grant ? <span className="rounded-lg border border-amber-300/70 bg-amber-50/90 px-2.5 py-1 font-semibold text-amber-800 dark:border-amber-300/20 dark:bg-amber-950/40 dark:text-amber-200">Grant amount not set</span> : null}
+          </ApplicantDetails>
           {flags.length ? (
-            <ul className="m-0 grid gap-0.5 pl-4 text-xs text-amber-700 dark:text-amber-300">
+            <ul className="m-0 grid list-disc gap-1 rounded-xl border border-amber-300/50 bg-amber-50/70 py-2 pl-7 pr-3 text-xs leading-relaxed text-amber-800 dark:border-amber-300/15 dark:bg-amber-950/20 dark:text-amber-200">
               {flags.map((flag) => <li key={flag}>{flag}</li>)}
             </ul>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-start gap-2">
+        <div className={ROW_ACTION_CLASS}>
           <FinalCheckToggle
             checked={isFinalChecked(entry.id)}
             grant={grant}
-            showHint={!grant}
+            showHint={false}
+            className="w-[12.5rem] shrink-0"
             onChange={(value) => setFinalChecked(entry.id, value)}
           />
           <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'grant')}>Grant amount</Button>
@@ -492,17 +510,20 @@ export default function AdminResultsRelease({
           const isReleased = released.has(entry.id);
           return (
             <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-app-border bg-app-card text-sm font-bold tabular-nums text-app-text" aria-label={`Position ${index + 1}`}>{index + 1}</span>
-                <div className="grid min-w-0 gap-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <strong className="min-w-0 text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
+              <div className="flex min-w-0 items-start gap-3">
+                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-sm font-extrabold tabular-nums shadow-sm ${index === 0 ? 'border-amber-300 bg-gradient-to-br from-amber-100 to-yellow-50 text-amber-900 dark:border-amber-300/20 dark:from-amber-950/70 dark:to-slate-900 dark:text-amber-200' : 'border-blue-200 bg-white/80 text-blue-800 dark:border-blue-300/15 dark:bg-slate-900 dark:text-sky-200'}`} aria-label={`Position ${index + 1}`}>{index + 1}</span>
+                <div className="grid min-w-0 gap-2">
+                  <ApplicantHeading name={entry.studentName}>
                     <StatusBadge tone={isReleased ? 'warning' : 'neutral'} className="whitespace-nowrap">{isReleased ? 'Told: waitlisted' : 'Not told yet'}</StatusBadge>
-                  </div>
-                  <span className="text-xs text-app-muted">{recommendation?.label || 'No recommendation level'} · {entry.studentProgram || 'Program on file'}{grant ? ` · Grant amount: ${describeGrantAmount(grant)}` : ''}</span>
+                  </ApplicantHeading>
+                  <ApplicantDetails>
+                    <span className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-1 font-semibold text-amber-900 dark:border-amber-300/15 dark:bg-amber-950/30 dark:text-amber-200"><Award className="mr-1 inline h-3.5 w-3.5 -translate-y-px" aria-hidden="true" />{recommendation?.label || 'No recommendation level'}</span>
+                    <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">{entry.studentProgram || 'Program on file'}</span>
+                    {grant ? <span className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-2.5 py-1 font-semibold text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-950/35 dark:text-emerald-200">Grant amount · {describeGrantAmount(grant)}</span> : null}
+                  </ApplicantDetails>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className={ROW_ACTION_CLASS}>
                 {round.waitlist.length > 1 ? (
                   <>
                     <Button type="button" variant="secondary" className="!px-2.5" disabled={ordering || index === 0} aria-label={`Move ${entry.studentName} up`} onClick={() => moveWaitlisted(round, entry.id, -1)}><ArrowUp size={16} aria-hidden="true" /></Button>
@@ -535,17 +556,18 @@ export default function AdminResultsRelease({
     <ul className={LIST_CLASS}>
       {round.offers.map(({ application: entry, offer, state }) => (
         <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-          <div className="grid min-w-0 gap-1">
-            <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
-            <span className="text-xs text-app-muted">
-              {offer.origin === 'promotion' ? 'Offered from the waitlist · ' : ''}
-              {offer.confirmBy ? `Confirm by ${fmtDate(offer.confirmBy)}` : 'No confirm-by date'}
-              {offer.respondedAt ? ` · answered ${fmtDate(offer.respondedAt)}${offer.respondedByRole === 'admissions_admin' ? ' (recorded by the office)' : ''}` : ''}
-            </span>
-            {state === 'declined' && offer.declineReason ? <span className="text-xs text-app-muted">Reason: {offer.declineReason}</span> : null}
+          <div className="grid min-w-0 gap-2">
+            <ApplicantHeading name={entry.studentName}>
+              <StatusBadge tone={OFFER_STATE_TONES[state]}>{OFFER_STATE_LABELS[state]}</StatusBadge>
+            </ApplicantHeading>
+            <ApplicantDetails>
+              {offer.origin === 'promotion' ? <span className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-1 font-semibold text-amber-900 dark:border-amber-300/15 dark:bg-amber-950/30 dark:text-amber-200">Offered from waitlist</span> : null}
+              <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">Confirm by {offer.confirmBy ? fmtDate(offer.confirmBy) : 'date not set'}</span>
+              {offer.respondedAt ? <span className="rounded-lg border border-emerald-200/70 bg-emerald-50/70 px-2.5 py-1 text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-950/30 dark:text-emerald-200">Answered {fmtDate(offer.respondedAt)}{offer.respondedByRole === 'admissions_admin' ? ' · recorded by the office' : ''}</span> : null}
+            </ApplicantDetails>
+            {state === 'declined' && offer.declineReason ? <p className="m-0 rounded-xl border border-app-border bg-white/60 px-3 py-2 text-xs text-app-muted dark:bg-slate-950/20">Reason: {offer.declineReason}</p> : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone={OFFER_STATE_TONES[state]}>{OFFER_STATE_LABELS[state]}</StatusBadge>
+          <div className={ROW_ACTION_CLASS}>
             {state === 'pending' || state === 'lapsed' ? (
               <>
                 <Button
@@ -570,14 +592,16 @@ export default function AdminResultsRelease({
     <ul className={LIST_CLASS}>
       {round.notAcceptedHeld.map((entry) => (
         <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-          <div className="grid min-w-0 gap-1">
-            <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
-            <span className="text-xs text-app-muted">
-              {entry.studentProgram || 'Program on file'} · {isEarlyClosure(entry) ? 'closed by the office before the interview' : 'not accepted by the school'}
-            </span>
+          <div className="grid min-w-0 gap-2">
+            <ApplicantHeading name={entry.studentName}>
+              <StatusBadge tone="neutral" className="whitespace-nowrap">Not told yet</StatusBadge>
+            </ApplicantHeading>
+            <ApplicantDetails>
+              <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">{entry.studentProgram || 'Program on file'}</span>
+              <span className="rounded-lg border border-app-border bg-white/50 px-2.5 py-1 dark:bg-slate-950/20">{isEarlyClosure(entry) ? 'closed by the office before the interview' : 'not accepted by the school'}</span>
+            </ApplicantDetails>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="neutral" className="whitespace-nowrap">Not told yet</StatusBadge>
+          <div className={ROW_ACTION_CLASS}>
             <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'endorsement')}>Case notes</Button>
             <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>Open case</Button>
           </div>
@@ -876,55 +900,59 @@ export default function AdminResultsRelease({
               </div>
             </div>
             <footer className="shrink-0 pt-4">
-              <Panel className="grid gap-3 !border-blue-500/40">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Next step</h3>
-                  <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
-                </div>
-                <p className="m-0 text-sm font-medium text-app-text">{view.nextStep}</p>
-                {view.step <= 1 && round.approved.length ? (
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
-                      role="progressbar"
-                      aria-label={`Final checks done for ${round.title}`}
-                      aria-valuemin={0}
-                      aria-valuemax={round.approved.length}
-                      aria-valuenow={view.checkedCount}
-                    >
-                      <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300" style={{ width: `${progress}%` }} />
+              <Panel className="!overflow-hidden !border-blue-500/40 !p-0">
+                <div className={`grid ${view.step <= 1 || view.step === 3 ? 'md:grid-cols-[minmax(0,1fr)_17rem]' : ''}`}>
+                  <div className="grid content-center gap-3 p-4 sm:p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Next step</h3>
+                      <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
                     </div>
-                    <span className="shrink-0 text-xs font-semibold tabular-nums text-app-text">{view.checkedCount} of {round.approved.length} checked</span>
-                  </div>
-                ) : null}
-                {view.step <= 1 ? (
-                  <div className="flex flex-col gap-2 border-t border-app-border pt-3 sm:flex-row sm:items-end sm:justify-end sm:gap-3">
-                    {round.approved.length ? (
-                      <ConfirmByField
-                        id={`confirm-by-${round.scholarshipId}`}
-                        value={confirmBy}
-                        onChange={(value) => setConfirmByFor((previous) => ({ ...previous, [round.scholarshipId]: value }))}
-                      />
+                    <p className="m-0 text-sm font-medium leading-relaxed text-app-text">{view.nextStep}</p>
+                    {view.step <= 1 && round.approved.length ? (
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
+                          role="progressbar"
+                          aria-label={`Final checks done for ${round.title}`}
+                          aria-valuemin={0}
+                          aria-valuemax={round.approved.length}
+                          aria-valuenow={view.checkedCount}
+                        >
+                          <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300" style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums text-app-text">{view.checkedCount} of {round.approved.length} checked</span>
+                      </div>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="w-full sm:w-auto"
-                      disabled={releaseBlocked || releasing}
-                      onClick={() => releaseRound(round)}
-                    ><SendHorizontal className="h-4 w-4" aria-hidden="true" />{releasing ? 'Releasing…' : 'Release accepted and waitlisted'}</Button>
                   </div>
-                ) : view.step === 3 ? (
-                  <div className="flex justify-end border-t border-app-border pt-3">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="w-full sm:w-auto"
-                      disabled={!round.canClose}
-                      onClick={() => { setCloseError(''); setCloseTarget(round); }}
-                    >Close results…</Button>
-                  </div>
-                ) : null}
+                  {view.step <= 1 ? (
+                    <div className="grid content-center gap-2 border-t border-blue-200/70 bg-blue-50/50 p-4 dark:border-blue-300/15 dark:bg-blue-950/20 md:border-l md:border-t-0 md:p-4">
+                      {round.approved.length ? (
+                        <ConfirmByField
+                          id={`confirm-by-${round.scholarshipId}`}
+                          value={confirmBy}
+                          onChange={(value) => setConfirmByFor((previous) => ({ ...previous, [round.scholarshipId]: value }))}
+                        />
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="w-full"
+                        disabled={releaseBlocked || releasing}
+                        onClick={() => releaseRound(round)}
+                      ><SendHorizontal className="h-4 w-4" aria-hidden="true" />{releasing ? 'Releasing…' : 'Release accepted and waitlisted'}</Button>
+                    </div>
+                  ) : view.step === 3 ? (
+                    <div className="grid content-center border-t border-blue-200/70 bg-blue-50/50 p-4 dark:border-blue-300/15 dark:bg-blue-950/20 md:border-l md:border-t-0">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="w-full"
+                        disabled={!round.canClose}
+                        onClick={() => { setCloseError(''); setCloseTarget(round); }}
+                      >Close results…</Button>
+                    </div>
+                  ) : null}
+                </div>
               </Panel>
             </footer>
           </ModalShell>

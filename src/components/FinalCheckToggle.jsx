@@ -10,7 +10,7 @@ export default function FinalCheckToggle({ checked, grant, onChange, className =
   return (
     <div className={`grid min-w-0 gap-1 ${className}`}>
       <label
-        className={`flex min-h-10 items-center gap-2.5 rounded-xl border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-blue-500/40 ${unlocked ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'} ${checked ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : `border-app-border bg-app-surface text-app-text ${unlocked ? 'hover:bg-app-card' : ''}`}`}
+        className={`flex min-h-10 items-center gap-2.5 whitespace-nowrap rounded-xl border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-blue-500/40 ${unlocked ? 'cursor-pointer' : 'cursor-not-allowed opacity-70'} ${checked ? 'border-emerald-400/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200' : `border-app-border bg-app-surface text-app-text ${unlocked ? 'hover:bg-app-card' : ''}`}`}
       >
         <input
           type="checkbox"
@@ -19,7 +19,7 @@ export default function FinalCheckToggle({ checked, grant, onChange, className =
           disabled={!unlocked}
           onChange={(event) => onChange(event.target.checked)}
         />
-        {checked ? 'Final check done' : 'Mark final check as done'}
+        {checked ? 'Final check done' : 'Mark final check'}
       </label>
       {showHint ? (
         <span className={`text-xs ${unlocked ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
