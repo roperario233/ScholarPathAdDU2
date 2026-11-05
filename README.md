@@ -691,7 +691,7 @@ spreadsheet library is installed.
   available on Final check and release and on the approver's queue. The **Applicants** sheet opens
   with a block naming where it was exported from, what it holds, the scholarship, when, by whom,
   and the totals, then one row per application with the result, stage, panel recommendation and
-  who recorded it, School → Cluster → Department → Program, year level, academic measure and value,
+  who recorded it, School and Program, year level, academic measure and value,
   household income, contact details, and the submitted/recommended/decided/released dates. The
   **About** sheet defines each column. Decision reasons are never exported.
 - **Statistics workbook** (`downloadStatisticsWorkbook()`) writes one sheet per derivation for the
