@@ -30,6 +30,9 @@ describe('createFreshState (sign-out reset)', () => {
     theme: 'dark',
     hasLoggedInBefore: true,
     studentSupportHintSeen: true,
+    // The storage notice answer is a non-identifying device preference, so it is
+    // expected to survive the sign-out with the theme.
+    privacyChoice: { version: '2026-11-1', decidedAt: '2026-11-05T08:00:00.000Z', supportChat: true },
     rememberMe: true,
     savedEmail: 'student-a@addu.edu.ph',
     savedRole: 'student',
@@ -84,6 +87,9 @@ describe('createFreshState (sign-out reset)', () => {
     expect(next.theme).toBe('dark');
     expect(next.hasLoggedInBefore).toBe(true);
     expect(next.studentSupportHintSeen).toBe(true);
+    // The storage notice answer has no identity in it, so the next person is not
+    // asked again on the same browser.
+    expect(next.privacyChoice).toEqual(previous.privacyChoice);
   });
 
   it('resets the previous user\'s remember-me identity', () => {

@@ -138,8 +138,8 @@ and `src/lib/supportChat.js` (support channel).
 ### Existing project
 
 Apply the migrations under `supabase/migrations/` in version order (`supabase db push` or
-`supabase migration up`). There are 83 migration files; the current head is
-`20261062000000_tighten_staff_access_and_require_rejection_reason.sql`. Never re-run `schema.sql` on a
+`supabase migration up`). There are 84 migration files; the current head is
+`20261063000000_add_privacy_consent.sql`. Never re-run `schema.sql` on a
 deployed project — it is the reference for fresh ones, and the two are kept aligned.
 
 Areas worth knowing before you apply a batch:
@@ -157,6 +157,7 @@ Areas worth knowing before you apply a batch:
 | `20261059000000`, `20261060000000` | Recorded grant amounts |
 | `20261061000000` | Waitlist outcome, offers, and offer confirmation |
 | `20261062000000` | Staff access tightening (read-only application documents, scoped Chairperson profile read) and a database-required rejection reason |
+| `20261063000000` | Account-level privacy consent (`privacy_consent_version`, `privacy_consented_at`, `record_privacy_consent()`); the guard trigger refuses a direct client write, and the app must ship with it |
 
 ### Storage
 
@@ -713,11 +714,11 @@ src/
   styles.css              component CSS, print rules, pseudo-elements, keyframes
 supabase/
   schema.sql              reference schema for a fresh project
-  migrations/             82 incremental migrations, applied in order
+  migrations/             84 incremental migrations, applied in order
   functions/              seven Edge Functions + _shared/ modules
   maintenance_*.sql       manual operator scripts (never migrations)
 scripts/                  google-calendar-auth.mjs, cleanup-orphaned-storage.mjs
-tests/                    63 vitest files
+tests/                    67 vitest files
 ```
 
 | Module | Responsibility |
@@ -732,6 +733,8 @@ tests/                    63 vitest files
 | `src/lib/admissionsOffice.js` | Intake pool, case officers, queues, applicant-summary workbook |
 | `src/lib/admissionsStatistics.js` | Statistics scope and every office derivation |
 | `src/lib/applicationForm.js` | FORM 230-SCH copy: essay topic, data-privacy notice, affidavit clauses |
+| `src/lib/legalDocs.js` | Privacy policy, cookie and storage notice, and terms of use as data, plus the reader matrix and `PRIVACY_NOTICE_VERSION` |
+| `src/lib/privacyConsent.js` | The browser-storage choice: categories, normalization, version matching, and the live-chat gate |
 
 ## Database maintenance
 
@@ -778,7 +781,7 @@ the space.
 ## Tests and validation
 
 ```powershell
-npm test        # vitest run: 63 files
+npm test        # vitest run: 67 files
 npm run build   # Vite production build
 npm run lint    # ESLint
 ```
@@ -787,8 +790,9 @@ The suite covers the shared email/SMS templates and clients, reminder math, elig
 application requirements and readiness, the rejection notice and staff-only reason, the
 endorsement derivations and panes, status transitions per role, the interview
 schedule/panel/conflict/gate and Google client helpers, statistics, grant amounts, results rounds
-and offers, app state and session isolation, the profile validators and FORM 230-SCH gates, and the
-section renders (academic profile, address and family proofs, profile view, print sheet).
+and offers, the privacy documents and the storage choice, app state and session isolation, the
+profile validators and FORM 230-SCH gates, and the section renders (academic profile, address and
+family proofs, profile view, print sheet).
 
 Run `npm test` whenever `supabase/functions/_shared/`, `src/lib/appState.js`,
 `src/lib/notificationMerge.js`, `src/lib/endorsement.js`, or `src/lib/profile.js` is touched.
@@ -802,15 +806,47 @@ case from the intake pool, verify or revert a file, forward to interview, schedu
 record a recommendation as a panel member, approve as the configured level, run the final check,
 and release.
 
-## Local state and privacy notes
+## Privacy, storage, and consent
 
+The three documents in `src/lib/legalDocs.js` — **Privacy Policy**, **Cookie and storage notice**, and
+**Terms of Use** — are the app's own notice. They are reachable from the login screen footer, the
+sidebar and mobile-drawer footer, Settings → **Privacy and data**, the certification step of the
+application workspace, and the Document Vault. The **legal** route (`src/pages/LegalView.jsx`) renders
+all three as tabs and works before sign-in, when the same documents open in a dialog.
+
+Two separate records are involved, and they are deliberately not the same thing:
+
+| Record | Where it lives | What it answers |
+| --- | --- | --- |
+| `privacyChoice` | The `localStorage` app record (device preference) | Which version of the cookie and storage notice this browser answered, and whether it allowed the optional live chat |
+| `profiles.privacy_consent_version` / `privacy_consented_at` | Supabase, written only by `record_privacy_consent()` | Which notice version this **account** accepted, and when (RA 10173 evidence) |
+
+- **No cookies for the app itself.** Application state and the session clock are `localStorage`
+  (`scholarpath-addu-state`, `scholarpath-addu-session-activity`), and Supabase Auth keeps its session
+  there too. The only third party that can set a cookie is the optional tawk.to live chat
+  (`VITE_SUPPORT_CHANNEL=tawk`), and `syncSupportChat()` now refuses to load it until the storage
+  notice's optional category is granted — withdrawing the choice unloads it.
+- **The notice never blocks the app.** Required storage needs no permission, so dismissing the banner
+  keeps only that; the blocking surface is the account consent card, shown once per account per
+  notice version. Declining it signs the account out.
+- **Google sign-up is covered.** The create-account form requires the notice, but Google never passes
+  through it, so the consent card is what records consent for every role. The write path
+  (`recordProfilePrivacyConsent`) calls a `security definer` RPC, and the guard trigger
+  `guard_profile_privileged_columns` refuses a direct client write to either column.
+- **A version bump re-asks.** `PRIVACY_NOTICE_VERSION` is free text in the database (1–32 characters),
+  so changing the copy needs no migration; it re-prompts every device and re-records consent on each
+  account. Settings → **Ask me about storage again** forgets the device answer.
 - One `localStorage` record (`scholarpath-addu-state`) belongs to the signed-in `ownerId`. Sign-out
-  resets it to `createFreshState()`, keeping only non-identifying device preferences (theme and the
-  first-login flags). A record saved under the retired `scholarpath-addu-demo-state` key is migrated
-  once, keeping only theme, notification preferences, and custom deadlines.
+  resets it to `createFreshState()`, keeping only non-identifying device preferences (theme, the
+  first-login flags, the support hint, and the storage-notice choice). A record saved under the
+  retired `scholarpath-addu-demo-state` key is migrated once, keeping only theme, notification
+  preferences, and custom deadlines.
 - Support conversations, the household financial profile, and the staff note streams are React
   memory only and are cleared on account change and sign-out.
 - RA 10173: never store a previous user's email, role, or applicant data in a device preference.
+- The copy is **prototype wording** written for this study, not a legal instrument. It needs review by
+  the University Data Protection Officer before it is used outside a demonstration, and the policy
+  says so on the page.
 
 ## Troubleshooting
 
@@ -828,4 +864,6 @@ and release.
 | Interview emails have no Meet link | the Google refresh token expired | `npm run google:auth`, then update the secret |
 | A reverted file cannot be replaced | the case has passed endorsement | ask the Admin to revert the application first |
 | The assistant keeps replying | `VITE_SUPPORT_ASSISTANT` is unset | set it to `false`, or request a live agent |
+| The consent card keeps reappearing | the migration is not applied, or `PRIVACY_NOTICE_VERSION` changed | apply `20261063000000`, or accept the new version once |
+| The live chat widget does not load | the storage notice was answered "necessary only" | Settings → Privacy and data → Ask me about storage again, then accept all |
 

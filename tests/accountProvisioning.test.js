@@ -205,4 +205,8 @@ describe('routing', () => {
   it('registers the Accounts route so a saved view resolves', () => {
     expect(pageViewKeys).toContain('admin-accounts');
   });
+
+  it('registers the privacy route so a saved view resolves', () => {
+    expect(pageViewKeys).toContain('legal');
+  });
 });

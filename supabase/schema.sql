@@ -3368,6 +3368,8 @@ begin
     new.review_cluster := null;
     new.review_department := null;
     new.deactivated_at := null;
+    new.privacy_consent_version := null;
+    new.privacy_consented_at := null;
     return new;
   end if;
 
@@ -3383,6 +3385,15 @@ begin
     raise exception 'Account role, review scope, and status are managed by the Admissions Office Admin.'
       using errcode = '42501';
   end if;
+
+  -- Consent is evidence (20261063000000): written by record_privacy_consent() below,
+  -- never typed in by a client session.
+  if new.privacy_consent_version is distinct from old.privacy_consent_version
+     or new.privacy_consented_at is distinct from old.privacy_consented_at then
+    raise exception 'Privacy consent is recorded by the app, not written directly.'
+      using errcode = '42501';
+  end if;
+
   return new;
 end;
 $$;
@@ -5539,5 +5550,57 @@ drop trigger if exists require_application_rejection_reason on public.applicatio
 create trigger require_application_rejection_reason
   before update on public.applications
   for each row execute function public.require_application_rejection_reason();
+
+-- Account-level privacy consent (20261063000000_add_privacy_consent.sql). The guard
+-- trigger above already refuses a direct client write to either column; this is the
+-- only writer. The version is the client's notice version (free text, shape-checked),
+-- so changing the notice copy never needs a migration. Re-recording the same version
+-- is a no-op, so a reload cannot move the timestamp.
+alter table public.profiles add column if not exists privacy_consent_version text;
+alter table public.profiles add column if not exists privacy_consented_at timestamptz;
+
+alter table public.profiles drop constraint if exists profiles_privacy_consent_version_check;
+alter table public.profiles
+  add constraint profiles_privacy_consent_version_check
+  check (
+    privacy_consent_version is null
+    or (
+      privacy_consent_version = btrim(privacy_consent_version)
+      and char_length(privacy_consent_version) between 1 and 32
+    )
+  );
+
+create or replace function public.record_privacy_consent(p_version text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_version text := btrim(coalesce(p_version, ''));
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in to record your consent.'
+      using errcode = '42501';
+  end if;
+
+  if char_length(v_version) not between 1 and 32 then
+    raise exception 'A privacy notice version is required.'
+      using errcode = '22023';
+  end if;
+
+  update public.profiles
+     set privacy_consent_version = v_version,
+         privacy_consented_at = now()
+   where user_id = auth.uid()
+     and deactivated_at is null
+     and privacy_consent_version is distinct from v_version;
+end;
+$$;
+
+revoke all on function public.record_privacy_consent(text) from public;
+revoke all on function public.record_privacy_consent(text) from anon;
+grant execute on function public.record_privacy_consent(text) to authenticated;
+
 
 notify pgrst, 'reload schema';

@@ -9,6 +9,12 @@ import {
   syncSupportChat,
   teardownSupportChat,
 } from '../src/lib/supportChat';
+import { acceptAllCategories, acceptNecessaryOnly } from '../src/lib/privacyConsent';
+
+// The widget is third-party code that sets cookies, so it only loads once the storage
+// notice's optional category is granted.
+const CONSENT_GRANTED = acceptAllCategories();
+const CONSENT_NECESSARY_ONLY = acceptNecessaryOnly();
 
 const createDom = () => {
   const elements = [];
@@ -86,7 +92,7 @@ describe('student tawk.to support chat', () => {
   it('injects one script for the student and updates visitor identity idempotently', () => {
     const env = { VITE_TAWK_PROPERTY_ID: 'property-1', VITE_TAWK_WIDGET_ID: 'widget-1' };
     const visitor = { name: 'Student One', email: 'student@example.edu' };
-    expect(syncSupportChat({ role: 'student', ownerId: 'student-1', visitor, env, win, doc })).toMatchObject({ ok: true });
+    expect(syncSupportChat({ role: 'student', ownerId: 'student-1', visitor, env, win, doc, consentChoice: CONSENT_GRANTED })).toMatchObject({ ok: true });
     const script = doc.getElementById(SUPPORT_CHAT_SCRIPT_ID);
     expect(script).toMatchObject({
       async: true,
@@ -102,10 +108,35 @@ describe('student tawk.to support chat', () => {
       env,
       win,
       doc,
+      consentChoice: CONSENT_GRANTED,
     });
     expect(result.alreadyLoaded).toBe(true);
     expect(elements.filter((element) => element.id === SUPPORT_CHAT_SCRIPT_ID)).toHaveLength(1);
     expect(win.Tawk_API.visitor).toEqual({ name: 'Updated Name' });
+  });
+
+  it('waits for the storage notice before loading the third-party widget', () => {
+    const env = { VITE_TAWK_PROPERTY_ID: 'property-1', VITE_TAWK_WIDGET_ID: 'widget-1' };
+
+    // No answer yet, and an answer that kept only the required storage.
+    expect(syncSupportChat({ role: 'student', ownerId: 'student-1', env, win, doc }).reason)
+      .toBe('consent-not-given');
+    expect(syncSupportChat({ role: 'student', ownerId: 'student-1', env, win, doc, consentChoice: CONSENT_NECESSARY_ONLY }).reason)
+      .toBe('consent-not-given');
+    expect(elements).toHaveLength(0);
+    expect(win.Tawk_API).toBeUndefined();
+  });
+
+  it('unloads an injected widget when the choice is withdrawn', () => {
+    const env = { VITE_TAWK_PROPERTY_ID: 'property-1', VITE_TAWK_WIDGET_ID: 'widget-1' };
+    syncSupportChat({ role: 'student', ownerId: 'student-1', env, win, doc, consentChoice: CONSENT_GRANTED });
+    expect(doc.getElementById(SUPPORT_CHAT_SCRIPT_ID)).not.toBeNull();
+
+    expect(syncSupportChat({ role: 'student', ownerId: 'student-1', env, win, doc, consentChoice: CONSENT_NECESSARY_ONLY }).reason)
+      .toBe('consent-not-given');
+    expect(doc.getElementById(SUPPORT_CHAT_SCRIPT_ID)).toBeNull();
+    expect(win.Tawk_API).toBeUndefined();
+    expect(win[SUPPORT_CHAT_OWNER_KEY]).toBeUndefined();
   });
 
   it('shuts down and clears the injected script and Tawk globals on teardown', () => {

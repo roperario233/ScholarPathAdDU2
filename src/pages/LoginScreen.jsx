@@ -5,6 +5,7 @@ import bgImage from '../../pictures/background.jpg';
 import logoImage from '../../pictures/logo.png';
 import { signInWithGoogle } from '../lib/auth';
 import { clearPendingSessionStart, markPendingSessionStart } from '../lib/sessionTimeout';
+import { LEGAL_DOCUMENT_KEYS, getLegalDocumentTitle } from '../lib/legalDocs';
 import { Button, FormField, ModalShell, RequiredMark } from '../components/ui';
 
 
@@ -138,7 +139,7 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
   );
 }
 
-export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '' }) {
+export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null }) {
   const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -160,6 +161,10 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     role: 'student',
   });
   const [createAccountSuccess, setCreateAccountSuccess] = useState(false);
+  // RA 10173: creating an account requires accepting the notice here. The record
+  // itself is written by the app's consent card after the new account signs in,
+  // because Google sign-up never passes through this form.
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
 
   useEffect(() => {
     const redirectError = readAuthRedirectError();
@@ -219,6 +224,12 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     event.preventDefault();
     setFeedbackMessage('');
     setFeedbackTone('info');
+
+    if (!acceptedTerms) {
+      setFeedbackMessage('Please accept the Privacy Policy and the Terms of Use to create your account.');
+      setFeedbackTone('error');
+      return;
+    }
 
     const result = await onSignUp({
       fullName: createAccountData.fullName,
@@ -318,6 +329,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           {theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
         </span>
       </button>
+      <div className="login-content">
       {!showCreateAccount ? (
          <section className="grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
            <div className="grid content-start gap-4 rounded-app bg-gradient-to-br from-blue-500/10 to-slate-950/20 p-5 sm:p-6">
@@ -502,6 +514,30 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   />
                 </div>
               </FormField>
+              <div className="grid min-w-0 gap-2 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
+                <label htmlFor="create-account-terms" className="flex min-w-0 items-start gap-3">
+                  <input
+                    id="create-account-terms"
+                    type="checkbox"
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+                    checked={acceptedTerms}
+                    onChange={(event) => setAcceptedTerms(event.target.checked)}
+                  />
+                  <span className="min-w-0">I have read and accept the Privacy Policy and the Terms of Use, and I understand the cookie and storage notice.</span>
+                </label>
+                <div className="flex flex-wrap gap-x-3 gap-y-1 pl-7 text-xs">
+                  {LEGAL_DOCUMENT_KEYS.map((key) => (
+                    <button
+                      key={key}
+                      type="button"
+                      className="font-semibold text-app-primary underline-offset-2 hover:underline"
+                      onClick={() => onOpenLegalDocument?.(key)}
+                    >
+                      {getLegalDocumentTitle(key)}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <Button variant="primary" className="w-full" type="submit">Create account</Button>
             </form>
           )}
@@ -549,6 +585,24 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           </div>
         </div>
       )}
+      {/* The privacy documents are reachable before sign-in: the browser storage the
+          notice describes already exists at this point. */}
+      <div className="login-legal-links mt-1 grid w-full max-w-5xl justify-items-center gap-1 text-center text-xs text-app-muted">
+        <span className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          {LEGAL_DOCUMENT_KEYS.map((key) => (
+            <button
+              key={key}
+              type="button"
+              className="font-semibold text-app-primary hover:opacity-80"
+              onClick={() => onOpenLegalDocument?.(key)}
+            >
+              {getLegalDocumentTitle(key)}
+            </button>
+          ))}
+        </span>
+        <span>ScholarPath AdDU is a research prototype of Ateneo de Davao University. Your information is handled under the Data Privacy Act of 2012.</span>
+      </div>
+      </div>
     </div>
   );
 }

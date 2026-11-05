@@ -39,7 +39,7 @@ function VaultMetric({ icon: Icon, label, value, note, tone }) {
   );
 }
 
-export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '' }) {
+export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '', onOpenPrivacyDocument = null }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
   const [preview, setPreview] = useState(null);
@@ -94,6 +94,15 @@ export default function DocumentVaultView({ documents, applications = [], profil
           <span className="page-section-label">Document Vault</span>
           <h2>Upload once, reuse across applications</h2>
           <p className="mt-2 max-w-2xl text-sm text-app-muted">Keep your proofs in one private place. Attach the same verified file to as many applications as you need.</p>
+          {onOpenPrivacyDocument ? (
+            <button
+              type="button"
+              className="proof-action relative mt-1 text-xs font-semibold text-blue-700 dark:text-sky-300"
+              onClick={() => onOpenPrivacyDocument('privacy')}
+            >
+              Who can read your documents
+            </button>
+          ) : null}
         </div>
       </section>
 

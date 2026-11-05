@@ -195,6 +195,24 @@ describe('createInitialState', () => {
     expect(state.theme).toBe('light');
     expect(state.applications).toEqual([]);
   });
+
+  it('normalizes the stored storage-notice choice', () => {
+    // Unanswered: the notice is shown, and nothing optional is granted.
+    globalThis.window = { localStorage: createMemoryStorage({ [storageKey]: JSON.stringify({ theme: 'dark' }) }) };
+    expect(createInitialState().privacyChoice).toEqual({ version: '', decidedAt: null, supportChat: false });
+
+    // A junk record reads as unanswered rather than breaking the session.
+    globalThis.window = { localStorage: createMemoryStorage({ [storageKey]: JSON.stringify({ privacyChoice: 'accepted' }) }) };
+    expect(createInitialState().privacyChoice.version).toBe('');
+
+    // A stored record is kept, and only a strict `true` grants the optional category.
+    globalThis.window = {
+      localStorage: createMemoryStorage({
+        [storageKey]: JSON.stringify({ privacyChoice: { version: '2026-11-1', decidedAt: '2026-11-05T08:00:00.000Z', supportChat: 'yes' } }),
+      }),
+    };
+    expect(createInitialState().privacyChoice).toEqual({ version: '2026-11-1', decidedAt: '2026-11-05T08:00:00.000Z', supportChat: false });
+  });
 });
 
 describe('normalizeDocument', () => {
