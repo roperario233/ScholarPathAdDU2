@@ -277,7 +277,7 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
                 </li>
               ))}
             </ul>
-            <Button variant="secondary" type="button" className="mt-3 w-full sm:w-auto" onClick={onResetPrivacyChoice}>
+            <Button variant="primary" type="button" className="mt-3 w-full sm:w-auto" onClick={onResetPrivacyChoice}>
               Ask me about storage again
             </Button>
           </div>

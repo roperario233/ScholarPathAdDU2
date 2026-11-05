@@ -32,6 +32,8 @@ describe('storage notice banner', () => {
 
     expect(html).toContain('Understood');
     expect(html).toContain('What is stored?');
+    expect(html).toContain('justify-end gap-2 border-t border-app-border pt-3');
+    expect(html).toContain('aria-controls="privacy-storage-details"');
     expect(html).not.toContain('Accept all');
     expect(html).toContain('no advertising, analytics, or third-party cookies');
   });

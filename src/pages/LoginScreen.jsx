@@ -329,6 +329,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           {theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
         </span>
       </button>
+      <div className="login-content">
       {!showCreateAccount ? (
          <section className="grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
            <div className="grid content-start gap-4 rounded-app bg-gradient-to-br from-blue-500/10 to-slate-950/20 p-5 sm:p-6">
@@ -600,6 +601,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           ))}
         </span>
         <span>ScholarPath AdDU is a research prototype of Ateneo de Davao University. Your information is handled under the Data Privacy Act of 2012.</span>
+      </div>
       </div>
     </div>
   );

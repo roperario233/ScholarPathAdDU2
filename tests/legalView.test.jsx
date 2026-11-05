@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import LegalView from '../src/pages/LegalView';
 import { PRIVACY_NOTICE_VERSION } from '../src/lib/legalDocs';
 
-const render = (doc) => renderToStaticMarkup(<LegalView initialDoc={doc} />);
+const render = (doc, props = {}) => renderToStaticMarkup(<LegalView initialDoc={doc} {...props} />);
 
 describe('legal pages', () => {
   it('opens on the privacy policy and names its version', () => {
@@ -25,6 +25,21 @@ describe('legal pages', () => {
     expect(html).toContain('Cookies and storage');
     expect(html).toContain('Terms of Use');
     expect(html).toContain('role="tablist"');
+  });
+
+  it('places the document tabs in the header and provides a back action', () => {
+    const html = render('privacy', { onBack: () => {} });
+
+    expect(html.indexOf('page-title-bar')).toBeLessThan(html.indexOf('role="tablist"'));
+    expect(html).toContain('Back</button>');
+  });
+
+  it('keeps the document sections together in one content surface', () => {
+    const html = render();
+
+    expect(html).toContain('legal-document-body');
+    expect(html).toContain('legal-document-section');
+    expect(html).not.toContain('relative overflow-hidden rounded-app border bg-app-card p-5');
   });
 
   it('renders the storage notice with the real storage names', () => {

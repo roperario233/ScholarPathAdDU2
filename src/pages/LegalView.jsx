@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
-import { FileText, Lock, ShieldCheck } from 'lucide-react';
-import { Button, Card, ModalShell, StatusBadge } from '../components/ui';
+import { ArrowLeft, FileText, Lock, ShieldCheck } from 'lucide-react';
+import { Button, ModalShell, StatusBadge } from '../components/ui';
 import { LEGAL_DOCUMENT_KEYS, PRIVACY_NOTICE_VERSION, getLegalDocument, getPrivacyReaderRows } from '../lib/legalDocs';
 
 // One glyph per document, so the tabs and the entry points read as one set.
@@ -48,7 +48,7 @@ function DocumentTable({ table }) {
 
 function DocumentSection({ docKey, section }) {
   return (
-    <Card className="min-w-0">
+    <section className="legal-document-section min-w-0 border-b border-app-border py-5 last:border-b-0 last:pb-0 first:pt-5">
       <h3 id={`${docKey}-${section.id}`} className="m-0 scroll-mt-24 text-lg font-semibold text-app-text">
         {section.heading}
       </h3>
@@ -65,14 +65,14 @@ function DocumentSection({ docKey, section }) {
         </ul>
       ) : null}
       {section.table ? <DocumentTable table={section.table} /> : null}
-    </Card>
+    </section>
   );
 }
 
 // The document body: the tab strip, the document heading, and the sections. The
 // same component is the authenticated page and the pre-login dialog, so the copy
 // can never differ between the two.
-export default function LegalView({ initialDoc = 'privacy', onSelectDoc = null }) {
+export default function LegalView({ initialDoc = 'privacy', onSelectDoc = null, onBack = null }) {
   const seed = LEGAL_DOCUMENT_KEYS.includes(initialDoc) ? initialDoc : 'privacy';
   // The open document is derived rather than synced by an effect: a document named by
   // an entry point wins immediately, and a tab click records its own choice against
@@ -91,32 +91,40 @@ export default function LegalView({ initialDoc = 'privacy', onSelectDoc = null }
 
   return (
     <div className="grid min-w-0 gap-4" ref={bodyRef}>
-      <div className="flex flex-wrap gap-2" role="tablist" aria-label="Privacy, storage, and terms">
-        {LEGAL_DOCUMENT_KEYS.map((key) => {
-          const Icon = DOC_ICONS[key];
-          const isActive = key === activeDoc;
-          return (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              className={`inline-flex min-h-10 min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${
-                isActive
-                  ? 'bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-sm'
-                  : 'border border-app-border bg-app-muted-surface text-app-text hover:bg-blue-500/10'
-              }`}
-              onClick={() => selectDoc(key)}
-            >
-              <Icon size={16} aria-hidden="true" />
-              <span className="min-w-0 [overflow-wrap:anywhere]">{DOC_TAB_LABELS[key]}</span>
-            </button>
-          );
-        })}
-      </div>
-
       <section className="page-title-bar relative rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
-        <div className="relative flex min-w-0 flex-wrap items-end justify-between gap-4">
+        <div className="relative flex min-w-0 flex-wrap items-center gap-2">
+          {onBack && (
+            <Button variant="ghost" className="shrink-0 px-3" type="button" onClick={onBack}>
+              <ArrowLeft size={16} aria-hidden="true" />
+              Back
+            </Button>
+          )}
+          <div className="legal-document-tabs flex min-w-0 flex-wrap gap-2" role="tablist" aria-label="Privacy, storage, and terms">
+            {LEGAL_DOCUMENT_KEYS.map((key) => {
+              const Icon = DOC_ICONS[key];
+              const isActive = key === activeDoc;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`inline-flex min-h-10 min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${
+                    isActive
+                      ? 'bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-sm'
+                      : 'border border-app-border bg-app-muted-surface text-app-text hover:bg-blue-500/10'
+                  }`}
+                  onClick={() => selectDoc(key)}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{DOC_TAB_LABELS[key]}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="relative mt-4 flex min-w-0 flex-wrap items-end justify-between gap-4">
           <div className="page-title-copy">
             <span className="page-section-label">Privacy and data</span>
             <h2>{document.title}</h2>
@@ -129,15 +137,14 @@ export default function LegalView({ initialDoc = 'privacy', onSelectDoc = null }
         </div>
       </section>
 
-      <div className="grid gap-3">
+      <div className="legal-document-body min-w-0 rounded-app border bg-app-card px-5 shadow-app backdrop-blur">
         {document.sections.map((section) => (
           <DocumentSection key={`${activeDoc}-${section.id}`} docKey={activeDoc} section={section} />
         ))}
+        <p className="legal-document-disclaimer m-0 border-t border-app-border py-4 text-sm text-app-muted">
+          This notice is prototype wording written for a capstone study. It is not the University official privacy notice, and it needs review by the University Data Protection Officer before it is used outside a demonstration. Questions about a scholarship go to the Office of Admission and Aid.
+        </p>
       </div>
-
-      <p className="m-0 rounded-2xl border border-dashed border-app-border bg-app-surface/60 p-4 text-sm text-app-muted">
-        This notice is prototype wording written for a capstone study. It is not the University official privacy notice, and it needs review by the University Data Protection Officer before it is used outside a demonstration. Questions about a scholarship go to the Office of Admission and Aid.
-      </p>
     </div>
   );
 }

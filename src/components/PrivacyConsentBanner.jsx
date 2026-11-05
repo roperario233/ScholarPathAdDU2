@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { Button } from './ui';
 import { acceptAllCategories, acceptNecessaryOnly, buildConsentChoice, getConsentCategories, hasCurrentNotice } from '../lib/privacyConsent';
-import { getLegalDocumentSummaries } from '../lib/legalDocs';
+import { getLegalDocument, getLegalDocumentSummaries } from '../lib/legalDocs';
+
+const REQUIRED_STORAGE_ROWS = getLegalDocument('storage')
+  .sections.find((section) => section.id === 'necessary')?.table?.rows || [];
 
 // The first-visit notice. It never blocks the app: the storage that keeps a session
 // alive is required for the site to work, so declining everything only decides the
@@ -54,28 +57,46 @@ export default function PrivacyConsentBanner({ choice, onDecide, onOpenDocument 
         </div>
       </div>
 
-      {isManaging && hasOptionalCategory && (
-        <div className="mt-3 grid gap-2 rounded-xl border border-app-border bg-app-surface/70 p-3">
-          {categories.map((category) => (
-            <label key={category.key} className="flex min-w-0 items-start gap-3 text-sm text-app-text">
-              <input
-                type="checkbox"
-                className="mt-1 h-4 w-4 shrink-0 accent-[var(--primary)]"
-                checked={category.locked ? true : liveChat}
-                disabled={category.locked}
-                onChange={(event) => setLiveChat(event.target.checked)}
-              />
-              <span className="min-w-0">
-                <strong className="block font-semibold">{category.label}</strong>
-                <span className="block text-xs text-app-muted">{category.description}</span>
-                {category.locked ? <span className="mt-0.5 block text-xs font-semibold text-app-muted">Required, so it cannot be turned off.</span> : null}
-              </span>
-            </label>
-          ))}
-        </div>
+      {isManaging && (
+        hasOptionalCategory ? (
+          <div className="mt-3 grid gap-2 rounded-xl border border-app-border bg-app-surface/70 p-3">
+            {categories.map((category) => (
+              <label key={category.key} className="flex min-w-0 items-start gap-3 text-sm text-app-text">
+                <input
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 shrink-0 accent-[var(--primary)]"
+                  checked={category.locked ? true : liveChat}
+                  disabled={category.locked}
+                  onChange={(event) => setLiveChat(event.target.checked)}
+                />
+                <span className="min-w-0">
+                  <strong className="block font-semibold">{category.label}</strong>
+                  <span className="block text-xs text-app-muted">{category.description}</span>
+                  {category.locked ? <span className="mt-0.5 block text-xs font-semibold text-app-muted">Required, so it cannot be turned off.</span> : null}
+                </span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div id="privacy-storage-details" className="mt-3 max-h-[35dvh] overflow-y-auto rounded-xl border border-app-border bg-app-surface/70 p-3">
+            <p className="m-0 text-sm font-semibold text-app-text">Required browser storage</p>
+            <p className="mb-0 mt-1 text-xs leading-relaxed text-app-muted">
+              This build uses first-party storage to keep your session and app state. It does not load advertising, analytics, or third-party cookies.
+            </p>
+            <ul className="mb-0 mt-3 grid gap-3 pl-5 text-xs leading-relaxed text-app-text">
+              {REQUIRED_STORAGE_ROWS.map(([name, purpose, retention]) => (
+                <li key={name}>
+                  <strong className="font-semibold">{name}</strong>
+                  <span className="block text-app-muted">{purpose}</span>
+                  <span className="block text-app-muted">Stored: {retention}.</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-2">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-app-border pt-3">
         {hasOptionalCategory ? (
           <>
             <Button variant="primary" type="button" onClick={() => decide(acceptAllCategories())}>Accept all</Button>
@@ -88,10 +109,16 @@ export default function PrivacyConsentBanner({ choice, onDecide, onOpenDocument 
           </>
         ) : (
           <>
+            <Button
+              variant="secondary"
+              type="button"
+              aria-expanded={isManaging}
+              aria-controls="privacy-storage-details"
+              onClick={() => setIsManaging((open) => !open)}
+            >
+              {isManaging ? 'Hide storage details' : 'What is stored?'}
+            </Button>
             <Button variant="primary" type="button" onClick={() => decide(acceptNecessaryOnly())}>Understood</Button>
-            {isManaging ? null : (
-              <Button variant="secondary" type="button" onClick={() => setIsManaging(true)}>What is stored?</Button>
-            )}
           </>
         )}
       </div>

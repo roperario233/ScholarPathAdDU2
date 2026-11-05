@@ -370,6 +370,7 @@ function App() {
   // Which privacy document the legal page or the pre-login dialog opens on. Kept
   // apart from the route so an entry point can name the document it links to.
   const [legalDoc, setLegalDoc] = useState('');
+  const legalReturnViewRef = useRef('settings');
   const [legalDocDialog, setLegalDocDialog] = useState(null);
   // The account-level consent record (profiles.privacy_consent_*). `ready` is false
   // while the migration is pending, which disables the blocking card instead of
@@ -1428,6 +1429,9 @@ function App() {
   // Navigating to the vault clears any upload preset; the My Profile links pass
   // the attribute and/or document type so the upload form opens on them.
   const navigate = (view, options = {}) => {
+    if (view === 'legal' && state.activeView !== 'legal') {
+      legalReturnViewRef.current = state.activeView;
+    }
     // Leaving the catalog route discards its uncontrolled form, so ask first.
     // Clicking the catalog link while already there keeps the draft and the flag.
     if (state.activeView === 'admin-catalog' && view !== 'admin-catalog') {
@@ -3682,13 +3686,12 @@ function App() {
   // links, so the role-aware page list stays the list of routes. Each link opens the
   // legal page on its own document.
   const renderLegalLinks = (className = '') => (
-    <nav className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${className}`} aria-label="Privacy, storage, and terms">
-      <span className="text-[0.65rem] font-bold uppercase tracking-wide text-app-muted">Privacy</span>
+    <nav className={`grid grid-cols-3 gap-1 ${className}`} aria-label="Privacy, storage, and terms">
       {LEGAL_DOCUMENT_KEYS.map((key) => (
         <button
           key={key}
           type="button"
-          className="proof-action text-xs font-semibold text-app-muted transition hover:text-app-text"
+          className="proof-action w-full justify-center whitespace-nowrap text-xs font-semibold text-app-muted transition hover:text-app-text"
           title={getLegalDocumentTitle(key)}
           onClick={() => navigate('legal', { doc: key })}
         >
@@ -4271,7 +4274,10 @@ function App() {
           )}
 
           {state.activeView === 'legal' && (
-            <LegalViewPage initialDoc={legalDoc || 'privacy'} />
+            <LegalViewPage
+              initialDoc={legalDoc || 'privacy'}
+              onBack={() => navigate(legalReturnViewRef.current)}
+            />
           )}
 
           {state.activeView === 'calendar' && (
