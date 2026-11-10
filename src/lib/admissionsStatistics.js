@@ -4,7 +4,7 @@ import { findAcademicProgram } from './academicPrograms';
 import { getApplicationScope, getReviewScopeLabel, getReviewerScope, isApproverForApplication, isLadderRole } from './reviewScope';
 import { INTERVIEW_RECOMMENDATION_LEVELS, getLatestPanelRecommendation, isInterviewLive } from './interview';
 import { getCurrentAcademicYear } from './profile';
-import { buildXlsx, columnName, downloadBytes } from './xlsxWriter';
+import { buildXlsxAsync, columnName, downloadBytes } from './xlsxWriter';
 
 // The Statistics routes: `admin-statistics` for both Admissions Office lanes and
 // `chair-statistics` for the reviewer ladder and interviewers. Every figure is an
@@ -832,6 +832,6 @@ export const getStatisticsFileName = (...parts) => {
   return `Office_statistics_${[...safe, MANILA_PARTS.format(new Date())].join('_')}.xlsx`;
 };
 
-export const downloadStatisticsWorkbook = (stats, source = {}, fileName = getStatisticsFileName()) => {
-  downloadBytes(buildXlsx(buildStatisticsSheets(stats, source), source.now instanceof Date ? source.now : new Date()), fileName);
+export const downloadStatisticsWorkbook = async (stats, source = {}, fileName = getStatisticsFileName()) => {
+  downloadBytes(await buildXlsxAsync(buildStatisticsSheets(stats, source), source.now instanceof Date ? source.now : new Date()), fileName);
 };

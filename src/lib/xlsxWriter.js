@@ -21,9 +21,30 @@ const CRC_TABLE = (() => {
   return table;
 })();
 
-export const crc32 = (bytes) => {
+// The CRC is accumulated over a byte range so a large file can be summed in
+// slices (crc32Async) without one long task; crc32 is the whole-buffer form.
+const crc32Update = (crc, bytes, start, end) => {
+  let value = crc;
+  for (let index = start; index < end; index += 1) value = CRC_TABLE[(value ^ bytes[index]) & 0xff] ^ (value >>> 8);
+  return value;
+};
+
+export const crc32 = (bytes) => (crc32Update(0xffffffff, bytes, 0, bytes.length) ^ 0xffffffff) >>> 0;
+
+// Hands the main thread back to the browser (input, paint) between slices of
+// work. scheduler.yield() where it exists, a macrotask everywhere else.
+export const yieldToEventLoop = () => (typeof globalThis.scheduler?.yield === 'function'
+  ? globalThis.scheduler.yield()
+  : new Promise((resolve) => { setTimeout(resolve, 0); }));
+
+export const CRC_SLICE_BYTES = 1 << 20;
+
+export const crc32Async = async (bytes, sliceBytes = CRC_SLICE_BYTES) => {
   let crc = 0xffffffff;
-  for (let index = 0; index < bytes.length; index += 1) crc = CRC_TABLE[(crc ^ bytes[index]) & 0xff] ^ (crc >>> 8);
+  for (let start = 0; start < bytes.length; start += sliceBytes) {
+    crc = crc32Update(crc, bytes, start, Math.min(bytes.length, start + sliceBytes));
+    if (start + sliceBytes < bytes.length) await yieldToEventLoop();
+  }
   return (crc ^ 0xffffffff) >>> 0;
 };
 
@@ -37,9 +58,9 @@ const buildZip = (files, now = new Date()) => {
   const locals = [];
   const centrals = [];
   let offset = 0;
-  files.forEach(({ name, bytes }) => {
+  files.forEach(({ name, bytes, checksum }) => {
     const nameBytes = encoder.encode(name);
-    const crc = crc32(bytes);
+    const crc = checksum ?? crc32(bytes);
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true);
     local.setUint16(4, 20, true);
@@ -199,7 +220,15 @@ const buildCellXml = (cell, reference) => {
   return `<c r="${reference}"${styleAttr}><v>${Number(value)}</v></c>`;
 };
 
-const buildSheetXml = (sheet) => {
+const buildRowXml = (sheet, row, rowIndex) => {
+  const height = sheet.rowHeights?.[rowIndex + 1];
+  const cells = row.map((cell, columnIndex) => buildCellXml(cell, `${columnName(columnIndex)}${rowIndex + 1}`)).join('');
+  return `<row r="${rowIndex + 1}"${height ? ` ht="${height}" customHeight="1"` : ''}>${cells}</row>`;
+};
+
+export const SHEET_ROW_SLICE = 250;
+
+const buildSheetXml = (sheet, preRenderedBody = null) => {
   const rows = sheet.rows || [];
   const widthOf = (index) => sheet.columnWidths?.[index];
   const lastColumn = Math.max(1, ...rows.map((row) => row.length));
@@ -211,11 +240,7 @@ const buildSheetXml = (sheet) => {
   const cols = Array.from({ length: lastColumn }, (_, index) => (
     widthOf(index) ? `<col min="${index + 1}" max="${index + 1}" width="${widthOf(index)}" customWidth="1"/>` : ''
   )).join('');
-  const body = rows.map((row, rowIndex) => {
-    const height = sheet.rowHeights?.[rowIndex + 1];
-    const cells = row.map((cell, columnIndex) => buildCellXml(cell, `${columnName(columnIndex)}${rowIndex + 1}`)).join('');
-    return `<row r="${rowIndex + 1}"${height ? ` ht="${height}" customHeight="1"` : ''}>${cells}</row>`;
-  }).join('');
+  const body = preRenderedBody ?? rows.map((row, rowIndex) => buildRowXml(sheet, row, rowIndex)).join('');
   const merges = (sheet.merges || []).length
     ? `<mergeCells count="${sheet.merges.length}">${sheet.merges.map((range) => `<mergeCell ref="${range}"/>`).join('')}</mergeCells>`
     : '';
@@ -234,19 +259,33 @@ ${filter}${merges}
 </worksheet>`;
 };
 
+// The same sheet, with the row XML produced in slices that yield between them.
+const buildSheetXmlAsync = async (sheet, sliceRows = SHEET_ROW_SLICE) => {
+  const rows = sheet.rows || [];
+  const chunks = [];
+  for (let start = 0; start < rows.length; start += sliceRows) {
+    const end = Math.min(rows.length, start + sliceRows);
+    const parts = [];
+    for (let index = start; index < end; index += 1) parts.push(buildRowXml(sheet, rows[index], index));
+    chunks.push(parts.join(''));
+    if (end < rows.length) await yieldToEventLoop();
+  }
+  return buildSheetXml(sheet, chunks.join(''));
+};
+
 // Sheet names are limited to 31 characters and exclude : \ / ? * [ ].
 const sheetName = (name, index) => (String(name || `Sheet${index + 1}`).replace(/[:\\/?*[\]]/g, ' ').trim().slice(0, 31) || `Sheet${index + 1}`);
 
 // Builds the workbook bytes from `[{ name, rows, columnWidths, rowHeights, merges,
 // freeze: { row, column? }, autoFilter }]`. The first sheet opens selected.
-export const buildXlsx = (sheets = [], now = new Date()) => {
+const prepareWorkbook = (sheets = []) => {
   const list = sheets.map((sheet, index) => ({ ...sheet, name: sheetName(sheet.name, index), selected: index === 0 }));
   const definedNames = list
     .map((sheet, index) => (sheet.autoFilter
       ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${index}" hidden="1">'${sheet.name.replace(/'/g, "''")}'!${sheet.autoFilter.replace(/([A-Z]+)(\d+)/g, '$$$1$$$2')}</definedName>`
       : ''))
     .join('');
-  const files = [
+  const staticFiles = [
     {
       name: '[Content_Types].xml',
       text: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -268,9 +307,37 @@ export const buildXlsx = (sheets = [], now = new Date()) => {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${list.map((_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}<Relationship Id="rId${list.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
     },
     { name: 'xl/styles.xml', text: buildStylesXml() },
+  ];
+  return { list, staticFiles };
+};
+
+const encodeFiles = (files) => files.map(({ name, text }) => ({ name, bytes: encoder.encode(text) }));
+
+export const buildXlsx = (sheets = [], now = new Date()) => {
+  const { list, staticFiles } = prepareWorkbook(sheets);
+  const files = [
+    ...staticFiles,
     ...list.map((sheet, index) => ({ name: `xl/worksheets/sheet${index + 1}.xml`, text: buildSheetXml(sheet) })),
-  ].map(({ name, text }) => ({ name, bytes: encoder.encode(text) }));
-  return buildZip(files, now);
+  ];
+  return buildZip(encodeFiles(files), now);
+};
+
+// The same workbook, built without holding the main thread: sheet rows are
+// rendered and every file's checksum is summed in slices that yield between them,
+// so a large export never freezes input or paint. The bytes are identical to
+// buildXlsx's.
+export const buildXlsxAsync = async (sheets = [], now = new Date(), { rowSlice = SHEET_ROW_SLICE, crcSlice = CRC_SLICE_BYTES } = {}) => {
+  const { list, staticFiles } = prepareWorkbook(sheets);
+  const sheetFiles = [];
+  for (let index = 0; index < list.length; index += 1) {
+    sheetFiles.push({ name: `xl/worksheets/sheet${index + 1}.xml`, text: await buildSheetXmlAsync(list[index], rowSlice) });
+    await yieldToEventLoop();
+  }
+  const encoded = encodeFiles([...staticFiles, ...sheetFiles]);
+  for (const file of encoded) {
+    file.checksum = await crc32Async(file.bytes, crcSlice);
+  }
+  return buildZip(encoded, now);
 };
 
 export const XLSX_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';

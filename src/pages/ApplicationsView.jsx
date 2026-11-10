@@ -183,6 +183,9 @@ export default function ApplicationsView({
   resultsReleases = [],
   onRespondToOffer,
   onWithdrawFromWaitlist,
+  // Opens the privacy documents over the workspace instead of navigating away from a
+  // half-finished draft.
+  onOpenPrivacyDocument = null,
 }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
@@ -542,6 +545,7 @@ export default function ApplicationsView({
         onOpenProfile={onOpenProfile}
         onClose={() => onOpenApplication(null)}
         onSubmitted={setSubmittedId}
+        onOpenPrivacyDocument={onOpenPrivacyDocument}
       />
     )}
     {submittedApplication ? (

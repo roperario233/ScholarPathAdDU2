@@ -12,3 +12,10 @@ coverage/
 # Supabase CLI internal state (created by `supabase init` / `supabase link`).
 supabase/.temp/
 supabase/.branches/
+
+# Operator load-test state (holds a throwaway admin password); see scripts/loadtest-release.mjs
+.loadtest-state.json
+
+# Operator import-test state and generated manifest; see scripts/loadtest-import.mjs
+.loadtest-import-state.json
+loadtest-import/

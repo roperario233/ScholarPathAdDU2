@@ -497,6 +497,18 @@ main article > .flex > :last-child {
   overflow-x: clip;
 }
 
+.login-content {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 1rem;
+  width: 100%;
+  min-height: calc(100vh - 2.5rem);
+  min-height: calc(100dvh - 2.5rem);
+}
+
 .login-overlay {
   position: absolute;
   inset: 0;
@@ -810,7 +822,7 @@ main article > .flex > :last-child {
 
 /* Tailwind migration compatibility: retain the rounded glass-card language from
    the previous UI without bringing back the legacy component stylesheet. */
-.login-screen > section,
+.login-content > section,
 .modal-overlay > section,
 .modal-overlay > div {
   border-radius: var(--radius-app, 24px);
@@ -818,24 +830,24 @@ main article > .flex > :last-child {
   box-shadow: var(--shadow-card);
 }
 
-.login-screen > section {
+.login-content > section {
   background: color-mix(in srgb, var(--card) 92%, transparent 8%);
 }
 
-.login-screen > section > div:first-child {
+.login-content > section > div:first-child {
   border-radius: var(--radius-app, 24px);
 }
 
-.login-screen > section.create-account-section > .create-account-header {
+.login-content > section.create-account-section > .create-account-header {
   background: transparent;
   border-radius: 0;
 }
 
-.theme-light .login-screen > section.create-account-section > .create-account-header {
+.theme-light .login-content > section.create-account-section > .create-account-header {
   background: transparent;
 }
 
-.login-screen > section.create-account-section > .create-account-header .create-account-back {
+.login-content > section.create-account-section > .create-account-header .create-account-back {
   background: transparent;
   border-radius: 0;
 }
@@ -929,13 +941,27 @@ main article > .flex > :last-child {
   color: #be123c;
 }
 
-.theme-light .login-screen > section {
+.theme-light .login-content > section {
   background: rgba(255, 255, 255, 0.88);
   border-color: rgba(0, 51, 160, 0.15);
 }
 
-.theme-light .login-screen > section > div:first-child {
+.theme-light .login-content > section > div:first-child {
   background: linear-gradient(135deg, rgba(0, 51, 160, 0.08), rgba(255, 255, 255, 0.72));
+}
+
+.login-legal-links {
+  padding: 0.7rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--card-border) 78%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 90%, transparent);
+  color: var(--text);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.login-legal-links > span:last-child {
+  color: var(--muted);
 }
 
 @media (max-width: 640px) {
@@ -944,12 +970,17 @@ main article > .flex > :last-child {
     padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 1rem;
   }
 
-  .login-screen > section {
-    margin-top: 2.5rem;
+  .login-content {
+    align-content: start;
+    min-height: calc(100vh - max(0.75rem, env(safe-area-inset-top)) - 1rem);
+    min-height: calc(100dvh - max(0.75rem, env(safe-area-inset-top)) - 1rem);
+  }
+
+  .login-content > section {
     padding: 1rem;
   }
 
-  .login-screen > section > form {
+  .login-content > section > form {
     min-width: 0;
   }
 

@@ -17,6 +17,8 @@ import {
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { fmtDate, plural } from '../../lib/formatters';
 
+const REVIEW_QUEUE_PAGE_SIZE = 50;
+
 // SOP steps 2-6 for the Admissions Office, as each officer sees it: the cases the
 // signed-in account has opened. The office-wide list lives in the intake pool's
 // coverage filter, so this route never repeats another officer's work and there is
@@ -50,12 +52,14 @@ export default function AdminReviewQueue({
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
   const [feedback, setFeedback] = useState(null);
+  const [visibleQueueCount, setVisibleQueueCount] = useState(REVIEW_QUEUE_PAGE_SIZE);
   const today = useMemo(() => new Date(), []);
   const selected = applications.find((entry) => entry.id === selectedId);
   const myQueue = useMemo(
     () => getMyReviewQueue(applications, caseOfficers, currentUserId),
     [applications, caseOfficers, currentUserId],
   );
+  const visibleQueue = myQueue.slice(0, visibleQueueCount);
   const intakePool = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
   // Document Vault review begins at the verification stage, so the count is scoped
   // to this officer's own queue and always matches the list below it.
@@ -169,7 +173,7 @@ export default function AdminReviewQueue({
           )}
         >
           <div className="grid max-h-[720px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-            {myQueue.length ? myQueue.map((entry) => {
+            {myQueue.length ? visibleQueue.map((entry) => {
               const { outstanding } = getDocumentVerificationReadiness(entry, documents);
               // Document Vault review begins at the verification stage, so a case
               // before it reports what is attached instead of promising work the
@@ -226,6 +230,11 @@ export default function AdminReviewQueue({
               />
             )}
           </div>
+          {visibleQueue.length < myQueue.length ? (
+            <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleQueueCount((count) => count + REVIEW_QUEUE_PAGE_SIZE)}>
+              Show {Math.min(REVIEW_QUEUE_PAGE_SIZE, myQueue.length - visibleQueue.length)} more cases
+            </Button>
+          ) : null}
         </Card>
       </section>
 

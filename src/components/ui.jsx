@@ -1,5 +1,5 @@
 import { Download } from 'lucide-react';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const clsx = (...values) => values.flat(Infinity).filter(Boolean).join(' ');
 
@@ -18,16 +18,50 @@ export function Button({ variant = 'secondary', className = '', children, ...pro
 // The compact export action for the staff pages (Final check, released results,
 // Department Review). `.disclosure-action` keeps it out of the shell's 40px page
 // button palette, so it stays a small, quiet control.
-export function ExportButton({ className = '', children = 'Export to Excel', ...props }) {
+export function ExportButton({ className = '', children = 'Export to Excel', onClick, disabled = false, ...props }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+
+  // A workbook is built off the main thread's critical path, so onClick may return
+  // a promise: the button stays disabled while it runs (no double export) and a
+  // refusal, such as an export over the row limit, is shown beside the button
+  // instead of being lost.
+  const handleClick = async (event) => {
+    if (busy) return;
+    setError('');
+    try {
+      const pending = onClick?.(event);
+      if (pending && typeof pending.then === 'function') {
+        setBusy(true);
+        await pending;
+      }
+    } catch (failure) {
+      if (mounted.current) setError(failure?.message || 'The export could not be created.');
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
+  };
+
   return (
-    <button
-      type="button"
-      className={clsx('disclosure-action inline-flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-xs font-semibold text-app-text transition hover:border-blue-500/50 hover:bg-blue-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50', className)}
-      {...props}
-    >
-      <Download className="h-3.5 w-3.5" aria-hidden="true" />
-      {children}
-    </button>
+    <>
+      <button
+        type="button"
+        className={clsx('disclosure-action inline-flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface px-2.5 py-1 text-xs font-semibold text-app-text transition hover:border-blue-500/50 hover:bg-blue-500/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50', className)}
+        disabled={disabled || busy}
+        aria-busy={busy || undefined}
+        onClick={handleClick}
+        {...props}
+      >
+        <Download className="h-3.5 w-3.5" aria-hidden="true" />
+        {busy ? 'Preparing…' : children}
+      </button>
+      {error ? <span role="alert" className="text-xs text-rose-600 dark:text-rose-300">{error}</span> : null}
+    </>
   );
 }
 

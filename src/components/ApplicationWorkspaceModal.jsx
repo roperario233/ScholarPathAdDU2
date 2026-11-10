@@ -248,6 +248,9 @@ export default function ApplicationWorkspaceModal({
   // can show the Submitted confirmation in place of this workspace (which only
   // renders for a Draft).
   onSubmitted,
+  // Opens the full privacy documents over this dialog, so a half-finished draft is
+  // never lost by following the notice link.
+  onOpenPrivacyDocument = null,
 }) {
   const [step, setStep] = useState(0);
   const stepContentRef = useRef(null);
@@ -553,6 +556,13 @@ export default function ApplicationWorkspaceModal({
                 <summary className="cursor-pointer font-semibold text-app-text">Agreement and data privacy notice</summary>
                 <ol className="mt-2 grid gap-2 pl-5">{AFFIDAVIT_CLAUSES.map((clause) => <li key={clause}>{clause}</li>)}</ol>
                 <p className="mb-0 mt-3">{DATA_PRIVACY_NOTICE}</p>
+                {onOpenPrivacyDocument ? (
+                  <div className="mt-2">
+                    <Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => onOpenPrivacyDocument('privacy')}>
+                      Read the full Privacy Policy
+                    </Button>
+                  </div>
+                ) : null}
               </details>
               <label className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
                 <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={certified} onChange={(event) => setCertified(event.target.checked)} />

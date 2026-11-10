@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { createInitialState, normalizeDocument, storageKey } from '../src/lib/appState';
+import { createInitialState, normalizeDocument, serializePersistedState, storageKey } from '../src/lib/appState';
 
 const legacyStorageKey = 'scholarpath-addu-demo-state';
 
@@ -55,10 +55,10 @@ describe('createInitialState', () => {
     expect(createInitialState().students).toEqual({});
   });
 
-  it('preserves a stored student directory for staff document ownership', () => {
+  it('does not restore server-backed student directory data from localStorage', () => {
     installStorage({ students: { 'user-1': { fullName: 'Ada', department: 'College of Computer Studies (CCS)' } } });
     const state = createInitialState();
-    expect(state.students['user-1'].fullName).toBe('Ada');
+    expect(state.students).toEqual({});
   });
 
   it('returns defaults when window is unavailable', () => {
@@ -194,6 +194,68 @@ describe('createInitialState', () => {
 
     expect(state.theme).toBe('light');
     expect(state.applications).toEqual([]);
+  });
+
+  it('normalizes the stored storage-notice choice', () => {
+    // Unanswered: the notice is shown, and nothing optional is granted.
+    globalThis.window = { localStorage: createMemoryStorage({ [storageKey]: JSON.stringify({ theme: 'dark' }) }) };
+    expect(createInitialState().privacyChoice).toEqual({ version: '', decidedAt: null, supportChat: false });
+
+    // A junk record reads as unanswered rather than breaking the session.
+    globalThis.window = { localStorage: createMemoryStorage({ [storageKey]: JSON.stringify({ privacyChoice: 'accepted' }) }) };
+    expect(createInitialState().privacyChoice.version).toBe('');
+
+    // A stored record is kept, and only a strict `true` grants the optional category.
+    globalThis.window = {
+      localStorage: createMemoryStorage({
+        [storageKey]: JSON.stringify({ privacyChoice: { version: '2026-11-1', decidedAt: '2026-11-05T08:00:00.000Z', supportChat: 'yes' } }),
+      }),
+    };
+    expect(createInitialState().privacyChoice).toEqual({ version: '2026-11-1', decidedAt: '2026-11-05T08:00:00.000Z', supportChat: false });
+  });
+
+  it('never persists the per-case history flags or rows of a staff session', () => {
+    const stored = JSON.parse(serializePersistedState({
+      theme: 'dark',
+      workspaceDetailsReady: true,
+      detailsDeferred: true,
+      reviewComments: [{ id: 'c1' }],
+      interviewNotes: [{ id: 'n1' }],
+    }));
+    expect(stored.theme).toBe('dark');
+    ['workspaceDetailsReady', 'detailsDeferred', 'reviewComments', 'interviewNotes'].forEach((key) => {
+      expect(stored[key]).toBeUndefined();
+    });
+  });
+
+  it('starts every session with the per-case history marked not yet loaded', () => {
+    expect(createInitialState().workspaceDetailsReady).toBe(false);
+  });
+
+  it('serializes preferences and owned local reminders but omits server-backed workspace rows', () => {
+    const serialized = serializePersistedState({
+      ownerId: 'user-1',
+      theme: 'dark',
+      profileDraft: { qpi: '3.5' },
+      customDeadlines: [{ id: 'dl-1' }],
+      applications: [{ id: 'app-1' }],
+      documents: [{ id: 'doc-1' }],
+      students: { 'user-1': { fullName: 'Ada' } },
+      notifications: [
+        { id: 'local-1', sourceKey: 'deadline-reminder-dl-1-7', ownerId: 'user-1' },
+        { id: 'local-other', sourceKey: 'deadline-reminder-dl-2-7', ownerId: 'user-2' },
+        { id: 'remote-1', source_key: 'application-status-app-1-Submitted' },
+      ],
+    });
+    const stored = JSON.parse(serialized);
+
+    expect(stored.theme).toBe('dark');
+    expect(stored.profileDraft).toEqual({ qpi: '3.5' });
+    expect(stored.customDeadlines).toEqual([{ id: 'dl-1' }]);
+    expect(stored.applications).toBeUndefined();
+    expect(stored.documents).toBeUndefined();
+    expect(stored.students).toBeUndefined();
+    expect(stored.notifications).toEqual([{ id: 'local-1', sourceKey: 'deadline-reminder-dl-1-7', ownerId: 'user-1' }]);
   });
 });
 

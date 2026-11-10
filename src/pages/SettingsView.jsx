@@ -3,6 +3,9 @@ import { AlarmClock, BellRing, CalendarClock, CalendarDays, CalendarRange, Circl
 import { Button, Card, SettingToggle, StatusBadge } from '../components/ui';
 import { maskPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
 import { formatSessionDuration } from '../lib/sessionTimeout';
+import { getLegalDocumentSummaries } from '../lib/legalDocs';
+import { describeConsentChoices } from '../lib/privacyConsent';
+import { fmtDate } from '../lib/formatters';
 
 // One delivery-test tile (email or SMS): what it does, where it goes, the send
 // action, and the result of the last attempt.
@@ -52,7 +55,7 @@ function SectionHeading({ icon: Icon, title, description, badge = null }) {
   );
 }
 
-export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '', sessionTimeoutConfig, profilePageLabel = 'My Profile' }) {
+export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '', sessionTimeoutConfig, profilePageLabel = 'My Profile', privacyChoice = null, privacyConsent = null, privacyNoticeVersion = '', onOpenPrivacyDocument = null, onResetPrivacyChoice = null }) {
   const [testEmail, setTestEmail] = useState({ status: 'idle', message: '' });
   const [testSms, setTestSms] = useState({ status: 'idle', message: '' });
   const preferences = notificationPreferences || {
@@ -107,6 +110,15 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
   const remindersOn = [reminders.oneWeekBefore, reminders.threeDaysBefore, reminders.dayBefore].filter(Boolean).length;
   const idleLabel = formatSessionDuration(sessionTimeoutConfig?.idleTimeoutMs ?? 15 * 60 * 1000);
   const totalLabel = formatSessionDuration(sessionTimeoutConfig?.absoluteTimeoutMs ?? 12 * 60 * 60 * 1000);
+  // The notice choice this browser holds, and the consent record the account holds.
+  // The two are separate on purpose: one is a device preference, the other is RA 10173
+  // evidence written by record_privacy_consent().
+  const consentSummary = describeConsentChoices(privacyChoice);
+  const consentRecordLabel = privacyConsent?.ready === false
+    ? 'The consent record is not available on this project yet, so the privacy migration is still pending.'
+    : privacyConsent?.version
+      ? `Accepted notice version ${privacyConsent.version}${privacyConsent.consentedAt ? ` on ${fmtDate(privacyConsent.consentedAt)}` : ''}.`
+      : `No consent recorded yet. The app asks for it against version ${privacyNoticeVersion} the next time an account signs in.`;
 
   return (
     <div className="grid gap-4">
@@ -229,6 +241,48 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
           <p className="mb-0 mt-3 text-sm text-app-muted">You are warned shortly before either limit ends your session.</p>
         </Card>
       </div>
+
+      <Card>
+        <SectionHeading icon={ShieldCheck} title="Privacy and data" description="What ScholarPath collects, who can read it, and what is stored in this browser." />
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="min-w-0 rounded-2xl border border-app-border bg-app-surface p-4">
+            <strong className="block text-sm font-semibold text-app-text">The notices</strong>
+            <div className="mt-2 grid gap-2">
+              {getLegalDocumentSummaries().map((entry) => (
+                <button
+                  key={entry.key}
+                  type="button"
+                  className="proof-action min-w-0 text-left text-sm font-semibold text-blue-700 dark:text-sky-300"
+                  onClick={() => onOpenPrivacyDocument?.(entry.key)}
+                >
+                  {entry.title}
+                  <span className="mt-0.5 block text-xs font-normal text-app-muted [overflow-wrap:anywhere]">{entry.summary}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="min-w-0 rounded-2xl border border-app-border bg-app-surface p-4">
+            <strong className="block text-sm font-semibold text-app-text">Your consent record</strong>
+            <p className="mb-0 mt-1 text-sm text-app-muted">
+              {consentRecordLabel}
+            </p>
+            <ul className="mb-0 mt-2 grid gap-1 text-sm text-app-text">
+              {consentSummary.items.map((item) => (
+                <li key={item.key} className="flex min-w-0 items-start gap-2">
+                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${item.allowed ? 'bg-emerald-500' : 'bg-slate-400'}`} aria-hidden="true" />
+                  <span className="min-w-0">
+                    {item.label}
+                    <span className="text-app-muted">{item.allowed ? ' — allowed' : ' — not allowed'}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <Button variant="primary" type="button" className="mt-3 w-full sm:w-auto" onClick={onResetPrivacyChoice}>
+              Ask me about storage again
+            </Button>
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }

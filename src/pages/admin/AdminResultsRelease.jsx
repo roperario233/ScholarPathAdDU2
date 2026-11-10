@@ -13,20 +13,23 @@ import { getApplicationStatusLabel, isEarlyClosure } from '../../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import FinalCheckToggle from '../../components/FinalCheckToggle';
-import { describeGrantAmount, getGrantAmountForApplication } from '../../lib/grantAmount';
+import { describeGrantAmount } from '../../lib/grantAmount';
 import {
   OFFER_STATE_LABELS,
   formatAcademicYear,
   OFFER_STATE_TONES,
+  getConfirmByDaysRemaining,
   getDefaultConfirmBy,
   getManilaToday,
-  getOfferForApplication,
   getOfferState,
   getResultsRounds,
   isValidConfirmBy,
   moveInOrder,
 } from '../../lib/resultsRound';
 import { fmtDate, plural } from '../../lib/formatters';
+
+const EMPTY_LIST = [];
+const RESULT_LIST_PAGE_SIZE = 50;
 
 // What a released case came to, for the history list and its badges.
 const coveredResult = (entry, offer) => {
@@ -130,25 +133,71 @@ function OutcomeTabs({ tabs, active, onChange }) {
 
 // One applicant row, in the same surface tile the review modal uses for its facts.
 // One fact about a round: the review modal's FactTile (label, value, note).
-function RoundFact({ label, value, note = '' }) {
+function RoundFact({ label, value, note = '', progress = null }) {
   return (
     <div className="grid content-start gap-0.5 rounded-[14px] border border-app-border bg-app-card p-3">
       <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{label}</span>
       <strong className="text-base text-app-text">{value}</strong>
       {note ? <span className="text-xs text-app-muted">{note}</span> : null}
+      {progress ? <RoundProgress {...progress} /> : null}
+    </div>
+  );
+}
+
+function RoundProgress({ checked, total, title }) {
+  if (!total) return null;
+  const progress = Math.round((checked / total) * 100);
+  return (
+    <div className="mt-1 flex items-center gap-2" aria-label={`${checked} of ${total} final checks complete`}>
+      <div
+        className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
+        role="progressbar"
+        aria-label={`Final checks for ${title}`}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={checked}
+      >
+        <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-[width] duration-500 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
+      </div>
+      <span className="shrink-0 text-[11px] font-semibold tabular-nums text-app-muted">{progress}%</span>
     </div>
   );
 }
 
 const LIST_CLASS = 'm-0 grid list-none gap-2 p-0';
-const ROW_CLASS = 'grid gap-3 rounded-[14px] border border-app-border bg-app-surface p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-4';
+const ROW_CLASS = 'relative grid gap-3 overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-r from-white via-blue-50/60 to-sky-50/60 p-3.5 pl-5 shadow-sm transition hover:-translate-y-px hover:border-blue-300 hover:shadow-md before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-full before:bg-gradient-to-b before:from-blue-500 before:to-sky-300 dark:border-blue-300/15 dark:from-slate-900 dark:via-blue-950/30 dark:to-slate-900 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-4';
+const ROW_ACTION_CLASS = 'flex min-w-0 flex-wrap items-start gap-2 lg:justify-end';
 const NOTE_CLASS = 'm-0 text-sm text-app-muted';
 const EMPTY_CLASS = 'm-0 rounded-[14px] border border-dashed border-app-border px-3 py-8 text-center text-sm text-app-muted';
 
+function ApplicantHeading({ name, children }) {
+  return (
+    <div className="flex min-w-0 flex-wrap items-center gap-2">
+      <strong className="min-w-0 text-sm font-bold text-app-text [overflow-wrap:anywhere]">{name}</strong>
+      {children}
+    </div>
+  );
+}
+
+function ApplicantDetails({ children }) {
+  return <div className="flex min-w-0 flex-wrap gap-1.5 text-xs text-app-muted">{children}</div>;
+}
+
 function ConfirmByField({ id, value, onChange, label = 'Confirm by' }) {
+  const daysRemaining = getConfirmByDaysRemaining(value);
+  const countdown = daysRemaining === null
+    ? null
+    : daysRemaining === 0
+      ? 'Due today'
+      : daysRemaining < 0
+        ? `Overdue by ${plural(Math.abs(daysRemaining), 'day')}`
+        : `In ${plural(daysRemaining, 'day')}`;
   return (
     <label htmlFor={id} className="grid gap-1 text-xs font-semibold text-app-muted">
-      {label}
+      <span className="flex items-center justify-between gap-2">
+        <span>{label}</span>
+        {countdown ? <span className="font-medium text-blue-700 dark:text-sky-300">{countdown}</span> : null}
+      </span>
       <input
         id={id}
         type="date"
@@ -214,6 +263,8 @@ export default function AdminResultsRelease({
   };
   const [checked, setChecked] = useState({});
   const [confirmByFor, setConfirmByFor] = useState({});
+  const [releaseRequestIds, setReleaseRequestIds] = useState({});
+  const [visibleCounts, setVisibleCounts] = useState({});
   const [busyKey, setBusyKey] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [expandedReleases, setExpandedReleases] = useState({});
@@ -225,6 +276,18 @@ export default function AdminResultsRelease({
   const [withdrawTarget, setWithdrawTarget] = useState(null);
   const [closeTarget, setCloseTarget] = useState(null);
   const [closeError, setCloseError] = useState('');
+  const visibleRowsFor = (scholarshipId, section, rows) => rows.slice(0, visibleCounts[`${scholarshipId}:${section}`] || RESULT_LIST_PAGE_SIZE);
+  const showMoreRows = (scholarshipId, section, visibleLength, totalLength) => visibleLength < totalLength ? (
+    <Button
+      type="button"
+      variant="secondary"
+      className="w-full"
+      onClick={() => setVisibleCounts((current) => ({
+        ...current,
+        [`${scholarshipId}:${section}`]: (current[`${scholarshipId}:${section}`] || RESULT_LIST_PAGE_SIZE) + RESULT_LIST_PAGE_SIZE,
+      }))}
+    >Show {Math.min(RESULT_LIST_PAGE_SIZE, totalLength - visibleLength)} more</Button>
+  ) : null;
   // The scholarship whose results workspace is open in its own modal.
   const [openRoundId, setOpenRoundId] = useState(initialOpenRoundId);
   // The outcome tab chosen in that modal; until one is chosen it opens on the first
@@ -237,42 +300,54 @@ export default function AdminResultsRelease({
 
   const programIndex = useMemo(() => buildProgramScopeIndex(academicPrograms), [academicPrograms]);
   const approvalLevels = interviewWorkspace?.approvalLevels || [];
-  const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
-  const recommendationOf = (entry) => getLatestPanelRecommendation(notesFor(entry.id));
+  const notesByApplication = useMemo(() => {
+    const grouped = new Map();
+    (interviewWorkspace?.notes || EMPTY_LIST).forEach((note) => {
+      if (!grouped.has(note.applicationId)) grouped.set(note.applicationId, []);
+      grouped.get(note.applicationId).push(note);
+    });
+    return grouped;
+  }, [interviewWorkspace?.notes]);
+  const recommendationByApplication = useMemo(() => new Map(
+    [...notesByApplication].map(([applicationId, notes]) => [applicationId, getLatestPanelRecommendation(notes)]),
+  ), [notesByApplication]);
+  const recommendationOf = (entry) => recommendationByApplication.get(entry.id) || null;
   const awaitingSchool = useMemo(() => getApprovalQueue(applications), [applications]);
-  const rounds = getResultsRounds({
+  const rounds = useMemo(() => getResultsRounds({
     applications,
     scholarships,
     resultsReleases,
     offers: scholarshipOffers,
     ranks: waitlistRanks,
-    recommendationOf,
-  });
+    recommendationOf: (entry) => recommendationByApplication.get(entry.id) || null,
+  }), [applications, scholarships, resultsReleases, scholarshipOffers, waitlistRanks, recommendationByApplication]);
   const openRound = rounds.find((round) => round.scholarshipId === openRoundId) || null;
   const approvedCount = rounds.reduce((total, round) => total + round.approved.length, 0);
   const waitlistedCount = rounds.reduce((total, round) => total + round.waitlist.length, 0);
   const unansweredCount = rounds.reduce((total, round) => total + round.pendingOffers + round.lapsedOffers, 0);
   const openSlotCount = rounds.reduce((total, round) => total + round.openSlots, 0);
-  const finalList = applications.filter((entry) => ['Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status));
+  const finalList = useMemo(() => applications.filter((entry) => ['Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status)), [applications]);
   const selected = applications.find((entry) => entry.id === openId);
   // After a stage move the case's row glows, or a notice says where it went.
   const moved = useMovedCase([
     ...awaitingSchool,
     ...rounds.flatMap((round) => [...round.approved, ...round.waitlist, ...round.offers.map((row) => row.application)]),
   ].map((entry) => entry.id));
-  const releasedHistory = [...resultsReleases].filter((release) => release.releasedBy).reverse();
-  const titleById = Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title]));
-  const grantAmounts = interviewWorkspace?.grantAmounts || [];
-  const grantFor = (applicationId) => getGrantAmountForApplication(grantAmounts, applicationId);
+  const releasedHistory = useMemo(() => [...resultsReleases].filter((release) => release.releasedBy).reverse(), [resultsReleases]);
+  const visibleAwaitingSchool = visibleRowsFor('all', 'awaiting-school', awaitingSchool);
+  const visibleReleasedHistory = visibleRowsFor('all', 'released-history', releasedHistory);
+  const titleById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title])), [scholarships]);
+  const grantAmounts = interviewWorkspace?.grantAmounts || EMPTY_LIST;
+  const grantByApplication = useMemo(() => new Map(grantAmounts.map((entry) => [entry.applicationId, entry])), [grantAmounts]);
+  const grantFor = (applicationId) => grantByApplication.get(applicationId) || null;
   // The final check needs the grant amount recorded first, so a case without one
   // can neither be ticked nor counted toward the release.
   const isFinalChecked = (applicationId) => Boolean(checked[applicationId]) && Boolean(grantFor(applicationId));
   const setFinalChecked = (applicationId, value) => setChecked((previous) => ({ ...previous, [applicationId]: value }));
-  const rankOf = (applicationId) => {
-    const row = waitlistRanks.find((entry) => entry.applicationId === applicationId);
-    return row ? row.rank : null;
-  };
-  const offerOf = (applicationId) => getOfferForApplication(scholarshipOffers, applicationId);
+  const rankByApplication = useMemo(() => new Map(waitlistRanks.map((entry) => [entry.applicationId, entry.rank])), [waitlistRanks]);
+  const rankOf = (applicationId) => rankByApplication.get(applicationId) ?? null;
+  const offerByApplication = useMemo(() => new Map(scholarshipOffers.map((entry) => [entry.applicationId, entry])), [scholarshipOffers]);
+  const offerOf = (applicationId) => offerByApplication.get(applicationId) || null;
 
   // The review surface offers the Admin's override at Recommended and the final
   // check's Not accepted at Approved; every other move stays with the role map.
@@ -290,7 +365,7 @@ export default function AdminResultsRelease({
     rankOf: (entry) => rankOf(entry.id),
     source: { exportedBy: getActorRoleLabel(role), ...source },
   });
-  const allReleasedIds = resultsReleases.flatMap((release) => release.applicationIds || []);
+  const allReleasedIds = useMemo(() => new Set(resultsReleases.flatMap((release) => release.applicationIds || [])), [resultsReleases]);
 
   const exportFinalList = () => downloadApplicantSummary(finalList, exportOptions({
     origin: 'Final check and release › Results by scholarship',
@@ -349,10 +424,33 @@ export default function AdminResultsRelease({
       return;
     }
     const confirmBy = confirmByOf(round.scholarshipId);
-    run(`release-${round.scholarshipId}`, () => onReleaseScholarshipResults?.(round.scholarshipId, {
-      confirmBy,
-      waitlistOrder: round.waitlist.map((entry) => entry.id),
-    }), () => `${round.title}: ${plural(round.approved.length, 'accepted applicant')} notified to confirm by ${fmtDate(confirmBy)}${round.heldWaitlist.length ? `, and ${plural(round.heldWaitlist.length, 'waitlisted applicant')} told they are on the waitlist` : ''}. The Not accepted letters wait until you close the results.`);
+    const requestKey = `${round.scholarshipId}:${confirmBy}`;
+    const requestId = releaseRequestIds[requestKey] || crypto.randomUUID();
+    setReleaseRequestIds((current) => ({ ...current, [requestKey]: requestId }));
+    const expectedIds = round.approved.map((entry) => entry.id);
+    run(`release-${round.scholarshipId}`, async () => {
+      const result = await onReleaseScholarshipResults?.(round.scholarshipId, {
+        confirmBy,
+        requestId,
+        waitlistOrder: round.waitlist.map((entry) => entry.id),
+      });
+      if (result?.error) return result;
+      const releasedIds = new Set(result?.releasedApplicationIds || []);
+      if (!expectedIds.every((id) => releasedIds.has(id))) {
+        setReleaseRequestIds((current) => {
+          const next = { ...current };
+          delete next[requestKey];
+          return next;
+        });
+        return { error: 'A previous release request completed for a different set of cases. The workspace was refreshed; review the remaining approved cases before retrying.' };
+      }
+      setReleaseRequestIds((current) => {
+        const next = { ...current };
+        delete next[requestKey];
+        return next;
+      });
+      return result;
+    }, () => `${round.title}: ${plural(round.approved.length, 'accepted applicant')} notified to confirm by ${fmtDate(confirmBy)}${round.heldWaitlist.length ? `, and ${plural(round.heldWaitlist.length, 'waitlisted applicant')} told they are on the waitlist` : ''}. The Not accepted letters wait until you close the results.`);
   };
 
   const moveWaitlisted = (round, applicationId, direction) => {
@@ -433,23 +531,27 @@ export default function AdminResultsRelease({
     ];
     return (
       <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-        <div className="grid min-w-0 gap-1">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <strong className="min-w-0 text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
+        <div className="grid min-w-0 gap-2">
+          <ApplicantHeading name={entry.studentName}>
             <StatusBadge tone={flags.length ? 'warning' : 'success'} className="whitespace-nowrap">{flags.length ? 'Check before release' : 'No flags'}</StatusBadge>
-          </div>
-          <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'}{grant ? ` · Grant amount: ${describeGrantAmount(grant)}` : ''}</span>
+          </ApplicantHeading>
+          <ApplicantDetails>
+            <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">{entry.studentProgram || 'Program on file'}</span>
+            {grant ? <span className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-2.5 py-1 font-semibold text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-950/35 dark:text-emerald-200">Grant amount · {describeGrantAmount(grant)}</span> : null}
+            {!grant ? <span className="rounded-lg border border-amber-300/70 bg-amber-50/90 px-2.5 py-1 font-semibold text-amber-800 dark:border-amber-300/20 dark:bg-amber-950/40 dark:text-amber-200">Grant amount not set</span> : null}
+          </ApplicantDetails>
           {flags.length ? (
-            <ul className="m-0 grid gap-0.5 pl-4 text-xs text-amber-700 dark:text-amber-300">
+            <ul className="m-0 grid list-disc gap-1 rounded-xl border border-amber-300/50 bg-amber-50/70 py-2 pl-7 pr-3 text-xs leading-relaxed text-amber-800 dark:border-amber-300/15 dark:bg-amber-950/20 dark:text-amber-200">
               {flags.map((flag) => <li key={flag}>{flag}</li>)}
             </ul>
           ) : null}
         </div>
-        <div className="flex flex-wrap items-start gap-2">
+        <div className={ROW_ACTION_CLASS}>
           <FinalCheckToggle
             checked={isFinalChecked(entry.id)}
             grant={grant}
-            showHint={!grant}
+            showHint={false}
+            className="w-[12.5rem] shrink-0"
             onChange={(value) => setFinalChecked(entry.id, value)}
           />
           <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'grant')}>Grant amount</Button>
@@ -462,26 +564,30 @@ export default function AdminResultsRelease({
   const renderWaitlist = (round) => {
     const ordering = busyKey === `order-${round.scholarshipId}`;
     const released = new Set(round.waitlist.filter((entry) => !round.heldWaitlist.includes(entry)).map((entry) => entry.id));
+    const entries = visibleRowsFor(round.scholarshipId, 'waitlisted', round.waitlist);
     return (
       <ol className={LIST_CLASS}>
-        {round.waitlist.map((entry, index) => {
+        {entries.map((entry, index) => {
           const recommendation = recommendationOf(entry);
           const grant = grantFor(entry.id);
           const isNext = round.nextWaitlisted?.id === entry.id;
           const isReleased = released.has(entry.id);
           return (
             <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-              <div className="flex min-w-0 items-center gap-3">
-                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-app-border bg-app-card text-sm font-bold tabular-nums text-app-text" aria-label={`Position ${index + 1}`}>{index + 1}</span>
-                <div className="grid min-w-0 gap-1">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <strong className="min-w-0 text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
+              <div className="flex min-w-0 items-start gap-3">
+                <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl border text-sm font-extrabold tabular-nums shadow-sm ${index === 0 ? 'border-amber-300 bg-gradient-to-br from-amber-100 to-yellow-50 text-amber-900 dark:border-amber-300/20 dark:from-amber-950/70 dark:to-slate-900 dark:text-amber-200' : 'border-blue-200 bg-white/80 text-blue-800 dark:border-blue-300/15 dark:bg-slate-900 dark:text-sky-200'}`} aria-label={`Position ${index + 1}`}>{index + 1}</span>
+                <div className="grid min-w-0 gap-2">
+                  <ApplicantHeading name={entry.studentName}>
                     <StatusBadge tone={isReleased ? 'warning' : 'neutral'} className="whitespace-nowrap">{isReleased ? 'Told: waitlisted' : 'Not told yet'}</StatusBadge>
-                  </div>
-                  <span className="text-xs text-app-muted">{recommendation?.label || 'No recommendation level'} · {entry.studentProgram || 'Program on file'}{grant ? ` · Grant amount: ${describeGrantAmount(grant)}` : ''}</span>
+                  </ApplicantHeading>
+                  <ApplicantDetails>
+                    <span className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-1 font-semibold text-amber-900 dark:border-amber-300/15 dark:bg-amber-950/30 dark:text-amber-200"><Award className="mr-1 inline h-3.5 w-3.5 -translate-y-px" aria-hidden="true" />{recommendation?.label || 'No recommendation level'}</span>
+                    <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">{entry.studentProgram || 'Program on file'}</span>
+                    {grant ? <span className="rounded-lg border border-emerald-200/80 bg-emerald-50/80 px-2.5 py-1 font-semibold text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-950/35 dark:text-emerald-200">Grant amount · {describeGrantAmount(grant)}</span> : null}
+                  </ApplicantDetails>
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div className={ROW_ACTION_CLASS}>
                 {round.waitlist.length > 1 ? (
                   <>
                     <Button type="button" variant="secondary" className="!px-2.5" disabled={ordering || index === 0} aria-label={`Move ${entry.studentName} up`} onClick={() => moveWaitlisted(round, entry.id, -1)}><ArrowUp size={16} aria-hidden="true" /></Button>
@@ -506,25 +612,31 @@ export default function AdminResultsRelease({
             </li>
           );
         })}
+        {entries.length < round.waitlist.length ? (
+          <li className="list-none">{showMoreRows(round.scholarshipId, 'waitlisted', entries.length, round.waitlist.length)}</li>
+        ) : null}
       </ol>
     );
   };
 
-  const renderOffers = (round) => (
-    <ul className={LIST_CLASS}>
-      {round.offers.map(({ application: entry, offer, state }) => (
+  const renderOffers = (round) => {
+    const entries = visibleRowsFor(round.scholarshipId, 'offers', round.offers);
+    return (
+      <ul className={LIST_CLASS}>
+      {entries.map(({ application: entry, offer, state }) => (
         <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-          <div className="grid min-w-0 gap-1">
-            <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
-            <span className="text-xs text-app-muted">
-              {offer.origin === 'promotion' ? 'Offered from the waitlist · ' : ''}
-              {offer.confirmBy ? `Confirm by ${fmtDate(offer.confirmBy)}` : 'No confirm-by date'}
-              {offer.respondedAt ? ` · answered ${fmtDate(offer.respondedAt)}${offer.respondedByRole === 'admissions_admin' ? ' (recorded by the office)' : ''}` : ''}
-            </span>
-            {state === 'declined' && offer.declineReason ? <span className="text-xs text-app-muted">Reason: {offer.declineReason}</span> : null}
+          <div className="grid min-w-0 gap-2">
+            <ApplicantHeading name={entry.studentName}>
+              <StatusBadge tone={OFFER_STATE_TONES[state]}>{OFFER_STATE_LABELS[state]}</StatusBadge>
+            </ApplicantHeading>
+            <ApplicantDetails>
+              {offer.origin === 'promotion' ? <span className="rounded-lg border border-amber-200/80 bg-amber-50/80 px-2.5 py-1 font-semibold text-amber-900 dark:border-amber-300/15 dark:bg-amber-950/30 dark:text-amber-200">Offered from waitlist</span> : null}
+              <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">Confirm by {offer.confirmBy ? fmtDate(offer.confirmBy) : 'date not set'}</span>
+              {offer.respondedAt ? <span className="rounded-lg border border-emerald-200/70 bg-emerald-50/70 px-2.5 py-1 text-emerald-800 dark:border-emerald-300/15 dark:bg-emerald-950/30 dark:text-emerald-200">Answered {fmtDate(offer.respondedAt)}{offer.respondedByRole === 'admissions_admin' ? ' · recorded by the office' : ''}</span> : null}
+            </ApplicantDetails>
+            {state === 'declined' && offer.declineReason ? <p className="m-0 rounded-xl border border-app-border bg-white/60 px-3 py-2 text-xs text-app-muted dark:bg-slate-950/20">Reason: {offer.declineReason}</p> : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone={OFFER_STATE_TONES[state]}>{OFFER_STATE_LABELS[state]}</StatusBadge>
+          <div className={ROW_ACTION_CLASS}>
             {state === 'pending' || state === 'lapsed' ? (
               <>
                 <Button
@@ -540,30 +652,42 @@ export default function AdminResultsRelease({
           </div>
         </li>
       ))}
-    </ul>
-  );
+      {entries.length < round.offers.length ? (
+        <li className="list-none">{showMoreRows(round.scholarshipId, 'offers', entries.length, round.offers.length)}</li>
+      ) : null}
+      </ul>
+    );
+  };
 
   // The Not accepted cases still held: named, so the Admin sees who receives the
   // general letter when the results are closed.
-  const renderNotAccepted = (round) => (
-    <ul className={LIST_CLASS}>
-      {round.notAcceptedHeld.map((entry) => (
+  const renderNotAccepted = (round) => {
+    const entries = visibleRowsFor(round.scholarshipId, 'not-accepted', round.notAcceptedHeld);
+    return (
+      <ul className={LIST_CLASS}>
+      {entries.map((entry) => (
         <li key={entry.id} data-application-id={entry.id} className={ROW_CLASS}>
-          <div className="grid min-w-0 gap-1">
-            <strong className="text-sm text-app-text [overflow-wrap:anywhere]">{entry.studentName}</strong>
-            <span className="text-xs text-app-muted">
-              {entry.studentProgram || 'Program on file'} · {isEarlyClosure(entry) ? 'closed by the office before the interview' : 'not accepted by the school'}
-            </span>
+          <div className="grid min-w-0 gap-2">
+            <ApplicantHeading name={entry.studentName}>
+              <StatusBadge tone="neutral" className="whitespace-nowrap">Not told yet</StatusBadge>
+            </ApplicantHeading>
+            <ApplicantDetails>
+              <span className="rounded-lg border border-blue-100 bg-white/70 px-2.5 py-1 font-medium text-slate-600 dark:border-blue-300/10 dark:bg-slate-950/25 dark:text-slate-300">{entry.studentProgram || 'Program on file'}</span>
+              <span className="rounded-lg border border-app-border bg-white/50 px-2.5 py-1 dark:bg-slate-950/20">{isEarlyClosure(entry) ? 'closed by the office before the interview' : 'not accepted by the school'}</span>
+            </ApplicantDetails>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <StatusBadge tone="neutral" className="whitespace-nowrap">Not told yet</StatusBadge>
+          <div className={ROW_ACTION_CLASS}>
             <Button type="button" variant="secondary" onClick={() => openCase(entry.id, 'endorsement')}>Case notes</Button>
             <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>Open case</Button>
           </div>
         </li>
       ))}
-    </ul>
-  );
+      {entries.length < round.notAcceptedHeld.length ? (
+        <li className="list-none">{showMoreRows(round.scholarshipId, 'not-accepted', entries.length, round.notAcceptedHeld.length)}</li>
+      ) : null}
+      </ul>
+    );
+  };
 
   return (
     <div className="grid content-start gap-5">
@@ -621,10 +745,17 @@ export default function AdminResultsRelease({
           {rounds.length ? rounds.map((round) => {
             const view = roundView(round);
             return (
-              <article key={round.scholarshipId} className={`${getCaseCardClass('info')} sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start sm:gap-5`}>
-                <div className="grid min-w-0 gap-3">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <h3 className="m-0 min-w-0 text-base font-semibold">{round.title}</h3>
+              <article key={round.scholarshipId} className={`${getCaseCardClass('info')} group isolate border-blue-300/60 bg-gradient-to-br from-blue-50/80 via-app-surface to-sky-50/50 p-4 pl-5 shadow-md hover:border-blue-400/70 hover:shadow-lg dark:from-blue-950/25 dark:via-app-surface dark:to-sky-950/10 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch sm:gap-5 sm:p-5 sm:pl-6`}>
+                <div className="pointer-events-none absolute -right-14 -top-16 -z-10 h-44 w-44 rounded-full bg-sky-400/10 blur-3xl transition duration-500 group-hover:bg-blue-400/20" aria-hidden="true" />
+                <div className="grid min-w-0 gap-3.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-blue-300/50 bg-white/80 text-blue-800 shadow-sm dark:border-blue-300/20 dark:bg-blue-950/60 dark:text-sky-200" aria-hidden="true">
+                      <Award className="h-5 w-5" />
+                    </span>
+                    <div className="grid min-w-0 flex-1 gap-1">
+                      <h3 className="m-0 min-w-0 text-base font-bold leading-snug text-app-text [overflow-wrap:anywhere] sm:text-lg">{round.title}</h3>
+                      <span className="text-xs font-medium text-app-muted">{round.applicantCount} {round.applicantCount === 1 ? 'applicant' : 'applicants'} in this results round</span>
+                    </div>
                     <StatusBadge tone="neutral" className="whitespace-nowrap">Academic year {view.yearLabel}</StatusBadge>
                     <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
                   </div>
@@ -639,6 +770,7 @@ export default function AdminResultsRelease({
                       label="Final check"
                       value={round.approved.length ? `${view.checkedCount} of ${round.approved.length} checked` : 'Done'}
                       note={round.approved.length ? `${view.grantsSet} of ${round.approved.length} grant amounts set` : 'Accepted applicants released'}
+                      progress={round.approved.length ? { checked: view.checkedCount, total: round.approved.length, title: round.title } : null}
                     />
                     <RoundFact
                       label="Confirmations"
@@ -653,9 +785,17 @@ export default function AdminResultsRelease({
                     <StatusBadge tone={round.waitlist.length ? 'warning' : 'neutral'} className="whitespace-nowrap">{round.waitlist.length} waitlisted{round.openSlots ? ` · ${plural(round.openSlots, 'slot')} open` : ''}</StatusBadge>
                     <StatusBadge tone="neutral" className="whitespace-nowrap">{round.notAcceptedHeld.length} not accepted</StatusBadge>
                   </div>
-                  <p className="m-0 text-sm text-app-muted"><strong className="font-semibold text-app-text">Next:</strong> {view.nextStep}</p>
+                  <p className="m-0 rounded-xl border border-blue-200/70 bg-white/60 px-3 py-2 text-sm leading-relaxed text-app-muted dark:border-blue-300/15 dark:bg-slate-950/20"><strong className="font-semibold text-app-text">Next:</strong> {view.nextStep}</p>
                 </div>
-                <Button type="button" variant="primary" className="w-full sm:w-auto" onClick={() => openRoundWorkspace(round)}>Open results</Button>
+                <div className="flex w-full flex-col gap-2 border-t border-blue-200/60 pt-3 sm:w-40 sm:shrink-0 sm:items-stretch sm:justify-center sm:border-l sm:border-t-0 sm:pl-5 sm:pt-0 dark:border-blue-300/15">
+                  <ExportButton
+                    className="!min-h-10 w-full justify-center !rounded-xl !border-blue-200 !bg-white !px-3 !py-2 !text-sm !text-blue-950 hover:!border-blue-400 hover:!bg-blue-50 dark:!border-blue-200 dark:!bg-white dark:!text-blue-950 dark:hover:!bg-blue-50"
+                    aria-label={`Export ${round.title} results to Excel`}
+                    title={`Export ${round.title} results to Excel`}
+                    onClick={() => exportRound(round)}
+                  >Excel export</ExportButton>
+                  <Button type="button" variant="primary" className="w-full" onClick={() => openRoundWorkspace(round)}>Open results</Button>
+                </div>
               </article>
             );
           }) : <EmptyState title="Nothing to release yet" description="Approved and waitlisted applications appear here after the school's decision." />}
@@ -664,7 +804,7 @@ export default function AdminResultsRelease({
 
       <Card title="Awaiting the school's approval" action={<StatusBadge tone={awaitingSchool.length ? 'info' : 'success'}>{awaitingSchool.length} with the schools</StatusBadge>}>
         <div className="grid max-h-[520px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {awaitingSchool.length ? awaitingSchool.map((entry) => {
+          {awaitingSchool.length ? visibleAwaitingSchool.map((entry) => {
             const approver = getApproverRoleForApplication(entry, approvalLevels, programIndex);
             return (
               <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
@@ -680,14 +820,16 @@ export default function AdminResultsRelease({
             );
           }) : <EmptyState title="No recommendations with the schools" />}
         </div>
+        {showMoreRows('all', 'awaiting-school', visibleAwaitingSchool.length, awaitingSchool.length)}
       </Card>
 
       {releasedHistory.length ? (
         <Card title="Released results">
           <ul className="m-0 grid gap-2 p-0">
-            {releasedHistory.map((release) => {
+            {visibleReleasedHistory.map((release) => {
               const title = titleById[release.scholarshipId] || 'Scholarship';
               const covered = releaseApplications(release);
+              const visibleCovered = visibleRowsFor(release.id, 'coverage', covered);
               const open = Boolean(expandedReleases[release.id]);
               const panelId = `release-${release.id}`;
               const isOffers = release.kind === 'offers';
@@ -724,7 +866,7 @@ export default function AdminResultsRelease({
                       </div>
                       {covered.length ? (
                         <ul className="m-0 grid max-h-[320px] list-none gap-1.5 overflow-y-auto p-0 pr-1">
-                          {covered.map((entry) => {
+                          {visibleCovered.map((entry) => {
                             const result = coveredResult(entry, offerOf(entry.id));
                             return (
                               <li key={entry.id} className="flex min-w-0 flex-col items-start gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
@@ -739,6 +881,9 @@ export default function AdminResultsRelease({
                               </li>
                             );
                           })}
+                          {visibleCovered.length < covered.length ? (
+                            <li className="list-none">{showMoreRows(release.id, 'coverage', visibleCovered.length, covered.length)}</li>
+                          ) : null}
                         </ul>
                       ) : null}
                     </div>
@@ -746,6 +891,9 @@ export default function AdminResultsRelease({
                 </li>
               );
             })}
+            {visibleReleasedHistory.length < releasedHistory.length ? (
+              <li className="list-none">{showMoreRows('all', 'released-history', visibleReleasedHistory.length, releasedHistory.length)}</li>
+            ) : null}
           </ul>
         </Card>
       ) : null}
@@ -756,6 +904,7 @@ export default function AdminResultsRelease({
         const progress = round.approved.length ? Math.round((view.checkedCount / round.approved.length) * 100) : 0;
         const releasing = busyKey === `release-${round.scholarshipId}`;
         const confirmBy = confirmByOf(round.scholarshipId);
+        const approvedVisible = visibleRowsFor(round.scholarshipId, 'approved', round.approved);
         const releaseBlocked = !view.allChecked || (round.approved.length > 0 && !isValidConfirmBy(confirmBy));
         const { declinedOffers } = view;
         const activeTab = roundTab
@@ -809,7 +958,12 @@ export default function AdminResultsRelease({
                     </p>
                     {view.acceptedCount ? (
                       <>
-                        {round.approved.length ? <ul className={LIST_CLASS}>{round.approved.map(renderApprovedRow)}</ul> : null}
+                        {round.approved.length ? (
+                          <>
+                            <ul className={LIST_CLASS}>{approvedVisible.map(renderApprovedRow)}</ul>
+                            {showMoreRows(round.scholarshipId, 'approved', approvedVisible.length, round.approved.length)}
+                          </>
+                        ) : null}
                         {round.offers.length ? renderOffers(round) : null}
                       </>
                     ) : <p className={EMPTY_CLASS}>No accepted applicants in this round.</p>}
@@ -839,55 +993,59 @@ export default function AdminResultsRelease({
               </div>
             </div>
             <footer className="shrink-0 pt-4">
-              <Panel className="grid gap-3 !border-blue-500/40">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Next step</h3>
-                  <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
-                </div>
-                <p className="m-0 text-sm font-medium text-app-text">{view.nextStep}</p>
-                {view.step <= 1 && round.approved.length ? (
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
-                      role="progressbar"
-                      aria-label={`Final checks done for ${round.title}`}
-                      aria-valuemin={0}
-                      aria-valuemax={round.approved.length}
-                      aria-valuenow={view.checkedCount}
-                    >
-                      <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300" style={{ width: `${progress}%` }} />
+              <Panel className="!overflow-hidden !border-blue-500/40 !p-0">
+                <div className={`grid ${view.step <= 1 || view.step === 3 ? 'md:grid-cols-[minmax(0,1fr)_17rem]' : ''}`}>
+                  <div className="grid content-start gap-3 p-4 sm:p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted">Next step</h3>
+                      <StatusBadge tone="info" className="whitespace-nowrap">Step {view.step + 1} of {ROUND_STEPS.length} · {ROUND_STEPS[view.step].label}</StatusBadge>
                     </div>
-                    <span className="shrink-0 text-xs font-semibold tabular-nums text-app-text">{view.checkedCount} of {round.approved.length} checked</span>
-                  </div>
-                ) : null}
-                {view.step <= 1 ? (
-                  <div className="flex flex-col gap-2 border-t border-app-border pt-3 sm:flex-row sm:items-end sm:justify-end sm:gap-3">
-                    {round.approved.length ? (
-                      <ConfirmByField
-                        id={`confirm-by-${round.scholarshipId}`}
-                        value={confirmBy}
-                        onChange={(value) => setConfirmByFor((previous) => ({ ...previous, [round.scholarshipId]: value }))}
-                      />
+                    <p className="m-0 text-sm font-medium leading-relaxed text-app-text">{view.nextStep}</p>
+                    {view.step <= 1 && round.approved.length ? (
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-app-border"
+                          role="progressbar"
+                          aria-label={`Final checks done for ${round.title}`}
+                          aria-valuemin={0}
+                          aria-valuemax={round.approved.length}
+                          aria-valuenow={view.checkedCount}
+                        >
+                          <div className="h-full rounded-full bg-emerald-500 transition-[width] duration-300" style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="shrink-0 text-xs font-semibold tabular-nums text-app-text">{view.checkedCount} of {round.approved.length} checked</span>
+                      </div>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="w-full sm:w-auto"
-                      disabled={releaseBlocked || releasing}
-                      onClick={() => releaseRound(round)}
-                    ><SendHorizontal className="h-4 w-4" aria-hidden="true" />{releasing ? 'Releasing…' : 'Release accepted and waitlisted'}</Button>
                   </div>
-                ) : view.step === 3 ? (
-                  <div className="flex justify-end border-t border-app-border pt-3">
-                    <Button
-                      type="button"
-                      variant="primary"
-                      className="w-full sm:w-auto"
-                      disabled={!round.canClose}
-                      onClick={() => { setCloseError(''); setCloseTarget(round); }}
-                    >Close results…</Button>
-                  </div>
-                ) : null}
+                  {view.step <= 1 ? (
+                    <div className="grid content-center gap-2 border-t border-blue-200/70 bg-blue-50/50 p-4 dark:border-blue-300/15 dark:bg-blue-950/20 md:border-l md:border-t-0 md:p-4">
+                      {round.approved.length ? (
+                        <ConfirmByField
+                          id={`confirm-by-${round.scholarshipId}`}
+                          value={confirmBy}
+                          onChange={(value) => setConfirmByFor((previous) => ({ ...previous, [round.scholarshipId]: value }))}
+                        />
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="w-full"
+                        disabled={releaseBlocked || releasing}
+                        onClick={() => releaseRound(round)}
+                      ><SendHorizontal className="h-4 w-4" aria-hidden="true" />{releasing ? 'Releasing…' : 'Release accepted and waitlisted'}</Button>
+                    </div>
+                  ) : view.step === 3 ? (
+                    <div className="grid content-center border-t border-blue-200/70 bg-blue-50/50 p-4 dark:border-blue-300/15 dark:bg-blue-950/20 md:border-l md:border-t-0">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="w-full"
+                        disabled={!round.canClose}
+                        onClick={() => { setCloseError(''); setCloseTarget(round); }}
+                      >Close results…</Button>
+                    </div>
+                  ) : null}
+                </div>
               </Panel>
             </footer>
           </ModalShell>

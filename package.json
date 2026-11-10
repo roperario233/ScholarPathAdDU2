@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "google:auth": "node scripts/google-calendar-auth.mjs",
-    "cleanup:storage": "node scripts/cleanup-orphaned-storage.mjs"
+    "cleanup:storage": "node scripts/cleanup-orphaned-storage.mjs",
+    "applications:import": "node scripts/import-applications.mjs",
+    "loadtest:release": "node scripts/loadtest-release.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

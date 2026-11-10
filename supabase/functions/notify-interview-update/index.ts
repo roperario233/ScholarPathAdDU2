@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
             sms_status: existing?.sms_status ?? null,
             sms_message_id: existing?.sms_message_id ?? null,
           };
-      await supabaseAdmin
+      const { error: ledgerError } = await supabaseAdmin
         .from('notification_email_log')
         .upsert({
           source_key: sourceKey,
@@ -236,6 +236,9 @@ Deno.serve(async (req) => {
           email_error: emailResult.error ?? null,
           ...smsLedger,
         }, { onConflict: 'source_key,user_id' });
+      if (ledgerError) {
+        console.error(JSON.stringify({ event: 'interview_update_delivery_ledger_failed', code: ledgerError.code || 'unknown' }));
+      }
     }
 
     return {

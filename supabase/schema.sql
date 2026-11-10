@@ -3219,9 +3219,10 @@ for update using (
 --      `results-release` mode, which sends every covered, non-accepted applicant
 --      the general letter: no reason, only the counts.
 --
--- Students read these rows (the counts are what the letter states, and the
--- covered application ids are what unmask a Rejected status on their own
--- surfaces); only the Admin inserts, through the function.
+-- Students read release metadata through get_scoped_results_releases(); its
+-- covered application ids are narrowed to that student's own cases so a release
+-- never discloses another applicant's UUID. Only the Admin inserts, through the
+-- function.
 --
 -- Setup before applying, as for the other notify migrations:
 --   1. Replace <project-ref> with the deployed project ref.
@@ -3243,9 +3244,59 @@ create index if not exists results_releases_scholarship_idx
 alter table public.results_releases enable row level security;
 
 drop policy if exists "results_releases_read" on public.results_releases;
-create policy "results_releases_read" on public.results_releases
-for select to authenticated using (true);
--- No insert/update/delete policy: record_results_release() writes as definer.
+-- Authenticated clients use get_scoped_results_releases(); reading the raw array
+-- would expose every covered applicant UUID to every release recipient.
+revoke select on public.results_releases from public, anon, authenticated;
+
+create table if not exists public.results_release_applications (
+  release_id uuid not null references public.results_releases(id) on delete cascade,
+  application_id uuid not null references public.applications(id) on delete cascade,
+  primary key (release_id, application_id)
+);
+create index if not exists results_release_applications_application_idx
+  on public.results_release_applications (application_id, release_id);
+create index if not exists results_releases_application_ids_gin
+  on public.results_releases using gin (application_ids);
+alter table public.results_release_applications enable row level security;
+revoke all on public.results_release_applications from public, anon, authenticated;
+
+create or replace function public.sync_results_release_applications()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'UPDATE' and new.application_ids is not distinct from old.application_ids then
+    return new;
+  end if;
+  -- application_ids is a plain array with no foreign key, so it can still name an
+  -- application that was deleted later; only existing applications are covered.
+  delete from public.results_release_applications where release_id = new.id;
+  insert into public.results_release_applications (release_id, application_id)
+  select new.id, covered.application_id
+  from unnest(coalesce(new.application_ids, '{}'::uuid[])) as covered(application_id)
+  join public.applications a on a.id = covered.application_id
+  on conflict do nothing;
+  return new;
+end;
+$$;
+revoke all on function public.sync_results_release_applications() from public, anon, authenticated;
+drop trigger if exists sync_results_release_applications on public.results_releases;
+create trigger sync_results_release_applications
+  after insert or update of application_ids on public.results_releases
+  for each row execute function public.sync_results_release_applications();
+-- Backfill the existing releases. An id in the old array whose application has
+-- since been deleted (for example by the transactional-data reset) has nothing to
+-- cover, so only applications that still exist are copied.
+insert into public.results_release_applications (release_id, application_id)
+select r.id, covered.application_id
+from public.results_releases r
+cross join lateral unnest(coalesce(r.application_ids, '{}'::uuid[])) as covered(application_id)
+join public.applications a on a.id = covered.application_id
+on conflict do nothing;
+-- No direct release-table insert/update/delete or coverage access; the Admin's
+-- record_results_release() remains the only client workflow write.
 
 create or replace function public.record_results_release(p_scholarship_id uuid)
 returns public.results_releases
@@ -3368,6 +3419,8 @@ begin
     new.review_cluster := null;
     new.review_department := null;
     new.deactivated_at := null;
+    new.privacy_consent_version := null;
+    new.privacy_consented_at := null;
     return new;
   end if;
 
@@ -3383,6 +3436,15 @@ begin
     raise exception 'Account role, review scope, and status are managed by the Admissions Office Admin.'
       using errcode = '42501';
   end if;
+
+  -- Consent is evidence (20261063000000): written by record_privacy_consent() below,
+  -- never typed in by a client session.
+  if new.privacy_consent_version is distinct from old.privacy_consent_version
+     or new.privacy_consented_at is distinct from old.privacy_consented_at then
+    raise exception 'Privacy consent is recorded by the app, not written directly.'
+      using errcode = '42501';
+  end if;
+
   return new;
 end;
 $$;
@@ -4510,6 +4572,31 @@ create table if not exists public.application_grant_amounts (
 
 alter table public.application_grant_amounts enable row level security;
 
+create or replace function public.can_read_application_result_release(p_application_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.results_release_applications coverage
+    join public.applications a on a.id = coverage.application_id
+    where coverage.application_id = p_application_id
+      and (
+        public.current_profile_role() in ('admissions_office', 'admissions_admin')
+        or (public.current_profile_role() = 'student' and a.student_id = auth.uid())
+        or (
+          public.current_profile_role() in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+          and public.reviewer_scopes_to_student(a.student_id)
+        )
+      )
+  );
+$$;
+revoke all on function public.can_read_application_result_release(uuid) from public, anon;
+grant execute on function public.can_read_application_result_release(uuid) to authenticated;
+
 drop policy if exists "grant_amounts_office_read" on public.application_grant_amounts;
 create policy "grant_amounts_office_read" on public.application_grant_amounts
 for select using (public.is_admissions_office());
@@ -4530,14 +4617,11 @@ drop policy if exists "grant_amounts_student_released_read" on public.applicatio
 create policy "grant_amounts_student_released_read" on public.application_grant_amounts
 for select using (
   exists (
-    select 1 from public.applications a
-    where a.id = application_grant_amounts.application_id
-      and a.student_id = auth.uid()
-      and exists (
-        select 1 from public.results_releases r
-        where application_grant_amounts.application_id = any (r.application_ids)
-      )
-  )
+      select 1 from public.applications a
+      where a.id = application_grant_amounts.application_id
+        and a.student_id = auth.uid()
+        and public.can_read_application_result_release(a.id)
+    )
 );
 
 create or replace function public.set_application_grant_amount(
@@ -4675,6 +4759,84 @@ alter table public.results_releases
 alter table public.results_releases drop constraint if exists results_releases_kind_check;
 alter table public.results_releases add constraint results_releases_kind_check
   check (kind in ('offers', 'closing', 'legacy'));
+
+create or replace function public.get_scoped_results_releases(p_since timestamptz default null)
+returns table (
+  id uuid,
+  scholarship_id uuid,
+  released_at timestamptz,
+  released_by uuid,
+  applicant_count integer,
+  accepted_count integer,
+  application_ids uuid[],
+  kind text
+)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with caller as (
+    select auth.uid() as user_id, public.current_profile_role() as role
+  )
+  select
+    r.id,
+    r.scholarship_id,
+    r.released_at,
+    r.released_by,
+    r.applicant_count,
+    r.accepted_count,
+    coalesce(visible.application_ids, '{}'::uuid[]),
+    r.kind
+  from public.results_releases r
+  cross join caller c
+  cross join lateral (
+    select array_agg(coverage.application_id order by coverage.application_id) as application_ids
+    from public.results_release_applications coverage
+    join public.applications a on a.id = coverage.application_id
+    where coverage.release_id = r.id
+      and (
+        c.role in ('admissions_office', 'admissions_admin')
+        or (c.role = 'student' and a.student_id = c.user_id)
+        or (
+          c.role in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+          and public.reviewer_scopes_to_student(a.student_id)
+        )
+      )
+  ) visible
+  where (p_since is null or r.released_at > p_since)
+    and (
+      c.role in ('admissions_office', 'admissions_admin')
+    -- Closing releases apply at scholarship level. An applicant with an offer
+    -- must see that round metadata even when their own accepted application is
+    -- not part of the closing coverage; the returned UUID array remains owner-
+    -- scoped below.
+    or (
+      c.role = 'student'
+      and exists (
+        select 1 from public.applications own_app
+        where own_app.scholarship_id = r.scholarship_id
+          and own_app.student_id = c.user_id
+      )
+    )
+    or exists (
+      select 1
+      from public.results_release_applications coverage
+      join public.applications a on a.id = coverage.application_id
+      where coverage.release_id = r.id
+        and (
+          (c.role = 'student' and a.student_id = c.user_id)
+          or (
+            c.role in ('dean', 'assistant_dean', 'department_chair', 'interviewer')
+            and public.reviewer_scopes_to_student(a.student_id)
+          )
+        )
+    )
+    )
+  order by r.released_at asc;
+$$;
+revoke all on function public.get_scoped_results_releases(timestamptz) from public, anon;
+grant execute on function public.get_scoped_results_releases(timestamptz) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Offers: one per accepted application, the response ledger
@@ -5375,10 +5537,7 @@ for select using (
         exists (select 1 from public.scholarship_offers o where o.application_id = a.id)
         or (
           a.status = 'Released'
-          and exists (
-            select 1 from public.results_releases r
-            where application_grant_amounts.application_id = any (r.application_ids)
-          )
+          and public.can_read_application_result_release(a.id)
         )
       )
   )
@@ -5539,5 +5698,1082 @@ drop trigger if exists require_application_rejection_reason on public.applicatio
 create trigger require_application_rejection_reason
   before update on public.applications
   for each row execute function public.require_application_rejection_reason();
+
+-- Account-level privacy consent (20261063000000_add_privacy_consent.sql). The guard
+-- trigger above already refuses a direct client write to either column; this is the
+-- only writer. The version is the client's notice version (free text, shape-checked),
+-- so changing the notice copy never needs a migration. Re-recording the same version
+-- is a no-op, so a reload cannot move the timestamp.
+alter table public.profiles add column if not exists privacy_consent_version text;
+alter table public.profiles add column if not exists privacy_consented_at timestamptz;
+
+alter table public.profiles drop constraint if exists profiles_privacy_consent_version_check;
+alter table public.profiles
+  add constraint profiles_privacy_consent_version_check
+  check (
+    privacy_consent_version is null
+    or (
+      privacy_consent_version = btrim(privacy_consent_version)
+      and char_length(privacy_consent_version) between 1 and 32
+    )
+  );
+
+create or replace function public.record_privacy_consent(p_version text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_version text := btrim(coalesce(p_version, ''));
+begin
+  if auth.uid() is null then
+    raise exception 'Sign in to record your consent.'
+      using errcode = '42501';
+  end if;
+
+  if char_length(v_version) not between 1 and 32 then
+    raise exception 'A privacy notice version is required.'
+      using errcode = '22023';
+  end if;
+
+  update public.profiles
+     set privacy_consent_version = v_version,
+         privacy_consented_at = now()
+   where user_id = auth.uid()
+     and deactivated_at is null
+     and privacy_consent_version is distinct from v_version;
+end;
+$$;
+
+revoke all on function public.record_privacy_consent(text) from public;
+revoke all on function public.record_privacy_consent(text) from anon;
+grant execute on function public.record_privacy_consent(text) to authenticated;
+
+-- Application-volume query and actor indexes (20261105000001).
+create index if not exists applications_status_submitted_at_id_idx
+  on public.applications (status, submitted_at, id);
+create index if not exists applications_updated_at_id_idx
+  on public.applications (updated_at desc, id);
+create index if not exists applications_student_updated_at_id_idx
+  on public.applications (student_id, updated_at desc, id);
+create index if not exists applications_scholarship_status_submitted_at_idx
+  on public.applications (scholarship_id, status, submitted_at, id);
+create index if not exists documents_owner_uploaded_at_id_idx
+  on public.documents (owner_id, uploaded_at desc, id);
+create index if not exists documents_status_uploaded_at_id_idx
+  on public.documents (verification_status, uploaded_at desc, id);
+create index if not exists notifications_profile_created_at_id_idx
+  on public.notifications (profile_id, created_at desc, id);
+create index if not exists notification_email_log_user_id_idx
+  on public.notification_email_log (user_id);
+create index if not exists custom_deadlines_deadline_idx
+  on public.custom_deadlines (deadline);
+create index if not exists application_grant_amounts_set_by_idx
+  on public.application_grant_amounts (set_by);
+create index if not exists application_waitlist_ranks_set_by_idx
+  on public.application_waitlist_ranks (set_by);
+create index if not exists scholarship_offers_responded_by_idx
+  on public.scholarship_offers (responded_by);
+create index if not exists support_messages_sender_id_idx
+  on public.support_messages (sender_id);
+create index if not exists support_messages_replying_to_id_idx
+  on public.support_messages (replying_to_id);
+
+-- Incremental workspace refresh cursors (20261105000002).
+create or replace function public.touch_updated_at()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.updated_at := now();
+  return new;
+end;
+$$;
+revoke all on function public.touch_updated_at() from public, anon, authenticated;
+alter table public.documents add column if not exists updated_at timestamptz not null default now();
+alter table public.notifications add column if not exists updated_at timestamptz not null default now();
+alter table public.application_documents add column if not exists created_at timestamptz not null default now();
+alter table public.application_case_officers add column if not exists updated_at timestamptz not null default now();
+alter table public.application_interview_panelists add column if not exists updated_at timestamptz not null default now();
+alter table public.scholarship_offers add column if not exists updated_at timestamptz not null default now();
+create index if not exists documents_updated_at_id_idx on public.documents (updated_at, id);
+create index if not exists notifications_profile_updated_at_id_idx on public.notifications (profile_id, updated_at, id);
+create index if not exists application_case_officers_updated_at_id_idx on public.application_case_officers (updated_at, id);
+create index if not exists application_interview_panelists_updated_at_id_idx on public.application_interview_panelists (updated_at, id);
+create index if not exists scholarship_offers_updated_at_application_idx on public.scholarship_offers (updated_at, application_id);
+create index if not exists application_grant_amounts_updated_at_application_idx on public.application_grant_amounts (updated_at, application_id);
+create index if not exists application_waitlist_ranks_updated_at_application_idx on public.application_waitlist_ranks (updated_at, application_id);
+create index if not exists application_documents_created_at_application_idx on public.application_documents (created_at, application_id);
+drop trigger if exists touch_applications_updated_at on public.applications;
+create trigger touch_applications_updated_at before update on public.applications for each row execute function public.touch_updated_at();
+drop trigger if exists touch_profiles_updated_at on public.profiles;
+create trigger touch_profiles_updated_at before update on public.profiles for each row execute function public.touch_updated_at();
+drop trigger if exists touch_scholarships_updated_at on public.scholarships;
+create trigger touch_scholarships_updated_at before update on public.scholarships for each row execute function public.touch_updated_at();
+drop trigger if exists touch_documents_updated_at on public.documents;
+create trigger touch_documents_updated_at before update on public.documents for each row execute function public.touch_updated_at();
+drop trigger if exists touch_notifications_updated_at on public.notifications;
+create trigger touch_notifications_updated_at before update on public.notifications for each row execute function public.touch_updated_at();
+drop trigger if exists touch_application_case_officers_updated_at on public.application_case_officers;
+create trigger touch_application_case_officers_updated_at before update on public.application_case_officers for each row execute function public.touch_updated_at();
+drop trigger if exists touch_application_interview_panelists_updated_at on public.application_interview_panelists;
+create trigger touch_application_interview_panelists_updated_at before update on public.application_interview_panelists for each row execute function public.touch_updated_at();
+drop trigger if exists touch_scholarship_offers_updated_at on public.scholarship_offers;
+create trigger touch_scholarship_offers_updated_at before update on public.scholarship_offers for each row execute function public.touch_updated_at();
+drop trigger if exists touch_application_grant_amounts_updated_at on public.application_grant_amounts;
+create trigger touch_application_grant_amounts_updated_at before update on public.application_grant_amounts for each row execute function public.touch_updated_at();
+drop trigger if exists touch_application_waitlist_ranks_updated_at on public.application_waitlist_ranks;
+create trigger touch_application_waitlist_ranks_updated_at before update on public.application_waitlist_ranks for each row execute function public.touch_updated_at();
+drop trigger if exists touch_approval_levels_updated_at on public.approval_levels;
+create trigger touch_approval_levels_updated_at before update on public.approval_levels for each row execute function public.touch_updated_at();
+drop trigger if exists touch_interview_locations_updated_at on public.interview_locations;
+create trigger touch_interview_locations_updated_at before update on public.interview_locations for each row execute function public.touch_updated_at();
+
+-- Controlled, resumable operator import of workflow-valid Submitted cases
+-- (20261105000003). This never provisions Auth accounts and never sends a
+-- synthetic submission notification.
+-- Controlled operator import for already-provisioned students. The import RPC
+-- writes a complete Submitted application graph without producing submit
+-- notifications, and rechecks the business gates that service-role writes would
+-- otherwise bypass in enforce_student_application_update().
+create table if not exists public.application_import_batches (
+  id uuid primary key,
+  manifest_hash text not null check (manifest_hash ~ '^[0-9a-f]{64}$'),
+  status text not null default 'running' check (status in ('running', 'completed', 'partial')),
+  attempted_rows integer not null default 0,
+  imported_rows integer not null default 0,
+  skipped_rows integer not null default 0,
+  failed_rows integer not null default 0,
+  created_at timestamptz not null default now(),
+  completed_at timestamptz
+);
+
+create table if not exists public.application_import_records (
+  source_key text primary key check (source_key ~ '^[0-9a-f]{64}$'),
+  batch_id uuid not null references public.application_import_batches(id) on delete cascade,
+  payload_hash text not null check (payload_hash ~ '^[0-9a-f]{64}$'),
+  application_id uuid not null unique references public.applications(id) on delete cascade,
+  imported_at timestamptz not null default now()
+);
+create index if not exists application_import_records_batch_idx
+  on public.application_import_records (batch_id, imported_at);
+
+alter table public.application_import_batches enable row level security;
+alter table public.application_import_records enable row level security;
+revoke all on public.application_import_batches from public, anon, authenticated;
+revoke all on public.application_import_records from public, anon, authenticated;
+grant select on public.application_import_batches to service_role;
+grant select on public.application_import_records to service_role;
+
+create or replace function public.application_import_profile_answers(p_snapshot jsonb, p_financial_snapshot jsonb)
+returns jsonb
+language sql
+immutable
+set search_path = public
+as $$
+  select jsonb_build_object(
+    'fullName', p_snapshot ->> 'fullName',
+    'studentNumber', p_snapshot ->> 'studentNumber',
+    'degreeProgram', p_snapshot ->> 'degreeProgram',
+    'department', p_snapshot ->> 'department',
+    'yearStanding', p_snapshot ->> 'yearStanding',
+    'isTransferee', p_snapshot #>> '{eligibility,isTransferee}',
+    'qpi', case when p_snapshot #>> '{academic,credential}' = 'qpi' then p_snapshot #>> '{academic,value}' end,
+    'hsAverage', case when p_snapshot #>> '{academic,credential}' = 'hsAverage' then p_snapshot #>> '{academic,value}' end,
+    'householdIncome', p_snapshot #>> '{householdIncome,value}',
+    'citizenship', p_snapshot #>> '{citizenship,value}',
+    'academicStanding', p_snapshot #>> '{eligibility,academicStanding,value}',
+    'honorsRank', p_snapshot #>> '{eligibility,honorsRank,value}',
+    'graduatingClassSize', p_snapshot #>> '{eligibility,graduatingClassSize}',
+    'isOnPrepaidPlan', coalesce(p_snapshot #> '{eligibility,isOnPrepaidPlan}', 'false'::jsonb),
+    'hasSiblingOnAid', coalesce(p_snapshot #> '{eligibility,hasSiblingOnAid}', 'false'::jsonb),
+    'hasOtherActiveScholarship', coalesce(p_snapshot #> '{eligibility,hasOtherActiveScholarship}', 'false'::jsonb),
+    'hsStrand', p_snapshot #>> '{eligibility,hsStrand}',
+    'programChoice2', p_snapshot #>> '{eligibility,programChoices,0}',
+    'programChoice3', p_snapshot #>> '{eligibility,programChoices,1}',
+    'ipCommunity', p_snapshot #>> '{background,ipCommunity,value}',
+    'pwd', p_snapshot #>> '{background,pwd,value}',
+    'employed', p_snapshot #>> '{background,employed,value}',
+    'ipGroupName', p_snapshot #>> '{background,ipGroupName}',
+    'civilStatus', p_snapshot #>> '{personal,civilStatus}',
+    'religion', p_snapshot #>> '{personal,religion}',
+    'religionOther', p_snapshot #>> '{personal,religionOther}',
+    'birthdate', p_snapshot #>> '{personal,birthdate}',
+    'sexAtBirth', p_snapshot #>> '{personal,sexAtBirth}',
+    'pronouns', p_snapshot #>> '{personal,pronouns}',
+    'phone', p_snapshot #>> '{personal,phone}',
+    'completeAddress', p_snapshot #>> '{address,completeAddress}',
+    'residingAddress', p_snapshot #>> '{address,residingAddress}',
+    'country', p_snapshot #>> '{address,country}',
+    'housingType', p_snapshot #>> '{address,housingType}',
+    'housingOther', p_snapshot #>> '{address,housingOther}',
+    'schoolLastAttended', coalesce(p_snapshot #> '{education,schoolLastAttended}', '{}'::jsonb),
+    'awards', coalesce(p_snapshot #>> '{education,awards}', ''),
+    'awardsNone', coalesce(nullif(btrim(p_snapshot #>> '{education,awards}'), '') is null, false),
+    'familyDetails', coalesce(p_snapshot -> 'family', '{}'::jsonb)
+      || jsonb_build_object(
+        'siblingsNone', public.jsonb_array_empty(p_snapshot #> '{family,siblings}'),
+        'householdAdultsNone', public.jsonb_array_empty(p_snapshot #> '{family,householdAdults}')
+      ),
+    'previousGrants', coalesce(p_snapshot #> '{aid,previousGrants}', '[]'::jsonb),
+    'previousGrantsAnswered', case
+      when public.jsonb_array_empty(p_snapshot #> '{aid,previousGrants}') then 'No'
+      else 'Yes'
+    end,
+    'communityService', p_snapshot #>> '{aid,communityService}',
+    'financialProfile', coalesce(p_financial_snapshot, '{}'::jsonb)
+  );
+$$;
+revoke all on function public.application_import_profile_answers(jsonb, jsonb) from public, anon, authenticated;
+
+create or replace function public.import_submitted_application_batch(
+  p_batch_id uuid,
+  p_manifest_hash text,
+  p_records jsonb,
+  p_finalize boolean default false
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_batch public.application_import_batches%rowtype;
+  v_record jsonb;
+  v_application jsonb;
+  v_document jsonb;
+  v_existing public.application_import_records%rowtype;
+  v_existing_document public.documents%rowtype;
+  v_owner_id uuid;
+  v_scholarship_id uuid;
+  v_application_id uuid;
+  v_submitted_at timestamptz;
+  v_certified_at timestamptz;
+  v_academic_value numeric;
+  v_academic_floor numeric;
+  v_income numeric;
+  v_profile jsonb;
+  v_missing text;
+  v_standing text;
+  v_is_incoming boolean;
+  v_scholarship public.scholarships%rowtype;
+  v_financial_profile jsonb;
+  v_documents jsonb;
+  v_item jsonb;
+  v_types text[];
+  v_keys text[];
+  v_covered text[];
+  v_claim text;
+  v_source_key text;
+  v_payload_hash text;
+  v_document_id uuid;
+  v_index integer := 0;
+  v_inserted integer := 0;
+  v_skipped integer := 0;
+  v_failed integer := 0;
+  v_errors jsonb := '[]'::jsonb;
+  v_application_ids jsonb := '[]'::jsonb;
+  v_record_status text;
+begin
+  if auth.role() is distinct from 'service_role' then
+    raise exception 'Application import requires the service role.' using errcode = '42501';
+  end if;
+  if p_batch_id is null or p_manifest_hash is null or p_manifest_hash !~ '^[0-9a-f]{64}$' then
+    raise exception 'A batch UUID and SHA-256 manifest hash are required.' using errcode = '22023';
+  end if;
+  if jsonb_typeof(coalesce(p_records, '[]'::jsonb)) <> 'array'
+    or jsonb_array_length(coalesce(p_records, '[]'::jsonb)) > 25 then
+    raise exception 'Each import request must contain at most 25 records.' using errcode = '22023';
+  end if;
+
+  insert into public.application_import_batches (id, manifest_hash)
+  values (p_batch_id, p_manifest_hash)
+  on conflict (id) do nothing;
+  select * into v_batch from public.application_import_batches where id = p_batch_id for update;
+  if v_batch.manifest_hash <> p_manifest_hash then
+    raise exception 'The batch ID is already associated with a different manifest.' using errcode = '23505';
+  end if;
+
+  for v_record in select value from jsonb_array_elements(coalesce(p_records, '[]'::jsonb)) loop
+    v_index := v_index + 1;
+    begin
+      v_application := v_record -> 'application';
+      v_documents := v_record -> 'documents';
+      v_source_key := v_record ->> 'source_key';
+      v_payload_hash := v_record ->> 'payload_hash';
+
+      v_covered := '{}'::text[];
+      if jsonb_typeof(v_application) is distinct from 'object'
+        or jsonb_typeof(v_documents) is distinct from 'array'
+        or coalesce(v_source_key, '') !~ '^[0-9a-f]{64}$'
+        or coalesce(v_payload_hash, '') !~ '^[0-9a-f]{64}$' then
+        raise exception 'The record manifest shape is invalid.' using errcode = '22023';
+      end if;
+      if jsonb_array_length(v_documents) < 1 or jsonb_array_length(v_documents) > 50 then
+        raise exception 'A submitted application must include 1 to 50 document records.' using errcode = '22023';
+      end if;
+
+      select * into v_existing
+      from public.application_import_records
+      where source_key = v_source_key
+      for update;
+      if found then
+        if v_existing.payload_hash <> v_payload_hash then
+          raise exception 'An imported source record changed after it was committed.' using errcode = '23505';
+        end if;
+        v_skipped := v_skipped + 1;
+        v_application_ids := v_application_ids || jsonb_build_array(v_existing.application_id);
+        continue;
+      end if;
+
+      v_application_id := nullif(v_application ->> 'id', '')::uuid;
+      v_owner_id := nullif(v_application ->> 'student_id', '')::uuid;
+      v_scholarship_id := nullif(v_application ->> 'scholarship_id', '')::uuid;
+      v_submitted_at := nullif(v_application ->> 'submitted_at', '')::timestamptz;
+      v_certified_at := nullif(v_application ->> 'certified_at', '')::timestamptz;
+      if v_application_id is null or v_owner_id is null or v_scholarship_id is null
+        or v_submitted_at is null or v_certified_at is null
+        or v_submitted_at > now() + interval '5 minutes'
+        or v_certified_at > now() + interval '5 minutes'
+        or nullif(btrim(v_application ->> 'statement'), '') is null
+        or jsonb_typeof(v_application -> 'profile_snapshot') is distinct from 'object'
+        or coalesce((v_application #>> '{profile_snapshot,version}')::integer, 0) <> 4
+        or jsonb_typeof(v_application -> 'financial_snapshot') is distinct from 'object'
+        or (v_application -> 'financial_snapshot') = '{}'::jsonb
+        or jsonb_typeof(v_application -> 'financial_answers') is distinct from 'object' then
+        raise exception 'The Submitted application is missing required form, snapshot, or date fields.' using errcode = '23514';
+      end if;
+
+      if exists (
+        select 1 from jsonb_object_keys(v_application) as fields(key)
+        where fields.key not in ('id', 'student_id', 'scholarship_id', 'submitted_at', 'certified_at', 'statement', 'profile_snapshot', 'financial_snapshot', 'financial_answers')
+      ) then
+        raise exception 'The application record contains unsupported fields.' using errcode = '22023';
+      end if;
+
+      if exists (select 1 from public.applications a where a.id = v_application_id) then
+        raise exception 'The application UUID is already in use.' using errcode = '23505';
+      end if;
+      if exists (
+        select 1 from public.applications a
+        where a.student_id = v_owner_id
+          and a.scholarship_id = v_scholarship_id
+          and a.status not in ('Draft', 'Released', 'Declined', 'Rejected')
+      ) then
+        raise exception 'The student already has an open application for this scholarship.' using errcode = '23505';
+      end if;
+      if not exists (
+        select 1 from public.profiles p
+        where p.user_id = v_owner_id
+          and p.role = 'student'
+          and p.deactivated_at is null
+      ) then
+        raise exception 'The owner must be an active, already-provisioned student.' using errcode = '23514';
+      end if;
+
+      select * into v_scholarship from public.scholarships where id = v_scholarship_id;
+      if not found or coalesce(v_scholarship.is_external, true)
+        or not coalesce(v_scholarship.is_matchable, false)
+        or coalesce(v_scholarship.rule_family, '') not in ('general-pool', 'honors', 'work-study')
+        or not public.is_addu_in_scope_track(v_scholarship.title)
+        or (v_scholarship.deadline is not null and v_scholarship.deadline < (v_submitted_at at time zone 'Asia/Manila')::date) then
+        raise exception 'The application does not match an in-scope AdDU scholarship and valid submission date.' using errcode = '23514';
+      end if;
+
+      v_financial_profile := v_application -> 'financial_snapshot';
+      v_profile := public.application_import_profile_answers(v_application -> 'profile_snapshot', v_financial_profile);
+      v_missing := public.missing_application_profile_item(v_profile);
+      if v_missing is not null then
+        raise exception 'The owner profile is incomplete for submission: %.', v_missing using errcode = '23514';
+      end if;
+      v_standing := public.profile_year_standing(v_profile);
+      v_is_incoming := v_standing = 'incoming-1st';
+      v_income := nullif(v_profile ->> 'householdIncome', '')::numeric;
+      if v_income is null or v_income < 0
+        or coalesce(v_profile ->> 'citizenship', '') <> 'Filipino'
+        or coalesce(v_profile ->> 'academicStanding', '') = 'disqualified'
+        or coalesce(v_profile ->> 'isOnPrepaidPlan', 'false') = 'true'
+        or coalesce(v_profile ->> 'hasOtherActiveScholarship', 'false') = 'true' then
+        raise exception 'The submitted profile does not pass the universal or AdDU exclusion gate.' using errcode = '23514';
+      end if;
+      if v_is_incoming then
+        v_academic_value := nullif(v_profile ->> 'hsAverage', '')::numeric;
+        v_academic_floor := case when v_scholarship.rule_family = 'general-pool' then coalesce(v_scholarship.minimum_shs_average, 85) else 60 end;
+        if v_academic_value is null or v_academic_value < 60 or v_academic_value > 100 or v_academic_value < v_academic_floor then
+          raise exception 'The senior high school average does not meet the scholarship requirement.' using errcode = '23514';
+        end if;
+      else
+        v_academic_value := nullif(v_profile ->> 'qpi', '')::numeric;
+        v_academic_floor := case when v_scholarship.rule_family = 'general-pool' then coalesce(v_scholarship.minimum_qpi, 2.5) else 0 end;
+        if v_academic_value is null or v_academic_value < 0 or v_academic_value > 4 or v_academic_value < v_academic_floor then
+          raise exception 'The QPI does not meet the scholarship requirement.' using errcode = '23514';
+        end if;
+      end if;
+      if v_scholarship.rule_family = 'general-pool' then
+        if v_income > coalesce(v_scholarship.maximum_income, 250000)
+          or v_profile ->> 'degreeProgram' in ('BS Nursing', 'BS Architecture') then
+          raise exception 'The profile does not pass the General Pool income or degree rule.' using errcode = '23514';
+        end if;
+      elsif v_scholarship.rule_family = 'honors' then
+        if coalesce(v_profile ->> 'honorsRank', '') not in ('Valedictorian', 'Salutatorian')
+          or coalesce((v_profile ->> 'graduatingClassSize')::integer, 0) < 80 then
+          raise exception 'The profile does not pass the Jubilee honors or graduating-class rule.' using errcode = '23514';
+        end if;
+      elsif v_scholarship.rule_family = 'work-study' then
+        if v_profile ->> 'degreeProgram' is null
+          or not coalesce(v_profile ->> 'degreeProgram' = any(v_scholarship.eligible_degrees), false) then
+          raise exception 'The degree program is not eligible for the Working Scholar Program.' using errcode = '23514';
+        end if;
+      end if;
+      if not public.financial_answers_complete(v_application -> 'financial_answers') then
+        raise exception 'The application financial answers are incomplete.' using errcode = '23514';
+      end if;
+      -- INSERT bypasses update-trigger delivery hooks. The importer creates one
+      -- system timeline event and audit row explicitly and sends no submit alert.
+      insert into public.applications (
+        id, student_id, scholarship_id, status, document_status, submitted_at,
+        updated_at, timeline, statement, profile_snapshot, certified_at
+      ) values (
+        v_application_id, v_owner_id, v_scholarship_id, 'Submitted', 'Pending', v_submitted_at,
+        now(), jsonb_build_array(jsonb_build_object(
+          'id', 'ev-' || gen_random_uuid()::text,
+          'stage', 'Submitted',
+          'note', 'Previously submitted application imported into ScholarPath.',
+          'actor', 'System',
+          'at', (v_submitted_at at time zone 'Asia/Manila')::date::text
+        )),
+        v_application ->> 'statement', v_application -> 'profile_snapshot', v_certified_at
+      );
+
+      for v_document in select value from jsonb_array_elements(v_documents) loop
+        v_document_id := nullif(v_document ->> 'id', '')::uuid;
+        if v_document_id is null
+          or coalesce(v_document ->> 'owner_id', '') <> v_owner_id::text
+          or coalesce(v_document ->> 'storage_path', '') !~ ('^' || v_owner_id::text || '/' || v_document_id::text || '/[^/]+$')
+          or nullif(btrim(v_document ->> 'document_type'), '') is null
+          or nullif(btrim(v_document ->> 'file_name'), '') is null
+          or jsonb_typeof(coalesce(v_document -> 'linked_attributes', '[]'::jsonb)) <> 'array'
+          or jsonb_typeof(coalesce(v_document -> 'attested_values', '{}'::jsonb)) <> 'object' then
+          raise exception 'A document record is missing valid owner, type, path, or proof metadata.' using errcode = '23514';
+        end if;
+        if not exists (
+          select 1 from storage.objects o
+          where o.bucket_id = 'documents' and o.name = v_document ->> 'storage_path'
+        ) then
+          raise exception 'A referenced private document object is missing.' using errcode = '23514';
+        end if;
+
+        insert into public.documents (
+          id, owner_id, title, file_name, document_type, storage_path,
+          verification_status, linked_attributes, attested_values, uploaded_at
+        ) values (
+          v_document_id, v_owner_id,
+          coalesce(nullif(btrim(v_document ->> 'title'), ''), v_document ->> 'document_type'),
+          v_document ->> 'file_name', v_document ->> 'document_type', v_document ->> 'storage_path',
+          'Pending', array(select jsonb_array_elements_text(coalesce(v_document -> 'linked_attributes', '[]'::jsonb))),
+          coalesce(v_document -> 'attested_values', '{}'::jsonb),
+          coalesce(nullif(v_document ->> 'uploaded_at', '')::timestamptz, v_submitted_at)
+        ) on conflict (id) do nothing;
+
+        select * into v_existing_document from public.documents where id = v_document_id;
+        if not found or v_existing_document.owner_id <> v_owner_id
+          or v_existing_document.storage_path <> v_document ->> 'storage_path'
+          or v_existing_document.document_type <> v_document ->> 'document_type'
+          or v_existing_document.verification_status = 'Rejected'
+          or v_existing_document.uploaded_at > v_submitted_at then
+          raise exception 'A linked document is not a valid, current file owned by the student.' using errcode = '23514';
+        end if;
+        insert into public.application_documents (application_id, document_id)
+        values (v_application_id, v_document_id)
+        on conflict (application_id, document_id) do nothing;
+      end loop;
+
+      for v_item in select value from jsonb_array_elements(coalesce(v_scholarship.required_documents, '[]'::jsonb)) loop
+        if (v_item ->> 'standing') = 'incoming' and not v_is_incoming then continue; end if;
+        if (v_item ->> 'standing') = 'continuing' and v_is_incoming then continue; end if;
+        v_types := array(select jsonb_array_elements_text(coalesce(v_item -> 'documentTypes', '[]'::jsonb)));
+        if not exists (
+          select 1 from public.application_documents ad
+          join public.documents d on d.id = ad.document_id
+          where ad.application_id = v_application_id
+            and d.verification_status <> 'Rejected'
+            and d.document_type = any(v_types)
+        ) then
+          raise exception 'A required application document is missing.' using errcode = '23514';
+        end if;
+
+        v_keys := array(
+          select distinct attr.key
+          from unnest(v_types) as t(type)
+          cross join lateral unnest(public.document_type_attributes(t.type, v_standing)) as attr(key)
+          where public.attribute_proof_required(attr.key, v_profile)
+        );
+        v_covered := coalesce(v_covered, '{}'::text[]) || coalesce(v_keys, '{}'::text[]);
+        if cardinality(v_keys) > 0 and not exists (
+          select 1 from public.application_documents ad
+          join public.documents d on d.id = ad.document_id
+          where ad.application_id = v_application_id
+            and d.verification_status <> 'Rejected'
+            and d.document_type = any(v_types)
+            and not exists (
+              select 1 from unnest(v_keys) as required(key)
+              where (required.key = any(d.linked_attributes) or required.key = any(public.document_type_attributes(d.document_type, v_standing)))
+                and not public.document_proof_is_current(d.attested_values, d.uploaded_at, required.key, v_profile, v_submitted_at)
+            )
+        ) then
+          raise exception 'A required document does not prove the submitted profile values.' using errcode = '23514';
+        end if;
+      end loop;
+
+      foreach v_claim in array array['employed', 'honorsRank', 'ipCommunity', 'pwd'] loop
+        if v_claim = any(coalesce(v_covered, '{}'::text[])) or not public.attribute_proof_required(v_claim, v_profile) then continue; end if;
+        if not exists (
+          select 1 from public.application_documents ad
+          join public.documents d on d.id = ad.document_id
+          where ad.application_id = v_application_id
+            and d.verification_status <> 'Rejected'
+            and v_claim = any(public.document_type_attributes(d.document_type, v_standing))
+            and public.document_proof_is_current(d.attested_values, d.uploaded_at, v_claim, v_profile, v_submitted_at)
+        ) then
+          raise exception 'A claimed profile answer has no current attached proof.' using errcode = '23514';
+        end if;
+      end loop;
+
+      insert into public.application_financial_details (application_id, student_id, answers, financial_snapshot)
+      values (v_application_id, v_owner_id, v_application -> 'financial_answers', v_financial_profile);
+      insert into public.application_status_log (application_id, from_status, to_status, actor_id, actor_role, reason, created_at)
+      values (v_application_id, null, 'Submitted', null, 'system', 'Previously submitted application imported into ScholarPath.', v_submitted_at);
+      insert into public.application_import_records (source_key, batch_id, payload_hash, application_id)
+      values (v_source_key, p_batch_id, v_payload_hash, v_application_id);
+
+      v_inserted := v_inserted + 1;
+      v_application_ids := v_application_ids || jsonb_build_array(v_application_id);
+    exception when others then
+      v_failed := v_failed + 1;
+      v_errors := v_errors || jsonb_build_array(jsonb_build_object(
+        'row', v_index,
+        'code', sqlstate,
+        'message', left(sqlerrm, 300)
+      ));
+    end;
+  end loop;
+
+  update public.application_import_batches b
+  set attempted_rows = b.attempted_rows + v_index,
+      imported_rows = b.imported_rows + v_inserted,
+      skipped_rows = b.skipped_rows + v_skipped,
+      failed_rows = b.failed_rows + v_failed,
+      status = case when p_finalize then case when b.failed_rows + v_failed > 0 then 'partial' else 'completed' end else 'running' end,
+      completed_at = case when p_finalize then now() else null end
+  where b.id = p_batch_id;
+
+  return jsonb_build_object(
+    'batchId', p_batch_id,
+    'attempted', v_index,
+    'imported', v_inserted,
+    'skipped', v_skipped,
+    'failed', v_failed,
+    'applicationIds', v_application_ids,
+    'errors', v_errors
+  );
+end;
+$$;
+
+revoke all on function public.import_submitted_application_batch(uuid, text, jsonb, boolean) from public, anon, authenticated;
+grant execute on function public.import_submitted_application_batch(uuid, text, jsonb, boolean) to service_role;
+
+-- Atomic first-wave release with idempotent request replay (20261105000004).
+create table if not exists public.application_results_release_requests (
+  request_id uuid primary key,
+  scholarship_id uuid not null references public.scholarships(id) on delete cascade,
+  confirm_by date,
+  release_id uuid not null references public.results_releases(id) on delete cascade,
+  released_application_ids uuid[] not null default '{}',
+  created_at timestamptz not null default now()
+);
+alter table public.application_results_release_requests enable row level security;
+revoke all on public.application_results_release_requests from public, anon, authenticated;
+
+create or replace function public.release_scholarship_results(
+  p_scholarship_id uuid,
+  p_confirm_by date,
+  p_request_id uuid
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_existing public.application_results_release_requests%rowtype;
+  v_release public.results_releases%rowtype;
+  v_approved_count integer;
+  v_released_ids uuid[] := '{}'::uuid[];
+  v_application_rows jsonb := '[]'::jsonb;
+begin
+  if not public.is_admissions_admin() then
+    raise exception 'Only the Admissions Office Admin can release results.' using errcode = '42501';
+  end if;
+  if p_scholarship_id is null or p_request_id is null then
+    raise exception 'A scholarship and release request ID are required.' using errcode = '22023';
+  end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_request_id::text, 0));
+  select * into v_existing
+  from public.application_results_release_requests
+  where request_id = p_request_id
+  for update;
+  if found then
+    if v_existing.scholarship_id <> p_scholarship_id
+      or v_existing.confirm_by is distinct from p_confirm_by then
+      raise exception 'The release request ID is already bound to different release details.' using errcode = '23505';
+    end if;
+    select * into v_release from public.results_releases where id = v_existing.release_id;
+    select coalesce(jsonb_agg(jsonb_build_object(
+      'id', a.id,
+      'updated_at', a.updated_at,
+      'release', a.release,
+      'timeline', a.timeline
+    ) order by a.id), '[]'::jsonb)
+      into v_application_rows
+      from public.applications a
+      where a.id = any(v_existing.released_application_ids);
+    return jsonb_build_object(
+      'release', to_jsonb(v_release),
+      'releasedApplicationIds', to_jsonb(v_existing.released_application_ids),
+      'applications', v_application_rows,
+      'replayed', true
+    );
+  end if;
+
+  perform 1 from public.scholarships where id = p_scholarship_id for update;
+  if not found then raise exception 'The scholarship could not be found.' using errcode = '23503'; end if;
+  select count(*) into v_approved_count
+  from public.applications a
+  where a.scholarship_id = p_scholarship_id and a.status = 'Approved';
+  if v_approved_count > 0 and (p_confirm_by is null or p_confirm_by < (now() at time zone 'Asia/Manila')::date) then
+    raise exception 'Choose a confirm-by date that is today or later.' using errcode = '23514';
+  end if;
+
+  with updated as (
+    update public.applications a
+    set status = 'Released',
+        release = jsonb_build_object(
+          'releasedTo', 'Admissions Office',
+          'releasedAt', (now() at time zone 'Asia/Manila')::date::text,
+          'reference', 'OAA-' || upper(substr(a.id::text, 1, 8)),
+          'confirmBy', p_confirm_by::text
+        ),
+        updated_at = now(),
+        timeline = coalesce(a.timeline, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+          'id', 'ev-' || gen_random_uuid()::text,
+          'stage', 'Released',
+          'note', 'Result released to the applicant through the Admissions Office (OAA-' || upper(substr(a.id::text, 1, 8)) || ').',
+          'actor', 'Admissions Office Admin',
+          'at', (now() at time zone 'Asia/Manila')::date::text
+        ))
+    where a.scholarship_id = p_scholarship_id and a.status = 'Approved'
+    returning a.id
+  )
+  select coalesce(array_agg(updated.id), '{}'::uuid[])
+    into v_released_ids
+    from updated;
+  if cardinality(v_released_ids) > 0
+    and (p_confirm_by is null or p_confirm_by < (now() at time zone 'Asia/Manila')::date) then
+    raise exception 'Choose a confirm-by date that is today or later.' using errcode = '23514';
+  end if;
+
+  v_release := public.record_results_release(p_scholarship_id);
+  insert into public.application_results_release_requests (
+    request_id, scholarship_id, confirm_by, release_id, released_application_ids
+  ) values (
+    p_request_id, p_scholarship_id, p_confirm_by, v_release.id, v_released_ids
+  );
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'id', a.id,
+    'updated_at', a.updated_at,
+    'release', a.release,
+    'timeline', a.timeline
+  ) order by a.id), '[]'::jsonb)
+    into v_application_rows
+    from public.applications a
+    where a.id = any(v_released_ids);
+  return jsonb_build_object(
+    'release', to_jsonb(v_release),
+    'releasedApplicationIds', to_jsonb(v_released_ids),
+    'applications', v_application_rows,
+    'replayed', false
+  );
+end;
+$$;
+revoke all on function public.release_scholarship_results(uuid, date, uuid) from public, anon;
+grant execute on function public.release_scholarship_results(uuid, date, uuid) to authenticated;
+
+-- Role-scoped stage totals computed in the database instead of by downloading
+-- every application. The function is SECURITY INVOKER on purpose: row-level
+-- security on public.applications is the single statement of who may see which
+-- case (the student's own, the Admissions Office's all, a reviewer's scope through
+-- reviewer_scopes_to_student()), so a count can never reveal a case the caller
+-- could not list. It returns counts only: no student, no snapshot, no finance.
+--
+-- The client uses it to check, after every background refresh, that the cases it
+-- holds in memory match what the database says the caller can see, and to
+-- reconcile in full when they do not.
+create or replace function public.get_application_stage_counts()
+returns table (
+  status text,
+  scholarship_id uuid,
+  application_count bigint
+)
+language sql
+stable
+security invoker
+set search_path = public
+as $$
+  select a.status, a.scholarship_id, count(*)::bigint as application_count
+  from public.applications a
+  group by a.status, a.scholarship_id;
+$$;
+
+revoke all on function public.get_application_stage_counts() from public, anon;
+grant execute on function public.get_application_stage_counts() to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Durable notification outbox (20261105000006_notification_outbox.sql)
+-- ---------------------------------------------------------------------------
+create extension if not exists pg_net;
+
+-- --- Dispatch settings (service-side only) ----------------------------------
+
+create table if not exists public.notification_dispatch_config (
+  id boolean primary key default true check (id),
+  functions_base_url text not null,
+  bearer_secret text not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.notification_dispatch_config enable row level security;
+revoke all on public.notification_dispatch_config from public, anon, authenticated;
+
+-- Deployed projects copy the URL and secret from the notify_application_status_change()
+-- function that 20261014000003 installed (see the migration). On a fresh project,
+-- insert the single row yourself with the real values:
+--   insert into public.notification_dispatch_config (functions_base_url, bearer_secret)
+--   values ('https://<project-ref>.supabase.co/functions/v1/', '<REMINDER_CRON_SECRET>');
+
+-- --- Outbox ------------------------------------------------------------------
+
+create table if not exists public.notification_outbox (
+  id bigint generated always as identity primary key,
+  function_name text not null check (function_name in ('notify-application-status')),
+  payload jsonb not null,
+  dedupe_key text not null check (char_length(dedupe_key) between 1 and 200),
+  status text not null default 'pending' check (status in ('pending', 'dispatched', 'sent', 'failed')),
+  attempts integer not null default 0,
+  request_id bigint,
+  next_attempt_at timestamptz not null default now(),
+  last_http_status integer,
+  last_error text,
+  created_at timestamptz not null default now(),
+  dispatched_at timestamptz,
+  completed_at timestamptz
+);
+
+-- One live entry per logical notification: a duplicate trigger firing while the
+-- first is still pending or in flight adds nothing.
+create unique index if not exists notification_outbox_active_dedupe_idx
+  on public.notification_outbox (dedupe_key)
+  where status in ('pending', 'dispatched');
+create index if not exists notification_outbox_pending_idx
+  on public.notification_outbox (next_attempt_at, id)
+  where status = 'pending';
+create index if not exists notification_outbox_dispatched_idx
+  on public.notification_outbox (dispatched_at, id)
+  where status = 'dispatched';
+create index if not exists notification_outbox_completed_idx
+  on public.notification_outbox (completed_at)
+  where status = 'sent';
+
+alter table public.notification_outbox enable row level security;
+revoke all on public.notification_outbox from public, anon, authenticated;
+grant select on public.notification_outbox to service_role;
+
+-- --- Sending -----------------------------------------------------------------
+
+-- Sends one outbox row through pg_net. Returns the pg_net request id.
+create or replace function public.notification_outbox_send(p_function_name text, p_payload jsonb)
+returns bigint
+language plpgsql
+security definer
+set search_path = public, net
+as $$
+declare
+  v_config public.notification_dispatch_config%rowtype;
+begin
+  select * into v_config from public.notification_dispatch_config where id;
+  if not found then
+    raise exception 'notification_dispatch_config is empty';
+  end if;
+  return net.http_post(
+    url := v_config.functions_base_url || p_function_name,
+    headers := jsonb_build_object(
+      'Authorization', 'Bearer ' || v_config.bearer_secret,
+      'Content-Type', 'application/json'
+    ),
+    body := p_payload
+  );
+end;
+$$;
+revoke all on function public.notification_outbox_send(text, jsonb) from public, anon, authenticated;
+
+-- The one entry point the triggers call. Records the notification, then sends it
+-- at once while the transaction is still small; beyond that the worker sends it.
+create or replace function public.dispatch_notification(
+  p_function_name text,
+  p_payload jsonb,
+  p_dedupe_key text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id bigint;
+  v_direct integer;
+  v_request bigint;
+begin
+  -- Record first. An exception block rolls back everything inside it, so the
+  -- insert sits outside the protected send below: whatever happens to the send,
+  -- the row stays committed with the business write for the worker to retry.
+  begin
+    insert into public.notification_outbox (function_name, payload, dedupe_key)
+    values (p_function_name, p_payload, p_dedupe_key)
+    on conflict (dedupe_key) where status in ('pending', 'dispatched') do nothing
+    returning id into v_id;
+  exception when others then
+    -- The outbox itself is unavailable: fall back to the previous behaviour (one
+    -- direct call) rather than lose the notification or fail the status write.
+    begin
+      perform public.notification_outbox_send(p_function_name, p_payload);
+    exception when others then
+      null;
+    end;
+    return;
+  end;
+  if v_id is null then
+    return;
+  end if;
+
+  -- Direct sends per transaction. A single status change sends at once; a bulk
+  -- update (a release or a closing round touching hundreds of cases) sends the
+  -- first few and leaves the rest pending, so one statement can no longer queue
+  -- an unbounded number of Edge Function calls.
+  v_direct := coalesce(nullif(current_setting('scholarpath.notify_direct_count', true), ''), '0')::integer;
+  if v_direct >= 20 then
+    return;
+  end if;
+  perform set_config('scholarpath.notify_direct_count', (v_direct + 1)::text, true);
+
+  begin
+    v_request := public.notification_outbox_send(p_function_name, p_payload);
+    update public.notification_outbox
+      set status = 'dispatched', request_id = v_request, attempts = attempts + 1, dispatched_at = now()
+      where id = v_id;
+  exception when others then
+    -- Never fail the business write. The row stays pending, the worker retries.
+    update public.notification_outbox set last_error = left(sqlerrm, 200) where id = v_id;
+  end;
+end;
+$$;
+revoke all on function public.dispatch_notification(text, jsonb, text) from public, anon, authenticated;
+
+-- Sends pending rows in a bounded batch. `for update skip locked` lets two
+-- overlapping worker runs share the queue without sending a row twice.
+create or replace function public.drain_notification_outbox(p_limit integer default 100)
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_row record;
+  v_request bigint;
+  v_sent integer := 0;
+begin
+  for v_row in
+    select id, function_name, payload
+    from public.notification_outbox
+    where status = 'pending' and next_attempt_at <= now()
+    order by id
+    limit greatest(1, least(coalesce(p_limit, 100), 500))
+    for update skip locked
+  loop
+    begin
+      v_request := public.notification_outbox_send(v_row.function_name, v_row.payload);
+      update public.notification_outbox
+        set status = 'dispatched', request_id = v_request, attempts = attempts + 1, dispatched_at = now(), last_error = null
+        where id = v_row.id;
+      v_sent := v_sent + 1;
+    exception when others then
+      update public.notification_outbox
+        set attempts = attempts + 1,
+            last_error = left(sqlerrm, 200),
+            next_attempt_at = now() + (interval '1 minute' * power(2, least(attempts + 1, 6))),
+            status = case when attempts + 1 >= 5 then 'failed' else 'pending' end,
+            completed_at = case when attempts + 1 >= 5 then now() else null end
+        where id = v_row.id;
+    end;
+  end loop;
+  return v_sent;
+end;
+$$;
+revoke all on function public.drain_notification_outbox(integer) from public, anon, authenticated;
+
+-- Reads the pg_net outcome of every in-flight row. 2xx completes it; a 4xx other
+-- than 408/429 is permanent (a bad request does not improve by repeating); a
+-- timeout, 5xx, 408 or 429 is retried with exponential backoff, up to five
+-- attempts. A request with no recorded response after 15 minutes is treated as
+-- lost and retried, which is safe because the Edge Functions dedupe on source
+-- keys. Finished rows are pruned after 14 days.
+create or replace function public.reconcile_notification_outbox()
+returns void
+language plpgsql
+security definer
+set search_path = public, net
+as $$
+begin
+  update public.notification_outbox o
+  set last_http_status = r.status_code,
+      last_error = case when r.status_code between 200 and 299 then null else left(coalesce(r.error_msg, 'HTTP ' || coalesce(r.status_code::text, 'no status')), 200) end,
+      status = case
+        when r.status_code between 200 and 299 then 'sent'
+        when r.status_code between 400 and 499 and r.status_code not in (408, 429) then 'failed'
+        when o.attempts >= 5 then 'failed'
+        else 'pending'
+      end,
+      completed_at = case
+        when r.status_code between 200 and 299 then now()
+        when r.status_code between 400 and 499 and r.status_code not in (408, 429) then now()
+        when o.attempts >= 5 then now()
+        else null
+      end,
+      next_attempt_at = now() + (interval '1 minute' * power(2, least(o.attempts, 6)))
+  from net._http_response r
+  where o.status = 'dispatched' and o.request_id = r.id;
+
+  update public.notification_outbox o
+  set status = case when o.attempts >= 5 then 'failed' else 'pending' end,
+      last_error = 'No response recorded for the request',
+      completed_at = case when o.attempts >= 5 then now() else null end,
+      next_attempt_at = now() + (interval '1 minute' * power(2, least(o.attempts, 6)))
+  where o.status = 'dispatched'
+    and o.dispatched_at < now() - interval '15 minutes'
+    and not exists (select 1 from net._http_response r where r.id = o.request_id);
+
+  delete from public.notification_outbox
+  where status in ('sent', 'failed') and completed_at < now() - interval '14 days';
+end;
+$$;
+revoke all on function public.reconcile_notification_outbox() from public, anon, authenticated;
+
+create or replace function public.run_notification_outbox()
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.reconcile_notification_outbox();
+  return public.drain_notification_outbox(100);
+end;
+$$;
+revoke all on function public.run_notification_outbox() from public, anon, authenticated;
+
+-- Run the worker every minute (pg_cron). Recreate it idempotently:
+--   select cron.unschedule('run-notification-outbox') where exists (select 1 from cron.job where jobname = 'run-notification-outbox');
+--   select cron.schedule('run-notification-outbox', '* * * * *', $$select public.run_notification_outbox();$$);
+
+-- --- Route the bulk-capable triggers through the outbox ---------------------
+
+create or replace function public.notify_application_status_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.status is distinct from old.status then
+    perform public.dispatch_notification(
+      'notify-application-status',
+      jsonb_build_object('applicationId', new.id),
+      'application-status-' || new.id::text || '-' || new.status
+    );
+  end if;
+  return new;
+end;
+$$;
+revoke all on function public.notify_application_status_change() from public, anon, authenticated;
+
+create or replace function public.notify_results_release()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  perform public.dispatch_notification(
+    'notify-application-status',
+    jsonb_build_object('mode', 'results-release', 'releaseId', new.id),
+    'results-release-' || new.id::text
+  );
+  return new;
+end;
+$$;
+revoke all on function public.notify_results_release() from public, anon, authenticated;
+
+-- --- Append-only delivery attempts ------------------------------------------
+
+-- One row per channel outcome per run of an Edge Function. It records what
+-- happened (sent, skipped, failed) and a short code; it never holds an address,
+-- a phone number, a message body or a provider error text. The delivery ledger
+-- (notification_email_log) stays the latest state per recipient and channel.
+create table if not exists public.notification_delivery_attempts (
+  id bigint generated always as identity primary key,
+  function_name text not null,
+  source_key text not null,
+  user_id uuid,
+  channel text not null check (channel in ('in-app', 'email', 'sms')),
+  status text not null check (status in ('sent', 'skipped', 'failed')),
+  error_code text check (error_code is null or char_length(error_code) <= 60),
+  provider_message_id text,
+  attempted_at timestamptz not null default now()
+);
+create index if not exists notification_delivery_attempts_source_idx
+  on public.notification_delivery_attempts (source_key, attempted_at);
+create index if not exists notification_delivery_attempts_attempted_idx
+  on public.notification_delivery_attempts (attempted_at);
+create index if not exists notification_delivery_attempts_user_idx
+  on public.notification_delivery_attempts (user_id);
+
+alter table public.notification_delivery_attempts enable row level security;
+revoke all on public.notification_delivery_attempts from public, anon, authenticated;
+grant select, insert on public.notification_delivery_attempts to service_role;
+
+create or replace function public.forbid_delivery_attempt_changes()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'notification_delivery_attempts is append-only.' using errcode = '42501';
+end;
+$$;
+revoke all on function public.forbid_delivery_attempt_changes() from public, anon, authenticated;
+
+drop trigger if exists forbid_delivery_attempt_changes on public.notification_delivery_attempts;
+create trigger forbid_delivery_attempt_changes
+  before update or delete on public.notification_delivery_attempts
+  for each row execute function public.forbid_delivery_attempt_changes();
 
 notify pgrst, 'reload schema';

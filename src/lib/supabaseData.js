@@ -3,6 +3,8 @@ import { isHierarchyProgram } from './academicPrograms';
 import { isReviewerRole } from './reviewScope';
 import { DOCUMENT_BUCKET, buildDocumentStoragePath } from './documentStorage';
 import { AVATAR_BUCKET, buildAvatarStoragePath } from './avatarStorage';
+import { fetchKeysetRows, fetchPagedRows, fetchRowsInBatches } from './supabasePaging';
+import { classifySupabaseError } from './errorKinds';
 
 const toScholarship = (row) => ({
   ...row,
@@ -37,6 +39,7 @@ const toDocument = (row) => ({
   storagePath: row.storage_path,
   sharedWith: row.shared_with || [],
   uploadedAt: row.uploaded_at,
+  updatedAt: row.updated_at,
   // The current review decision: when it was made and which Admissions Office
   // account recorded it (stamped by the trigger, see
   // 20261027000000_add_document_decision_actor.sql). A Pending file carries no
@@ -184,7 +187,7 @@ const toWaitlistRank = (row) => ({
   rank: Number(row.rank) || 0,
   updatedAt: row.updated_at,
 });
-const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at });
+const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at, updatedAt: row.updated_at });
 const toDepartmentReview = (row) => ({
   ...row,
   applicationId: row.application_id,
@@ -192,6 +195,36 @@ const toDepartmentReview = (row) => ({
   householdIncome: row.household_income,
   createdAt: row.created_at,
 });
+
+// One append-only status-log row (application_status_log). The actor's name
+// resolves from the profiles visible to the caller; a student sees only their
+// own profile, so the modal falls back to the recorded role.
+const toStatusLogEntry = (row, studentById = {}) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  fromStatus: row.from_status,
+  toStatus: row.to_status,
+  actorId: row.actor_id,
+  actorRole: row.actor_role,
+  actorName: studentById[row.actor_id]?.full_name || null,
+  reason: row.reason,
+  at: row.created_at,
+});
+
+const STATUS_LOG_COLUMNS = 'id, application_id, from_status, to_status, actor_id, actor_role, reason, created_at';
+const REVIEW_COMMENT_COLUMNS = 'id, application_id, author_id, author_role, author_name, kind, body, created_at';
+
+const groupStatusLog = (rows, studentById) => {
+  const grouped = {};
+  (rows || []).forEach((row) => {
+    (grouped[row.application_id] ||= []).push(toStatusLogEntry(row, studentById));
+  });
+  return grouped;
+};
+
+// A rejected read must never be mistaken for "no rows": the loaders return the
+// error object, and a thrown fetch failure is folded into the same shape.
+const settle = (promise) => Promise.resolve(promise).then((result) => result, (error) => ({ data: null, error }));
 
 // The internal reviewer thread for one application (application_review_comments).
 // Students never receive these rows; the RLS policies scope staff access.
@@ -217,6 +250,7 @@ const toGrantAmount = (row) => ({
   setByRole: row.set_by_role || '',
   updatedAt: row.updated_at,
 });
+const uniqueBy = (rows, key) => [...new Map((rows || []).map((row) => [row[key], row])).values()];
 
 // The Admissions Office case-officer roster (application_case_officers). Staff
 // only: the student never learns which officer opened their application, so these
@@ -230,6 +264,7 @@ const toCaseOfficer = (row) => ({
   joinedAt: row.joined_at,
   leftAt: row.left_at || null,
   leftReason: row.left_reason || '',
+  updatedAt: row.updated_at,
 });
 
 // SOP step 5 (20261029000000_overhaul_interview_stage.sql). Locations are read by
@@ -254,6 +289,7 @@ const toInterviewPanelist = (row, nameById = {}) => ({
   guestEmail: row.guest_email || '',
   isLead: Boolean(row.is_lead),
   removedAt: row.removed_at || null,
+  updatedAt: row.updated_at,
   name: row.profile_id ? (nameById[row.profile_id] || 'Department Chair') : (row.guest_name || 'Faculty guest'),
 });
 
@@ -278,38 +314,46 @@ const STAFF_ROLES = ['admissions_office', 'admissions_admin', 'dean', 'assistant
 
 const ensureReady = () => hasSupabaseConfig && supabase;
 
-export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
+// `includeDetails` controls the three append-only per-case streams (status log,
+// internal comments, interview notes). A student reads only their own rows, so
+// they hydrate with the workspace. A staff session would download every case's
+// history before the first screen; there they are loaded afterwards by
+// loadSupabaseWorkspaceDetails() and per opened case by loadSupabaseCaseDetails().
+export const loadSupabaseWorkspace = async ({ role, userId, department, signal, includeDetails = role === 'student' }) => {
   if (!ensureReady()) return { success: false, fallback: true };
 
   const [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, deadlinesResult, profilesResult, officeEntriesResult, approvalLevelsResult, resultsReleasesResult] = await Promise.all([
-    supabase.from('scholarships').select('*').order('deadline', { ascending: true }),
-    supabase.from('applications').select('*').order('updated_at', { ascending: false }),
-    supabase.from('documents').select('*').order('uploaded_at', { ascending: false }),
-    supabase.from('announcements').select('*').order('created_at', { ascending: false }),
-    supabase.from('notifications').select('*').eq('profile_id', userId).order('created_at', { ascending: false }),
+    fetchPagedRows(() => supabase.from('scholarships').select('*').order('deadline', { ascending: true }).order('id', { ascending: true })),
+    // The two tables that change while a hydration is under way are read by
+    // keyset, so a row updated between pages is neither skipped nor repeated.
+    fetchKeysetRows(() => supabase.from('applications').select('*'), { orderColumn: 'updated_at', ascending: false, signal }),
+    fetchKeysetRows(() => supabase.from('documents').select('*'), { orderColumn: 'uploaded_at', ascending: false, signal }),
+    fetchPagedRows(() => supabase.from('announcements').select('*').order('created_at', { ascending: false }).order('id', { ascending: false })),
+    fetchPagedRows(() => supabase.from('notifications').select('*').eq('profile_id', userId).order('created_at', { ascending: false }).order('id', { ascending: false })),
     isReviewerRole(role)
-      ? supabase.from('department_reviews').select('*').eq('department', department).order('created_at', { ascending: false })
+      ? fetchPagedRows(() => supabase.from('department_reviews').select('*').eq('department', department).order('created_at', { ascending: false }).order('id', { ascending: false }))
       : Promise.resolve({ data: [], error: null }),
-    supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId),
+    fetchPagedRows(() => supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId).order('id', { ascending: true })),
     // Staff queues need applicant context. students_read is limited to their own
     // profile by RLS, so this select is safe for every role.
-    supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income, review_school, review_cluster, review_department'),
+    fetchPagedRows(() => supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income, review_school, review_cluster, review_department').order('user_id', { ascending: true })),
     // Office calendar planning entries are a staff-only slice. A student session
     // never asks for them, so they cannot leak into the student calendar.
     role === 'student'
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('office_calendar_entries').select('*').order('entry_date', { ascending: true }),
+      : fetchPagedRows(() => supabase.from('office_calendar_entries').select('*').order('entry_date', { ascending: true }).order('id', { ascending: true })),
     // SOP step 7 routing, read by every staff role so a page lists exactly the
     // recommendations its account may approve.
     role === 'student'
       ? Promise.resolve({ data: [], error: null })
-      : supabase.from('approval_levels').select('*').order('school', { ascending: true }),
-    // Every role reads the releases: a student's held result is unmasked by the
-    // release that covers it, and the Admin's release lane counts them.
-    supabase.from('results_releases').select('*').order('released_at', { ascending: true }),
-  ]);
+      : fetchPagedRows(() => supabase.from('approval_levels').select('*').order('school', { ascending: true }).order('id', { ascending: true })),
+    // Release coverage is role-filtered in the RPC because a release row's raw
+    // application_ids array would disclose other applicants' IDs to a student.
+    fetchPagedRows(() => supabase.rpc('get_scoped_results_releases')),
+  ].map(settle));
+  if (signal?.aborted) return { success: false, fallback: false, cancelled: true };
   const failed = [scholarshipsResult, applicationsResult, documentsResult, announcementsResult, notificationsResult, reviewsResult, profilesResult].find((result) => result.error);
-  if (failed) return { success: false, fallback: false, message: failed.error.message };
+  if (failed) return { success: false, fallback: false, message: failed.error.message, errorKind: classifySupabaseError(failed.error) };
 
   // Pending-migration tolerance: an unavailable custom_deadlines table yields no
   // server-side deadlines rather than failing the whole workspace, so the
@@ -346,58 +390,40 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   const documentIdsByApplication = {};
   const applicationIds = (applicationsResult.data || []).map((entry) => entry.id);
   if (applicationIds.length) {
-    const linksResult = await supabase.from('application_documents').select('application_id, document_id').in('application_id', applicationIds);
-    if (linksResult.error) return { success: false, fallback: false, message: linksResult.error.message };
+    const linksResult = await fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_documents').select('application_id, document_id').in('application_id', ids));
+    if (linksResult.error) return { success: false, fallback: false, message: linksResult.error.message, errorKind: classifySupabaseError(linksResult.error) };
     (linksResult.data || []).forEach((link) => {
       documentIdsByApplication[link.application_id] = [...(documentIdsByApplication[link.application_id] || []), link.document_id];
     });
   }
 
   // The append-only status log is the audit history the review modal shows
-  // (application_status_log, from 20261014000002). A pending migration yields no
-  // rows rather than failing the whole workspace.
-  const statusLogByApplication = {};
-  if (applicationIds.length) {
-    const logResult = await supabase
-      .from('application_status_log')
-      .select('id, application_id, from_status, to_status, actor_id, actor_role, reason, created_at')
-      .in('application_id', applicationIds)
-      .order('created_at', { ascending: true });
-    if (!logResult.error) {
-      (logResult.data || []).forEach((row) => {
-        statusLogByApplication[row.application_id] = [
-          ...(statusLogByApplication[row.application_id] || []),
-          {
-            id: row.id,
-            applicationId: row.application_id,
-            fromStatus: row.from_status,
-            toStatus: row.to_status,
-            actorId: row.actor_id,
-            actorRole: row.actor_role,
-            // Resolved from the profiles visible to the caller; a student sees
-            // only their own profile, so the modal falls back to the role.
-            actorName: studentById[row.actor_id]?.full_name || null,
-            reason: row.reason,
-            at: row.created_at,
-          },
-        ];
-      });
-    }
-  }
-
-  // The internal endorsement thread (application_review_comments, from
-  // 20261023000000). Staff only: a student has no policy on the table. A pending
-  // migration yields no rows rather than failing the whole workspace.
+  // (application_status_log, from 20261014000002), and the internal endorsement
+  // thread (application_review_comments, from 20261023000000) is staff only.
+  // A student's own rows load here; a staff session loads them afterwards
+  // (loadSupabaseWorkspaceDetails). A pending migration yields no rows rather
+  // than failing the whole workspace.
+  let statusLogByApplication = {};
   let reviewComments = [];
-  if (role !== 'student' && applicationIds.length) {
-    const commentsResult = await supabase
-      .from('application_review_comments')
-      .select('id, application_id, author_id, author_role, author_name, kind, body, created_at')
-      .in('application_id', applicationIds)
-      .order('created_at', { ascending: true });
-    if (!commentsResult.error) {
-      reviewComments = (commentsResult.data || []).map(toReviewComment);
-    }
+  if (includeDetails && applicationIds.length) {
+    const [logResult, commentsResult] = await Promise.all([
+      settle(fetchRowsInBatches(applicationIds, (ids) => supabase
+        .from('application_status_log')
+        .select(STATUS_LOG_COLUMNS)
+        .in('application_id', ids)
+        .order('created_at', { ascending: true })
+        .order('id', { ascending: true }), { signal })),
+      role !== 'student'
+        ? settle(fetchRowsInBatches(applicationIds, (ids) => supabase
+          .from('application_review_comments')
+          .select(REVIEW_COMMENT_COLUMNS)
+          .in('application_id', ids)
+          .order('created_at', { ascending: true })
+          .order('id', { ascending: true }), { signal }))
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (!logResult.error) statusLogByApplication = groupStatusLog(logResult.data, studentById);
+    if (!commentsResult.error) reviewComments = (commentsResult.data || []).map(toReviewComment);
   }
 
   // Recorded grant amounts (application_grant_amounts, from 20261059000000). RLS
@@ -406,7 +432,7 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   // migration yields no rows rather than failing the whole workspace.
   let grantAmounts = [];
   if (applicationIds.length) {
-    const grantAmountsResult = await supabase.from('application_grant_amounts').select('*').in('application_id', applicationIds);
+    const grantAmountsResult = await fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_grant_amounts').select('*').in('application_id', ids));
     if (!grantAmountsResult.error) {
       grantAmounts = (grantAmountsResult.data || []).map(toGrantAmount);
     }
@@ -420,12 +446,12 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   let scholarshipOffersReady = true;
   let waitlistRanks = [];
   if (applicationIds.length) {
-    const offersResult = await supabase.from('scholarship_offers').select('*').in('application_id', applicationIds);
+    const offersResult = await fetchRowsInBatches(applicationIds, (ids) => supabase.from('scholarship_offers').select('*').in('application_id', ids));
     if (offersResult.error) scholarshipOffersReady = false;
     else scholarshipOffers = (offersResult.data || []).map(toScholarshipOffer);
   }
   if (role === 'admissions_office' || role === 'admissions_admin') {
-    const ranksResult = await supabase.from('application_waitlist_ranks').select('*').order('rank', { ascending: true });
+    const ranksResult = await fetchPagedRows(() => supabase.from('application_waitlist_ranks').select('*').order('rank', { ascending: true }).order('application_id', { ascending: true }));
     if (!ranksResult.error) waitlistRanks = (ranksResult.data || []).map(toWaitlistRank);
   }
 
@@ -438,11 +464,12 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
   let caseOfficers = [];
   let caseOfficersReady = true;
   if (role !== 'student' && !isReviewerRole(role)) {
-    const caseOfficersResult = await supabase
+    const caseOfficersResult = await fetchPagedRows(() => supabase
       .from('application_case_officers')
       .select('*')
       .is('left_at', null)
-      .order('joined_at', { ascending: true });
+      .order('joined_at', { ascending: true })
+      .order('id', { ascending: true }));
     if (caseOfficersResult.error) {
       caseOfficersReady = false;
     } else {
@@ -476,12 +503,12 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
       // read the saved venues too (Admin-managed). Before the routing migration a
       // reviewer read is refused and the list stays empty; the typed location
       // field still works.
-      supabase.from('interview_locations').select('*').order('name', { ascending: true }),
+      fetchPagedRows(() => supabase.from('interview_locations').select('*').order('name', { ascending: true }).order('id', { ascending: true })),
       applicationIds.length
-        ? supabase.from('application_interview_panelists').select('*').in('application_id', applicationIds).is('removed_at', null)
+        ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_interview_panelists').select('*').in('application_id', ids).is('removed_at', null))
         : Promise.resolve({ data: [], error: null }),
-      applicationIds.length
-        ? supabase.from('application_interview_notes').select('*').in('application_id', applicationIds).order('created_at', { ascending: true })
+      includeDetails && applicationIds.length
+        ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_interview_notes').select('*').in('application_id', ids).order('created_at', { ascending: true }).order('id', { ascending: true }))
         : Promise.resolve({ data: [], error: null }),
     ]);
     if (!locationsResult.error) interviewLocations = (locationsResult.data || []).map(toInterviewLocation);
@@ -512,6 +539,11 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     interviewLocations,
     interviewPanelists,
     interviewNotes,
+    // True while the per-case streams (status log, internal comments, interview
+    // notes) have not been read for this session; the caller loads them next with
+    // loadSupabaseWorkspaceDetails() and merges them in.
+    detailsDeferred: !includeDetails,
+    workspaceDetailsReady: includeDetails,
     customDeadlines: serverDeadlines,
     // Pending-migration tolerance: without the routing migration the approval
     // levels are empty (every school defaults to the Chairperson) and no release
@@ -531,6 +563,273 @@ export const loadSupabaseWorkspace = async ({ role, userId, department }) => {
     officeCalendarEntries: !officeEntriesResult.error && Array.isArray(officeEntriesResult.data)
       ? officeEntriesResult.data.map(toOfficeCalendarEntry)
       : [],
+  };
+};
+
+// The per-case streams of a staff session, read after the first screen is up.
+// With no `applicationIds` it reads the whole visible history by keyset (RLS
+// scopes it to the account); with ids it reads just those cases in bounded
+// batches, which is how an opened case gets its history immediately.
+// `students` is the compact profile directory already in memory, used to name the
+// actors without another profiles query.
+export const loadSupabaseWorkspaceDetails = async ({ role, students = {}, applicationIds = null, signal } = {}) => {
+  if (!ensureReady()) return { success: false, fallback: true };
+  const isStaff = role !== 'student';
+  const profileLike = Object.fromEntries(Object.entries(students).map(([id, entry]) => [id, { full_name: entry.fullName }]));
+  const nameById = Object.fromEntries(Object.entries(students).map(([id, entry]) => [id, entry.fullName || '']));
+  const scoped = Array.isArray(applicationIds);
+  if (scoped && !applicationIds.length) {
+    return { success: true, scope: 'cases', applicationIds: [], statusLogs: {}, reviewComments: [], interviewNotes: [] };
+  }
+
+  const read = (table, columns, orderColumn) => (scoped
+    ? fetchRowsInBatches(applicationIds, (ids) => supabase.from(table).select(columns).in('application_id', ids).order(orderColumn, { ascending: true }).order('id', { ascending: true }), { signal })
+    : fetchKeysetRows(() => supabase.from(table).select(columns), { orderColumn, ascending: true, signal }));
+
+  const [logResult, commentsResult, notesResult] = await Promise.all([
+    settle(read('application_status_log', STATUS_LOG_COLUMNS, 'created_at')),
+    isStaff ? settle(read('application_review_comments', REVIEW_COMMENT_COLUMNS, 'created_at')) : Promise.resolve({ data: [], error: null }),
+    isStaff ? settle(read('application_interview_notes', '*', 'created_at')) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (signal?.aborted) return { success: false, fallback: false, cancelled: true };
+  // The status log is the audit trail every other stream hangs off; if it cannot
+  // be read the caller keeps what it has and reports the failure. The two note
+  // streams are optional (a pending migration yields nothing).
+  if (logResult.error) {
+    return { success: false, fallback: false, message: logResult.error.message, errorKind: classifySupabaseError(logResult.error) };
+  }
+  return {
+    success: true,
+    scope: scoped ? 'cases' : 'all',
+    applicationIds: scoped ? applicationIds : null,
+    statusLogs: groupStatusLog(logResult.data, profileLike),
+    ...(commentsResult.error ? {} : { reviewComments: (commentsResult.data || []).map(toReviewComment) }),
+    ...(notesResult.error ? {} : { interviewNotes: (notesResult.data || []).map((row) => toInterviewNote(row, nameById)) }),
+  };
+};
+
+// Stage totals for the cases the caller may see, counted by the database through
+// row-level security (20261105000005). Returns null when the migration is not
+// applied or the read failed: the integrity check then simply does not run.
+export const loadSupabaseStageCounts = async ({ signal } = {}) => {
+  if (!ensureReady()) return null;
+  let query = supabase.rpc('get_application_stage_counts');
+  if (signal && typeof query.abortSignal === 'function') query = query.abortSignal(signal);
+  const { data, error } = await settle(query);
+  if (error || !Array.isArray(data)) return null;
+  const byStatus = {};
+  let total = 0;
+  data.forEach((row) => {
+    const count = Number(row.application_count) || 0;
+    byStatus[row.status] = (byStatus[row.status] || 0) + count;
+    total += count;
+  });
+  return { total, byStatus };
+};
+
+// Periodic refreshes fetch only rows changed since the last successful check.
+// The full loader remains the reconciliation path on sign-in and session return.
+export const loadSupabaseWorkspaceChanges = async ({
+  role,
+  userId,
+  department,
+  since,
+  knownScholarships = [],
+  knownStudents = {},
+  signal,
+}) => {
+  if (!ensureReady() || !since) return { success: false, fallback: true };
+
+  const isOffice = role === 'admissions_office' || role === 'admissions_admin';
+  const isStaff = role !== 'student';
+  const isReviewer = isReviewerRole(role);
+  const sinceIso = new Date(since).toISOString();
+  const emptyResult = { data: [], error: null };
+  const [applicationsResult, documentsResult, notificationsResult, profilesResult, scholarshipsResult,
+    linkChangesResult, commentsResult, notesResult, panelistsResult, caseOfficersResult,
+    grantAmountsResult, waitlistRanksResult, offersResult, releasesResult, officeEntriesResult,
+    approvalLevelsResult, interviewLocationsResult, announcementsResult, deadlinesResult, reviewsResult] = await Promise.all([
+    fetchPagedRows(() => supabase.from('applications').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }), { signal }),
+    fetchPagedRows(() => supabase.from('documents').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }), { signal }),
+    fetchPagedRows(() => supabase.from('notifications').select('*').eq('profile_id', userId).gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true })),
+    fetchPagedRows(() => supabase.from('profiles').select('user_id, full_name, role, department, degree_program, qpi, household_income, review_school, review_cluster, review_department, updated_at').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('user_id', { ascending: true })),
+    fetchPagedRows(() => supabase.from('scholarships').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true })),
+    fetchPagedRows(() => supabase.from('application_documents').select('application_id, document_id, created_at').gt('created_at', sinceIso).order('created_at', { ascending: true }).order('application_id', { ascending: true })),
+    isStaff
+      ? fetchPagedRows(() => supabase.from('application_review_comments').select('id, application_id, author_id, author_role, author_name, kind, body, created_at').gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    isStaff
+      ? fetchPagedRows(() => supabase.from('application_interview_notes').select('*').gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    isStaff
+      ? fetchPagedRows(() => supabase.from('application_interview_panelists').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    isOffice
+      ? fetchPagedRows(() => supabase.from('application_case_officers').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    fetchPagedRows(() => supabase.from('application_grant_amounts').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('application_id', { ascending: true })),
+    isOffice
+      ? fetchPagedRows(() => supabase.from('application_waitlist_ranks').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('application_id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    fetchPagedRows(() => supabase.from('scholarship_offers').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('application_id', { ascending: true })),
+    fetchPagedRows(() => supabase.rpc('get_scoped_results_releases', { p_since: sinceIso })),
+    isStaff
+      ? fetchPagedRows(() => supabase.from('office_calendar_entries').select('*').gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    isStaff
+      ? fetchPagedRows(() => supabase.from('approval_levels').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    isStaff
+      ? fetchPagedRows(() => supabase.from('interview_locations').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    fetchPagedRows(() => supabase.from('announcements').select('*').gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true })),
+    fetchPagedRows(() => supabase.from('custom_deadlines').select('id, title, deadline, created_at').eq('owner_id', userId).gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true })),
+    isReviewer
+      ? fetchPagedRows(() => supabase.from('department_reviews').select('*').eq('department', department).gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+  ]);
+
+  if (signal?.aborted) return { success: false, fallback: false, cancelled: true };
+  const stageCounts = await loadSupabaseStageCounts({ signal });
+  const required = [applicationsResult, documentsResult, notificationsResult, profilesResult, scholarshipsResult];
+  const failed = required.find((result) => result.error);
+  if (failed) return { success: false, fallback: false, message: failed.error.message, errorKind: classifySupabaseError(failed.error) };
+
+  const changedProfiles = profilesResult.data || [];
+  const students = Object.fromEntries(changedProfiles.map((entry) => [entry.user_id, {
+    fullName: entry.full_name || 'Student applicant',
+    role: entry.role || '',
+    department: entry.department || '',
+    degreeProgram: entry.degree_program || '',
+    qpi: entry.qpi ?? null,
+    householdIncome: entry.household_income ?? null,
+  }]));
+  const studentById = Object.fromEntries(Object.entries(knownStudents).map(([id, entry]) => [id, {
+    full_name: entry.fullName,
+    role: entry.role,
+    department: entry.department,
+    degree_program: entry.degreeProgram,
+    qpi: entry.qpi,
+    household_income: entry.householdIncome,
+  }]));
+  changedProfiles.forEach((entry) => { studentById[entry.user_id] = entry; });
+
+  const scholarshipById = Object.fromEntries(knownScholarships.map((entry) => [entry.id, entry]));
+  const scholarships = (scholarshipsResult.data || []).map(toScholarship);
+  scholarships.forEach((entry) => { scholarshipById[entry.id] = entry; });
+
+  const appIds = new Set((applicationsResult.data || []).map((entry) => entry.id));
+  const ownerIds = changedProfiles.map((entry) => entry.user_id);
+  const changedScholarshipIds = scholarships.map((entry) => entry.id);
+  const linkChanges = Array.isArray(linkChangesResult.data) ? linkChangesResult.data : [];
+  linkChanges.forEach((entry) => appIds.add(entry.application_id));
+  const additionalAppResults = await Promise.all([
+    ownerIds.length
+      ? fetchRowsInBatches(ownerIds, (ids) => supabase.from('applications').select('*').in('student_id', ids).order('updated_at', { ascending: false }).order('id', { ascending: false }))
+      : Promise.resolve(emptyResult),
+    changedScholarshipIds.length
+      ? fetchRowsInBatches(changedScholarshipIds, (ids) => supabase.from('applications').select('*').in('scholarship_id', ids).order('updated_at', { ascending: false }).order('id', { ascending: false }))
+      : Promise.resolve(emptyResult),
+    linkChanges.length
+      ? fetchRowsInBatches([...new Set(linkChanges.map((entry) => entry.application_id))], (ids) => supabase.from('applications').select('*').in('id', ids).order('updated_at', { ascending: false }).order('id', { ascending: false }))
+      : Promise.resolve(emptyResult),
+  ]);
+  const applicationRowsById = new Map((applicationsResult.data || []).map((entry) => [entry.id, entry]));
+  additionalAppResults.forEach((result) => (result.data || []).forEach((entry) => {
+    applicationRowsById.set(entry.id, entry);
+    appIds.add(entry.id);
+  }));
+  const applicationIds = [...appIds];
+
+  const [linksResult, statusLogResult, relatedGrantResult, relatedOffersResult, relatedPanelistsResult, relatedRanksResult] = await Promise.all([
+    applicationIds.length
+      ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_documents').select('application_id, document_id').in('application_id', ids).order('application_id', { ascending: true }).order('document_id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    applicationIds.length
+      ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_status_log').select('id, application_id, from_status, to_status, actor_id, actor_role, reason, created_at').in('application_id', ids).order('created_at', { ascending: true }).order('id', { ascending: true }))
+      : Promise.resolve(emptyResult),
+    applicationIds.length
+      ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_grant_amounts').select('*').in('application_id', ids))
+      : Promise.resolve(emptyResult),
+    applicationIds.length
+      ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('scholarship_offers').select('*').in('application_id', ids))
+      : Promise.resolve(emptyResult),
+    isStaff && applicationIds.length
+      ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_interview_panelists').select('*').in('application_id', ids))
+      : Promise.resolve(emptyResult),
+    isOffice && applicationIds.length
+      ? fetchRowsInBatches(applicationIds, (ids) => supabase.from('application_waitlist_ranks').select('*').in('application_id', ids))
+      : Promise.resolve(emptyResult),
+  ]);
+  if (applicationIds.length && (linksResult.error || statusLogResult.error)) {
+    const error = linksResult.error || statusLogResult.error;
+    return { success: false, fallback: false, message: error.message };
+  }
+
+  const documentIdsByApplication = {};
+  (linksResult.data || []).forEach((link) => {
+    documentIdsByApplication[link.application_id] = [...(documentIdsByApplication[link.application_id] || []), link.document_id];
+  });
+  const statusLogByApplication = groupStatusLog(statusLogResult.data, studentById);
+  const applications = [...applicationRowsById.values()].map((entry) => toApplication(entry, scholarshipById, documentIdsByApplication, studentById, statusLogByApplication));
+  const documents = (documentsResult.data || []).map((row) => {
+    const document = toDocument(row);
+    const owner = studentById[document.ownerId] || {};
+    return {
+      ...document,
+      ownerName: owner.full_name || 'Student applicant',
+      ownerDepartment: owner.department || '',
+      reviewedByName: studentById[document.reviewedBy]?.full_name || null,
+    };
+  });
+
+  const staffDirectory = changedProfiles.filter((entry) => STAFF_ROLES.includes(entry.role)).map((entry) => ({
+    userId: entry.user_id,
+    fullName: entry.full_name || 'Staff member',
+    role: entry.role,
+    department: entry.department || '',
+    reviewSchool: entry.review_school || '',
+    reviewCluster: entry.review_cluster || '',
+    reviewDepartment: entry.review_department || '',
+  }));
+  const staffDirectoryRemovedUserIds = changedProfiles.filter((entry) => !STAFF_ROLES.includes(entry.role)).map((entry) => entry.user_id);
+  const nameById = Object.fromEntries(Object.entries(studentById).map(([id, entry]) => [id, entry.full_name || '']));
+  const grantAmounts = uniqueBy([...(grantAmountsResult.data || []), ...(relatedGrantResult.data || [])], 'application_id').map(toGrantAmount);
+  const waitlistRanks = uniqueBy([...(waitlistRanksResult.data || []), ...(relatedRanksResult.data || [])], 'application_id').map(toWaitlistRank);
+  const scholarshipOffers = uniqueBy([...(offersResult.data || []), ...(relatedOffersResult.data || [])], 'application_id').map(toScholarshipOffer);
+  const interviewPanelists = uniqueBy([...(panelistsResult.data || []), ...(relatedPanelistsResult.data || [])], 'id').map((row) => toInterviewPanelist(row, nameById));
+
+  const commentsReady = !commentsResult.error;
+  const notesReady = !notesResult.error;
+  const resultsReleasesReady = !releasesResult.error;
+  return {
+    success: true,
+    refreshMode: 'delta',
+    // The database's own stage totals for this caller, read after the changed rows
+    // so the two are as close in time as one refresh allows. Consumed by the
+    // integrity check; never merged into state.
+    stageCounts,
+    applications,
+    documents,
+    students,
+    scholarships,
+    notifications: (notificationsResult.data || []).map(toNotification),
+    announcements: (announcementsResult.data || []).map(toAnnouncement),
+    customDeadlines: !deadlinesResult.error ? (deadlinesResult.data || []).map(toCustomDeadline) : [],
+    departmentReviews: !reviewsResult.error ? (reviewsResult.data || []).map(toDepartmentReview) : [],
+    ...(commentsReady ? { reviewComments: (commentsResult.data || []).map(toReviewComment) } : {}),
+    ...(notesReady ? { interviewNotes: (notesResult.data || []).map((row) => toInterviewNote(row, nameById)) } : {}),
+    ...(grantAmountsResult.error || relatedGrantResult.error ? {} : { grantAmounts }),
+    ...(waitlistRanksResult.error || relatedRanksResult.error ? {} : { waitlistRanks }),
+    ...(offersResult.error || relatedOffersResult.error ? {} : { scholarshipOffers, scholarshipOffersReady: true }),
+    ...(panelistsResult.error || relatedPanelistsResult.error ? {} : { interviewPanelists }),
+    ...(caseOfficersResult.error ? {} : { caseOfficers: (caseOfficersResult.data || []).map(toCaseOfficer), caseOfficersReady: true }),
+    ...(releasesResult.error ? {} : { resultsReleases: (releasesResult.data || []).map(toResultsRelease), resultsReleasesReady }),
+    ...(officeEntriesResult.error ? {} : { officeCalendarEntries: (officeEntriesResult.data || []).map(toOfficeCalendarEntry) }),
+    ...(approvalLevelsResult.error ? {} : { approvalLevels: (approvalLevelsResult.data || []).map(toApprovalLevel) }),
+    ...(interviewLocationsResult.error ? {} : { interviewLocations: (interviewLocationsResult.data || []).map(toInterviewLocation) }),
+    staffDirectory,
+    staffDirectoryRemovedUserIds,
   };
 };
 
@@ -1144,14 +1443,29 @@ export const deleteSupabaseApprovalLevel = (id) => (
   ensureReady() ? supabase.from('approval_levels').delete().eq('id', id) : Promise.resolve({ data: null, error: null })
 );
 
-// Records a scholarship's batch release (record_results_release, Admin only). The
-// row's insert trigger sends the non-acceptance letters; the browser call below
-// is the retry for the in-app and email channels.
-export const recordSupabaseResultsRelease = async (scholarshipId) => {
+export const releaseSupabaseScholarshipResults = async (scholarshipId, confirmBy, requestId) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
-  const result = await supabase.rpc('record_results_release', { p_scholarship_id: scholarshipId });
-  const row = Array.isArray(result.data) ? result.data[0] : result.data;
-  return { error: result.error, data: row ? toResultsRelease(row) : null };
+  const result = await supabase.rpc('release_scholarship_results', {
+    p_scholarship_id: scholarshipId,
+    p_confirm_by: confirmBy || null,
+    p_request_id: requestId,
+  });
+  if (result.error) return { data: null, error: result.error };
+  const row = result.data?.release;
+  return {
+    error: null,
+    data: row ? {
+      release: toResultsRelease(row),
+      releasedApplicationIds: Array.isArray(result.data.releasedApplicationIds) ? result.data.releasedApplicationIds : [],
+      applications: Array.isArray(result.data.applications) ? result.data.applications.map((application) => ({
+        id: application.id,
+        updatedAt: application.updated_at,
+        release: application.release,
+        timeline: application.timeline || [],
+      })) : [],
+      replayed: Boolean(result.data.replayed),
+    } : null,
+  };
 };
 
 // The second wave of a scholarship's results (close_results_round, Admin only):

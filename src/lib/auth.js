@@ -394,6 +394,51 @@ export const getProfileAccountStatus = async (userId) => {
   }
 };
 
+// Account-level privacy consent (RA 10173), from
+// 20261063000000_add_privacy_consent.sql. It is read in its own tolerant query for
+// the same reason as the columns above: a project with the migration pending still
+// signs in and simply has no recorded consent, so the app shows the notice instead
+// of blocking on a column it cannot read.
+//
+// Never add these columns to getUserProfile's select.
+export const getProfilePrivacyConsent = async (userId) => {
+  const empty = { version: '', consentedAt: null, ready: true };
+  if (!hasSupabaseConfig || !supabase || !userId) return { ...empty, ready: false };
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('privacy_consent_version, privacy_consented_at')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) return { ...empty, ready: false };
+    return {
+      version: data.privacy_consent_version || '',
+      consentedAt: data.privacy_consented_at || null,
+      ready: true,
+    };
+  } catch {
+    return { ...empty, ready: false };
+  }
+};
+
+// The only writer of the consent columns: the RPC re-checks the caller and ignores a
+// repeat of a version it already holds, so a reload never moves the timestamp. A
+// failure is reported rather than thrown; the caller decides whether to retry.
+export const recordProfilePrivacyConsent = async (version) => {
+  if (!hasSupabaseConfig || !supabase) {
+    return { ok: false, message: 'Supabase is not configured, so your consent could not be recorded.' };
+  }
+
+  try {
+    const { error } = await supabase.rpc('record_privacy_consent', { p_version: version });
+    if (error) return { ok: false, message: error.message || 'Your consent could not be recorded.' };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error?.message || 'Your consent could not be recorded.' };
+  }
+};
+
 // The avatar path is added by 20261026000000_add_profile_avatar.sql, so it is
 // read in its own query: a project with the migration pending still loads the
 // rest of the profile (the same reason profile_details is read separately).

@@ -74,6 +74,15 @@ export const isValidConfirmBy = (value, now = new Date()) => (
   /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) && String(value) >= getManilaToday(now)
 );
 
+export const getConfirmByDaysRemaining = (value, now = new Date()) => {
+  const date = String(value || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const dueAt = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(dueAt) || new Date(dueAt).toISOString().slice(0, 10) !== date) return null;
+  const todayAt = Date.parse(`${getManilaToday(now)}T00:00:00.000Z`);
+  return (dueAt - todayAt) / 86_400_000;
+};
+
 export const getOfferForApplication = (offers = [], applicationId) => (
   asList(offers).find((entry) => entry?.applicationId === applicationId) || null
 );
@@ -169,6 +178,7 @@ export const getResultsRounds = ({
     .flatMap((release) => asList(release.applicationIds)));
   const offersCovered = coveredBy(['offers']);
   const lettersSent = coveredBy(['closing', 'legacy']);
+  const offerByApplicationId = new Map(asList(offers).map((offer) => [offer.applicationId, offer]));
   const byScholarship = new Map();
   asList(applications).forEach((entry) => {
     if (!byScholarship.has(entry.scholarshipId)) byScholarship.set(entry.scholarshipId, []);
@@ -185,7 +195,7 @@ export const getResultsRounds = ({
     const waitlist = sortWaitlist(list.filter((entry) => entry.status === 'Waitlisted'), { ranks, recommendationOf });
     const heldWaitlist = waitlist.filter((entry) => !offersCovered.has(entry.id));
     const roundOffers = list
-      .map((entry) => ({ application: entry, offer: getOfferForApplication(offers, entry.id) }))
+      .map((entry) => ({ application: entry, offer: offerByApplicationId.get(entry.id) || null }))
       .filter(({ application, offer }) => offer && time(offer.offeredAt) > since
         && ['Released', 'Declined'].includes(application.status))
       .map((row) => ({ ...row, state: getOfferState(row.offer, now) }));

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CalendarClock, CheckCircle2, ClipboardCheck, Layers, SendHorizontal, UserCheck } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { StatCard, getCaseCardClass } from '../components/pageParts';
@@ -20,6 +20,9 @@ const queueTone = (status) => {
   if (['For Verification', 'Endorsed', 'Recommended', 'Waitlisted'].includes(status)) return 'warning';
   return 'info';
 };
+
+const REVIEW_LIST_PAGE_SIZE = 50;
+const EMPTY_STAGE_CONTEXT = () => ({});
 
 // The workspace of every account scoped to the academic hierarchy (Consultation
 // 2): an interviewer, and the Chairperson, Assistant Dean, or Dean of a school.
@@ -43,24 +46,37 @@ export default function DepartmentReviewView({
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
+  const [visibleQueueCount, setVisibleQueueCount] = useState(REVIEW_LIST_PAGE_SIZE);
+  const [visibleInterviewCount, setVisibleInterviewCount] = useState(REVIEW_LIST_PAGE_SIZE);
   const role = profile.role || 'department_chair';
   const isInterviewer = isInterviewerRole(role);
   const selected = queue.find((entry) => entry.id === selectedId);
-  const stageContextFor = interviewWorkspace?.stageContextFor || (() => ({}));
+  const stageContextFor = interviewWorkspace?.stageContextFor || EMPTY_STAGE_CONTEXT;
   // SOP 5a: the interview panel comes from the applicant's school, so any scoped
   // reviewer may sit on it, and one who schedules the interview leads it.
-  const panelApplicationIds = new Set((interviewWorkspace?.panelists || [])
+  const panelApplicationIds = useMemo(() => new Set((interviewWorkspace?.panelists || [])
     .filter((row) => !row.removedAt && row.profileId && row.profileId === interviewWorkspace?.viewerId)
-    .map((row) => row.applicationId));
-  const awaitingInterview = queue.filter((entry) => entry.status === 'Endorsed');
-  const inInterview = queue.filter((entry) => entry.status === 'Interview');
-  const panelInterviews = inInterview.filter((entry) => panelApplicationIds.has(entry.id));
-  const awaitingApproval = isInterviewer ? [] : queue.filter((entry) => (
+    .map((row) => row.applicationId)), [interviewWorkspace?.panelists, interviewWorkspace?.viewerId]);
+  const awaitingInterview = useMemo(() => queue.filter((entry) => entry.status === 'Endorsed'), [queue]);
+  const inInterview = useMemo(() => queue.filter((entry) => entry.status === 'Interview'), [queue]);
+  const panelInterviews = useMemo(() => inInterview.filter((entry) => panelApplicationIds.has(entry.id)), [inInterview, panelApplicationIds]);
+  const awaitingApproval = useMemo(() => isInterviewer ? [] : queue.filter((entry) => (
     entry.status === 'Recommended' && stageContextFor(entry).isApprover
-  ));
-  const decidedInScope = queue.filter((entry) => ['Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status));
-  const notesFor = (applicationId) => (interviewWorkspace?.notes || []).filter((note) => note.applicationId === applicationId);
-  const programIndex = buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []);
+  )), [isInterviewer, queue, stageContextFor]);
+  const decidedInScope = useMemo(() => queue.filter((entry) => ['Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined'].includes(entry.status)), [queue]);
+  const notesByApplication = useMemo(() => {
+    const notes = new Map();
+    (interviewWorkspace?.notes || []).forEach((note) => {
+      if (!notes.has(note.applicationId)) notes.set(note.applicationId, []);
+      notes.get(note.applicationId).push(note);
+    });
+    return notes;
+  }, [interviewWorkspace?.notes]);
+  const notesFor = (applicationId) => notesByApplication.get(applicationId) || [];
+  const programIndex = useMemo(() => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []), [interviewWorkspace?.academicPrograms]);
+  const interviewRows = [...awaitingInterview, ...inInterview];
+  const visibleInterviewRows = interviewRows.slice(0, visibleInterviewCount);
+  const visibleQueue = queue.slice(0, visibleQueueCount);
   // After a stage move the case's row in the work lists glows, or a notice says
   // where it went. The all-applications list is left out: it always holds the
   // case, so pointing there would scroll the page away from the work.
@@ -208,15 +224,20 @@ export default function DepartmentReviewView({
         action={<StatusBadge tone={awaitingInterview.length ? 'warning' : 'success'}>{awaitingInterview.length} to schedule</StatusBadge>}
       >
         <div className="grid max-h-[620px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {[...awaitingInterview, ...inInterview].length
-            ? [...awaitingInterview, ...inInterview].map(renderInterviewRow)
+          {interviewRows.length
+            ? visibleInterviewRows.map(renderInterviewRow)
             : <EmptyState title="No interviews waiting" description="Applicants appear here once the Admissions Office has verified their documents." />}
         </div>
+        {visibleInterviewRows.length < interviewRows.length ? (
+          <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleInterviewCount((count) => count + REVIEW_LIST_PAGE_SIZE)}>
+            Show {Math.min(REVIEW_LIST_PAGE_SIZE, interviewRows.length - visibleInterviewRows.length)} more interviews
+          </Button>
+        ) : null}
       </Card>
 
       <Card title="All applications in your scope" className="min-w-0">
         <div className="grid max-h-[620px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {queue.length ? queue.map((entry) => {
+          {queue.length ? visibleQueue.map((entry) => {
             const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
             return (
               <article key={entry.id} className={getCaseCardClass(queueTone(entry.status))}>
@@ -244,6 +265,11 @@ export default function DepartmentReviewView({
             );
           }) : <EmptyState title="No applicants in scope" description="Applications appear here as students in your scope submit them." />}
         </div>
+        {visibleQueue.length < queue.length ? (
+          <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleQueueCount((count) => count + REVIEW_LIST_PAGE_SIZE)}>
+            Show {Math.min(REVIEW_LIST_PAGE_SIZE, queue.length - visibleQueue.length)} more applications
+          </Button>
+        ) : null}
       </Card>
 
       {selected && (

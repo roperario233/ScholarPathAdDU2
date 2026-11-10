@@ -22,10 +22,28 @@ import { formatInterviewDateShort, isStructuredInterview } from './interview.js'
 
 export const IPROGSMS_ENDPOINT = 'https://www.iprogsms.com/api/v1/sms_messages';
 
+export const DEFAULT_SMS_TIMEOUT_MS = 10_000;
+export const MIN_SMS_TIMEOUT_MS = 100;
+export const MAX_SMS_TIMEOUT_MS = 30_000;
+
+// 408, 425, and 429 are reported as explicitly not accepted (a later manual
+// attempt is reasonable). Anything 5xx or unreachable is ambiguous: without a
+// provider idempotency key the client never retries it automatically.
+const RETRYABLE_SMS_STATUSES = new Set([408, 425, 429]);
+
 export const getSmsConfig = (env = {}) => ({
   apiToken: String(env.IPROGSMS_API_TOKEN ?? '').trim(),
   provider: String(env.IPROGSMS_PROVIDER ?? '').trim(),
 });
+
+/** Bounds a requested timeout so a caller cannot disable the guard or wait forever. */
+export const clampSmsTimeoutMs = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SMS_TIMEOUT_MS;
+  return Math.min(MAX_SMS_TIMEOUT_MS, Math.max(MIN_SMS_TIMEOUT_MS, Math.round(parsed)));
+};
+
+export const isRetryableSmsStatus = (status) => RETRYABLE_SMS_STATUSES.has(Number(status));
 
 /**
  * Normalizes a Philippine mobile number to the international 639XXXXXXXXX form
@@ -86,9 +104,17 @@ export const toErrorMessage = (value) => {
  * outcome in the delivery ledger rather than losing the whole run — the same
  * contract as _shared/resend.js sendEmail.
  *
- * @returns {Promise<{ok: boolean, skipped: boolean, reason?: string, messageId?: string|null, error?: string, status?: number}>}
+ * Reliability is deliberately one-shot: every attempt is bounded by
+ * `timeoutMs` (default 10s, clamped 100ms–30s), but the client never retries a
+ * send. iprogSMS has no idempotency key and a 200 only confirms queue
+ * acceptance, so a timeout or 5xx leaves the outcome ambiguous; retrying could
+ * text the student twice. Such failures report `ambiguous: true` and
+ * `retryable: false`. An explicit "not accepted" 408/425/429 reports
+ * `retryable: true` for a later manual attempt, but nothing here retries it.
+ *
+ * @returns {Promise<{ok: boolean, skipped: boolean, reason?: string, messageId?: string|null, error?: string, status?: number, retryable?: boolean, ambiguous?: boolean, attempts?: number, timeout?: boolean}>}
  */
-export const sendSms = async ({ apiToken, phoneNumber, message, provider }) => {
+export const sendSms = async ({ apiToken, phoneNumber, message, provider, timeoutMs }) => {
   if (!apiToken) {
     return { ok: false, skipped: true, reason: 'IPROGSMS_API_TOKEN is not configured' };
   }
@@ -105,17 +131,37 @@ export const sendSms = async ({ apiToken, phoneNumber, message, provider }) => {
     body.sms_provider = parsedProvider;
   }
 
+  const boundedTimeoutMs = clampSmsTimeoutMs(timeoutMs);
+  const controller = new AbortController();
+  const timeoutMessage = `iprogSMS request timed out after ${boundedTimeoutMs}ms`;
+  const timeoutError = new Error(timeoutMessage);
+  timeoutError.name = 'TimeoutError';
+  let timedOut = false;
+  let timer;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+      reject(timeoutError);
+    }, boundedTimeoutMs);
+  });
+
   try {
-    const response = await fetch(IPROGSMS_ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    const response = await Promise.race([
+      fetch(IPROGSMS_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      }),
+      timeoutPromise,
+    ]);
 
     let payload = null;
     try {
-      payload = await response.json();
-    } catch {
+      payload = await Promise.race([response.json(), timeoutPromise]);
+    } catch (error) {
+      if (timedOut || error === timeoutError) throw timeoutError;
       payload = null;
     }
 
@@ -124,6 +170,9 @@ export const sendSms = async ({ apiToken, phoneNumber, message, provider }) => {
         ok: false,
         skipped: false,
         status: response.status,
+        retryable: isRetryableSmsStatus(response.status),
+        ambiguous: response.status >= 500,
+        attempts: 1,
         error: toErrorMessage(payload?.message) || `iprogSMS responded with status ${response.status}`,
       };
     }
@@ -134,13 +183,28 @@ export const sendSms = async ({ apiToken, phoneNumber, message, provider }) => {
         ok: false,
         skipped: false,
         status: response.status,
+        retryable: false,
+        ambiguous: false,
+        attempts: 1,
         error: toErrorMessage(payload?.message) || 'iprogSMS did not accept the message',
       };
     }
 
+    // Queue acceptance only: message_id does not prove carrier delivery.
     return { ok: true, skipped: false, messageId: payload?.message_id ?? null };
   } catch (error) {
-    return { ok: false, skipped: false, error: error?.message || 'Unable to reach iprogSMS' };
+    const timeout = timedOut || error === timeoutError || error?.name === 'AbortError';
+    return {
+      ok: false,
+      skipped: false,
+      retryable: false,
+      ambiguous: true,
+      timeout,
+      attempts: 1,
+      error: timeout ? timeoutMessage : error?.message || 'Unable to reach iprogSMS',
+    };
+  } finally {
+    clearTimeout(timer);
   }
 };
 

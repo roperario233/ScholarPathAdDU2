@@ -277,7 +277,7 @@ export function AccountsWorkspace({
   missing = false,
   loadError = '',
   feedback = null,
-  now = Date.now(),
+  now = 0,
   onInvite = async () => ({}),
   onChangeScope = async () => ({}),
   onRenew = async () => ({}),
@@ -457,7 +457,7 @@ const describeAccountError = (error) => {
 };
 
 export default function AdminAccounts({ academicPrograms = referencePrograms, currentUserId = '' }) {
-  const [data, setData] = useState({ profiles: [], invitations: [], log: [] });
+  const [data, setData] = useState({ profiles: [], invitations: [], log: [], now: 0 });
   const [loading, setLoading] = useState(true);
   const [missing, setMissing] = useState(false);
   const [loadError, setLoadError] = useState('');
@@ -465,11 +465,13 @@ export default function AdminAccounts({ academicPrograms = referencePrograms, cu
 
   const reload = useCallback(async () => {
     const result = await loadSupabaseAccounts();
+    const now = Date.now();
     if (result.success) {
-      setData({ profiles: result.profiles, invitations: result.invitations, log: result.log });
+      setData({ profiles: result.profiles, invitations: result.invitations, log: result.log, now });
       setMissing(false);
       setLoadError('');
     } else {
+      setData((previous) => ({ ...previous, now }));
       setMissing(Boolean(result.missing));
       setLoadError(result.missing ? '' : (result.error?.message || 'Accounts could not be loaded.'));
     }
@@ -501,6 +503,7 @@ export default function AdminAccounts({ academicPrograms = referencePrograms, cu
       log={data.log}
       programs={academicPrograms}
       currentUserId={currentUserId}
+      now={data.now}
       loading={loading}
       missing={missing}
       loadError={loadError}

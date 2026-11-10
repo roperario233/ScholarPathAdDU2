@@ -7,8 +7,14 @@
 // Computes the deadline reminders that are due today (Manila calendar) from
 // active scholarships, non-terminal applications, and persisted custom
 // deadlines; writes the in-app notification, emails the recipient through
-// Resend, texts the recipient through iprogSMS, and records every delivery in
-// notification_email_log so a reminder reaches a given student at most once.
+// Resend, texts the recipient through iprogSMS on the scheduled run, and
+// records every delivery in notification_email_log so a reminder reaches a
+// given student at most once.
+//
+// The execution lives in ../_shared/deadlineReminderRunner.js so the paging,
+// grouping, dedupe, and failure-isolation behavior can be tested without Deno
+// or a deployed project. This file keeps only transport: CORS, authorization,
+// and the JSON response.
 //
 // Each channel is independently opt-in, matching the notification center
 // settings: the in-app row honors `inAppEnabled`, and the email and SMS honor
@@ -23,11 +29,8 @@
 // IPROGSMS_API_TOKEN, IPROGSMS_PROVIDER (optional).
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { computeDueReminders, manilaDateKey, reminderDateKey } from '../_shared/reminders.js';
-import { isEmailEnabledForUser, isReminderEnabledForUser, renderInterviewReminderEmail, renderReminderEmail, resolveSiteUrl } from '../_shared/email.js';
-import { getInterviewDateKey, getInterviewReminderKey, isStructuredInterview, summarizeInterview } from '../_shared/interview.js';
-import { getResendConfig, sendEmail } from '../_shared/resend.js';
-import { formatPhilippineMobile, getSmsConfig, isSmsEnabledForUser, normalizePhilippineMobile, renderInterviewReminderSms, renderReminderSms, sendSms } from '../_shared/sms.js';
+import { manilaDateKey } from '../_shared/reminders.js';
+import { runDeadlineReminders } from '../_shared/deadlineReminderRunner.js';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -78,317 +81,21 @@ Deno.serve(async (req) => {
       return json({ error: 'Unauthorized' }, 401);
     }
   }
+  const isScheduledCaller = Boolean(cronSecret) && token === cronSecret;
 
   // The reminder rule is evaluated against the Manila calendar.
   const today = manilaDateKey();
 
   try {
-    // Deadline sources: active scholarships and non-terminal applications.
-    const [{ data: scholarships, error: scholarshipsError }, { data: applications, error: applicationsError }] =
-      await Promise.all([
-        supabaseAdmin
-          .from('scholarships')
-          .select('id, title, deadline')
-          .eq('is_active', true)
-          .not('deadline', 'is', null),
-        supabaseAdmin
-          .from('applications')
-          .select('id, scholarship_id, status, student_id, interview')
-          .not('status', 'in', '("Approved","Rejected")'),
-      ]);
-    if (scholarshipsError) throw scholarshipsError;
-    if (applicationsError) throw applicationsError;
-
-    const items = (scholarships ?? []).map((row) => ({
-      id: row.id,
-      title: row.title,
-      deadline: row.deadline,
-      kind: 'scholarship',
-    }));
-
-    // Application reminders resolve their deadline through the scholarship.
-    if (applications?.length) {
-      const scholarshipIds = [...new Set(applications.map((row) => row.scholarship_id))];
-      const { data: linked, error: linkedError } = await supabaseAdmin
-        .from('scholarships')
-        .select('id, title, deadline')
-        .in('id', scholarshipIds)
-        .not('deadline', 'is', null);
-      if (linkedError) throw linkedError;
-
-      const byId = new Map((linked ?? []).map((row) => [row.id, row]));
-      for (const application of applications) {
-        const scholarship = byId.get(application.scholarship_id);
-        if (!scholarship) continue;
-        items.push({
-          id: application.id,
-          title: scholarship.title,
-          deadline: scholarship.deadline,
-          kind: 'application',
-        });
-      }
-    }
-
-    // Persisted student-created calendar deadlines. The client generates the
-    // same `deadline-reminder-<id>-<days>` sourceKey locally, so the stored id
-    // is reused verbatim here.
-    const { data: customDeadlines, error: customError } = await supabaseAdmin
-      .from('custom_deadlines')
-      .select('id, owner_id, title, deadline');
-    if (customError) throw customError;
-
-    const customOwners = new Map();
-    for (const row of customDeadlines ?? []) {
-      customOwners.set(row.id, row.owner_id);
-      items.push({
-        id: row.id,
-        title: row.title,
-        deadline: row.deadline,
-        kind: 'custom',
-      });
-    }
-
-    // Delivery ledger. source_key is stored as `<sourceKey>:<userId>` so the
-    // at-most-once guarantee is per student, per reminder.
-    const { data: existingLog, error: logError } = await supabaseAdmin
-      .from('notification_email_log')
-      .select('source_key');
-    if (logError) throw logError;
-    const deliveredKeys = new Set((existingLog ?? []).map((row) => row.source_key));
-
-    const dueReminders = computeDueReminders({ today, items });
-
-    // SOP step 5: the day-before reminder for each scheduled interview, due
-    // from the day before through the interview day (catch-up, like the
-    // deadline rule).
-    const interviewById = new Map();
-    const interviewApplications = (applications ?? []).filter((row) => (
-      row.status === 'Interview' && isStructuredInterview(row.interview) && row.interview.state === 'scheduled'
-    ));
-    if (interviewApplications.length) {
-      const { data: interviewScholarships, error: interviewScholarshipsError } = await supabaseAdmin
-        .from('scholarships')
-        .select('id, title')
-        .in('id', [...new Set(interviewApplications.map((row) => row.scholarship_id))]);
-      if (interviewScholarshipsError) throw interviewScholarshipsError;
-      const titleById = new Map((interviewScholarships ?? []).map((row) => [row.id, row.title]));
-      for (const application of interviewApplications) {
-        const interviewDate = getInterviewDateKey(application.interview.startsAt);
-        if (!interviewDate || reminderDateKey(interviewDate, 1) > today || today > interviewDate) continue;
-        const scholarshipTitle = titleById.get(application.scholarship_id) || 'scholarship';
-        interviewById.set(application.id, { interview: application.interview, scholarshipTitle });
-        dueReminders.push({
-          sourceKey: getInterviewReminderKey(application.id, application.interview.revision),
-          itemId: application.id,
-          itemTitle: scholarshipTitle,
-          kind: 'interview',
-          daysBefore: 1,
-          title: `Reminder: your ${scholarshipTitle} interview is tomorrow`,
-        });
-      }
-    }
-    const deadlineById = new Map(items.map((item) => [item.id, item.deadline]));
-    const env = Deno.env.toObject();
-    const siteUrl = resolveSiteUrl(env);
-    const resend = getResendConfig(env);
-    const sms = getSmsConfig(env);
-    const recipients = new Map();
-    const deliveries = [];
-    const stats = { inApp: 0, emailed: 0, emailSkipped: 0, emailFailed: 0, smsSent: 0, smsSkipped: 0, smsFailed: 0, suppressed: 0 };
-
-    for (const reminder of dueReminders) {
-      const isApplicationReminder = reminder.kind === 'application';
-      const isCustomReminder = reminder.kind === 'custom';
-      const interviewReminder = reminder.kind === 'interview' ? interviewById.get(reminder.itemId) : null;
-      const recipientIds = isCustomReminder
-        ? [customOwners.get(reminder.itemId)].filter(Boolean)
-        : isApplicationReminder || interviewReminder
-          ? [applications.find((row) => row.id === reminder.itemId)?.student_id].filter(Boolean)
-          : applications
-              .filter((row) => row.scholarship_id === reminder.itemId)
-              .map((row) => row.student_id);
-
-      const deadline = deadlineById.get(reminder.itemId) ?? null;
-
-      for (const userId of recipientIds) {
-        const userKey = `${reminder.sourceKey}:${userId}`;
-        if (deliveredKeys.has(userKey)) continue;
-
-        if (!recipients.has(userId)) {
-          const { data: profile, error: profileError } = await supabaseAdmin
-            .from('profiles')
-            .select('user_id, full_name, email, phone, notification_preferences')
-            .eq('user_id', userId)
-            .maybeSingle();
-          if (profileError) throw profileError;
-          if (profile) recipients.set(userId, profile);
-        }
-
-        const profile = recipients.get(userId);
-        if (!profile) continue;
-
-        const preferences = profile.notification_preferences ?? {};
-
-        // A disabled reminder timing suppresses this reminder on every channel,
-        // matching the client-side generator in src/App.jsx. Nothing is recorded
-        // for it, so enabling the timing later still delivers it. Counting it as
-        // a distinct outcome keeps `deliveries` and `emailSkipped` honest.
-        if (!isReminderEnabledForUser(preferences, reminder.daysBefore)) {
-          stats.suppressed += 1;
-          continue;
-        }
-
-        const kindLabel = interviewReminder
-          ? 'Interview reminder'
-          : isCustomReminder
-            ? 'Personal deadline'
-            : isApplicationReminder ? 'Application deadline' : 'Deadline reminder';
-        const body = interviewReminder
-          ? summarizeInterview(interviewReminder.interview)
-          : `${reminder.itemTitle} is due on ${deadline ?? 'its recorded deadline'}.`;
-
-        // Channel 1 — in-app row, gated by notificationPreferences.inAppEnabled.
-        // notifications.channel is constrained to 'SMS' / 'Email' / 'In-app', so
-        // the deadline kind is carried by the title and body instead.
-        const wantsInApp = preferences.inAppEnabled !== false;
-        let inAppError = null;
-        if (wantsInApp) {
-          const { error: notificationError } = await supabaseAdmin.from('notifications').insert({
-            profile_id: profile.user_id,
-            title: reminder.title,
-            channel: 'In-app',
-            body,
-            status: 'Unread',
-          });
-          if (notificationError) inAppError = notificationError.message;
-          else stats.inApp += 1;
-        }
-        const inAppWritten = wantsInApp && !inAppError;
-
-        // Channel 2 — email, gated by emailEnabled. The reminder timing is
-        // already applied above, so a skip here means only that the student
-        // turned the email channel off.
-        const wantsEmail = isEmailEnabledForUser(preferences);
-        let emailResult = { ok: false, skipped: true, reason: 'Email notifications disabled' };
-
-        if (wantsEmail) {
-          const message = interviewReminder
-            ? renderInterviewReminderEmail({
-              title: reminder.title,
-              interview: interviewReminder.interview,
-              scholarshipTitle: interviewReminder.scholarshipTitle,
-              siteUrl,
-            })
-            : renderReminderEmail({
-              title: reminder.title,
-              itemTitle: reminder.itemTitle,
-              deadline,
-              daysBefore: reminder.daysBefore,
-              siteUrl,
-            });
-          emailResult = await sendEmail({
-            apiKey: resend.apiKey,
-            from: resend.from,
-            to: profile.email,
-            subject: message.subject,
-            html: message.html,
-            text: message.text,
-            idempotencyKey: userKey,
-          });
-          if (emailResult.ok) stats.emailed += 1;
-          else if (emailResult.skipped) stats.emailSkipped += 1;
-          else stats.emailFailed += 1;
-        } else {
-          stats.emailSkipped += 1;
-        }
-
-        // Channel 3 — SMS, gated by smsEnabled plus the reminder timing.
-        // profiles.phone is normalized to the 639XXXXXXXXX form iprogSMS
-        // expects; a student without a usable mobile number is skipped, not
-        // failed, so the reminder stays retryable once they add one.
-        const smsTo = normalizePhilippineMobile(profile.phone);
-        const wantsSms = isSmsEnabledForUser(preferences);
-        let smsResult = { ok: false, skipped: true, reason: 'SMS notifications disabled' };
-        if (wantsSms && !smsTo) {
-          smsResult = { ok: false, skipped: true, reason: 'This student has no mobile number on file' };
-          stats.smsSkipped += 1;
-        } else if (wantsSms) {
-          const message = interviewReminder
-            ? renderInterviewReminderSms({ interview: interviewReminder.interview, scholarshipTitle: interviewReminder.scholarshipTitle })
-            : renderReminderSms({
-              title: reminder.title,
-              itemTitle: reminder.itemTitle,
-              deadline,
-              daysBefore: reminder.daysBefore,
-            });
-          smsResult = await sendSms({
-            apiToken: sms.apiToken,
-            phoneNumber: smsTo,
-            message: message.message,
-            provider: sms.provider,
-          });
-          if (smsResult.ok) stats.smsSent += 1;
-          else if (smsResult.skipped) stats.smsSkipped += 1;
-          else stats.smsFailed += 1;
-        } else {
-          stats.smsSkipped += 1;
-        }
-
-        // Only write the ledger row when something was actually delivered. A
-        // reminder where every attempted channel was unavailable (or the only
-        // attempted channel failed) stays unlogged so the next run retries it
-        // instead of dropping it permanently.
-        if (inAppWritten || emailResult.ok || smsResult.ok) {
-          await supabaseAdmin
-            .from('notification_email_log')
-            .upsert({
-              source_key: userKey,
-              user_id: profile.user_id,
-              reminder_title: reminder.title,
-              email_to: profile.email ?? null,
-              email_status: emailResult.ok ? 'sent' : wantsEmail ? 'failed' : 'skipped',
-              email_id: emailResult.id ?? null,
-              email_error: emailResult.error ?? null,
-              sms_to: smsResult.ok ? (formatPhilippineMobile(profile.phone) ?? smsTo) : null,
-              sms_status: smsResult.ok ? 'sent' : wantsSms ? 'failed' : 'skipped',
-              sms_message_id: smsResult.messageId ?? null,
-              sms_error: smsResult.error ?? smsResult.reason ?? null,
-            });
-          deliveredKeys.add(userKey);
-        }
-
-        deliveries.push({
-          userKey,
-          userId: profile.user_id,
-          to: profile.email ?? null,
-          title: reminder.title,
-          kind: kindLabel,
-          inApp: inAppWritten,
-          inAppError,
-          emailStatus: emailResult.ok ? 'sent' : wantsEmail ? (emailResult.error || 'failed') : 'skipped',
-          smsTo: smsResult.ok ? (formatPhilippineMobile(profile.phone) ?? smsTo) : null,
-          smsStatus: smsResult.ok ? 'sent' : wantsSms ? (smsResult.error || smsResult.reason || 'failed') : 'skipped',
-        });
-      }
-    }
-
-    return json({
-      ok: true,
+    const result = await runDeadlineReminders({
+      supabase: supabaseAdmin,
       today,
-      dueReminders: dueReminders.length,
-      deliveries: deliveries.length,
-      inAppWritten: stats.inApp,
-      emailsSent: stats.emailed,
-      emailSkipped: stats.emailSkipped,
-      emailFailed: stats.emailFailed,
-      suppressed: stats.suppressed,
-      emailConfigured: Boolean(resend.apiKey),
-      smsSent: stats.smsSent,
-      smsSkipped: stats.smsSkipped,
-      smsFailed: stats.smsFailed,
-      smsConfigured: Boolean(sms.apiToken),
-      preview: deliveries.slice(0, 10),
+      env: Deno.env.toObject(),
+      // SMS is sent only by the trusted scheduled caller; a manual signed-in
+      // run still writes in-app rows and emails, but cannot text students.
+      allowSms: isScheduledCaller,
     });
+    return json({ ok: true, ...result });
   } catch (error) {
     return json({ ok: false, error: String(error?.message ?? error) }, 500);
   }

@@ -38,11 +38,31 @@ const json = (body, status = 200) =>
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
 
+const logDeliveryFailure = (event, error) => {
+  if (!error) return;
+  console.error(JSON.stringify({ event, code: error.code || 'unknown' }));
+};
+
 // Applications the student can still act on for this file: a Draft is fixed in
 // the application workspace, the others through the replace action.
 const ACTIONABLE_STATUSES = ['Draft', 'Submitted', 'Under Review', 'For Verification'];
 
 const withPeriod = (value) => (/[.!?]$/.test(value) ? value : `${value}.`);
+
+const loadApplicationLinks = async (supabaseAdmin, documentId) => {
+  const rows = [];
+  for (let offset = 0; ; offset += 500) {
+    const { data, error } = await supabaseAdmin
+      .from('application_documents')
+      .select('application_id, applications(status, scholarships(title))')
+      .eq('document_id', documentId)
+      .order('application_id', { ascending: true })
+      .range(offset, offset + 499);
+    if (error) return { data: null, error };
+    rows.push(...(data || []));
+    if ((data || []).length < 500) return { data: rows, error: null };
+  }
+};
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -115,16 +135,13 @@ Deno.serve(async (req) => {
   const title = document.title || 'Your document';
   const reason = String(document.rejection_reason ?? '').trim();
 
-  const [{ data: studentProfile }, { data: links }, { data: existingDelivery, error: existingLookupError }] = await Promise.all([
+  const [studentProfileResult, linksResult, existingDeliveryResult] = await Promise.all([
     supabaseAdmin
       .from('profiles')
       .select('email, phone, notification_preferences')
       .eq('user_id', document.owner_id)
       .maybeSingle(),
-    supabaseAdmin
-      .from('application_documents')
-      .select('applications(status, scholarships(title))')
-      .eq('document_id', document.id),
+    loadApplicationLinks(supabaseAdmin, document.id),
     supabaseAdmin
       .from('notification_email_log')
       .select('email_status, email_id, email_to, sms_status, sms_message_id, sms_to')
@@ -132,9 +149,14 @@ Deno.serve(async (req) => {
       .eq('user_id', document.owner_id)
       .maybeSingle(),
   ]);
-  if (existingLookupError) {
+  if (studentProfileResult.error || linksResult.error || existingDeliveryResult.error) {
+    const error = studentProfileResult.error || linksResult.error || existingDeliveryResult.error;
+    logDeliveryFailure('document_verification_context_read_failed', error);
     return json({ error: 'Unable to check prior document notification delivery' }, 500);
   }
+  const studentProfile = studentProfileResult.data;
+  const links = linksResult.data;
+  const existingDelivery = existingDeliveryResult.data;
 
   const scholarshipTitles = [...new Set((links ?? [])
     .map((link) => link.applications)
@@ -218,6 +240,7 @@ Deno.serve(async (req) => {
   // Log only real email/SMS deliveries so a skipped or failed send stays
   // retryable; a browser caller preserves whatever the database path recorded
   // for SMS.
+  let ledgerFailed = false;
   if (emailResult.ok || smsResult.ok) {
     const smsLedger = isTrustedDatabaseCaller
       ? {
@@ -231,7 +254,7 @@ Deno.serve(async (req) => {
           sms_status: existingDelivery?.sms_status ?? null,
           sms_message_id: existingDelivery?.sms_message_id ?? null,
         };
-    await supabaseAdmin
+    const { error: ledgerError } = await supabaseAdmin
       .from('notification_email_log')
       .upsert({
         source_key: sourceKey,
@@ -242,7 +265,11 @@ Deno.serve(async (req) => {
         email_id: emailResult.id ?? existingDelivery?.email_id ?? null,
         email_error: emailResult.error ?? null,
         ...smsLedger,
-      });
+      }, { onConflict: 'source_key,user_id' });
+    if (ledgerError) {
+      ledgerFailed = true;
+      logDeliveryFailure('document_verification_delivery_ledger_failed', ledgerError);
+    }
   }
 
   return json({
@@ -250,6 +277,7 @@ Deno.serve(async (req) => {
     inAppError: inAppError?.message ?? null,
     emailSent: Boolean(emailResult.ok),
     smsSent: Boolean(smsResult.ok),
+    ledgerFailed,
     emailReason: emailResult.error ?? emailResult.reason ?? null,
     smsReason: smsResult.error ?? smsResult.reason ?? null,
   });

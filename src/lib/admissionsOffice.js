@@ -2,7 +2,7 @@ import { ADMISSIONS_STAFF_EXCLUDED_STATUSES, getApplicationStatusLabel } from '.
 import { areDocumentsReviewable, describeStatusActor } from './applicationRequirements';
 import { isAdduInternalProgram } from './eligibility';
 import { findAcademicProgram } from './academicPrograms';
-import { buildXlsx, columnName, downloadBytes } from './xlsxWriter';
+import { buildXlsx, buildXlsxAsync, columnName, downloadBytes } from './xlsxWriter';
 import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
 
 // The Admissions Office workspace is split into one route per function
@@ -564,10 +564,25 @@ export const buildApplicantSummaryWorkbook = (applications = [], options = {}) =
   buildXlsx(buildApplicantSummarySheets(applications, options), options.source?.now instanceof Date ? options.source.now : new Date())
 );
 
+// An export larger than this is refused with a message instead of freezing the
+// browser or producing a workbook too big to open comfortably; the pages already
+// export one scholarship or one release at a time.
+export const EXPORT_ROW_LIMIT = 5000;
+
 // Saves the summary in the browser. Kept beside the builder so every page that
-// offers the export names the file the same way.
-export const downloadApplicantSummary = (applications, options = {}, fileName = 'Applicant_summary.xlsx') => {
-  downloadBytes(buildApplicantSummaryWorkbook(applications, options), fileName);
+// offers the export names the file the same way. The workbook is built in slices
+// that yield to the page, so the button returns a promise (ExportButton shows it
+// as busy and reports a refusal).
+export const downloadApplicantSummary = async (applications, options = {}, fileName = 'Applicant_summary.xlsx') => {
+  const count = Array.isArray(applications) ? applications.length : 0;
+  if (count > EXPORT_ROW_LIMIT) {
+    throw new Error(`This export has ${count.toLocaleString('en-US')} applications; the limit is ${EXPORT_ROW_LIMIT.toLocaleString('en-US')}. Narrow the scholarship or release and export again.`);
+  }
+  const bytes = await buildXlsxAsync(
+    buildApplicantSummarySheets(applications, options),
+    options.source?.now instanceof Date ? options.source.now : new Date(),
+  );
+  downloadBytes(bytes, fileName);
 };
 
 // A file name that says what is inside: Applicant_summary_<parts>_<yyyy-mm-dd>.xlsx
@@ -588,18 +603,43 @@ const parentNames = (entry) => {
   return [family.fatherName, family.motherName].map(normalizeName).filter(Boolean);
 };
 
+const finalCheckIndexes = new WeakMap();
+const getFinalCheckIndex = (applications) => {
+  const entries = asList(applications);
+  if (!Array.isArray(applications)) return { byParentName: new Map(), byStudentId: new Map() };
+
+  let index = finalCheckIndexes.get(applications);
+  if (!index) {
+    const byParentName = new Map();
+    const byStudentId = new Map();
+    entries.forEach((entry) => {
+      parentNames(entry).forEach((name) => {
+        if (!byParentName.has(name)) byParentName.set(name, []);
+        byParentName.get(name).push(entry);
+      });
+      if (entry.studentId) {
+        if (!byStudentId.has(entry.studentId)) byStudentId.set(entry.studentId, []);
+        byStudentId.get(entry.studentId).push(entry);
+      }
+    });
+    index = { byParentName, byStudentId };
+    finalCheckIndexes.set(applications, index);
+  }
+  return index;
+};
+
 export const getFinalCheckHints = (application, applications = []) => {
-  const list = asList(applications).filter((entry) => entry.id !== application?.id);
+  const index = getFinalCheckIndex(applications);
   const parents = new Set(parentNames(application));
-  const siblingsOnGrant = parents.size
-    ? list.filter((entry) => (
-      entry.studentId !== application.studentId
-      && ['Approved', 'Released'].includes(entry.status)
-      && parentNames(entry).some((name) => parents.has(name))
-    ))
-    : [];
-  const pendingCases = list.filter((entry) => (
-    entry.studentId === application?.studentId
+  const siblingCandidates = new Set([...parents].flatMap((name) => index.byParentName.get(name) || []));
+  const siblingsOnGrant = [...siblingCandidates].filter((entry) => (
+    entry.id !== application?.id
+    && entry.studentId !== application?.studentId
+    && ['Approved', 'Released'].includes(entry.status)
+  ));
+  const pendingCases = (index.byStudentId.get(application?.studentId) || []).filter((entry) => (
+    entry.id !== application?.id
+    && entry.studentId === application?.studentId
     && !['Draft', 'Released', 'Declined', 'Rejected'].includes(entry.status)
   ));
   return { siblingsOnGrant, pendingCases, selfDeclaredSibling: Boolean(application?.profileSnapshot?.eligibility?.hasSiblingOnAid) };

@@ -2,12 +2,20 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 import {
   IPROGSMS_ENDPOINT,
   sendSms,
-  toErrorMessage,
 } from '../supabase/functions/_shared/sms.js';
+
+const abortingFetch = vi.fn((_url, init) => new Promise((_resolve, reject) => {
+  init.signal.addEventListener('abort', () => {
+    const error = new Error('The operation was aborted');
+    error.name = 'AbortError';
+    reject(error);
+  });
+}));
 
 describe('sendSms', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    abortingFetch.mockClear();
   });
 
   it('skips without a token, recipient, or message instead of throwing', async () => {
@@ -75,10 +83,77 @@ describe('sendSms', () => {
     expect(result).toMatchObject({ ok: false, skipped: false, error: 'Invalid phone number' });
   });
 
-  it('reports network failures without throwing', async () => {
+  it('reports network failures without throwing and marks the result ambiguous', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connection reset')));
 
     const result = await sendSms({ apiToken: 'tok', phoneNumber: '639171234567', message: 'Hello' });
-    expect(result).toMatchObject({ ok: false, skipped: false, error: 'connection reset' });
+    expect(result).toMatchObject({
+      ok: false,
+      skipped: false,
+      error: 'connection reset',
+      ambiguous: true,
+      retryable: false,
+      attempts: 1,
+    });
+  });
+
+  it('times out and reports an ambiguous result without retrying', async () => {
+    vi.stubGlobal('fetch', abortingFetch);
+
+    const result = await sendSms({
+      apiToken: 'tok',
+      phoneNumber: '639171234567',
+      message: 'Hello',
+      timeoutMs: 100,
+    });
+
+    expect(abortingFetch).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: false,
+      skipped: false,
+      timeout: true,
+      ambiguous: true,
+      retryable: false,
+      attempts: 1,
+    });
+    expect(result.error).toContain('timed out after 100ms');
+  });
+
+  it('never retries a 5xx even though the outcome is ambiguous', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ status: 503, message: 'Gateway unavailable' }),
+      { status: 503 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await sendSms({ apiToken: 'tok', phoneNumber: '639171234567', message: 'Hello' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: false,
+      status: 503,
+      ambiguous: true,
+      retryable: false,
+      attempts: 1,
+    });
+  });
+
+  it('marks an explicit 429 as retryable for a later manual attempt but does not retry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({ status: 429, message: 'Rate limited' }),
+      { status: 429 },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await sendSms({ apiToken: 'tok', phoneNumber: '639171234567', message: 'Hello' });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      ok: false,
+      status: 429,
+      ambiguous: false,
+      retryable: true,
+      attempts: 1,
+    });
   });
 });
