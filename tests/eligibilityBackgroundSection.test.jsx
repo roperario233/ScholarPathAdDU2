@@ -93,10 +93,11 @@ describe('My Profile Eligibility background', () => {
     const over = render({ householdIncome: 200000, financialProfile: finances });
     expect(over).toContain("Parents&#x27; incomes add up to");
     expect(over).toContain('which is more than the');
+    expect(over).toContain('This discrepancy will be reflected on your application.');
     // A household total above the parents' share is normal and only explained.
     const under = render({ householdIncome: 400000, financialProfile: finances });
     expect(under).toContain('the rest may come from another household member');
-    expect(under).not.toContain('Correct whichever figure is wrong');
+    expect(under).not.toContain('This discrepancy will be reflected on your application.');
     // Nothing to compare before both figures exist.
     expect(render({ householdIncome: 200000 })).not.toContain('Parents&#x27; incomes add up to');
   });

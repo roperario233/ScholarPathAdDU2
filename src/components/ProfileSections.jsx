@@ -251,7 +251,7 @@ function HouseholdIncomeNote({ check, onOpenSection, openLabel = 'Review househo
       {isWarning ? <TriangleAlert size={18} className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true" /> : null}
       <p className="m-0 min-w-0 flex-1 basis-64">
         {check.message}
-        {isWarning ? ' Correct whichever figure is wrong — the Admissions Office compares the two.' : ''}
+        {isWarning ? ' This discrepancy will be reflected on your application.' : ''}
       </p>
       {onOpenSection ? (
         <button type="button" className="proof-action" onClick={onOpenSection}>
