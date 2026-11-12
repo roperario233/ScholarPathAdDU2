@@ -231,11 +231,11 @@ export function ChoiceToggle({
   const name = fieldKey || `choice-${String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment} fieldKey={fieldKey} required={required} className={className} group>
-      <div role="radiogroup" aria-label={label} className="flex flex-wrap items-center gap-1 rounded-xl border border-app-border bg-app-surface p-1">
+      <div role="radiogroup" aria-label={label} className="flex min-h-12 flex-wrap items-stretch gap-1 rounded-xl border border-app-border bg-app-surface p-1">
         {choices.map((option) => (
           <label
             key={option.value}
-            className="relative flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-lg border border-transparent px-3 text-center text-sm font-semibold text-app-muted transition-colors hover:text-app-text has-[:checked]:border-transparent has-[:checked]:bg-ateneo has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-app-surface"
+            className="relative flex min-h-9 flex-1 cursor-pointer items-center justify-center rounded-lg border border-transparent px-3 text-center text-sm font-semibold text-app-muted transition-colors hover:text-app-text has-[:checked]:border-transparent has-[:checked]:bg-ateneo has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-app-surface"
           >
             <input
               type="radio"

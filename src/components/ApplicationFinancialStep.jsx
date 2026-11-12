@@ -85,11 +85,14 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </p>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Do you have other sources of income?" required={needs('otherIncomeAnswer')}>
-          <select className={controlClass} value={answers.otherIncomeAnswer} onChange={text('otherIncomeAnswer')}>
-            {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
+        <ChoiceToggle
+          fieldKey="otherIncomeAnswer"
+          label="Do you have other sources of income?"
+          value={answers.otherIncomeAnswer}
+          onChange={set('otherIncomeAnswer')}
+          options={yesNoAnswerOptions}
+          required={needs('otherIncomeAnswer')}
+        />
         {answers.otherIncomeAnswer === 'yes' ? (
           <>
             <FormField label="Other income sources" required={needs('otherIncomeSources')}>
@@ -103,11 +106,14 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </Panel>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Has your family had financial difficulty in the last 3 months?" required={needs('difficultyAnswer')}>
-          <select className={controlClass} value={answers.difficultyAnswer} onChange={text('difficultyAnswer')}>
-            {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
+        <ChoiceToggle
+          fieldKey="difficultyAnswer"
+          label="Has your family had financial difficulty in the last 3 months?"
+          value={answers.difficultyAnswer}
+          onChange={set('difficultyAnswer')}
+          options={yesNoAnswerOptions}
+          required={needs('difficultyAnswer')}
+        />
         {answers.difficultyAnswer === 'yes' ? (
           <>
             <CheckboxGroup
