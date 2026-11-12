@@ -65,7 +65,7 @@ function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, 
 // daily expenses). These answers are time-sensitive, so they belong to this
 // application rather than the reusable profile, and they go to the Admissions
 // Office only.
-export default function ApplicationFinancialStep({ answers, onChange, missing = [] }) {
+export default function ApplicationFinancialStep({ answers, onChange }) {
   const set = (key) => (value) => onChange({ ...answers, [key]: value });
   const text = (key) => (event) => set(key)(event.target.value);
   const selection = (key) => (Array.isArray(answers[key]) ? answers[key] : []);
@@ -189,10 +189,6 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
           <AmountInput value={answers.expenseOther} onChange={set('expenseOther')} label="Other daily expenses" />
         </FormField>
       </Panel>
-
-      {missing.length ? (
-        <p className="m-0 text-sm text-app-muted" role="status">Still needed: {missing.join('; ')}.</p>
-      ) : null}
     </section>
   );
 }

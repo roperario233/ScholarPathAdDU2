@@ -492,10 +492,11 @@ export default function ApplicationWorkspaceModal({
           {current === 'financial' && (
             <>
               {financialLoaded
-                ? <ApplicationFinancialStep answers={financialAnswers} onChange={(next) => { setFinancialAnswers(next); setFinancialMessage(''); }} missing={financialMissing} />
+                ? <ApplicationFinancialStep answers={financialAnswers} onChange={(next) => { setFinancialAnswers(next); setFinancialMessage(''); }} />
                 : <SkeletonRegion label="Loading your financial answers" className="grid gap-4"><SkeletonText lines={2} /><SkeletonRows rows={3} /></SkeletonRegion>}
               <div className="flex flex-wrap items-center gap-3">
                 <Button type="button" onClick={saveFinancial} disabled={!financialLoaded || !isFinancialDirty}>Save draft</Button>
+                {financialLoaded && financialMissing.length ? <span className="text-sm text-app-muted" role="status">Still needed: {financialMissing.join('; ')}.</span> : null}
                 {financialMessage ? <span className="text-sm text-app-muted" role="status">{financialMessage}</span> : null}
               </div>
             </>
