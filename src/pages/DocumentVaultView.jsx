@@ -88,22 +88,22 @@ export default function DocumentVaultView({ documents, applications = [], profil
 
   return (
     <div className="blue-action-view grid gap-4">
-      <section className="page-title-bar relative rounded-app border bg-app-card p-5 shadow-app backdrop-blur">
+      <section className="page-title-bar relative flex flex-col items-start justify-between gap-3 rounded-app border bg-app-card p-5 shadow-app backdrop-blur sm:flex-row sm:items-center sm:gap-4">
         <div className="pointer-events-none absolute -right-10 -top-12 h-40 w-40 rounded-full bg-blue-500/10 blur-2xl" aria-hidden="true" />
         <div className="page-title-copy relative">
           <span className="page-section-label">Document Vault</span>
           <h2>Upload once, reuse across applications</h2>
-          <p className="mt-2 max-w-2xl text-sm text-app-muted">Keep your proofs in one private place. Attach the same verified file to as many applications as you need.</p>
-          {onOpenPrivacyDocument ? (
-            <button
-              type="button"
-              className="proof-action relative mt-1 text-xs font-semibold text-blue-700 dark:text-sky-300"
-              onClick={() => onOpenPrivacyDocument('privacy')}
-            >
-              Who can read your documents
-            </button>
-          ) : null}
+          <p className="mt-2 max-w-2xl text-sm text-app-muted">Keep your proofs in one private place and reuse each verified file.</p>
         </div>
+        {onOpenPrivacyDocument ? (
+          <button
+            type="button"
+            className="proof-action relative shrink-0 text-xs font-semibold text-blue-700 dark:text-sky-300"
+            onClick={() => onOpenPrivacyDocument('privacy')}
+          >
+            Who can read your documents
+          </button>
+        ) : null}
       </section>
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
