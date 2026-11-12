@@ -30,6 +30,9 @@ export function useApplicationFinancialSections(application, enabled) {
         financialProfile: result.financialSnapshot,
         answers: result.answers,
         family: family || {},
+        // The declared household income comes from the frozen profile snapshot, so
+        // the income cross-check reads what the applicant submitted.
+        householdIncome: application?.profileSnapshot?.householdIncome,
       });
       setState({ sections, status: sections.length ? 'ready' : 'empty' });
     });

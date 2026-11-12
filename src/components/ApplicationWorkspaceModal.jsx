@@ -299,7 +299,7 @@ export default function ApplicationWorkspaceModal({
   const financialMissing = useMemo(() => getFinancialAnswersMissing(financialAnswers), [financialAnswers]);
   const isFinancialDirty = JSON.stringify(normalizeFinancialAnswers(financialAnswers)) !== JSON.stringify(savedFinancial);
   const financialSections = useMemo(
-    () => getFinancialDetailSections({ financialProfile: profile?.financialProfile, answers: financialAnswers, family: profile?.familyDetails || {} }),
+    () => getFinancialDetailSections({ financialProfile: profile?.financialProfile, answers: financialAnswers, family: profile?.familyDetails || {}, householdIncome: profile?.householdIncome }),
     [profile, financialAnswers],
   );
   const wordCount = countWords(statement);

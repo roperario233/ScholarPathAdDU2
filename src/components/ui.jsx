@@ -130,7 +130,12 @@ export function RequiredMark() {
   );
 }
 
-export function FormField({ label, hint, error, labelAdornment, fieldKey, required = false, children, className = '' }) {
+export function FormField({ label, hint, error, labelAdornment, fieldKey, required = false, children, className = '', group = false }) {
+  // A choice group (ChoiceToggle) carries its own radio <label>s, so it cannot sit
+  // inside this component's field <label>: nested labels are invalid markup and the
+  // outer one forwards its clicks to the first control. `group` swaps the header
+  // wrapper for a plain group container and keeps every other row identical.
+  const Header = group ? 'div' : 'label';
   return (
     // The root is a plain container, not a <label>: a label adornment can carry an
     // action (the proof chip), and interactive content nested in a <label> is invalid
@@ -141,13 +146,13 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, requir
     // `data-field` names the answer(s) the field edits, so a link into My Profile
     // can find and highlight it (src/pages/ProfileView.jsx).
     <div className={clsx('grid min-w-0 content-start gap-2', className)} data-field={fieldKey}>
-      <label className="grid min-w-0 content-start gap-2">
+      <Header className="grid min-w-0 content-start gap-2">
         <span className="min-w-0 text-sm font-semibold text-app-text">
           {label}
           {required && <RequiredMark />}
         </span>
         {children}
-      </label>
+      </Header>
       {/* The adornment gets a row of its own under the control. Sharing the label
           line let a badge plus its action wrap the header onto a second line, which
           pushed this field's control out of line with the field beside it. */}
@@ -197,6 +202,54 @@ export function SettingToggle({ checked, onChange, title, description, icon: Ico
       {copy}
       {switchControl}
     </label>
+  );
+}
+
+// A two-answer question (Yes / No, Filipino / Non-Filipino, Male / Female) as a
+// segmented pair of pills instead of a two-option <select>. The answer keeps a real
+// unanswered state — neither pill is checked and the required star stays visible —
+// which a plain switch cannot express: a silent "No" would skip the proof rule the
+// answer owns. The pills are <label>s around native radios, not <button>s, so the
+// authenticated shell's `.blue-action-view` page-button palette never repaints them,
+// and arrow keys move between them the way a radio group should.
+// Selecting the checked answer again clears it (allowClear), preserving the
+// "Select" escape hatch the native selects had.
+export function ChoiceToggle({
+  label,
+  hint,
+  error,
+  labelAdornment,
+  fieldKey,
+  required = false,
+  value = '',
+  onChange,
+  options = [],
+  allowClear = true,
+  className = '',
+}) {
+  const choices = options.filter((option) => option.value !== '' && option.value !== undefined && option.value !== null);
+  const name = fieldKey || `choice-${String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  return (
+    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment} fieldKey={fieldKey} required={required} className={className} group>
+      <div role="radiogroup" aria-label={label} className="flex flex-wrap items-center gap-1 rounded-xl border border-app-border bg-app-surface p-1">
+        {choices.map((option) => (
+          <label
+            key={option.value}
+            className="relative flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-lg border border-transparent px-3 text-center text-sm font-semibold text-app-muted transition-colors hover:text-app-text has-[:checked]:border-transparent has-[:checked]:bg-ateneo has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-app-surface"
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange?.(allowClear && value === option.value ? '' : option.value)}
+              className="peer sr-only"
+            />
+            <span className="min-w-0 [overflow-wrap:anywhere]">{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </FormField>
   );
 }
 

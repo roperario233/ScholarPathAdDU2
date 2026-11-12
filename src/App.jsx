@@ -4343,7 +4343,6 @@ function App() {
             <ProfileViewPage
               profile={currentIdentity}
               role={state.viewerRole}
-              roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
               academicProgramGroups={activeAcademicProgramGroups}
               initialSection={profilePresetSection}

@@ -44,7 +44,6 @@ const STEP_STATUS_TEXT = {
 export default function ProfileView({
   profile,
   role,
-  roleLabel,
   academicPrograms = [],
   academicProgramGroups = [],
   attributeVerifications = {},
@@ -125,7 +124,6 @@ export default function ProfileView({
   // What the open AdDU internal scholarships ask this student to keep in the
   // Document Vault; staff have no applications, so they get no checklist.
   const documentChecklist = isStudent ? getDocumentChecklist({ scholarships, profile, documents }) : null;
-  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof, previewProofImpact, previewVerifications };
 
   const showSectionContent = () => {
     const target = sectionContentRef.current;
@@ -141,6 +139,10 @@ export default function ProfileView({
     setActiveSection(key);
     return true;
   };
+
+  // The household-income note and the proof chips jump between the numbered parts,
+  // so each section form receives the same opener the menu uses.
+  const sectionProps = { profile, onSave: onSaveProfile, onDirtyChange: setHasUnsavedChanges, attributeVerifications, onAttachProof, previewProofImpact, previewVerifications, onOpenSection: openSection };
 
   // "Save and continue" lands here on the render after the save, so the next
   // section is chosen from the answers just saved (state adjusted during render,
@@ -256,7 +258,7 @@ export default function ProfileView({
           {formProgress ? (
             <div className="page-metric w-full rounded-2xl border border-app-border bg-app-surface p-4 text-center sm:w-auto sm:min-w-36">
               <strong>{formProgress.readyToApply ? 'Ready' : `${formProgress.answersMissing}`}</strong>
-              <span>{formProgress.readyToApply ? 'to apply' : formProgress.answersMissing === 1 ? 'answer to go' : 'answers to go'}</span>
+              <span>{formProgress.readyToApply ? 'to apply' : formProgress.answersMissing === 1 ? 'item left' : 'items left'}</span>
             </div>
           ) : null}
         </div>
@@ -323,7 +325,7 @@ export default function ProfileView({
                 onUploadDocument={onUploadDocument}
               />
             )}
-            {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} roleLabel={roleLabel} avatar={avatar} onChangeAvatar={onChangeAvatar} onRemoveAvatar={onRemoveAvatar} />}
+            {activeSection === 'personal' && <PersonalSection {...sectionProps} role={role} avatar={avatar} onChangeAvatar={onChangeAvatar} onRemoveAvatar={onRemoveAvatar} />}
             {activeSection === 'address' && isStudent && <AddressSection {...sectionProps} />}
             {activeSection === 'family' && isStudent && <FamilySection {...sectionProps} />}
             {activeSection === 'academic' && isStudent && (

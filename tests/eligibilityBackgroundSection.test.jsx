@@ -69,4 +69,47 @@ describe('My Profile Eligibility background', () => {
     const unverified = render({}, { ...settledVerifications, householdIncome: 'Unverified' });
     expect((unverified.match(/Attach proof/g) || []).length).toBe(1);
   });
+
+  it('asks the two-answer questions as toggles instead of dropdowns', () => {
+    const html = render();
+    // Citizenship, IP community, PWD, community service, and the financial-aid
+    // question are each one segmented pair, so five radio groups in all.
+    expect((html.match(/role="radiogroup"/g) || []).length).toBe(5);
+    ['Filipino', 'Non-Filipino', 'Yes', 'No'].forEach((label) => expect(html).toContain(`>${label}<`));
+    // The multi-answer questions keep their pickers.
+    expect(html).toContain('Employment status');
+    expect(html).toContain('Graduating honors standing');
+  });
+
+  it('carries the chosen answer on its pill and leaves the rest clear', () => {
+    const answered = render({ citizenship: 'Filipino', ipCommunity: 'Yes' });
+    // One checked radio per answered question: citizenship and IP community.
+    expect((answered.match(/checked=""/g) || []).length).toBe(2);
+    expect(render({}).match(/checked=""/g)).toBeNull();
+  });
+
+  it('compares the parents’ saved incomes with the declared household income', () => {
+    const finances = { father: { employmentStatus: 'employed', annualIncome: 250000 }, mother: { employmentStatus: 'employed', annualIncome: 50000 } };
+    const over = render({ householdIncome: 200000, financialProfile: finances });
+    expect(over).toContain("Parents&#x27; incomes add up to");
+    expect(over).toContain('which is more than the');
+    // A household total above the parents' share is normal and only explained.
+    const under = render({ householdIncome: 400000, financialProfile: finances });
+    expect(under).toContain('the rest may come from another household member');
+    expect(under).not.toContain('Correct whichever figure is wrong');
+    // Nothing to compare before both figures exist.
+    expect(render({ householdIncome: 200000 })).not.toContain('Parents&#x27; incomes add up to');
+  });
+
+  it('points at Household finances from the income note', () => {
+    const html = renderToStaticMarkup(
+      <BackgroundSection
+        profile={{ householdIncome: 200000, financialProfile: { father: { employmentStatus: 'employed', annualIncome: 250000 } } }}
+        onSave={noop}
+        onDirtyChange={noop}
+        onOpenSection={noop}
+      />,
+    );
+    expect(html).toContain('Review parent incomes');
+  });
 });

@@ -1,4 +1,4 @@
-import { FormField, Panel, RequiredMark } from './ui';
+import { ChoiceToggle, FormField, Panel, RequiredMark } from './ui';
 import {
   COPING_OPTIONS,
   DIFFICULTY_REASON_OPTIONS,
@@ -132,17 +132,22 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
         <FormField label="Daily allowance (PHP)" required={needs('allowanceDaily')}>
           <AmountInput value={answers.allowanceDaily} onChange={set('allowanceDaily')} label="Daily allowance" />
         </FormField>
-        <FormField label="Is your daily allowance enough?" required={needs('allowanceEnough')}>
-          <select className={controlClass} value={answers.allowanceEnough} onChange={text('allowanceEnough')}>
-            {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
-        <FormField label="Daily food intake" required={needs('foodIntakeAdequacy')}>
-          <select className={controlClass} value={answers.foodIntakeAdequacy} onChange={text('foodIntakeAdequacy')}>
-            <option value="">Select</option>
-            {foodIntakeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
+        <ChoiceToggle
+          fieldKey="allowanceEnough"
+          label="Is your daily allowance enough?"
+          value={answers.allowanceEnough}
+          onChange={set('allowanceEnough')}
+          options={yesNoAnswerOptions}
+          required={needs('allowanceEnough')}
+        />
+        <ChoiceToggle
+          fieldKey="foodIntakeAdequacy"
+          label="Daily food intake"
+          value={answers.foodIntakeAdequacy}
+          onChange={set('foodIntakeAdequacy')}
+          options={foodIntakeOptions}
+          required={needs('foodIntakeAdequacy')}
+        />
         <FormField label="Mode of transport to school" required={needs('transportMode')}>
           <select className={controlClass} value={answers.transportMode} onChange={text('transportMode')}>
             <option value="">Select</option>

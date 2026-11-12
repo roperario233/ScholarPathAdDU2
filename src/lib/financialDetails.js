@@ -319,7 +319,56 @@ const describeParent = (parent = {}, deceased, unknown = false) => {
   ].filter(Boolean).join(' · ');
 };
 
-export const getFinancialDetailSections = ({ financialProfile, answers, family = {} } = {}) => {
+// The two places the household money is recorded answer each other. Each parent's
+// annual income lives in Household finances (office-only), and the combined annual
+// household income — which may include siblings, grandparents, or a boarder — is a
+// profile answer in Eligibility background. Parents alone earning more than the whole
+// household is the one combination that cannot be true, so it is flagged; a
+// household total above the parents' share is normal and is only explained. An
+// unknown or deceased parent contributes nothing.
+// Soft by design: it never blocks a save or a submission.
+export const getHouseholdIncomeCheck = ({ householdIncome, financialProfile, family = {} } = {}) => {
+  const parents = ['father', 'mother']
+    .filter((parent) => family?.[`${parent}Unknown`] !== true && family?.[`${parent}Deceased`] !== true)
+    .map((parent) => toAmount(financialProfile?.[parent]?.annualIncome))
+    .filter((entry) => !entry.invalid && isAmount(entry.value));
+  // A frozen profile snapshot stores the answer with its verification badge
+  // ({ value, verification }); a live profile stores the plain answer.
+  const declared = toAmount(householdIncome && typeof householdIncome === 'object' ? householdIncome.value : householdIncome);
+  const empty = { status: 'unanswered', parentTotal: null, householdIncome: null, difference: null, message: '' };
+  // Nothing to compare until the parents and the household income are both recorded.
+  if (!parents.length || declared.invalid || !isAmount(declared.value)) return empty;
+  const parentTotal = parents.reduce((total, entry) => total + Number(entry.value), 0);
+  const declaredTotal = Number(declared.value);
+  const difference = parentTotal - declaredTotal;
+  if (difference > 0) {
+    return {
+      status: 'over',
+      parentTotal,
+      householdIncome: declaredTotal,
+      difference,
+      message: `Parents' incomes add up to ${money(parentTotal)}, which is more than the ${money(declaredTotal)} annual household income on record.`,
+    };
+  }
+  if (difference === 0) {
+    return {
+      status: 'exact',
+      parentTotal,
+      householdIncome: declaredTotal,
+      difference: 0,
+      message: `Parents' incomes add up to the whole ${money(declaredTotal)} annual household income.`,
+    };
+  }
+  return {
+    status: 'under',
+    parentTotal,
+    householdIncome: declaredTotal,
+    difference,
+    message: `Parents' incomes add up to ${money(parentTotal)} of the ${money(declaredTotal)} annual household income; the rest may come from another household member.`,
+  };
+};
+
+export const getFinancialDetailSections = ({ financialProfile, answers, family = {}, householdIncome } = {}) => {
   const sections = [];
   // FORM 230-SCH totals, derived from the family rows instead of asked twice.
   const siblings = Array.isArray(family.siblings) ? family.siblings : [];
@@ -327,6 +376,7 @@ export const getFinancialDetailSections = ({ financialProfile, answers, family =
   const workingCount = siblings.filter((entry) => ['Employed', 'Married'].includes(entry?.status)).length;
   const householdCount = Array.isArray(family.householdAdults) ? family.householdAdults.length : 0;
   if (financialProfile) {
+    const incomeCheck = getHouseholdIncomeCheck({ householdIncome, financialProfile, family });
     sections.push({
       key: 'finances',
       title: 'Household finances',
@@ -334,6 +384,15 @@ export const getFinancialDetailSections = ({ financialProfile, answers, family =
         { label: 'Perceived economic status', value: optionLabel(economicStatusOptions, financialProfile.economicStatus) },
         { label: 'Father', value: describeParent(financialProfile.father, family.fatherDeceased, family.fatherUnknown) },
         { label: 'Mother', value: describeParent(financialProfile.mother, family.motherDeceased, family.motherUnknown) },
+        // The two recorded money answers side by side: what the parents earn, and
+        // whether that fits inside the household income the applicant declared. The
+        // office sees the one combination that cannot be true.
+        ...(incomeCheck.parentTotal === null
+          ? []
+          : [{ label: "Parents' combined annual income", value: money(incomeCheck.parentTotal) }]),
+        ...(incomeCheck.status === 'over'
+          ? [{ label: 'Income check', value: incomeCheck.message, tone: 'warning' }]
+          : []),
         { label: 'Assets', value: flagList(financialProfile.assets, ASSET_OPTIONS) || 'None listed' },
         { label: 'Appliances and services', value: flagList(financialProfile.appliances, APPLIANCE_OPTIONS) || 'None listed' },
         ...(siblings.length || householdCount ? [{

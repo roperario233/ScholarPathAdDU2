@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyApplicantStatus,
+  applyFamilyPosition,
+  applyNumberOfSiblings,
   applyYearStanding,
+  COUNTRY_OTHER,
+  countryOptions,
   getApplicationFormProgress,
+  getCountryDraft,
+  getFamilyPositionOptions,
   getNextApplicationFormSection,
   isParentNameAnswered,
   composeFullName,
@@ -19,6 +25,7 @@ import {
   getYearStandingOptions,
   isParentFinancesAnswered,
   isGrantListActive,
+  isListedCountry,
   isProofRequired,
   isTransfereeProfile,
   getMissingRequiredAnswers,
@@ -28,6 +35,7 @@ import {
   mergeProfileDetails,
   pickEligibilityAttributes,
   pickFields,
+  resolveCountry,
   resolveYearStanding,
   requiresStudentNumber,
   splitLegacyFullName,
@@ -79,6 +87,7 @@ const chairProfile = {
 const formCore = {
   civilStatus: 'Single',
   completeAddress: '123 Rizal St, Davao City',
+  country: 'Philippines',
   housingType: 'I live at home',
   ipCommunity: 'No',
   pwd: 'No',
@@ -275,6 +284,84 @@ describe('section validators', () => {
     });
     expect(validateFamilySection({ familyDetails: { familyPosition: 'First born' } }).errors.familyPosition).toBeTruthy();
     expect(validateFamilySection({ familyDetails: { numberOfSiblings: 'lots' } }).errors.numberOfSiblings).toBeTruthy();
+  });
+
+  it('offers only the family positions the sibling total allows', () => {
+    const values = (siblings) => getFamilyPositionOptions(siblings).map((option) => option.value);
+    // Unanswered: every answer is still possible.
+    expect(values('')).toEqual(['', 'Only child', 'Eldest', 'Middle', 'Youngest']);
+    // No siblings: only an only child.
+    expect(values('0')).toEqual(['', 'Only child']);
+    // One sibling: no middle to be, and never an only child.
+    expect(values('1')).toEqual(['', 'Eldest', 'Youngest']);
+    // Two or more: a middle child needs one older and one younger sibling.
+    expect(values('2')).toEqual(['', 'Eldest', 'Middle', 'Youngest']);
+    expect(values(5)).toEqual(['', 'Eldest', 'Middle', 'Youngest']);
+  });
+
+  it('moves the family position and the sibling total together', () => {
+    // "Only child" answers the sibling questions with it.
+    expect(applyFamilyPosition({ familyPosition: '' }, 'Only child')).toEqual({
+      familyPosition: 'Only child',
+      numberOfSiblings: '0',
+      siblingsNone: true,
+      siblings: [],
+    });
+    expect(applyFamilyPosition({ familyPosition: 'Eldest' }, 'Youngest')).toEqual({ familyPosition: 'Youngest' });
+    // 0 siblings makes the student an only child.
+    expect(applyNumberOfSiblings({ familyPosition: 'Eldest' }, '0')).toEqual({
+      numberOfSiblings: '0',
+      familyPosition: 'Only child',
+      siblingsNone: true,
+      siblings: [],
+    });
+    // A count that rules the position out clears it instead of keeping a contradiction.
+    expect(applyNumberOfSiblings({ familyPosition: 'Only child' }, '1')).toEqual({ numberOfSiblings: '1', familyPosition: '' });
+    expect(applyNumberOfSiblings({ familyPosition: 'Middle' }, '1')).toEqual({ numberOfSiblings: '1', familyPosition: '' });
+    expect(applyNumberOfSiblings({ familyPosition: 'Middle' }, '2')).toEqual({ numberOfSiblings: '2' });
+    expect(applyNumberOfSiblings({ familyPosition: 'Eldest' }, '')).toEqual({ numberOfSiblings: '' });
+  });
+
+  it('clears the sibling answers an only child cannot have', () => {
+    const result = validateFamilySection({
+      familyDetails: {
+        familyPosition: 'Only child',
+        numberOfSiblings: '3',
+        siblingsNone: false,
+        siblings: [{ name: 'Mika', age: 12 }],
+      },
+    });
+    expect(result.values.familyDetails.numberOfSiblings).toBe(0);
+    expect(result.values.familyDetails.siblingsNone).toBe(true);
+    expect(result.values.familyDetails.siblings).toEqual([]);
+    expect(result.errors.familyPosition).toBeTruthy();
+  });
+
+  it('names the fix when a saved position contradicts the sibling total', () => {
+    expect(validateFamilySection({ familyDetails: { familyPosition: 'Eldest', numberOfSiblings: '0' } }).errors.familyPosition).toBeTruthy();
+    expect(validateFamilySection({ familyDetails: { familyPosition: 'Middle', numberOfSiblings: '1' } }).errors.familyPosition).toMatch(/2 or more siblings/);
+    expect(validateFamilySection({ familyDetails: { familyPosition: 'Middle', numberOfSiblings: '2' } }).errors.familyPosition).toBeUndefined();
+    expect(validateFamilySection({ familyDetails: { familyPosition: 'Eldest', numberOfSiblings: '1' } }).errors.familyPosition).toBeUndefined();
+  });
+
+  it('keeps the country as one stored string behind a picker', () => {
+    // A listed country saves as itself and needs no typed name.
+    expect(getCountryDraft('Philippines')).toEqual({ country: 'Philippines', countryOther: '' });
+    expect(isListedCountry('Philippines')).toBe(true);
+    expect(countryOptions[0].value).toBe('Philippines');
+    // A country outside the list keeps its name instead of being forced into a wrong one.
+    expect(getCountryDraft('Portugal')).toEqual({ country: COUNTRY_OTHER, countryOther: 'Portugal' });
+    expect(resolveCountry({ country: COUNTRY_OTHER, countryOther: '  Portugal  ' })).toBe('Portugal');
+    expect(resolveCountry({ country: 'Japan', countryOther: 'ignored' })).toBe('Japan');
+    expect(resolveCountry({})).toBe('');
+    // An unanswered country is allowed to save (like every other partially answered
+    // part); the application gate is what requires it.
+    expect(validateAddressSection({ completeAddress: 'x' }).errors).toEqual({});
+    expect(getMissingRequiredAnswers({ familyDetails: {}, completeAddress: 'x' }).has('country')).toBe(true);
+    expect(getMissingRequiredAnswers({ familyDetails: {}, completeAddress: 'x', country: 'Philippines' }).has('country')).toBe(false);
+    // "Other country" is only an answer once it is named.
+    expect(validateAddressSection({ completeAddress: 'x', country: COUNTRY_OTHER, countryOther: '' }).errors.countryOther).toBeTruthy();
+    expect(validateAddressSection({ completeAddress: 'x', country: COUNTRY_OTHER, countryOther: ' Portugal ' }).values.country).toBe('Portugal');
   });
 
   it('validates the FORM 230-SCH personal details', () => {
@@ -687,7 +774,7 @@ describe('getProfileCompleteness', () => {
       'yearStanding', 'studentNumber', 'degreeProgram', 'academicStanding', 'qpi',
       // Eligibility inputs and the printed personal/background answers.
       'householdIncome', 'citizenship', 'civilStatus',
-      'completeAddress', 'housingType',
+      'completeAddress', 'country', 'housingType',
       // Family background and household details.
       'fatherName', 'motherName', 'fatherAge', 'fatherOccupation', 'motherAge', 'motherOccupation',
       'numberOfSiblings', 'siblings', 'householdAdults',

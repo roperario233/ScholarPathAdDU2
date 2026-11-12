@@ -98,7 +98,9 @@ export const buildStudent = (index) => {
       motherName: `Mother of ${fullName}`,
       motherAge: 42 + (index % 15),
       motherOccupation: 'Vendor',
-      familyPosition: 'Eldest',
+      // An only child, matching the recorded sibling total (getFamilyPositionOptions
+      // in src/lib/profile.js rules out "Eldest" with 0 siblings).
+      familyPosition: 'Only child',
       numberOfSiblings: 0,
       siblingsNone: true,
       householdAdultsNone: true,

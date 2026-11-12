@@ -716,10 +716,58 @@ export const civilStatusOptions = [
 export const familyPositionOptions = [
   { value: '', label: 'Not specified' },
   { value: 'Only child', label: 'Only child' },
-  { value: 'Eldest', label: 'Eldest' },
-  { value: 'Middle', label: 'Middle' },
-  { value: 'Youngest', label: 'Youngest' },
+  { value: 'Eldest', label: 'Eldest (first-born)' },
+  { value: 'Middle', label: 'Middle child' },
+  { value: 'Youngest', label: 'Youngest (last-born)' },
 ];
+
+// A sibling count is saved as a number by the validator and typed as a string in the
+// form draft, so the gating rules below read both. Anything that is not a whole
+// number reads as "not answered" (null).
+const toSiblingCount = (value) => {
+  const text = String(value ?? '').trim();
+  return /^\d+$/.test(text) ? Number(text) : null;
+};
+
+// The family-position answers a recorded sibling count allows:
+// - 0 siblings: the student can only be an only child;
+// - 1 sibling: Eldest or Youngest, because there is no middle to be;
+// - 2 or more: Middle becomes possible, since a middle child needs one older and one
+//   younger sibling (three children in all);
+// - siblings not answered yet: every answer stays available.
+// One rule behind the picker and the validator, like getYearStandingOptions().
+export const getFamilyPositionOptions = (numberOfSiblings = '') => {
+  const count = toSiblingCount(numberOfSiblings);
+  if (count === null) return familyPositionOptions;
+  if (count === 0) return familyPositionOptions.filter((option) => ['', 'Only child'].includes(option.value));
+  const impossible = count < 2 ? ['Only child', 'Middle'] : ['Only child'];
+  return familyPositionOptions.filter((option) => !impossible.includes(option.value));
+};
+
+// Choosing "Only child" answers the sibling questions with it: no siblings to count
+// and none to list. The draft and the validator both move through here, so a hidden
+// answer is never submitted.
+export const applyFamilyPosition = (_familyDetails = {}, position = '') => (
+  position === 'Only child'
+    ? { familyPosition: position, numberOfSiblings: '0', siblingsNone: true, siblings: [] }
+    : { familyPosition: position }
+);
+
+// Typing a sibling count moves the family position with it: 0 is an only child, and a
+// position the count no longer allows (Only child, or Middle with one sibling) is
+// cleared so the picker never shows an answer that cannot be true.
+export const applyNumberOfSiblings = (familyDetails = {}, raw = '') => {
+  const digits = String(raw ?? '').replace(/\D/g, '').slice(0, 2);
+  if (toSiblingCount(digits) === 0) {
+    return { numberOfSiblings: '0', familyPosition: 'Only child', siblingsNone: true, siblings: [] };
+  }
+  const patch = { numberOfSiblings: digits };
+  const position = familyDetails?.familyPosition || '';
+  if (position && !getFamilyPositionOptions(digits).some((option) => option.value === position)) {
+    patch.familyPosition = '';
+  }
+  return patch;
+};
 
 export const siblingStatusOptions = [
   { value: '', label: 'Select status' },
@@ -867,6 +915,66 @@ export const FAMILY_NAME_MAX_LENGTH = 100;
 export const FAMILY_OCCUPATION_MAX_LENGTH = 100;
 export const ADDRESS_MAX_LENGTH = 240;
 export const COUNTRY_MAX_LENGTH = 60;
+
+// The country answer is a picker instead of free text (FORM 230-SCH prints a
+// country, and every applicant of a Philippine university writes the same one), so
+// its list leads with the Philippines and the countries an AdDU applicant is most
+// likely to name. A country outside the list is still possible through the last
+// answer, which keeps the typed name instead of forcing a wrong choice.
+export const COUNTRY_OTHER = 'Other country';
+export const countryOptions = [
+  { value: 'Philippines', label: 'Philippines' },
+  { value: 'Australia', label: 'Australia' },
+  { value: 'Bahrain', label: 'Bahrain' },
+  { value: 'Brunei', label: 'Brunei' },
+  { value: 'Canada', label: 'Canada' },
+  { value: 'China', label: 'China' },
+  { value: 'Guam', label: 'Guam' },
+  { value: 'Hong Kong SAR', label: 'Hong Kong SAR' },
+  { value: 'India', label: 'India' },
+  { value: 'Indonesia', label: 'Indonesia' },
+  { value: 'Israel', label: 'Israel' },
+  { value: 'Japan', label: 'Japan' },
+  { value: 'Jordan', label: 'Jordan' },
+  { value: 'Kuwait', label: 'Kuwait' },
+  { value: 'Lebanon', label: 'Lebanon' },
+  { value: 'Macau SAR', label: 'Macau SAR' },
+  { value: 'Malaysia', label: 'Malaysia' },
+  { value: 'New Zealand', label: 'New Zealand' },
+  { value: 'Oman', label: 'Oman' },
+  { value: 'Palau', label: 'Palau' },
+  { value: 'Qatar', label: 'Qatar' },
+  { value: 'Saudi Arabia', label: 'Saudi Arabia' },
+  { value: 'Singapore', label: 'Singapore' },
+  { value: 'South Korea', label: 'South Korea' },
+  { value: 'Spain', label: 'Spain' },
+  { value: 'Taiwan', label: 'Taiwan' },
+  { value: 'Thailand', label: 'Thailand' },
+  { value: 'United Arab Emirates', label: 'United Arab Emirates' },
+  { value: 'United Kingdom', label: 'United Kingdom' },
+  { value: 'United States', label: 'United States' },
+  { value: 'Vietnam', label: 'Vietnam' },
+  { value: COUNTRY_OTHER, label: 'Other country (type it)' },
+];
+
+export const isListedCountry = (country) => countryOptions
+  .some((option) => option.value !== COUNTRY_OTHER && option.value === country);
+
+// The picker and one stored string. `profiles.profile_details.country` stays the
+// readable country the form prints, so nothing downstream changes: a listed country
+// saves as itself, "Other country" saves the typed name, and a free-text value saved
+// before the picker existed opens in the "Other country" slot instead of vanishing.
+export const getCountryDraft = (country = '') => {
+  const value = String(country ?? '').trim();
+  if (!value) return { country: '', countryOther: '' };
+  return isListedCountry(value) ? { country: value, countryOther: '' } : { country: COUNTRY_OTHER, countryOther: value };
+};
+
+export const resolveCountry = (draft = {}) => {
+  const country = draft.country || '';
+  if (country === COUNTRY_OTHER) return String(draft.countryOther ?? '').trim();
+  return String(country).trim();
+};
 
 // Self-reported, Document-Vault-verifiable background answers.
 export const ipCommunityOptions = [
@@ -1146,12 +1254,14 @@ export const validatePersonalSection = (form = {}) => {
 };
 
 // Address panel. "Residing address" can mirror the complete address through the
-// same-as toggle, so the validator resolves the effective residing address.
+// same-as toggle, so the validator resolves the effective residing address. The
+// country is a picker with one "Other country" answer, and the one stored string is
+// the country the form prints, so `countryOther` never leaves the draft.
 export const validateAddressSection = (form = {}) => {
   const sameAsCompleteAddress = Boolean(form.sameAsCompleteAddress);
   const result = collect({
     completeAddress: validateText(form.completeAddress, { max: ADDRESS_MAX_LENGTH, message: `Keep your complete address within ${ADDRESS_MAX_LENGTH} characters.` }),
-    country: validateText(form.country, { max: COUNTRY_MAX_LENGTH, message: `Keep the country within ${COUNTRY_MAX_LENGTH} characters.` }),
+    country: validateText(resolveCountry(form), { max: COUNTRY_MAX_LENGTH, message: `Keep the country within ${COUNTRY_MAX_LENGTH} characters.` }),
     residingAddress: sameAsCompleteAddress
       ? ok('')
       : validateText(form.residingAddress, { max: ADDRESS_MAX_LENGTH, message: `Keep your residing address within ${ADDRESS_MAX_LENGTH} characters.` }),
@@ -1160,6 +1270,12 @@ export const validateAddressSection = (form = {}) => {
   });
   if (result.values.housingType === 'Other' && !result.values.housingOther && !result.errors.housingOther) {
     result.errors.housingOther = 'Describe where you stay.';
+  }
+  // "Other country" is only an answer once it is named, like a religion recorded as
+  // Other: the picker hides the text box for every listed country, so a leftover name
+  // is dropped on save instead of riding along unseen.
+  if (form.country === COUNTRY_OTHER && !result.values.country && !result.errors.country) {
+    result.errors.countryOther = 'Write the name of your country.';
   }
   return {
     values: {
@@ -1179,15 +1295,26 @@ export const validateAddressSection = (form = {}) => {
 // other; each parent's name is needed to apply (getProfileCompleteness) unless
 // that parent is marked unknown, which clears the parent's other answers so a
 // hidden value is never sent with an application.
+// Family position and the sibling total answer each other (see
+// getFamilyPositionOptions): an only child has no siblings to list, and a position
+// the recorded count rules out is reported instead of being saved as it stands.
 export const validateFamilySection = (form = {}) => {
   const source = form.familyDetails && typeof form.familyDetails === 'object' ? form.familyDetails : {};
   // "None" is an answer: it empties the list so a hidden row is never submitted.
-  const siblingsNone = Boolean(source.siblingsNone);
+  // "Only child" answers both sibling questions with it, so it empties them too.
+  const onlyChild = source.familyPosition === 'Only child';
+  const siblingsNone = Boolean(source.siblingsNone) || onlyChild;
+  const siblingCount = toSiblingCount(source.numberOfSiblings);
   const householdAdultsNone = Boolean(source.householdAdultsNone);
   const clearParent = (parent) => (source[`${parent}Unknown`]
     ? { [`${parent}Name`]: '', [`${parent}Occupation`]: '', [`${parent}Deceased`]: false, [`${parent}Age`]: '', [`${parent}DateOfDeath`]: '' }
     : {});
-  const family = { ...source, ...clearParent('father'), ...clearParent('mother') };
+  const family = {
+    ...source,
+    ...clearParent('father'),
+    ...clearParent('mother'),
+    ...(onlyChild ? { numberOfSiblings: 0 } : {}),
+  };
   const result = collect({
     fatherName: validateText(family.fatherName, { max: FAMILY_NAME_MAX_LENGTH, message: `Keep the name within ${FAMILY_NAME_MAX_LENGTH} characters.` }),
     fatherOccupation: validateText(family.fatherOccupation, { max: FAMILY_OCCUPATION_MAX_LENGTH, message: `Keep the occupation within ${FAMILY_OCCUPATION_MAX_LENGTH} characters.` }),
@@ -1221,6 +1348,18 @@ export const validateFamilySection = (form = {}) => {
       required: ['name'],
     }),
   });
+  // The picker already hides the answers a sibling count rules out, so these catch a
+  // record saved before the rule existed (or edited elsewhere) and name the fix
+  // instead of quietly keeping an answer that cannot be true.
+  const position = result.values.familyPosition;
+  const siblingLabel = siblingCount === 1 ? '1 sibling' : `${siblingCount} siblings`;
+  if (position === 'Only child' && siblingCount !== null && siblingCount > 0) {
+    result.errors.familyPosition = `An only child has no siblings. Choose Eldest, Middle, or Youngest, or record 0 siblings.`;
+  } else if (position && position !== 'Only child' && siblingCount === 0) {
+    result.errors.familyPosition = 'A student with no siblings is an only child.';
+  } else if (position === 'Middle' && siblingCount !== null && siblingCount < 2) {
+    result.errors.familyPosition = `A middle child has at least one older and one younger sibling, so Middle needs 2 or more siblings — you recorded ${siblingLabel}.`;
+  }
   return {
     values: {
       familyDetails: {
@@ -1604,6 +1743,9 @@ export const getProfileCompleteness = (profile = {}, role = 'student') => {
     // The strand is asked of everyone but a current Ateneo student.
     if (requiresHsStrand(profile)) add('application', 'hsStrand', 'Senior high school strand', 'academic', !isBlank(profile.hsStrand));
     add('application', 'completeAddress', 'Complete address', 'address', !isBlank(profile.completeAddress));
+    // The printed form prints a country, so it is a needed answer; the picker on the
+    // Address part is the only way it is asked (getCountryDraft / resolveCountry).
+    add('application', 'country', 'Country', 'address', !isBlank(profile.country));
     add('application', 'housingType', 'Where you stay while studying', 'address', !isBlank(profile.housingType));
     add('application', 'fatherName', 'Father\'s name', 'family', isParentNameAnswered(profile, 'father'));
     add('application', 'motherName', 'Mother\'s name', 'family', isParentNameAnswered(profile, 'mother'));

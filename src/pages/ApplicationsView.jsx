@@ -240,6 +240,9 @@ export default function ApplicationsView({
     financialProfile: financialSnapshotsByApplication[entry.id] || (entry.status === 'Draft' ? profile?.financialProfile : null),
     answers: financialAnswersByApplication[entry.id],
     family: entry.profileSnapshot?.family || profile?.familyDetails || {},
+    // The declared household income travels with the frozen snapshot; a Draft reads
+    // the live profile answer.
+    householdIncome: entry.profileSnapshot?.householdIncome ?? (entry.status === 'Draft' ? profile?.householdIncome : undefined),
   });
 
   // The frozen snapshot with its badges read from the attached files now, so a
