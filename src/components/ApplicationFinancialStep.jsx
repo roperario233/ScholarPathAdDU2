@@ -30,16 +30,24 @@ function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, 
   const isSelected = (key) => selected.includes(key);
   return (
     <fieldset className="m-0 grid gap-2 border-0 p-0 md:col-span-2">
-      <legend className="mb-1 text-sm font-semibold text-app-text">
+      <legend className="mb-0.5 p-0 text-sm font-semibold text-app-text">
         {legend}
         {required && <RequiredMark />}
       </legend>
       {hint ? <small className="field-hint block">{hint}</small> : null}
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         {options.map((option) => (
-          <label key={option.key} className="flex items-start gap-2 text-sm text-app-text">
-            <input type="checkbox" className="mt-1" checked={isSelected(option.key)} onChange={() => onToggle(option.key)} />
-            <span>{option.label}</span>
+          <label key={option.key} className="group relative block cursor-pointer">
+            {/* The native checkbox stays in the tab order and the accessibility tree; the card is its visual. */}
+            <input type="checkbox" className="peer sr-only" checked={isSelected(option.key)} onChange={() => onToggle(option.key)} />
+            <span className="flex min-h-[48px] items-center gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-sm text-app-text transition-colors duration-150 group-hover:border-blue-500/50 peer-checked:border-blue-500/70 peer-checked:bg-blue-500/10 peer-checked:font-medium peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500/60 peer-checked:[&_.check-box]:border-blue-600 peer-checked:[&_.check-box]:bg-blue-600 peer-checked:[&_.check-icon]:opacity-100">
+              <span className="check-box grid h-5 w-5 shrink-0 place-items-center rounded-md border border-app-border bg-app-card transition-colors duration-150" aria-hidden="true">
+                <svg className="check-icon h-3.5 w-3.5 text-white opacity-0 transition-opacity duration-150" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3.5 8.5l3 3 6-7" />
+                </svg>
+              </span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">{option.label}</span>
+            </span>
           </label>
         ))}
       </div>
