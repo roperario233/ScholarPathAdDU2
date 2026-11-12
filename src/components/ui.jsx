@@ -168,14 +168,15 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, requir
 // My Profile uses.
 export function SettingToggle({ checked, onChange, title, description, icon: Icon = null }) {
   const switchControl = (
-    <span className={clsx('relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors has-[:checked]:bg-ateneo', Icon ? 'bg-slate-400/30' : 'bg-slate-400/20')}>
+    <span className={clsx('relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors duration-300 has-[:checked]:bg-ateneo', Icon ? 'bg-slate-400/30' : 'bg-slate-400/20')}>
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
       />
-      <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+      {/* The knob springs across and stretches a little while pressed. */}
+      <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-[transform,width] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] motion-reduce:transition-none peer-checked:translate-x-5 peer-active:w-[28px] peer-checked:peer-active:translate-x-[14px]" />
     </span>
   );
   const copy = (
@@ -214,6 +215,26 @@ export function SettingToggle({ checked, onChange, title, description, icon: Ico
 // and arrow keys move between them the way a radio group should.
 // Selecting the checked answer again clears it (allowClear), preserving the
 // "Select" escape hatch the native selects had.
+// A panel that eases open and shut instead of popping: the row height animates
+// between 0fr and 1fr, and a closed panel is hidden from tab order and screen
+// readers once it has finished closing. The caller owns the open state and the
+// control that toggles it (give that control `aria-expanded` and `aria-controls`).
+export function Collapse({ open, children, id, className = '' }) {
+  return (
+    <div
+      id={id}
+      inert={open ? undefined : ''}
+      className={clsx(
+        'grid transition-[grid-template-rows,opacity,visibility] duration-300 ease-out motion-reduce:transition-none',
+        open ? 'visible grid-rows-[1fr] opacity-100' : 'invisible grid-rows-[0fr] opacity-0',
+        className,
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
 export function ChoiceToggle({
   label,
   hint,
@@ -231,11 +252,27 @@ export function ChoiceToggle({
   const name = fieldKey || `choice-${String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
   return (
     <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment} fieldKey={fieldKey} required={required} className={className} group>
-      <div role="radiogroup" aria-label={label} className="flex min-h-12 flex-wrap items-stretch gap-1 rounded-xl border border-app-border bg-app-surface p-1">
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className="relative grid min-h-12 items-stretch gap-1 rounded-xl border border-app-border bg-app-surface p-1"
+        style={{ gridTemplateColumns: `repeat(${Math.max(1, choices.length)}, minmax(0, 1fr))` }}
+      >
+        {/* One highlight slides to the chosen pill (and fades out while the answer
+            is cleared) instead of each pill repainting on its own. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-1 left-1 rounded-lg bg-ateneo shadow-sm transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.34,1.3,0.64,1)] motion-reduce:transition-none"
+          style={{
+            width: `calc((100% - 0.5rem - ${(Math.max(1, choices.length) - 1) * 0.25}rem) / ${Math.max(1, choices.length)})`,
+            transform: `translateX(calc(${Math.max(0, choices.findIndex((option) => option.value === value))} * (100% + 0.25rem)))`,
+            opacity: choices.some((option) => option.value === value) ? 1 : 0,
+          }}
+        />
         {choices.map((option) => (
           <label
             key={option.value}
-            className="relative flex min-h-9 flex-1 cursor-pointer items-center justify-center rounded-lg border border-transparent px-3 text-center text-sm font-semibold text-app-muted transition-colors hover:text-app-text has-[:checked]:border-transparent has-[:checked]:bg-ateneo has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-app-surface"
+            className="relative z-10 flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-transparent px-3 text-center text-sm font-semibold text-app-muted transition-colors duration-200 hover:text-app-text has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-app-surface"
           >
             <input
               type="radio"

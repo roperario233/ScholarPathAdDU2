@@ -20,7 +20,7 @@ export default function FilterChips({ name, legend, options = [], value, onChang
               className="peer sr-only"
             />
             <span
-              className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition peer-focus-visible:ring-4 peer-focus-visible:ring-blue-500/20 ${selected
+              className={`inline-flex min-h-10 items-center gap-2 rounded-full border px-3.5 text-sm font-semibold transition duration-200 active:scale-95 motion-reduce:transition-none peer-focus-visible:ring-4 peer-focus-visible:ring-blue-500/20 ${selected
                 ? 'border-ateneo bg-ateneo text-white dark:border-sky-400 dark:bg-sky-400/20 dark:text-sky-100'
                 : 'border-app-border bg-app-surface text-app-text hover:border-ateneo/50'}`}
             >

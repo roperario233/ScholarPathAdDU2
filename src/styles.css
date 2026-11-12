@@ -291,6 +291,99 @@ input[type='radio'] {
   padding: 0;
 }
 
+/* Visible checkboxes and radios share one animated look: the box fills in, the
+   tick pops (and the radio dot grows) with a small spring, and a press squeezes
+   the control. Inputs hidden behind a styled label (`.sr-only`, which ChoiceToggle,
+   SettingToggle, FilterChips and the card options use) are left alone. */
+input[type='checkbox']:not(.sr-only),
+input[type='radio']:not(.sr-only) {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  min-width: 1.2rem;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 60%, transparent);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 160ms ease;
+}
+
+input[type='checkbox']:not(.sr-only) { border-radius: 0.4rem; }
+input[type='radio']:not(.sr-only) { border-radius: 999px; }
+
+input[type='checkbox']:not(.sr-only)::after,
+input[type='radio']:not(.sr-only)::after {
+  content: '';
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 160ms ease;
+  opacity: 0;
+}
+
+input[type='checkbox']:not(.sr-only)::after {
+  width: 0.32rem;
+  height: 0.62rem;
+  margin-top: -0.12rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+}
+
+input[type='radio']:not(.sr-only)::after {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #fff;
+  transform: scale(0);
+}
+
+input[type='checkbox']:not(.sr-only):checked,
+input[type='radio']:not(.sr-only):checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+input[type='checkbox']:not(.sr-only):checked::after {
+  opacity: 1;
+  transform: rotate(45deg) scale(1);
+}
+
+input[type='radio']:not(.sr-only):checked::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+input[type='checkbox']:not(.sr-only):not(:disabled):hover,
+input[type='radio']:not(.sr-only):not(:disabled):hover {
+  border-color: var(--primary);
+}
+
+input[type='checkbox']:not(.sr-only):not(:disabled):active,
+input[type='radio']:not(.sr-only):not(:disabled):active {
+  transform: scale(0.88);
+}
+
+input[type='checkbox']:not(.sr-only):focus-visible,
+input[type='radio']:not(.sr-only):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25);
+}
+
+input[type='checkbox']:not(.sr-only):disabled,
+input[type='radio']:not(.sr-only):disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  input[type='checkbox']:not(.sr-only),
+  input[type='radio']:not(.sr-only),
+  input[type='checkbox']:not(.sr-only)::after,
+  input[type='radio']:not(.sr-only)::after {
+    transition: none;
+  }
+}
+
 input[type="number"] {
   background: color-mix(in srgb, var(--surface) 85%, var(--muted-surface) 15%);
 }

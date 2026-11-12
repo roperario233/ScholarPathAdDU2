@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, FolderOpen } from 'lucide-react';
-import { Button, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { AlertCircle, ArrowRight, CalendarClock, Camera, Check, CheckCircle2, ChevronDown, CircleDashed, ClipboardCheck, FileText, FolderOpen, PenLine, ShieldCheck, UserRound, Wallet } from 'lucide-react';
+import { Button, Collapse, ModalShell, Panel, RequiredMark, StatusBadge } from './ui';
 import { SkeletonRegion, SkeletonRows, SkeletonText } from './Skeleton';
 import DocumentPreviewModal from './DocumentPreviewModal';
 import PhotoCaptureModal from './PhotoCaptureModal';
@@ -17,13 +17,40 @@ import { APPLICATION_FORM_BLOCKER_PREFIX, ESSAY_MAX_LENGTH, getVerifiableAttribu
 import { fmtDate } from '../lib/formatters';
 
 const STEPS = [
-  { key: 'documents', label: 'Required documents' },
+  { key: 'documents', label: 'Required documents', icon: FileText, intro: 'Attach one file per requirement. Uploads go to your Document Vault and can be reused.' },
   // The application form is My Profile, frozen into the profile snapshot at submit.
-  { key: 'profile', label: 'Application form' },
-  { key: 'financial', label: 'Financial situation' },
-  { key: 'statement', label: 'Statement' },
-  { key: 'review', label: 'Review and submit' },
+  { key: 'profile', label: 'Application form', icon: UserRound, intro: 'Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.' },
+  { key: 'financial', label: 'Financial situation', icon: Wallet, intro: null },
+  { key: 'statement', label: 'Statement', icon: PenLine, intro: null },
+  { key: 'review', label: 'Review and submit', icon: ClipboardCheck, intro: 'Check that everything is in place, then certify and submit.' },
 ];
+
+// How each requirement state reads at a glance: a rows that still needs the
+// student's action stays open with an amber or rose accent, a row that already
+// has its file folds down to one line with a green check.
+const REQUIREMENT_VISUALS = {
+  missing: { Icon: CircleDashed, needsAction: true, accent: 'border-l-amber-400', icon: 'bg-amber-500/15 text-amber-700 dark:text-amber-300' },
+  attached: { Icon: CheckCircle2, needsAction: false, accent: 'border-l-emerald-500', icon: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
+  verified: { Icon: CheckCircle2, needsAction: false, accent: 'border-l-emerald-500', icon: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
+  rejected: { Icon: AlertCircle, needsAction: true, accent: 'border-l-rose-500', icon: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+  outdated: { Icon: AlertCircle, needsAction: true, accent: 'border-l-rose-500', icon: 'bg-rose-500/15 text-rose-700 dark:text-rose-300' },
+};
+
+const getRequirementVisual = (state) => REQUIREMENT_VISUALS[state] || REQUIREMENT_VISUALS.missing;
+
+const requirementAnchor = (requirement) => `requirement-${requirement.id}`;
+
+// The one line a requirement shows while it is folded: what is attached, or what
+// the student still has to do.
+function describeRequirementSummary(requirement, hasVaultMatch) {
+  if (requirement.state === 'rejected') return 'Reverted by the Admissions Office. Upload a replacement.';
+  if (requirement.state === 'outdated') return 'Outdated after a change to your Application Form. Upload a current proof.';
+  if (requirement.attached.length) {
+    const [first, ...rest] = requirement.attached;
+    return `${first.title}${first.fileName ? ` · ${first.fileName}` : ''}${rest.length ? ` · +${rest.length} more` : ''}`;
+  }
+  return hasVaultMatch ? 'Not attached yet. A matching file is already in your Document Vault.' : 'Not attached yet. Upload a file or pick one from your Document Vault.';
+}
 
 const PROFILE_STEP_INDEX = STEPS.findIndex((entry) => entry.key === 'profile');
 
@@ -61,20 +88,55 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
     return { ok: true };
   };
 
+  const visual = getRequirementVisual(requirement.state);
+  const StateIcon = visual.Icon;
+  // A row that needs the student stays open; one that has its file folds to a
+  // line. The row follows its own state, so attaching a file folds it and
+  // removing the file opens it again, while a manual toggle is respected until
+  // the state next changes.
+  const bodyId = useId();
+  const [open, setOpen] = useState(visual.needsAction);
+  const [seenNeedsAction, setSeenNeedsAction] = useState(visual.needsAction);
+  if (seenNeedsAction !== visual.needsAction) {
+    setSeenNeedsAction(visual.needsAction);
+    setOpen(visual.needsAction);
+  }
+
   return (
-    <li className="grid gap-3 rounded-2xl border border-app-border bg-app-surface p-4">
-      <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between">
-        <div className="min-w-0 w-full flex-1">
-          <h4 className="m-0 text-sm font-bold text-app-text">{requirement.label}</h4>
-          <p className="m-0 mt-1 text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)} · any one is enough</p>
-          {requirement.proves?.length ? (
-            <p className="m-0 mt-1 text-xs text-app-muted">
-              Proves your {requirement.proves.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as declared in your Application Form
-            </p>
-          ) : null}
-          {requirement.note ? <p className="m-0 mt-1 text-xs text-app-muted">{requirement.note}</p> : null}
+    <li id={requirementAnchor(requirement)} className={`scroll-mt-3 rounded-2xl border border-l-4 border-app-border bg-app-surface ${visual.accent}`}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setOpen((value) => !value);
+          }
+        }}
+        className="flex cursor-pointer items-center gap-3 rounded-2xl p-4 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+      >
+          <span aria-hidden="true" className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${visual.icon}`}><StateIcon size={18} /></span>
+          <span className="grid min-w-0 flex-1 gap-0.5">
+            <span className="text-sm font-bold text-app-text">{requirement.label}</span>
+            <span className={`text-xs [overflow-wrap:anywhere] ${visual.needsAction ? 'font-medium text-app-text/80' : 'text-app-muted'}`}>{describeRequirementSummary(requirement, readyFiles.length > 0)}</span>
+          </span>
+          <span className="hidden shrink-0 sm:block"><RequirementStateBadge state={requirement.state} /></span>
+          <ChevronDown size={18} aria-hidden="true" className={`shrink-0 text-app-muted transition-transform duration-300 motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} />
         </div>
-        <RequirementStateBadge state={requirement.state} />
+        <Collapse open={open} id={bodyId}>
+        <div className="grid gap-3 px-4 pb-4">
+      <div className="sm:hidden"><RequirementStateBadge state={requirement.state} /></div>
+      <div className="grid gap-1 border-t border-app-border/60 pt-3">
+        <p className="m-0 text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)} · any one is enough</p>
+        {requirement.proves?.length ? (
+          <p className="m-0 text-xs text-app-muted">
+            Proves your {requirement.proves.map((key) => getVerifiableAttributeOption(key)?.label || key).join(' and ')} as declared in your Application Form
+          </p>
+        ) : null}
+        {requirement.note ? <p className="m-0 text-xs text-app-muted">{requirement.note}</p> : null}
       </div>
 
       {requirement.attached.length ? (
@@ -168,7 +230,79 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
           onClose={() => setCameraOpen(false)}
         />
       ) : null}
+        </div>
+        </Collapse>
     </li>
+  );
+}
+
+// The documents step's overview: how many requirements are covered, which ones
+// still need a file (each a link that jumps to its row).
+function DocumentsOverview({ requirements }) {
+  const total = requirements.length;
+  const todo = requirements.filter((item) => getRequirementVisual(item.state).needsAction);
+  const done = total - todo.length;
+  const percent = total ? Math.round((done / total) * 100) : 0;
+  const jump = (event, requirement) => {
+    event.preventDefault();
+    const target = document.getElementById(requirementAnchor(requirement));
+    if (!target) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  };
+
+  return (
+    <div className={`grid gap-3 rounded-2xl border p-4 ${todo.length ? 'border-app-border bg-app-surface' : 'border-emerald-400/40 bg-emerald-500/10'}`}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <strong className="text-sm text-app-text">
+          {todo.length ? `${done} of ${total} documents attached` : `All ${total} documents attached`}
+        </strong>
+        <span className="text-xs font-medium text-app-muted">
+          {todo.length ? `${todo.length} still ${todo.length === 1 ? 'needs' : 'need'} your attention` : 'Nothing left to attach. Continue to the next step.'}
+        </span>
+      </div>
+      <div className="h-2 overflow-hidden rounded-full bg-app-border" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Required documents attached">
+        <div className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${todo.length ? 'bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright' : 'bg-emerald-500'}`} style={{ width: `${percent}%` }} />
+      </div>
+      {todo.length ? (
+        <div className="grid gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Still to do</span>
+          <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+            {todo.map((item) => {
+              const needsFix = item.state === 'rejected' || item.state === 'outdated';
+              return (
+                <li key={item.id} className="min-w-0 max-w-full">
+                  <a
+                    href={`#${requirementAnchor(item)}`}
+                    onClick={(event) => jump(event, item)}
+                    title={item.label}
+                    className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold no-underline transition hover:-translate-y-px focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${needsFix ? 'border-rose-400/50 bg-rose-500/10 text-rose-800 dark:text-rose-200' : 'border-amber-400/50 bg-amber-500/10 text-amber-900 dark:text-amber-200'}`}
+                  >
+                    {needsFix ? <AlertCircle size={12} aria-hidden="true" className="shrink-0" /> : <CircleDashed size={12} aria-hidden="true" className="shrink-0" />}
+                    <span className="min-w-0 truncate">{item.label}</span>
+                  </a>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// A step's title block: which step this is, what it does, and one line of help.
+function StepIntro({ index, children }) {
+  const { icon: Icon, label } = STEPS[index];
+  return (
+    <div className="flex min-w-0 items-start gap-3">
+      <span aria-hidden="true" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-500/10 text-blue-700 dark:text-blue-300"><Icon size={20} /></span>
+      <div className="grid min-w-0 gap-0.5">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-app-muted">Step {index + 1} of {STEPS.length}</span>
+        <h3 className="m-0 text-lg font-bold text-app-text">{label}</h3>
+        {children ? <p className="m-0 text-sm text-app-muted">{children}</p> : null}
+      </div>
+    </div>
   );
 }
 
@@ -274,6 +408,7 @@ export default function ApplicationWorkspaceModal({
     setFinancialAnswers(seeded);
   }, [financialLoaded, savedFinancialAnswers]);
   const [certified, setCertified] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(false);
   const [busyRequirement, setBusyRequirement] = useState('');
   const [rowErrors, setRowErrors] = useState({});
   const [statementMessage, setStatementMessage] = useState('');
@@ -305,6 +440,10 @@ export default function ApplicationWorkspaceModal({
   const wordCount = countWords(statement);
   const eligibilityBlockers = readiness.blockers.filter((blocker) => blocker.startsWith('Eligibility:'));
   const documentsDone = readiness.requirements.every((item) => item.state === 'attached' || item.state === 'verified');
+  // `readiness.attachedCount` counts every requirement that has a file, including a
+  // reverted or outdated one. Students read "12 of 12 attached" as finished, so the
+  // workspace counts only the files that actually cover their requirement.
+  const coveredDocumentCount = readiness.requirements.filter((item) => item.state === 'attached' || item.state === 'verified').length;
   const profileBlockers = readiness.blockers.filter((blocker) => blocker.startsWith(APPLICATION_FORM_BLOCKER_PREFIX) || blocker.startsWith('Set your year standing'));
   const supportingCount = readiness.supportingDocuments.length;
   // Distinct files being sent: one file can satisfy two requirements, so count ids.
@@ -320,6 +459,7 @@ export default function ApplicationWorkspaceModal({
     statement: Boolean(statement.trim()),
     review: readiness.ready,
   };
+  const sectionsDone = ['documents', 'profile', 'financial', 'statement'].filter((key) => stepDone[key]).length;
 
   const runRowAction = async (requirement, action) => {
     setBusyRequirement(requirement.id);
@@ -405,12 +545,32 @@ export default function ApplicationWorkspaceModal({
 
   return (
     <>
-      <ModalShell title={application.scholarshipTitle} onClose={handleClose} className="application-detail-modal !w-[min(1080px,100%)] !max-h-[min(92vh,920px)] max-sm:!max-h-[calc(100dvh-1.5rem)]">
+      {/* A fixed height, so the dialog keeps one size from step to step; the body
+          scrolls and the Back / Next / Submit row stays pinned at the bottom. */}
+      <ModalShell
+        title={`${application.scholarshipTitle} Application`}
+        onClose={handleClose}
+        className="application-detail-modal !h-[min(92vh,920px)] !w-[min(1080px,100%)] !max-h-[min(92vh,920px)] max-sm:!h-[calc(100dvh-1.5rem)] max-sm:!max-h-[calc(100dvh-1.5rem)]"
+        header={(
+          <div className="mb-4 grid gap-3">
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <div className="grid min-w-0 gap-0.5">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-app-muted">Application workspace</span>
+                <h2 className="m-0 min-w-0 text-xl leading-tight [overflow-wrap:anywhere]">{application.scholarshipTitle} Application</h2>
+              </div>
+              <Button variant="secondary" type="button" className="shrink-0" onClick={handleClose}>Close</Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-app-muted">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface px-3 py-1"><CalendarClock size={13} aria-hidden="true" />Deadline {fmtDate(scholarship?.deadline)}</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 transition-colors duration-500 ${sectionsDone === 4 ? 'border-emerald-400/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200' : 'border-app-border bg-app-surface'}`}>
+                {sectionsDone === 4 ? <CheckCircle2 size={13} aria-hidden="true" /> : null}
+                {sectionsDone} of 4 sections complete
+              </span>
+            </div>
+          </div>
+        )}
+      >
         <div ref={stepContentRef} className="application-detail-modal-body grid content-start gap-4">
-          <p className="m-0 text-sm text-app-muted">
-            Application workspace · Deadline {fmtDate(scholarship?.deadline)} · {readiness.attachedCount} of {readiness.requiredCount} required documents attached
-          </p>
-
           <ol className="m-0 grid grid-cols-2 gap-2 p-0 sm:grid-cols-5" aria-label="Application steps">
             {STEPS.map((entry, index) => {
               const isActive = index === step;
@@ -423,7 +583,7 @@ export default function ApplicationWorkspaceModal({
                     aria-current={isActive ? 'step' : undefined}
                     className={`flex min-h-11 w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs font-semibold transition focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${isActive ? 'border-blue-500/60 bg-blue-500/10 text-app-text' : 'border-app-border bg-app-surface text-app-muted hover:text-app-text'}`}
                   >
-                    <span aria-hidden="true" className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[0.7rem] ${done ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-app-muted-surface text-app-muted'}`}>{done ? '✓' : index + 1}</span>
+                    <span aria-hidden="true" className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[0.7rem] ${done ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-app-muted-surface text-app-muted'}`}>{done ? <Check size={13} strokeWidth={3} /> : index + 1}</span><span className="sr-only">{done ? ' (complete)' : ''}</span>
                     <span className="min-w-0">{entry.label}</span>
                   </button>
                 </li>
@@ -431,17 +591,20 @@ export default function ApplicationWorkspaceModal({
             })}
           </ol>
 
+          {/* Keyed by step, so each step eases in instead of swapping instantly. */}
+          <div key={current} className="profile-section-enter grid content-start gap-4">
           {current === 'documents' && (
             <section className="grid gap-3" aria-label="Required documents">
-              <p className="m-0 text-sm text-app-muted">Attach one file per requirement. Uploads go to your Document Vault and can be reused.</p>
+              <StepIntro index={0}>{STEPS[0].intro}</StepIntro>
+              {readiness.requirements.length ? <DocumentsOverview requirements={readiness.requirements} /> : null}
               {vaultReadyCount ? (
-                <p className="m-0 flex items-center gap-1.5 text-xs font-semibold text-app-muted" role="status">
+                <p className="m-0 flex items-center gap-1.5 rounded-xl border border-blue-500/25 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-app-text" role="status">
                   <FolderOpen size={14} aria-hidden="true" className="shrink-0" />
-                  {vaultReadyCount === 1 ? '1 requirement has' : `${vaultReadyCount} requirements have`} a matching file already in your Document Vault.
+                  {vaultReadyCount === 1 ? '1 requirement has' : `${vaultReadyCount} requirements have`} a matching file already in your Document Vault. Open it and choose Use.
                 </p>
               ) : null}
               {readiness.requirements.length ? (
-                <ul className="m-0 grid gap-3 p-0">
+                <ul className="m-0 grid list-none gap-3 p-0">
                   {readiness.requirements.map((requirement) => (
                     <RequirementRow
                       key={requirement.id}
@@ -473,7 +636,7 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'profile' && (
             <section className="grid gap-3" aria-label="Application form">
-              <p className="m-0 text-sm text-app-muted">Your Application Form answers, frozen on submit. The Admissions Office and your Department Chair see the profile values; the household finances and financial situation go to the Admissions Office only.</p>
+              <StepIntro index={1}>{STEPS[1].intro}</StepIntro>
               <Panel><ProfileSnapshotList snapshot={snapshot} expanded applicantPhoto={getApplicantPhotoDocument(application, documents)} residencePhotos={getResidencePhotoDocuments(application, documents)} onPreviewPhoto={setPreview} extraSections={financialSections.filter((section) => section.key !== 'situation')} /></Panel>
               {readiness.eligibilityWaived ? (
                 <p className="m-0 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 text-sm text-app-text" role="note">
@@ -491,6 +654,7 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'financial' && (
             <>
+              <StepIntro index={2} />
               {financialLoaded
                 ? <ApplicationFinancialStep answers={financialAnswers} onChange={(next) => { setFinancialAnswers(next); setFinancialMessage(''); }} />
                 : <SkeletonRegion label="Loading your financial answers" className="grid gap-4"><SkeletonText lines={2} /><SkeletonRows rows={3} /></SkeletonRegion>}
@@ -504,6 +668,7 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'statement' && (
             <section className="grid gap-3" aria-label="Application statement">
+              <StepIntro index={3} />
               <label className="grid gap-2">
                 <span className="text-sm font-semibold text-app-text">
                   Statement/essay
@@ -518,6 +683,9 @@ export default function ApplicationWorkspaceModal({
                   onChange={(event) => { setStatement(event.target.value); setStatementMessage(''); }}
               placeholder="Describe your circumstances, goals, and how this scholarship helps."
                 />
+                <div className="h-1.5 overflow-hidden rounded-full bg-app-border" aria-hidden="true">
+                  <div className={`h-full rounded-full transition-[width] duration-300 motion-reduce:transition-none ${wordCount >= ESSAY_TARGET_WORDS ? 'bg-emerald-500' : 'bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright'}`} style={{ width: `${Math.min(100, Math.round((wordCount / ESSAY_TARGET_WORDS) * 100))}%` }} />
+                </div>
                 <small className="field-hint">Starts from your default statement/essay. Changes apply to this application unless you save them as your default. {wordCount} of about {ESSAY_TARGET_WORDS} words · {statement.length}/{ESSAY_MAX_LENGTH} characters</small>
               </label>
               <div className="flex flex-wrap items-center gap-3">
@@ -531,13 +699,27 @@ export default function ApplicationWorkspaceModal({
 
           {current === 'review' && (
             <section className="grid gap-3" aria-label="Review and submit">
-              <Panel className="grid gap-1 text-sm text-app-muted">
-                <span><strong className="text-app-text">Documents</strong> {readiness.attachedCount} of {readiness.requiredCount} attached</span>
-                <span><strong className="text-app-text">Supporting documents</strong> {supportingCount} attached (optional)</span>
-                <span><strong className="text-app-text">Financial situation</strong> {financialMissing.length ? 'Not complete yet' : 'Answered'}</span>
-                <span><strong className="text-app-text">Statement</strong> {statement.trim() ? `${wordCount} words` : 'Not written yet'}</span>
-                <span><strong className="text-app-text">Profile</strong> {eligibilityBlockers.length ? 'Does not meet the current qualification rules' : readiness.eligibilityWaived ? 'Opened for you by the Admissions Office' : 'Meets the current qualification rules'}</span>
-              </Panel>
+              <StepIntro index={4}>{STEPS[4].intro}</StepIntro>
+              <ul className="m-0 grid list-none gap-2 p-0">
+                {[
+                  { key: 'documents', label: 'Required documents', ok: documentsDone, value: `${coveredDocumentCount} of ${readiness.requiredCount} attached`, step: 0 },
+                  { key: 'profile', label: 'Application form', ok: stepDone.profile, value: eligibilityBlockers.length ? 'Does not meet the current qualification rules' : profileBlockers.length ? 'Some answers are still missing' : readiness.eligibilityWaived ? 'Opened for you by the Admissions Office' : 'Meets the current qualification rules', step: PROFILE_STEP_INDEX },
+                  { key: 'financial', label: 'Financial situation', ok: stepDone.financial, value: financialMissing.length ? 'Not complete yet' : 'Answered', step: 2 },
+                  { key: 'statement', label: 'Statement', ok: stepDone.statement, value: statement.trim() ? `${wordCount} words` : 'Not written yet', step: 3 },
+                ].map((item) => (
+                  <li key={item.key} className={`flex min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 ${item.ok ? 'border-emerald-400/30 bg-emerald-500/5' : 'border-amber-400/50 bg-amber-500/10'}`}>
+                    <span aria-hidden="true" className={`grid h-7 w-7 shrink-0 place-items-center rounded-full ${item.ok ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-amber-500/20 text-amber-700 dark:text-amber-300'}`}>
+                      {item.ok ? <Check size={14} strokeWidth={3} /> : <AlertCircle size={14} />}
+                    </span>
+                    <span className="grid min-w-0 flex-1 gap-0.5 text-sm">
+                      <strong className="text-app-text">{item.label}</strong>
+                      <span className="text-xs text-app-muted [overflow-wrap:anywhere]">{item.value}</span>
+                    </span>
+                    <Button type="button" variant="ghost" className="!min-h-9 shrink-0 !px-3 !py-1 !text-xs" onClick={() => setStep(item.step)}>{item.ok ? 'Edit' : 'Fix'}</Button>
+                  </li>
+                ))}
+                <li className="px-3 text-xs text-app-muted">Supporting documents: {supportingCount} attached (optional)</li>
+              </ul>
               {readiness.blockers.filter((blocker) => !blocker.startsWith('Certify')).length ? (
                 <div className="grid gap-1 rounded-xl border border-amber-400/40 bg-amber-500/10 p-3">
                   <strong className="text-sm text-app-text">Before you can submit</strong>
@@ -547,40 +729,71 @@ export default function ApplicationWorkspaceModal({
                 </div>
               ) : null}
               <div className="grid gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 p-3" role="note" aria-label="What you are sharing">
-                <strong className="text-sm text-app-text">What you are sharing</strong>
+                <strong className="flex items-center gap-2 text-sm text-app-text"><ShieldCheck size={16} aria-hidden="true" className="shrink-0 text-blue-600 dark:text-blue-300" />What you are sharing</strong>
                 <p className="m-0 text-sm text-app-muted">
                   {sharedDocumentCount} attached {sharedDocumentCount === 1 ? 'document' : 'documents'}, your statement, and your full Application Form, including your personal, address, and family details, are shared with the Admissions Office and your Department Chair for this application. Your household finances and financial situation answers are shared with the Admissions Office only.
                 </p>
                 <div><Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => setStep(PROFILE_STEP_INDEX)}>Review your application form</Button></div>
               </div>
-              <details className="rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-muted">
-                <summary className="cursor-pointer font-semibold text-app-text">Agreement and data privacy notice</summary>
-                <ol className="mt-2 grid gap-2 pl-5">{AFFIDAVIT_CLAUSES.map((clause) => <li key={clause}>{clause}</li>)}</ol>
-                <p className="mb-0 mt-3">{DATA_PRIVACY_NOTICE}</p>
-                {onOpenPrivacyDocument ? (
-                  <div className="mt-2">
-                    <Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => onOpenPrivacyDocument('privacy')}>
-                      Read the full Privacy Policy
-                    </Button>
+              <div className="rounded-xl border border-app-border bg-app-surface text-sm text-app-muted">
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-expanded={noticeOpen}
+                  aria-controls="agreement-notice"
+                  onClick={() => setNoticeOpen((value) => !value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      setNoticeOpen((value) => !value);
+                    }
+                  }}
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-xl p-3 font-semibold text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+                >
+                  Agreement and data privacy notice
+                  <ChevronDown size={18} aria-hidden="true" className={`shrink-0 text-app-muted transition-transform duration-300 motion-reduce:transition-none ${noticeOpen ? 'rotate-180' : ''}`} />
+                </div>
+                <Collapse open={noticeOpen} id="agreement-notice">
+                  <div className="px-3 pb-3">
+                    <ol className="mt-0 grid gap-2 pl-5">{AFFIDAVIT_CLAUSES.map((clause) => <li key={clause}>{clause}</li>)}</ol>
+                    <p className="mb-0 mt-3">{DATA_PRIVACY_NOTICE}</p>
+                    {onOpenPrivacyDocument ? (
+                      <div className="mt-2">
+                        <Button type="button" variant="ghost" className="!min-h-10 !px-3 !py-1 !text-xs" onClick={() => onOpenPrivacyDocument('privacy')}>
+                          Read the full Privacy Policy
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
-              </details>
-              <label className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface p-3 text-sm text-app-text">
+                </Collapse>
+              </div>
+              <label className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-sm text-app-text transition-colors ${certified ? 'border-emerald-400/50 bg-emerald-500/10' : 'border-app-border bg-app-surface'}`}>
                 <input type="checkbox" className="mt-1 h-5 w-5 shrink-0" checked={certified} onChange={(event) => setCertified(event.target.checked)} />
                 <span>{CERTIFICATION_TEXT}</span>
               </label>
-              {submitError ? <p className="form-error m-0" role="alert">{submitError}</p> : null}
-              <div className="flex flex-wrap items-center gap-3">
-                <Button variant="primary" type="button" disabled={!readiness.ready || isSubmitting} onClick={handleSubmit}>{isSubmitting ? 'Submitting…' : 'Submit application'}</Button>
-                <span className="text-xs text-app-muted">After you submit, the application and its attached files are locked for review.</span>
-              </div>
             </section>
           )}
-
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/60 pt-3">
-            <Button type="button" variant="ghost" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))}>Back</Button>
-            {step < STEPS.length - 1 ? <Button type="button" variant="primary" onClick={() => setStep((value) => Math.min(STEPS.length - 1, value + 1))}>Next: {STEPS[step + 1].label}</Button> : null}
           </div>
+        </div>
+
+        {/* Pinned under the scrolling body: Back on the left, and the forward
+            action (Next, or Submit on the last step) always at the bottom right. */}
+        <div className="mt-3 grid gap-2 border-t border-app-border/60 pt-3">
+          {submitError ? <p className="form-error m-0 text-right" role="alert">{submitError}</p> : null}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Button type="button" variant="ghost" disabled={step === 0} onClick={() => setStep((value) => Math.max(0, value - 1))}>Back</Button>
+            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-x-4 gap-y-2">
+              {step === STEPS.length - 1 ? (
+                <>
+                  <span className="max-w-xs text-right text-xs text-app-muted max-sm:hidden">After you submit, the application and its attached files are locked for review.</span>
+                  <Button variant="primary" type="button" disabled={!readiness.ready || isSubmitting} onClick={handleSubmit}>{isSubmitting ? 'Submitting…' : 'Submit application'}</Button>
+                </>
+              ) : (
+                <Button type="button" variant="primary" onClick={() => setStep((value) => Math.min(STEPS.length - 1, value + 1))}>Next: {STEPS[step + 1].label}<ArrowRight size={16} aria-hidden="true" /></Button>
+              )}
+            </div>
+          </div>
+          {step === STEPS.length - 1 ? <span className="text-xs text-app-muted sm:hidden">After you submit, the application and its attached files are locked for review.</span> : null}
         </div>
       </ModalShell>
       {preview ? <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} /> : null}
