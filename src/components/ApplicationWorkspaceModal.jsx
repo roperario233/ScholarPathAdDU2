@@ -236,20 +236,12 @@ function RequirementRow({ requirement, documents, attachedIds, busy, error, onAt
   );
 }
 
-// The documents step's overview: how many requirements are covered, which ones
-// still need a file (each a link that jumps to its row).
+// The documents step's overview: how many requirements are covered.
 function DocumentsOverview({ requirements }) {
   const total = requirements.length;
   const todo = requirements.filter((item) => getRequirementVisual(item.state).needsAction);
   const done = total - todo.length;
   const percent = total ? Math.round((done / total) * 100) : 0;
-  const jump = (event, requirement) => {
-    event.preventDefault();
-    const target = document.getElementById(requirementAnchor(requirement));
-    if (!target) return;
-    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    target.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
-  };
 
   return (
     <div className={`grid gap-3 rounded-2xl border p-4 ${todo.length ? 'border-app-border bg-app-surface' : 'border-emerald-400/40 bg-emerald-500/10'}`}>
@@ -264,29 +256,6 @@ function DocumentsOverview({ requirements }) {
       <div className="h-2 overflow-hidden rounded-full bg-app-border" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={done} aria-label="Required documents attached">
         <div className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${todo.length ? 'bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright' : 'bg-emerald-500'}`} style={{ width: `${percent}%` }} />
       </div>
-      {todo.length ? (
-        <div className="grid gap-1.5">
-          <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">Still to do</span>
-          <ul className="m-0 flex list-none flex-wrap gap-1.5 p-0">
-            {todo.map((item) => {
-              const needsFix = item.state === 'rejected' || item.state === 'outdated';
-              return (
-                <li key={item.id} className="min-w-0 max-w-full">
-                  <a
-                    href={`#${requirementAnchor(item)}`}
-                    onClick={(event) => jump(event, item)}
-                    title={item.label}
-                    className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold no-underline transition hover:-translate-y-px focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${needsFix ? 'border-rose-400/50 bg-rose-500/10 text-rose-800 dark:text-rose-200' : 'border-amber-400/50 bg-amber-500/10 text-amber-900 dark:text-amber-200'}`}
-                  >
-                    {needsFix ? <AlertCircle size={12} aria-hidden="true" className="shrink-0" /> : <CircleDashed size={12} aria-hidden="true" className="shrink-0" />}
-                    <span className="min-w-0 truncate">{item.label}</span>
-                  </a>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      ) : null}
     </div>
   );
 }
