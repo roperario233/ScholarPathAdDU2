@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardList, FileCheck2, FileSearch, Inbox, X } from 'lucide-react';
+import { CheckCircle2, ClipboardList, FileCheck2, FileSearch, Inbox, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
@@ -8,12 +8,16 @@ import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
 import {
+  DEFAULT_REVIEW_QUEUE_FILTERS,
+  REVIEW_QUEUE_SORTS,
+  filterReviewQueue,
   getCaseOfficers,
   getDocumentsAwaitingReview,
   getIntakePool,
   getMyReviewQueue,
   getSubmissionWaitDays,
 } from '../../lib/admissionsOffice';
+import { useDebouncedValue } from '../../lib/useDebouncedValue';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { fmtDate, plural } from '../../lib/formatters';
 
@@ -59,7 +63,23 @@ export default function AdminReviewQueue({
     () => getMyReviewQueue(applications, caseOfficers, currentUserId),
     [applications, caseOfficers, currentUserId],
   );
-  const visibleQueue = myQueue.slice(0, visibleQueueCount);
+  const [filters, setFilters] = useState(DEFAULT_REVIEW_QUEUE_FILTERS);
+  const settledQuery = useDebouncedValue(filters.query, 250);
+  const filteredQueue = useMemo(
+    () => filterReviewQueue(myQueue, { ...filters, query: settledQuery }),
+    [myQueue, filters, settledQuery],
+  );
+  // Only the stages the queue actually holds are offered, so no option is empty.
+  const stageOptions = useMemo(
+    () => [...new Set(myQueue.map((entry) => entry.status))],
+    [myQueue],
+  );
+  const hasActiveFilters = filters.query.trim() !== '' || filters.stage !== 'all' || filters.sort !== DEFAULT_REVIEW_QUEUE_FILTERS.sort;
+  const updateFilter = (patch) => {
+    setFilters((current) => ({ ...current, ...patch }));
+    setVisibleQueueCount(REVIEW_QUEUE_PAGE_SIZE);
+  };
+  const visibleQueue = filteredQueue.slice(0, visibleQueueCount);
   const intakePool = useMemo(() => getIntakePool(applications, caseOfficers), [applications, caseOfficers]);
   // Document Vault review begins at the verification stage, so the count is scoped
   // to this officer's own queue and always matches the list below it.
@@ -163,7 +183,11 @@ export default function AdminReviewQueue({
           title="Your cases"
           action={(
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge tone={myQueue.length ? 'warning' : 'success'}>{myQueue.length} in your queue</StatusBadge>
+              <StatusBadge tone={myQueue.length ? 'warning' : 'success'}>
+                {filteredQueue.length === myQueue.length
+                  ? `${myQueue.length} in your queue`
+                  : `${filteredQueue.length} of ${myQueue.length} shown`}
+              </StatusBadge>
               {onOpenWorkspace ? (
                 <Button type="button" variant="ghost" onClick={() => onOpenWorkspace('admin-intake')}>
                   Open intake pool
@@ -172,8 +196,52 @@ export default function AdminReviewQueue({
             </div>
           )}
         >
+          {myQueue.length ? (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <div className="relative min-w-0 flex-1 basis-48">
+                <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-app-muted" />
+                <input
+                  type="search"
+                  value={filters.query}
+                  placeholder="Search student, program, scholarship"
+                  aria-label="Search your cases"
+                  className="min-h-9 py-1.5 pl-8 text-sm"
+                  onChange={(event) => updateFilter({ query: event.target.value })}
+                />
+              </div>
+              <select
+                aria-label="Filter by stage"
+                className="min-h-9 w-auto py-1.5 text-sm"
+                value={filters.stage}
+                onChange={(event) => updateFilter({ stage: event.target.value })}
+              >
+                <option value="all">All stages</option>
+                {stageOptions.map((status) => (
+                  <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
+                ))}
+              </select>
+              <select
+                aria-label="Sort cases"
+                className="min-h-9 w-auto py-1.5 text-sm"
+                value={filters.sort}
+                onChange={(event) => updateFilter({ sort: event.target.value })}
+              >
+                {REVIEW_QUEUE_SORTS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+              {hasActiveFilters ? (
+                <Button type="button" variant="ghost" onClick={() => updateFilter({ ...DEFAULT_REVIEW_QUEUE_FILTERS })}>Reset</Button>
+              ) : null}
+            </div>
+          ) : null}
           <div className="grid max-h-[720px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-            {myQueue.length ? visibleQueue.map((entry) => {
+            {myQueue.length && !filteredQueue.length ? (
+              <EmptyState
+                title="No cases match these filters"
+                description="Clear the search or the stage filter to see the rest of your queue."
+              />
+            ) : myQueue.length ? visibleQueue.map((entry) => {
               const { outstanding } = getDocumentVerificationReadiness(entry, documents);
               // Document Vault review begins at the verification stage, so a case
               // before it reports what is attached instead of promising work the
@@ -230,9 +298,9 @@ export default function AdminReviewQueue({
               />
             )}
           </div>
-          {visibleQueue.length < myQueue.length ? (
+          {visibleQueue.length < filteredQueue.length ? (
             <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleQueueCount((count) => count + REVIEW_QUEUE_PAGE_SIZE)}>
-              Show {Math.min(REVIEW_QUEUE_PAGE_SIZE, myQueue.length - visibleQueue.length)} more cases
+              Show {Math.min(REVIEW_QUEUE_PAGE_SIZE, filteredQueue.length - visibleQueue.length)} more cases
             </Button>
           ) : null}
         </Card>

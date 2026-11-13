@@ -291,6 +291,99 @@ input[type='radio'] {
   padding: 0;
 }
 
+/* Visible checkboxes and radios share one animated look: the box fills in, the
+   tick pops (and the radio dot grows) with a small spring, and a press squeezes
+   the control. Inputs hidden behind a styled label (`.sr-only`, which ChoiceToggle,
+   SettingToggle, FilterChips and the card options use) are left alone. */
+input[type='checkbox']:not(.sr-only),
+input[type='radio']:not(.sr-only) {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  min-width: 1.2rem;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 60%, transparent);
+  background: var(--surface);
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease, box-shadow 200ms ease, transform 160ms ease;
+}
+
+input[type='checkbox']:not(.sr-only) { border-radius: 0.4rem; }
+input[type='radio']:not(.sr-only) { border-radius: 999px; }
+
+input[type='checkbox']:not(.sr-only)::after,
+input[type='radio']:not(.sr-only)::after {
+  content: '';
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 160ms ease;
+  opacity: 0;
+}
+
+input[type='checkbox']:not(.sr-only)::after {
+  width: 0.32rem;
+  height: 0.62rem;
+  margin-top: -0.12rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) scale(0);
+}
+
+input[type='radio']:not(.sr-only)::after {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #fff;
+  transform: scale(0);
+}
+
+input[type='checkbox']:not(.sr-only):checked,
+input[type='radio']:not(.sr-only):checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+
+input[type='checkbox']:not(.sr-only):checked::after {
+  opacity: 1;
+  transform: rotate(45deg) scale(1);
+}
+
+input[type='radio']:not(.sr-only):checked::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+input[type='checkbox']:not(.sr-only):not(:disabled):hover,
+input[type='radio']:not(.sr-only):not(:disabled):hover {
+  border-color: var(--primary);
+}
+
+input[type='checkbox']:not(.sr-only):not(:disabled):active,
+input[type='radio']:not(.sr-only):not(:disabled):active {
+  transform: scale(0.88);
+}
+
+input[type='checkbox']:not(.sr-only):focus-visible,
+input[type='radio']:not(.sr-only):focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.25);
+}
+
+input[type='checkbox']:not(.sr-only):disabled,
+input[type='radio']:not(.sr-only):disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  input[type='checkbox']:not(.sr-only),
+  input[type='radio']:not(.sr-only),
+  input[type='checkbox']:not(.sr-only)::after,
+  input[type='radio']:not(.sr-only)::after {
+    transition: none;
+  }
+}
+
 input[type="number"] {
   background: color-mix(in srgb, var(--surface) 85%, var(--muted-surface) 15%);
 }
@@ -509,16 +602,107 @@ main article > .flex > :last-child {
   min-height: calc(100dvh - 2.5rem);
 }
 
+/* The campus photo's veil. The sign-in screen and the landing hero both read this
+   one value, so the photo looks the same when the landing page hands over to the
+   login screen. Heavier in dark mode, where the photo should stay in the
+   background. */
+:root { --campus-veil: rgba(6, 10, 18, 0.74); }
+.theme-light { --campus-veil: rgba(255, 255, 255, 0.66); }
+
+/* Sign-in <-> create-account. Each card carries a view-transition name, so where the
+   browser supports View Transitions it morphs between the two shapes. Browsers
+   without them get a short fade-in instead; reduced motion gets neither. */
+.auth-card { view-transition-name: auth-card; }
+.login-legal-links { view-transition-name: auth-legal; }
+::view-transition-group(auth-card),
+::view-transition-group(auth-legal) {
+  animation-duration: 0.5s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes auth-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+}
+@supports not (view-transition-name: auth-card) {
+  @media (prefers-reduced-motion: no-preference) {
+    .auth-card { animation: auth-card-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(auth-card),
+  ::view-transition-group(auth-legal) { animation-duration: 0.01ms; }
+}
+
+/* Signing in. App.jsx sets data-vt="sign-in" on <html> while the workspace takes
+   over from the sign-in screen. The card lifts and fades away (it has no
+   counterpart in the workspace, so only its old snapshot exists), the legal
+   links fade with it, and the page behind cross-fades into the shell, whose own
+   `.shell-enter-*` entrance runs underneath. Scoped to this one transition so
+   the sign-in <-> create-account morph above is untouched. */
+:root[data-vt='sign-in']::view-transition-old(auth-card) {
+  animation: sign-in-card-out 0.26s cubic-bezier(0.4, 0, 1, 1) both;
+}
+:root[data-vt='sign-in']::view-transition-old(auth-legal) {
+  animation: sign-in-card-out 0.2s ease-in both;
+}
+:root[data-vt='sign-in']::view-transition-old(root) {
+  animation: 0.3s ease-in both vt-fade-out;
+}
+:root[data-vt='sign-in']::view-transition-new(root) {
+  animation: 0.3s ease-out both vt-fade-in;
+}
+@keyframes sign-in-card-out {
+  to { opacity: 0; transform: translateY(-8px) scale(0.985); }
+}
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-fade-in { from { opacity: 0; } }
+
+/* Signing out: the reverse sweep, played on the live page (no view transition:
+   that flattens each part into an image, and the frosted `backdrop-blur` cards
+   in the header, sidebar and content do not survive being captured alone, which
+   showed up as blurry, mismatched patches). App.jsx sets data-shell-leaving on
+   <html> for ~300ms before it clears the session: the header lifts away, the
+   sidebar slides off to the left and the content fades and sinks, a beat apart.
+   Then it sets data-entering="sign-out" for about a second, so the sign-in
+   screen fades in and its card rises in last. */
+:root[data-shell-leaving] body { pointer-events: none; }
+:root[data-shell-leaving] .app-header {
+  animation: sign-out-header 0.28s cubic-bezier(0.4, 0, 1, 1) both;
+}
+:root[data-shell-leaving] .shell-enter-aside {
+  animation: sign-out-aside 0.3s cubic-bezier(0.4, 0, 1, 1) 30ms both;
+}
+:root[data-shell-leaving] .shell-enter-main {
+  animation: sign-out-main 0.28s ease-in 60ms both;
+}
+:root[data-entering='sign-out'] .login-screen,
+:root[data-entering='sign-out'] .lp {
+  animation: vt-fade-in 0.35s ease-out both;
+}
+:root[data-entering='sign-out'] .auth-card {
+  animation: sign-out-card-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+:root[data-entering='sign-out'] .login-legal-links {
+  animation: vt-fade-in 0.4s ease-out 260ms both;
+}
+@keyframes sign-out-header {
+  to { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes sign-out-aside {
+  to { opacity: 0; transform: translateX(-12px); }
+}
+@keyframes sign-out-main {
+  to { opacity: 0; transform: translateY(5px); }
+}
+@keyframes sign-out-card-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+}
+
 .login-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(rgba(6, 10, 18, 0.56), rgba(6, 10, 18, 0.56));
+  background: linear-gradient(var(--campus-veil), var(--campus-veil));
   z-index: 0;
   pointer-events: none;
-}
-
-.theme-light .login-overlay {
-  background: linear-gradient(rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.58));
 }
 
 .role-picker-menu {
@@ -793,6 +977,57 @@ main article > .flex > :last-child {
   margin-block: auto;
 }
 
+/* Subtle enter/exit: the backdrop fades and the panel rises and settles. The
+   exit plays when ModalShell closes from the backdrop or its Close button
+   (`data-closing`; keep 140ms in step with MODAL_EXIT_MS in ui.jsx). Only
+   opacity and transform animate, and the panel keeps no transform afterwards,
+   so a fixed descendant is never trapped. Reduced motion is already
+   neutralised by the global rule near the end of this file. */
+.modal-overlay {
+  animation: modal-overlay-in 180ms ease-out backwards;
+}
+
+.modal-overlay > section,
+.modal-overlay > div {
+  animation: modal-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+.modal-overlay[data-closing='true'] {
+  animation: modal-overlay-out 140ms ease-in forwards;
+  pointer-events: none;
+}
+
+.modal-overlay[data-closing='true'] > section,
+.modal-overlay[data-closing='true'] > div {
+  animation: modal-panel-out 140ms ease-in forwards;
+}
+
+@keyframes modal-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modal-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+@keyframes modal-panel-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+
 /* The first-login academic profile modal is taller than the viewport once the
    onboarding essentials are shown. Left-aligned + auto margins let it center
    when it fits and scroll as one unit (heading included) when it does not,
@@ -965,13 +1200,15 @@ main article > .flex > :last-child {
 }
 
 @media (max-width: 640px) {
+  /* Centred on the screen like on desktop; a card taller than the screen simply
+     grows the page (min-height, not height), so nothing is cut off at the top. */
   .login-screen {
-    align-items: start;
+    align-items: center;
     padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 1rem;
   }
 
   .login-content {
-    align-content: start;
+    align-content: center;
     min-height: calc(100vh - max(0.75rem, env(safe-area-inset-top)) - 1rem);
     min-height: calc(100dvh - max(0.75rem, env(safe-area-inset-top)) - 1rem);
   }
@@ -1027,6 +1264,27 @@ main article > .flex > :last-child {
 @keyframes notificationMenuIn {
   from { opacity: 0; transform: translateY(-5px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes notificationMenuOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-5px) scale(0.98); }
+}
+
+/* The notification menu opens and closes with the same short motion, anchored to
+   the bell. NotificationDropdown keeps it mounted for NOTIFICATION_MENU_CLOSE_MS
+   (140ms) while \`data-state\` is "closed", so the exit actually plays. */
+.notification-dropdown {
+  transform-origin: top right;
+}
+
+.notification-dropdown[data-state='open'] {
+  animation: notificationMenuIn 140ms ease-out;
+}
+
+.notification-dropdown[data-state='closed'] {
+  animation: notificationMenuOut 140ms ease-in forwards;
+  pointer-events: none;
 }
 
 .theme-toggle-icon {
@@ -1635,6 +1893,74 @@ a:focus-visible {
   animation: profile-section-in 180ms ease-out;
 }
 
+/* Authenticated shell: the page body (keyed by the active view in App.jsx)
+   fades and rises a few pixels whenever the route changes, for every role. No
+   fill mode, so the transform is gone once the animation ends and a fixed
+   overlay or a sticky menu inside the page is never anchored to the wrapper. */
+.page-enter {
+  animation: page-enter 240ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Signing in (or restoring a session) mounts the whole authenticated shell at
+   once. Its three parts ease in on a short stagger: the header settles down, the
+   sidebar slides in from the left, then the content area fades up (opacity only,
+   because `.page-enter` inside it already supplies the rise). `backwards` fill
+   holds the start state during the delay and leaves nothing behind afterwards,
+   so the sticky sidebar and fixed overlays are never anchored to a transform. */
+.shell-enter-header {
+  animation: shell-header-in 340ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.shell-enter-aside {
+  animation: shell-aside-in 380ms cubic-bezier(0.22, 1, 0.36, 1) 60ms backwards;
+}
+
+.shell-enter-main {
+  animation: shell-main-in 360ms ease-out 120ms backwards;
+}
+
+@keyframes shell-header-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shell-aside-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shell-main-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* A queue row the review modal just moved glows for a moment when the page
    comes back (MovedCaseNotice adds the class, then removes it). The ring and the
    tint are inset so a scrolling list never clips them and the card keeps its
@@ -1649,6 +1975,43 @@ a:focus-visible {
   }
   100% {
     box-shadow: inset 0 0 0 2px rgba(59, 130, 246, 0), inset 0 0 0 999px rgba(59, 130, 246, 0);
+  }
+}
+
+/* Submitted confirmation (ApplicationsView): the check pops in, a soft ring
+   pulses twice behind it, and each block rises in a beat after the last. */
+.submitted-badge {
+  animation: submitted-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+.submitted-ring {
+  animation: submitted-ring 1.8s ease-out 380ms 2 both;
+}
+
+.submitted-rise {
+  animation: profile-section-in 360ms ease-out both;
+  animation-delay: var(--rise-delay, 0ms);
+}
+
+@keyframes submitted-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes submitted-ring {
+  from {
+    opacity: 0.7;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.9);
   }
 }
 
@@ -1682,10 +2045,90 @@ a:focus-visible {
   }
 }
 
+/* Mobile page drawer (below `lg`). It stays mounted while it closes: App.jsx
+   flips data-state to "closed", these rules play the exit, and a timer of
+   MOBILE_NAV_CLOSE_MS (190ms) then unmounts it. Opening fades the backdrop in,
+   slides the panel in from the right and lets the links follow one after another.
+   `backwards` fill on the entrance leaves no transform behind afterwards. */
+.mobile-nav-backdrop[data-state='open'] {
+  animation: mobile-nav-fade-in 170ms ease-out backwards;
+}
+
+.mobile-nav-backdrop[data-state='closed'] {
+  animation: mobile-nav-fade-out 190ms ease-in forwards;
+  pointer-events: none;
+}
+
+.mobile-nav-panel[data-state='open'] {
+  animation: mobile-nav-slide-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mobile-nav-panel[data-state='closed'] {
+  animation: mobile-nav-slide-out 190ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > * {
+  animation: mobile-nav-item-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(80ms + var(--nav-i, 0) * 30ms);
+}
+
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(1) { --nav-i: 0; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(2) { --nav-i: 1; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(3) { --nav-i: 2; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(4) { --nav-i: 3; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(5) { --nav-i: 4; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(6) { --nav-i: 5; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(7) { --nav-i: 6; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(8) { --nav-i: 7; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(n + 9) { --nav-i: 8; }
+
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(2) {
+  animation: mobile-nav-fade-in 240ms ease-out 260ms backwards;
+}
+
+@keyframes mobile-nav-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes mobile-nav-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes mobile-nav-slide-in {
+  from { transform: translateX(100%); }
+}
+
+@keyframes mobile-nav-slide-out {
+  to { transform: translateX(100%); }
+}
+
+@keyframes mobile-nav-item-in {
+  from { opacity: 0; transform: translateX(14px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .notification-dropdown,
+  .mobile-nav-backdrop,
+  .mobile-nav-panel,
+  .mobile-nav-panel > nav,
+  .mobile-nav-panel > nav > * {
+    animation: none !important;
+  }
+
+  .page-enter,
+  .shell-enter-header,
+  .shell-enter-aside,
+  .shell-enter-main,
   .profile-section-enter,
-  .stage-outcome-enter {
+  .stage-outcome-enter,
+  .submitted-badge,
+  .submitted-rise {
     animation: none;
+  }
+
+  .submitted-ring {
+    display: none;
   }
 
   .row-spotlight {

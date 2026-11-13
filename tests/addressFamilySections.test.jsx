@@ -92,6 +92,48 @@ describe('My Profile address and family proofs', () => {
     expect((html.match(/checked=""/g) || []).length).toBe(0);
   });
 
+  it('answers the sibling questions with "Only child"', () => {
+    const html = renderToStaticMarkup(
+      <FamilySection profile={{ familyDetails: { familyPosition: 'Only child', numberOfSiblings: 0, siblingsNone: true } }} onSave={noop} onDirtyChange={noop} />,
+    );
+    // The count reads back as a recorded 0 instead of an input, and there is no list
+    // to mark "none" on, so neither the toggle nor the row editor is rendered.
+    expect(html).toContain('Recorded automatically because you are an only child.');
+    expect(html).toContain('so there are no siblings to list');
+    expect(html).not.toContain('No siblings to list');
+    expect(html).not.toContain('Add a sibling');
+    // "Only child" is the only position a sibling total of 0 allows.
+    expect(html).not.toContain('Eldest (first-born)');
+    expect(html).not.toContain('>Middle child<');
+  });
+
+  it('offers the positions the recorded sibling total allows', () => {
+    const one = renderToStaticMarkup(
+      <FamilySection profile={{ familyDetails: { numberOfSiblings: 1, familyPosition: 'Eldest' } }} onSave={noop} onDirtyChange={noop} />,
+    );
+    // With one sibling there is no middle to be, and the student is not an only child.
+    expect(one).toContain('Eldest (first-born)');
+    expect(one).toContain('Youngest (last-born)');
+    expect(one).not.toContain('>Middle child<');
+    expect(one).not.toContain('>Only child<');
+    const two = renderToStaticMarkup(
+      <FamilySection profile={{ familyDetails: { numberOfSiblings: 2, familyPosition: 'Middle' } }} onSave={noop} onDirtyChange={noop} />,
+    );
+    expect(two).toContain('>Middle child<');
+    expect(two).not.toContain('>Only child<');
+  });
+
+  it('warns when the sibling list is longer than the recorded total', () => {
+    const html = renderToStaticMarkup(
+      <FamilySection
+        profile={{ familyDetails: { numberOfSiblings: 2, familyPosition: 'Eldest', siblings: [{ name: 'A', age: 10 }, { name: 'B', age: 12 }, { name: 'C', age: 14 }] } }}
+        onSave={noop}
+        onDirtyChange={noop}
+      />,
+    );
+    expect(html).toContain('You listed 3 siblings but recorded 2.');
+  });
+
   it('renders without the proof props, as the staff preview does', () => {
     const html = renderToStaticMarkup(<FamilySection profile={{}} onSave={noop} onDirtyChange={noop} />);
     expect(html).toContain('Proof of family details');

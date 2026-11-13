@@ -483,11 +483,14 @@ export function DocumentVerificationItem({ doc, application, owner = null, onPre
   );
 }
 
-const SnapshotRow = ({ label, value, verification }) => (
+// `tone="warning"` marks a derived row the reader should look at, such as the
+// household-income cross-check in the office-only financial groups. Every other row
+// keeps the plain value colour.
+const SnapshotRow = ({ label, value, verification, tone }) => (
   <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 py-2 last:border-b-0">
     <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{label}</span>
     <span className="flex min-w-0 flex-wrap items-center gap-2">
-      <strong className="text-sm text-app-text">{value || 'Not encoded'}</strong>
+      <strong className={`text-sm ${tone === 'warning' ? 'text-amber-700 dark:text-amber-200' : 'text-app-text'}`}>{value || 'Not encoded'}</strong>
       {verification ? <StatusBadge tone={getAttributeVerificationTone(verification)} title={describeAttributeVerification(getAttributeVerificationLabel(verification))}>{getAttributeVerificationLabel(verification)}</StatusBadge> : null}
     </span>
   </div>

@@ -1,6 +1,6 @@
 import { Fragment, createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Camera, Circle, CircleAlert, CircleCheck, OctagonAlert, Paperclip, Plus, Trash2, TriangleAlert } from 'lucide-react';
-import { Button, Card, FormField, RequiredMark, SettingToggle, StatusBadge } from './ui';
+import { Button, Card, ChoiceToggle, FormField, RequiredMark, SettingToggle, StatusBadge } from './ui';
 import ProfileAvatar from './ProfileAvatar';
 import PhotoCaptureModal from './PhotoCaptureModal';
 import { AVATAR_ACCEPT } from '../lib/avatarStorage';
@@ -14,6 +14,7 @@ import {
   APPLIANCE_OPTIONS,
   ASSET_OPTIONS,
   economicStatusOptions,
+  getHouseholdIncomeCheck,
   parentEmploymentOptions,
   validateFinancialProfileSection,
 } from '../lib/financialDetails';
@@ -21,6 +22,7 @@ import {
   ADDRESS_MAX_LENGTH,
   AWARDS_MAX_LENGTH,
   COUNTRY_MAX_LENGTH,
+  COUNTRY_OTHER,
   ESSAY_MAX_LENGTH,
   MAX_GRANT_ROWS,
   MAX_HOUSEHOLD_ADULT_ROWS,
@@ -31,9 +33,14 @@ import {
   SCHOOL_FIELD_MAX_LENGTH,
   applicantStatusOptions,
   applyApplicantStatus,
+  applyFamilyPosition,
+  applyNumberOfSiblings,
   applyYearStanding,
   communityServiceOptions,
   composeFullName,
+  countryOptions,
+  getCountryDraft,
+  getFamilyPositionOptions,
   grantLevelOptions,
   grantStatusOptions,
   grantTypeOptions,
@@ -46,7 +53,6 @@ import {
   civilStatusOptions,
   deriveYearStanding,
   employmentOptions,
-  familyPositionOptions,
   getApplicantStatus,
   getMissingRequiredAnswers,
   getProgramChoiceOptions,
@@ -223,6 +229,36 @@ function ProofImpactWarning({ warnings = [] }) {
       <p className="m-0">
         Your proof for <strong>{labels.join(', ')}</strong> was uploaded for the current value. If you save this change, that proof will be marked Outdated and you will need to upload a new one in the Document Vault before you submit another application. Applications you already submitted keep the values you declared.
       </p>
+    </div>
+  );
+}
+
+// The parents' combined earnings against the annual household income the student
+// declared (getHouseholdIncomeCheck in src/lib/financialDetails.js). It is a note, not
+// a validation error: the household total may legitimately include a sibling, a
+// grandparent, or a boarder, so only the one impossible combination — the parents
+// alone earning more than the whole household — is called out, and nothing is
+// blocked. The two figures live in different parts of the form, so the note carries a
+// jump to the part that holds the other one.
+function HouseholdIncomeNote({ check, onOpenSection, openLabel = 'Review household income' }) {
+  if (!check || !check.message || check.status === 'unanswered') return null;
+  const isWarning = check.status === 'over';
+  return (
+    <div
+      role="status"
+      className={`flex flex-wrap items-start gap-x-3 gap-y-2 rounded-xl border px-4 py-3 text-sm text-app-text ${isWarning ? 'border-amber-400/30 bg-amber-400/10' : 'border-app-border bg-app-surface/60'}`}
+    >
+      {isWarning ? <TriangleAlert size={18} className="mt-0.5 shrink-0 text-amber-500" aria-hidden="true" /> : null}
+      <p className="m-0 min-w-0 flex-1 basis-64">
+        {check.message}
+        {isWarning ? ' This discrepancy will be reflected on your application.' : ''}
+      </p>
+      {onOpenSection ? (
+        <button type="button" className="proof-action" onClick={onOpenSection}>
+          <ArrowRight size={13} aria-hidden="true" />
+          {openLabel}
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -713,7 +749,7 @@ const flagsOf = (source, options) => ({
   others: asText(source?.others),
 });
 
-export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChange, avatar = {}, onChangeAvatar, onRemoveAvatar }) {
+export function PersonalSection({ profile, role, onSave, onDirtyChange, avatar = {}, onChangeAvatar, onRemoveAvatar }) {
   const isStudent = role === 'student';
   // "Last, First Middle" is unambiguous, so only that form prefills the parts.
   const legacyParts = asText(profile.fullName).includes(',')
@@ -807,7 +843,7 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
         )}
         {isStudent && <SelectField fieldKey="civilStatus" label="Civil status" value={values.civilStatus} onChange={(value) => update({ civilStatus: value })} options={civilStatusOptions} error={errors.civilStatus} required={need.has('civilStatus')} />}
         {isStudent && <FormField fieldKey="birthdate" label="Birthdate" hint="Needed to apply." error={errors.birthdate} required={need.has('birthdate')}><input className={controlClass} type="date" max={todayInputValue()} value={values.birthdate} onChange={(event) => update({ birthdate: event.target.value })} autoComplete="bday" aria-invalid={Boolean(errors.birthdate)} /></FormField>}
-        {isStudent && <SelectField fieldKey="sexAtBirth" label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} required={need.has('sexAtBirth')} />}
+        {isStudent && <ChoiceToggle fieldKey="sexAtBirth" label="Sex assigned at birth" hint="Needed to apply." value={values.sexAtBirth} onChange={(value) => update({ sexAtBirth: value })} options={sexAtBirthOptions} error={errors.sexAtBirth} required={need.has('sexAtBirth')} />}
         {isStudent && <FormField label="Preferred pronouns" hint="Needed to apply. Write NA if not applicable." error={errors.pronouns} required={need.has('pronouns')}><input className={controlClass} value={values.pronouns} onChange={(event) => update({ pronouns: event.target.value.slice(0, PRONOUNS_MAX_LENGTH) })} placeholder="e.g. she/her" aria-invalid={Boolean(errors.pronouns)} /></FormField>}
       </div>
       {isStudent && (
@@ -817,7 +853,6 @@ export function PersonalSection({ profile, role, roleLabel, onSave, onDirtyChang
       )}
       <div className="grid gap-3 md:grid-cols-2">
         <ReadOnlyField label="Sign-in email" value={profile.email} note="Managed by your sign-in account." className="md:col-span-2" />
-        <ReadOnlyField label="Role" value={roleLabel} />
         <ReadOnlyField label={isAdmissionsRole(role) ? 'Office' : 'School'} value={profile.department} note={assignmentNote[role]} />
         {isReviewerRole(role) && (
           <ReadOnlyField
@@ -838,7 +873,10 @@ export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifi
   const form = useSectionForm({
     initialValues: {
       completeAddress: asText(profile.completeAddress),
-      country: asText(profile.country),
+      // The country is a picker with one "Other country" answer, and only the resolved
+      // country is saved (getCountryDraft / resolveCountry in src/lib/profile.js), so
+      // the form prints one readable country either way.
+      ...getCountryDraft(profile.country),
       sameAsCompleteAddress: profile.sameAsCompleteAddress !== false,
       residingAddress: asText(profile.residingAddress),
       housingType: asText(profile.housingType),
@@ -852,17 +890,28 @@ export function AddressSection({ profile, onSave, onDirtyChange, attributeVerifi
     previewVerifications,
   });
   const { values, errors, update } = form;
+  const isOtherCountry = values.country === COUNTRY_OTHER;
   // A required answer is starred until this draft answers it.
-  const need = getMissingRequiredAnswers({ ...profile, completeAddress: values.completeAddress, housingType: values.housingType });
+  const need = getMissingRequiredAnswers({
+    ...profile,
+    completeAddress: values.completeAddress,
+    country: isOtherCountry ? values.countryOther : values.country,
+    housingType: values.housingType,
+  });
   return (
     <SectionForm title="Address" description={`${formPart('address')} Copied into each application you submit. Every application asks for a proof of address.`} form={form}>
       <FormField fieldKey="completeAddress" label="Complete address" hint={`House number, street, barangay, city or municipality, and province. Up to ${ADDRESS_MAX_LENGTH} characters.`} error={errors.completeAddress} required={need.has('completeAddress')}
         labelAdornment={<AttributeVerification attributeKey="completeAddress" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />}>
         <textarea className="min-h-24" value={values.completeAddress} onChange={(event) => update({ completeAddress: event.target.value.slice(0, ADDRESS_MAX_LENGTH) })} rows={3} aria-invalid={Boolean(errors.completeAddress)} />
       </FormField>
-      <FormField label="Country" hint={`Up to ${COUNTRY_MAX_LENGTH} characters.`} error={errors.country}>
-        <input className={controlClass} value={values.country} onChange={(event) => update({ country: event.target.value.slice(0, COUNTRY_MAX_LENGTH) })} autoComplete="country-name" aria-invalid={Boolean(errors.country)} />
-      </FormField>
+      <div className="grid gap-4 md:grid-cols-2">
+        <SelectField fieldKey="country" label="Country" hint="Needed to apply. Printed on your application." value={values.country} onChange={(value) => update({ country: value }, ['countryOther'])} options={countryOptions} placeholder="Choose country" error={errors.country} required={need.has('country')} />
+        {isOtherCountry && (
+          <FormField fieldKey="countryOther" label="Name of your country" hint={`Up to ${COUNTRY_MAX_LENGTH} characters.`} error={errors.countryOther}>
+            <input className={controlClass} value={values.countryOther} onChange={(event) => update({ countryOther: event.target.value.slice(0, COUNTRY_MAX_LENGTH) })} autoComplete="country-name" aria-invalid={Boolean(errors.countryOther)} />
+          </FormField>
+        )}
+      </div>
       <SettingToggle checked={values.sameAsCompleteAddress} onChange={(checked) => update({ sameAsCompleteAddress: checked })} title="Residing address is the same as my complete address" description="Turn off to enter a different address." />
       {!values.sameAsCompleteAddress && (
         <FormField label="Residing address" error={errors.residingAddress}
@@ -929,6 +978,19 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
   // the mark follows the draft so it clears as soon as the name is typed.
   const need = getMissingRequiredAnswers({ ...profile, familyDetails: values.familyDetails });
   const updateFamily = (patch) => update({ familyDetails: { ...family, ...patch } }, ['siblings', 'householdAdults']);
+  // The family position and the sibling total answer each other (see
+  // getFamilyPositionOptions / applyFamilyPosition in src/lib/profile.js): an only
+  // child has none to count or list, and the position is only offered when the count
+  // makes it possible.
+  const siblingDigits = String(family.numberOfSiblings ?? '').trim();
+  const siblingTotal = /^\d+$/.test(siblingDigits) ? Number(siblingDigits) : null;
+  const onlyChild = family.familyPosition === 'Only child';
+  const positionOptions = getFamilyPositionOptions(family.numberOfSiblings);
+  // A position saved before this rule (or edited elsewhere) is not offered any more,
+  // so the picker asks again instead of showing an answer that cannot be true.
+  const positionOffered = positionOptions.some((option) => option.value === family.familyPosition);
+  const listedSiblings = Array.isArray(family.siblings) ? family.siblings.length : 0;
+  const tooManyListed = siblingTotal !== null && listedSiblings > siblingTotal;
   return (
     <SectionForm title="Family details" description={`${formPart('family')} Each parent's name, age or date of death, and occupation are needed to apply, with the household details below and a proof of family details.`} form={form}>
       <FamilyProofRow attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />
@@ -962,30 +1024,63 @@ export function FamilySection({ profile, onSave, onDirtyChange, attributeVerific
             </Fragment>
           );
         })}
-        <SelectField label="Family position" value={family.familyPosition} onChange={(value) => updateFamily({ familyPosition: value })} options={familyPositionOptions} error={errors.familyPosition} />
-        <FormField fieldKey="numberOfSiblings" label="Number of siblings" hint="Needed to apply. Enter 0 if you have none." error={errors.numberOfSiblings} required={need.has('numberOfSiblings')}><input className={controlClass} value={family.numberOfSiblings} onChange={(event) => updateFamily({ numberOfSiblings: event.target.value.replace(/\D/g, '').slice(0, 2) })} inputMode="numeric" aria-invalid={Boolean(errors.numberOfSiblings)} /></FormField>
+        <SelectField
+          fieldKey="familyPosition"
+          label="Family position"
+          hint="Needed to apply. The choices follow your sibling total."
+          value={positionOffered ? family.familyPosition : ''}
+          onChange={(value) => updateFamily(applyFamilyPosition(family, value), ['numberOfSiblings', 'siblings'])}
+          options={positionOptions}
+          error={errors.familyPosition}
+        />
+        {onlyChild ? (
+          <ReadOnlyField label="Number of siblings" value="0" note="Recorded automatically because you are an only child." />
+        ) : (
+          <FormField fieldKey="numberOfSiblings" label="Number of siblings" hint="Needed to apply. Enter 0 if you have none." error={errors.numberOfSiblings} required={need.has('numberOfSiblings')}>
+            <input
+              className={controlClass}
+              value={family.numberOfSiblings}
+              onChange={(event) => updateFamily(applyNumberOfSiblings(family, event.target.value), ['familyPosition', 'siblings'])}
+              inputMode="numeric"
+              aria-invalid={Boolean(errors.numberOfSiblings)}
+            />
+          </FormField>
+        )}
       </div>
-      <SettingToggle
-        checked={Boolean(family.siblingsNone)}
-        onChange={(checked) => updateFamily({ siblingsNone: checked, ...(checked ? { siblings: [] } : {}) })}
-        title="No siblings to list"
-        description="Mark this if you have no sibling who is studying, below 18, employed, or married."
-      />
-      {!family.siblingsNone && (<RepeatableRows
-        legend="Sibling"
-        required={need.has('siblings')}
-        rows={family.siblings}
-        max={MAX_SIBLING_ROWS}
-        addLabel="Add a sibling"
-        error={errors.siblings}
-        onChange={(rows) => updateFamily({ siblings: rows })}
-        columns={[
-          { key: 'name', label: 'Name' },
-          { key: 'age', label: 'Age', type: 'age' },
-          { key: 'relationship', label: 'Relationship' },
-          { key: 'status', label: 'Status', type: 'select', options: siblingStatusOptions },
-        ]}
-      />)}
+      {onlyChild ? (
+        <p className="m-0 rounded-xl border border-app-border bg-app-surface/60 px-3 py-2 text-sm text-app-muted" role="note">
+          You recorded yourself as an only child, so there are no siblings to list.
+        </p>
+      ) : (
+        <>
+          <SettingToggle
+            checked={Boolean(family.siblingsNone)}
+            onChange={(checked) => updateFamily({ siblingsNone: checked, ...(checked ? { siblings: [] } : {}) })}
+            title="No siblings to list"
+            description="Mark this if you have no sibling who is studying, below 18, employed, or married."
+          />
+          {!family.siblingsNone && (<RepeatableRows
+            legend="Sibling"
+            required={need.has('siblings')}
+            rows={family.siblings}
+            max={MAX_SIBLING_ROWS}
+            addLabel="Add a sibling"
+            error={errors.siblings}
+            onChange={(rows) => updateFamily({ siblings: rows })}
+            columns={[
+              { key: 'name', label: 'Name' },
+              { key: 'age', label: 'Age', type: 'age' },
+              { key: 'relationship', label: 'Relationship' },
+              { key: 'status', label: 'Status', type: 'select', options: siblingStatusOptions },
+            ]}
+          />)}
+          {tooManyListed && (
+            <p className="m-0 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm text-app-text" role="status">
+              You listed {listedSiblings} {listedSiblings === 1 ? 'sibling' : 'siblings'} but recorded {siblingTotal}. Correct the number above, or keep only the siblings still studying, below 18, employed, or married.
+            </p>
+          )}
+        </>
+      )}
       <SettingToggle
         checked={Boolean(family.householdAdultsNone)}
         onChange={(checked) => updateFamily({ householdAdultsNone: checked, ...(checked ? { householdAdults: [] } : {}) })}
@@ -1190,7 +1285,7 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
   );
 }
 
-export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact, previewVerifications }) {
+export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVerifications = {}, onAttachProof, previewProofImpact, previewVerifications, onOpenSection }) {
   const form = useSectionForm({
     initialValues: {
       citizenship: asText(profile.citizenship),
@@ -1253,6 +1348,13 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
   // recorded earlier; the note then asks the student to keep or remove them
   // instead of demanding a new row.
   const receivesAid = Boolean(values.hasActiveGovernmentGrant || values.hasOtherActiveScholarship || values.isOnPrepaidPlan);
+  // The parents' incomes are saved in Household finances, so this note reads that
+  // saved figure against the income being typed here.
+  const incomeCheck = getHouseholdIncomeCheck({
+    householdIncome: values.householdIncome,
+    financialProfile: profile.financialProfile,
+    family: profile.familyDetails || {},
+  });
 
   return (
     <SectionForm title="Eligibility background" description={`${formPart('background')} Citizenship, disability, employment, household income, existing aid, honors, and sponsor ties.`} form={form}>
@@ -1261,11 +1363,14 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
           <input className={controlClass} value={values.householdIncome} onChange={(event) => update({ householdIncome: event.target.value.replace(/\D/g, '').slice(0, 10) })} inputMode="numeric" autoComplete="off" placeholder="e.g. 240000" aria-invalid={Boolean(errors.householdIncome)} />
         </FormField>
       </div>
+      {onOpenSection ? (
+        <HouseholdIncomeNote check={incomeCheck} onOpenSection={() => onOpenSection('finances')} openLabel="Review parent incomes" />
+      ) : <HouseholdIncomeNote check={incomeCheck} />}
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField fieldKey="citizenship" label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} placeholder="Choose citizenship" error={errors.citizenship} required={need.has('citizenship')} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
-        <SelectField fieldKey="ipCommunity" label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} required={need.has('ipCommunity')} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <ChoiceToggle fieldKey="citizenship" label="Citizenship" value={values.citizenship} onChange={(value) => update({ citizenship: value })} options={citizenshipOptions} error={errors.citizenship} required={need.has('citizenship')} labelAdornment={<AttributeVerification attributeKey="citizenship" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <ChoiceToggle fieldKey="ipCommunity" label="Indigenous People (IP) community" value={values.ipCommunity} onChange={(value) => update({ ipCommunity: value })} options={ipCommunityOptions} error={errors.ipCommunity} required={need.has('ipCommunity')} labelAdornment={<AttributeVerification attributeKey="ipCommunity" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {values.ipCommunity === 'Yes' && <FormField fieldKey="ipGroupName" label="Indigenous group" hint="Needed to apply. Name of your community." error={errors.ipGroupName} required={need.has('ipGroupName')}><input className={controlClass} value={values.ipGroupName} onChange={(event) => update({ ipGroupName: event.target.value.slice(0, SCHOOL_FIELD_MAX_LENGTH) })} aria-invalid={Boolean(errors.ipGroupName)} /></FormField>}
-        <SelectField fieldKey="pwd" label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} required={need.has('pwd')} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
+        <ChoiceToggle fieldKey="pwd" label="Person with Disability (PWD)" value={values.pwd} onChange={(value) => update({ pwd: value })} options={pwdOptions} error={errors.pwd} required={need.has('pwd')} labelAdornment={<AttributeVerification attributeKey="pwd" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField fieldKey="employed" label="Employment status" value={values.employed} onChange={(value) => update({ employed: value })} options={employmentOptions} error={errors.employed} required={need.has('employed')} labelAdornment={<AttributeVerification attributeKey="employed" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         <SelectField fieldKey="honorsRank" label="Graduating honors standing" value={values.honorsRank} onChange={(value) => update({ honorsRank: value })} options={honorsRankOptions} error={errors.honorsRank} labelAdornment={<AttributeVerification attributeKey="honorsRank" attributeVerifications={form.verifications} savedVerifications={attributeVerifications} onAttachProof={onAttachProof} />} />
         {values.honorsRank && (
@@ -1275,13 +1380,13 @@ export function BackgroundSection({ profile, onSave, onDirtyChange, attributeVer
         )}
       </div>
       <div className="grid gap-4 md:grid-cols-2">
-        <SelectField fieldKey="communityService" label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} required={need.has('communityService')} />
+        <ChoiceToggle fieldKey="communityService" label="Willing to render community service in return for the grant?" hint="Needed to apply." value={values.communityService} onChange={(value) => update({ communityService: value })} options={communityServiceOptions} error={errors.communityService} required={need.has('communityService')} />
       </div>
       <fieldset data-field="hasActiveGovernmentGrant hasOtherActiveScholarship isOnPrepaidPlan hasSiblingOnAid" className="m-0 grid gap-3 border-0 p-0">
         <legend className="mb-1 text-sm font-semibold text-app-text">Financial aid already received</legend>
         <small className="field-hint block">The government grant, other scholarship, and prepaid plan toggles are exclusion rules the Smart Eligibility Checker reads, and any of them (or a Yes above) opens the grant list below. A sibling on AdDU financial aid does not stop you from applying: the office considers it when it decides.</small>
         <div className="grid gap-4 md:grid-cols-2">
-          <SelectField
+          <ChoiceToggle
             fieldKey="previousGrantsAnswered"
             label="Did you enjoy financial aid in senior high school, or apply for or receive a grant?"
             hint="Needed to apply. Answer Yes to list each grant below."
@@ -1386,7 +1491,7 @@ function ParentFinanceFields({ legend, deceased, unknown = false, value, errors,
 // FORM 230-SCH household finances. Office-only: stored in student_financial_profiles
 // (readable by the student and the Admissions Office, never the Department Chair),
 // so it saves through its own handler instead of profile_details.
-export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissing = false }) {
+export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissing = false, onOpenSection }) {
   const stored = profile.financialProfile && typeof profile.financialProfile === 'object' ? profile.financialProfile : {};
   const family = profile.familyDetails && typeof profile.familyDetails === 'object' ? profile.familyDetails : {};
   const form = useSectionForm({
@@ -1431,12 +1536,23 @@ export function FinancesSection({ profile, onSave, onDirtyChange, migrationMissi
     update({ [group]: next });
   };
 
+  // The household income is a profile answer in Eligibility background, so this note
+  // reads the saved figure against the parent incomes being typed here.
+  const incomeCheck = getHouseholdIncomeCheck({
+    householdIncome: profile.householdIncome,
+    financialProfile: { ...(profile.financialProfile || {}), father: values.father, mother: values.mother },
+    family: profile.familyDetails || {},
+  });
+
   return (
     <SectionForm title="Household finances" description={`${formPart('finances')} Shared with the Admissions Office only; your Department Chair cannot see these answers.`} form={form}>
       {migrationMissing ? <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-app-text" role="status">Household finances need the latest database migration before they can be saved.</p> : null}
       <SelectField fieldKey="economicStatus" label="How would you describe your family's economic status?" hint="Needed to apply." value={values.economicStatus} onChange={(value) => update({ economicStatus: value })} options={economicStatusOptions} error={errors.economicStatus} required={need.has('economicStatus')} />
       <ParentFinanceFields legend="Father" prefix="father" deceased={Boolean(family.fatherDeceased)} unknown={Boolean(family.fatherUnknown)} value={values.father} errors={errors} onChange={(patch) => update({ father: { ...values.father, ...patch } })} need={need} />
       <ParentFinanceFields legend="Mother" prefix="mother" deceased={Boolean(family.motherDeceased)} unknown={Boolean(family.motherUnknown)} value={values.mother} errors={errors} onChange={(patch) => update({ mother: { ...values.mother, ...patch } })} need={need} />
+      {onOpenSection ? (
+        <HouseholdIncomeNote check={incomeCheck} onOpenSection={() => onOpenSection('background')} />
+      ) : <HouseholdIncomeNote check={incomeCheck} />}
       {[['assets', 'Assets owned by the family', ASSET_OPTIONS], ['appliances', 'Appliances and services', APPLIANCE_OPTIONS]].map(([group, legend, options]) => (
         <fieldset key={group} className="m-0 grid gap-3 border-0 p-0">
           <legend className="mb-3 text-sm font-semibold text-app-text">{legend}{need.has(group) && <RequiredMark />}</legend>

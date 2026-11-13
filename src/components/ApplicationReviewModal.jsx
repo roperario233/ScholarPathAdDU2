@@ -1,5 +1,6 @@
 import { useEnsureCaseDetails } from '../lib/caseDetailsContext';
 import { useEffect, useRef, useState } from 'react';
+import { Award, CalendarClock, CheckCircle2, ClipboardCheck, FileText, GraduationCap, History as HistoryIcon, Info, LayoutGrid, MessageSquareText, TriangleAlert, UserRound, Users, Wallet } from 'lucide-react';
 import { Button, ModalShell, Panel, StatusBadge } from './ui';
 import DocumentPreviewModal, { DocumentPreview, useDocumentPreviewUrl } from './DocumentPreviewModal';
 import ReasonModal from './ReasonModal';
@@ -17,13 +18,16 @@ import FinalCheckToggle from './FinalCheckToggle';
 import StageOutcomeCard, { StageMoveStrip } from './StageOutcomeCard';
 import { describeGrantAmount, getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, RESULTS_LANE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getLatestPanelRecommendation, validateInterviewSchedule } from '../lib/interview';
 import { describeStageOutcome } from '../lib/stageOutcome';
+import RequestDocumentsModal from './RequestDocumentsModal';
+import { useDocumentRequests } from '../lib/documentRequestsContext';
+import { DOCUMENT_REQUEST_STATUS_LABELS, canRequestDocuments, describeDocumentRequest, getDocumentRequestsForApplication, getRequestableRequirements } from '../lib/documentRequests';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected', 'Declined'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -40,6 +44,40 @@ const statusTone = (status) => {
 };
 const verificationTone = (status) => (status === 'Verified' ? 'success' : status === 'Rejected' ? 'danger' : 'warning');
 const sectionHeading = 'm-0 text-sm font-bold uppercase tracking-[0.1em] text-app-muted';
+
+// A glyph per tab, so the strip reads at a glance and a tab keeps its place when
+// a stage adds or removes its neighbours.
+const TAB_ICONS = {
+  overview: LayoutGrid,
+  profile: UserRound,
+  documents: FileText,
+  interview: CalendarClock,
+  evaluation: ClipboardCheck,
+  endorsement: MessageSquareText,
+  grant: Award,
+  history: HistoryIcon,
+};
+
+// Initials in a soft gradient disc: the applicant's face is a file, not a profile
+// photo (which staff never read), so the header carries their initials instead.
+function Initials({ name }) {
+  const letters = String(name || '?').split(/[\s,]+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?';
+  return (
+    <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-ateneo-bright to-ateneo-strong text-base font-bold text-white shadow-md shadow-blue-900/20">
+      {letters}
+    </span>
+  );
+}
+
+// A panel heading with a tinted icon, in the small-caps style the modal already uses.
+function SectionTitle({ icon: Icon, children }) {
+  return (
+    <h4 className={`${sectionHeading} flex items-center gap-2`}>
+      {Icon ? <span aria-hidden="true" className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-300"><Icon size={14} /></span> : null}
+      {children}
+    </h4>
+  );
+}
 
 // The Documents tab previews inline only where the two panes sit side by side;
 // on a phone the preview opens in its own modal instead.
@@ -81,6 +119,7 @@ function ReviewTabs({ tabs, active, onChange }) {
     <div ref={tabListRef} role="tablist" aria-label="Application review sections" className="flex shrink-0 snap-x snap-proximity gap-1 overflow-x-auto overflow-y-hidden scroll-px-2 border-b border-app-border">
       {tabs.map((tab, index) => {
         const selected = tab.key === active;
+        const TabIcon = TAB_ICONS[tab.key];
         return (
           <button
             key={tab.key}
@@ -98,8 +137,9 @@ function ReviewTabs({ tabs, active, onChange }) {
               if (event.key === 'Home') { event.preventDefault(); focusTab(0); }
               if (event.key === 'End') { event.preventDefault(); focusTab(tabs.length - 1); }
             }}
-            className={`-mb-px inline-flex min-h-10 shrink-0 snap-start items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-9 ${selected ? 'border-ateneo text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:text-app-text'}`}
+            className={`-mb-px inline-flex min-h-10 shrink-0 snap-start items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3 text-sm font-semibold transition-colors duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-10 ${selected ? 'border-ateneo bg-blue-500/10 text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:bg-blue-500/5 hover:text-app-text'}`}
           >
+            {TabIcon ? <TabIcon size={15} aria-hidden="true" className={`shrink-0 transition-colors duration-200 ${selected ? 'text-ateneo dark:text-sky-300' : 'text-app-muted'}`} /> : null}
             {tab.label}
             {tab.badge != null ? (
               <span className={`rounded-full px-2 py-0.5 text-[11px] ${tab.alert ? 'bg-amber-400/15 text-amber-700 dark:text-amber-200' : 'bg-app-surface text-app-muted'}`}>{tab.badge}</span>
@@ -114,16 +154,31 @@ function ReviewTabs({ tabs, active, onChange }) {
 // One reviewed fact on the Overview: the value frozen at submission, its
 // Document Vault verification badge, and the current profile value when it has
 // changed since.
-function FactTile({ label, value, verification, currentValue }) {
+function FactTile({ label, value, verification, currentValue, icon: Icon = null, progress = null }) {
   return (
-    <div className="grid content-start gap-1 rounded-[14px] border border-app-border bg-app-surface p-3">
-      <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{label}</span>
-      <strong className="text-base text-app-text">{value || 'Not encoded'}</strong>
+    <div className="grid content-start gap-1.5 rounded-2xl border border-app-border bg-app-surface p-4 transition-shadow duration-200 hover:shadow-card">
+      <div className="flex items-center gap-2">
+        {Icon ? <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-300"><Icon size={15} /></span> : null}
+        <span className="text-xs font-semibold uppercase tracking-[0.1em] text-app-muted">{label}</span>
+      </div>
+      <strong className="text-lg leading-snug text-app-text">{value || 'Not encoded'}</strong>
+      {progress != null ? (
+        <div className="h-1.5 overflow-hidden rounded-full bg-app-border" aria-hidden="true">
+          <div className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${progress >= 1 ? 'bg-emerald-500' : 'bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright'}`} style={{ width: `${Math.round(progress * 100)}%` }} />
+        </div>
+      ) : null}
       {verification ? <StatusBadge tone={getAttributeVerificationTone(verification)} title={describeAttributeVerification(getAttributeVerificationLabel(verification))}>{getAttributeVerificationLabel(verification)}</StatusBadge> : null}
       {currentValue ? <span className="text-xs text-amber-700 dark:text-amber-200">Profile now: {currentValue}</span> : null}
     </div>
   );
 }
+
+// The left edge of a requirement or file row says where it stands before it is read.
+const DOCUMENT_EDGE_TONES = {
+  Verified: 'border-l-emerald-500',
+  Rejected: 'border-l-rose-500',
+  Pending: 'border-l-amber-400',
+};
 
 function DocumentRow({ doc, selected, onSelect }) {
   return (
@@ -132,7 +187,7 @@ function DocumentRow({ doc, selected, onSelect }) {
         type="button"
         aria-pressed={selected}
         onClick={() => onSelect(doc)}
-        className={`flex w-full min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${selected ? 'border-ateneo/60 bg-ateneo/10 dark:border-sky-400/60' : 'border-app-border bg-app-card hover:border-blue-500/40'}`}
+        className={`flex w-full min-w-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-l-4 px-3 py-2 text-left transition-colors duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${DOCUMENT_EDGE_TONES[doc.verificationStatus] || 'border-l-app-border'} ${selected ? 'border-ateneo/60 bg-ateneo/10 dark:border-sky-400/60' : 'border-app-border bg-app-card hover:bg-blue-500/5'}`}
       >
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm text-app-text">{doc.title}</span>
@@ -245,8 +300,17 @@ export default function ApplicationReviewModal({
   // Rejected cannot be endorsed or advance to any later SOP stage. The database
   // enforces the same rule, so the UI disables the forward actions first and
   // explains why.
-  const { outstanding: outstandingDocuments, verified: verifiedDocuments, total: totalDocuments } = getDocumentVerificationReadiness(application, documents);
+  const { requests: allDocumentRequests, ready: documentRequestsReady, onRequest: onRequestDocuments, onCancel: onCancelDocumentRequest } = useDocumentRequests();
+  const { outstanding: outstandingDocuments, verified: verifiedDocuments, total: totalDocuments, openRequests: openRequestCount } = getDocumentVerificationReadiness(application, documents, allDocumentRequests);
   const blockedByDocuments = outstandingDocuments > 0;
+  // An additional-documents request the Admin raised holds the case at
+  // verification until the student answers it or the Admin cancels it
+  // (enforce_document_verification_before_progress repeats the rule).
+  const blockedByRequests = openRequestCount > 0;
+  const documentRequests = getDocumentRequestsForApplication(allDocumentRequests, application.id);
+  const canRequestMore = isAdmissionsAdmin && Boolean(onRequestDocuments)
+    && documentRequestsReady && canRequestDocuments(application.status);
+  const requestBlockReason = `${openRequestCount} document request${openRequestCount === 1 ? ' is' : 's are'} still waiting for the student`;
   // SOP step 3 gates the Document Vault review: an application's attached files
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
@@ -291,6 +355,13 @@ export default function ApplicationReviewModal({
     INTERVIEW_TAB_STATUSES.includes(application.status)
     || (application.status === 'Rejected' && Boolean(application.interview))
   );
+  // The evaluation notes were part of the Interview tab; they now have their own
+  // tab, available to the same roles under the same stage gate.
+  const applicationNotes = (interviewWorkspace?.notes || []).filter((note) => note.applicationId === application.id);
+  const evaluationTabVisible = interviewUnlocked && (isAdmissionsReviewer || isReviewerRole(role));
+  const recommendationDue = application.status === 'Interview'
+    && Boolean(stageContext.isPanelist)
+    && !latestPanelRecommendation;
   // The recorded grant amount: the school's approving level or the Admissions
   // Office Admin sets it while the case is Recommended or Approved, and Staff read
   // it. Any other reviewer never sees the tab.
@@ -313,7 +384,7 @@ export default function ApplicationReviewModal({
 
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab === 'documents' && !documentsTabVisible) return 'overview';
-    if (initialTab === 'endorsement' && !endorsementUnlocked) return 'overview';
+    if (initialTab === 'evaluation' && !evaluationTabVisible) return 'overview';
     if (initialTab) return initialTab;
     // Open on the stage the application is in, so the reviewer lands on the work
     // that stage needs: the files at For Verification, the endorsement record at
@@ -332,6 +403,10 @@ export default function ApplicationReviewModal({
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
+  // Additional-document requests: the dialog (optionally preset to one requirement)
+  // and the request whose cancellation is being recorded.
+  const [requestDialog, setRequestDialog] = useState(null);
+  const [cancelRequestTarget, setCancelRequestTarget] = useState(null);
   // Verification is attributed to the signed-in Admissions Office account and
   // dated by the database, so it is confirmed before it is written.
   const [verifyTarget, setVerifyTarget] = useState(null);
@@ -469,8 +544,8 @@ export default function ApplicationReviewModal({
     ...(documentsTabVisible ? [{
       key: 'documents',
       label: 'Documents',
-      badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
-      alert: blockedByDocuments,
+      badge: blockedByDocuments ? `${outstandingDocuments} to verify` : blockedByRequests ? `${openRequestCount} requested` : linkedDocuments.length,
+      alert: blockedByDocuments || blockedByRequests,
     }] : []),
     // SOP step 5: the schedule, the panel from the applicant's school, and the
     // private evaluation notes.
@@ -484,15 +559,23 @@ export default function ApplicationReviewModal({
         : null,
       alert: canCoordinateInterview && application.status === 'Endorsed' && !isAdmissionsAdmin,
     }] : []),
-    // The forwarding record and the internal thread. It sits beside History
-    // because both are the case's record rather than a stage's work; it appears
-    // once the case is forwarded and stays readable afterwards.
-    ...(endorsementUnlocked ? [{
+    // SOP step 5-6: the panel's evaluation notes and recommendation level. It is
+    // its own tab so the Interview tab stays about the schedule and the panel.
+    ...(evaluationTabVisible ? [{
+      key: 'evaluation',
+      label: 'Evaluation',
+      badge: recommendationDue ? 'Recommendation due' : (applicationNotes.length || null),
+      alert: recommendationDue,
+    }] : []),
+    // The forwarding record and the internal thread. It is visible from the first
+    // stage, so the office can leave a note on a case at any point, and it stays
+    // readable afterwards.
+    {
       key: 'endorsement',
       label: 'Case notes',
-      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
+      badge: application.status === 'For Endorsement' ? 'Decision due' : (caseNotes.length || null),
       alert: application.status === 'For Endorsement',
-    }] : []),
+    },
     // The approving level's recorded grant figure (Recommended, Approved, Released).
     ...(grantTabVisible ? [{
       key: 'grant',
@@ -584,7 +667,7 @@ export default function ApplicationReviewModal({
   const showDeliberationField = nextStatuses.includes('Recommended');
   // Every recommendation, the Admin's override included, carries one of the five
   // recommendation levels (Consultation 2, #7), recorded with an evaluation note
-  // in the Interview tab.
+  // in the Evaluation tab.
   const needsRecommendationLevel = !latestPanelRecommendation;
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
@@ -595,7 +678,8 @@ export default function ApplicationReviewModal({
       : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
-    if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Interview tab';
+    if (blockedByRequests && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return requestBlockReason;
+    if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Evaluation tab';
     return '';
   };
   const runAction = async (status) => {
@@ -679,6 +763,29 @@ export default function ApplicationReviewModal({
     // A calendar warning from closing the interview is reported there too.
     recordStageMove(status, result?.warning);
   };
+  // A pointer for the Overview: the one thing this reviewer can do next from here,
+  // with a link to the tab that holds it. It only restates facts the footer and the
+  // tabs already carry (document gate, due recommendation, due scheduling, the
+  // approver's grant figure); it never grants or hides an action.
+  const nextUp = (() => {
+    if (stageMove && showStageMove) return null;
+    if (documentsTabVisible && blockedByDocuments && application.status === 'For Verification') {
+      return { tone: 'warning', title: documentBlockReason, detail: 'Verify or revert each attached file before the case can go to interview.', tab: 'documents', action: 'Open documents' };
+    }
+    if (documentsTabVisible && blockedByRequests && application.status === 'For Verification') {
+      return { tone: 'warning', title: requestBlockReason, detail: 'Verify the new files when the student adds them, or cancel the request, before the case can go to interview.', tab: 'documents', action: 'Open documents' };
+    }
+    if (recommendationDue && evaluationTabVisible) {
+      return { tone: 'warning', title: 'Your recommendation is due', detail: 'Add an evaluation note and choose a recommendation level before the case can move on.', tab: 'evaluation', action: 'Open evaluation' };
+    }
+    if (application.status === 'Endorsed' && canCoordinateInterview && !isAdmissionsAdmin && interviewUnlocked) {
+      return { tone: 'warning', title: 'Schedule the interview', detail: 'Choose the date, mode, and panel in the Interview tab, then confirm with Schedule interview.', tab: 'interview', action: 'Open interview' };
+    }
+    if (grantTabVisible && canEditGrantAmount && !grantRecord) {
+      return { tone: 'warning', title: 'No grant amount recorded yet', detail: 'Record a coverage percent, an amount per semester, or both.', tab: 'grant', action: 'Open grant amount' };
+    }
+    return null;
+  })();
   const idleMessage = TERMINAL_STATUSES.includes(application.status)
     ? 'This application has reached a terminal stage.'
     : isAdmissionsAdmin
@@ -706,28 +813,31 @@ export default function ApplicationReviewModal({
   return (
     <>
     <ModalShell
-      title={application.scholarshipTitle}
+      title={`${application.scholarshipTitle} - Application`}
       onClose={closeReview}
       className="application-review-modal"
       header={(
         <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle}</h2>
+          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle} - Application</h2>
           <div className="shrink-0"><Button variant="secondary" type="button" onClick={closeReview}>Close</Button></div>
         </div>
       )}
     >
-      <header className="grid shrink-0 gap-2 pb-2">
-        <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-          <div className="min-w-0 w-full sm:w-auto sm:flex-1">
-            <h3 className="m-0 text-base font-semibold">{application.studentName}</h3>
-            <p className="m-0 mt-1 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentSchool || 'School on file'}</p>
+      <header className="mb-3 grid shrink-0 gap-3 rounded-2xl border border-app-border bg-gradient-to-br from-blue-500/10 via-app-surface to-app-surface p-4">
+        <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 w-full items-center gap-3 sm:w-auto sm:flex-1">
+            <Initials name={application.studentName} />
+            <div className="min-w-0">
+              <h3 className="m-0 text-lg font-semibold leading-tight [overflow-wrap:anywhere]">{application.studentName}</h3>
+              <p className="m-0 mt-0.5 text-sm text-app-muted">{application.studentProgram || 'Program on file'} · {application.studentSchool || 'School on file'}</p>
+            </div>
           </div>
-          <StatusBadge tone={statusTone(application.status)} className="shrink-0 whitespace-nowrap">{getApplicationStatusLabel(application.status)}</StatusBadge>
+          <StatusBadge tone={statusTone(application.status)} className="shrink-0 whitespace-nowrap !px-3.5 !py-1 !text-sm">{getApplicationStatusLabel(application.status)}</StatusBadge>
         </div>
         {sopStageIndex(application.status) != null ? <SopStageTrack status={application.status} /> : null}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-app-muted">
-          <span>Submitted {application.submittedAt ? fmtDate(application.submittedAt) : 'not yet'}</span>
-          <span>Certified {application.certifiedAt ? fmtDate(application.certifiedAt) : 'not yet'}</span>
+          <span className="inline-flex items-center gap-1.5"><CalendarClock size={13} aria-hidden="true" />Submitted {application.submittedAt ? fmtDate(application.submittedAt) : 'not yet'}</span>
+          <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={13} aria-hidden="true" />Certified {application.certifiedAt ? fmtDate(application.certifiedAt) : 'not yet'}</span>
           {totalDocuments ? (
             documentsUnlocked ? (
               <StatusBadge tone={blockedByDocuments ? 'warning' : 'success'}>{verifiedDocuments}/{totalDocuments} documents verified</StatusBadge>
@@ -751,7 +861,11 @@ export default function ApplicationReviewModal({
       <ReviewTabs tabs={tabs} active={visibleActiveTab} onChange={selectTab} />
 
       <div
-        className={`application-review-modal-body pt-4${panelTab === 'documents' ? ' application-review-modal-body--split' : ''}`}
+        // Keyed by tab, so a new tab eases in from the top of its panel; the
+        // interview and evaluation tabs share one key because they are one
+        // component, and a note being typed must survive a glance at the schedule.
+        key={panelTab === 'evaluation' ? 'interview' : (panelTab || 'outcome')}
+        className={`application-review-modal-body profile-section-enter pt-4${panelTab === 'documents' ? ' application-review-modal-body--split' : ''}`}
         role="tabpanel"
         id={`review-panel-${visibleActiveTab}`}
         aria-labelledby={`review-tab-${visibleActiveTab}`}
@@ -771,16 +885,30 @@ export default function ApplicationReviewModal({
                 the qualification rules were waived for this application. The recorded reason is in the internal notes.
               </div>
             ) : null}
+            {nextUp ? (
+              <div className={`flex min-w-0 flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between ${nextUp.tone === 'warning' ? 'border-amber-400/40 bg-amber-400/10' : 'border-blue-500/30 bg-blue-500/10'}`} role="note">
+                <div className="flex min-w-0 items-start gap-3">
+                  {nextUp.tone === 'warning'
+                    ? <TriangleAlert size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-amber-700 dark:text-amber-200" />
+                    : <Info size={18} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-700 dark:text-blue-300" />}
+                  <div className="grid min-w-0 gap-0.5">
+                    <strong className="text-sm text-app-text">{nextUp.title}</strong>
+                    <span className="text-sm text-app-muted">{nextUp.detail}</span>
+                  </div>
+                </div>
+                {nextUp.tab ? <Button type="button" variant="secondary" className="shrink-0" onClick={() => selectTab(nextUp.tab)}>{nextUp.action}</Button> : null}
+              </div>
+            ) : null}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              <FactTile {...academicFact} />
-              <FactTile {...incomeFact} />
-              <FactTile label="Year standing" value={snapshot?.yearStandingLabel || ''} />
-              <FactTile label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} />
+              <FactTile icon={GraduationCap} {...academicFact} />
+              <FactTile icon={Wallet} {...incomeFact} />
+              <FactTile icon={Users} label="Year standing" value={snapshot?.yearStandingLabel || ''} />
+              <FactTile icon={FileText} label="Document status" value={totalDocuments ? `${verifiedDocuments} of ${totalDocuments} verified` : 'None attached'} progress={totalDocuments && documentsUnlocked ? verifiedDocuments / totalDocuments : null} />
             </div>
             {snapshot ? <p className="m-0 text-xs text-app-muted">Self-reported at submission. Badges show the Document Vault proof attached now, including the latest review decision; “Profile now” marks a value changed since.</p> : null}
-            <Panel className="grid content-start gap-2">
-              <h4 className={sectionHeading}>Application statement/essay</h4>
-              <p className="m-0 whitespace-pre-line text-sm text-app-text">{application.statement || 'No statement recorded.'}</p>
+            <Panel className="grid content-start gap-3">
+              <SectionTitle icon={MessageSquareText}>Application statement/essay</SectionTitle>
+              <p className="m-0 whitespace-pre-line border-l-4 border-blue-500/30 pl-4 text-sm leading-relaxed text-app-text">{application.statement || 'No statement recorded.'}</p>
             </Panel>
           </div>
         )}
@@ -789,12 +917,29 @@ export default function ApplicationReviewModal({
           linkedDocuments.length || requirements.length ? (
             <div className="application-review-documents">
               <div className="application-review-documents-pane">
+                {totalDocuments ? (
+                  <div className={`grid gap-2 rounded-2xl border p-3 ${blockedByDocuments ? 'border-app-border bg-app-surface' : 'border-emerald-400/40 bg-emerald-500/10'}`}>
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <strong className="text-sm text-app-text">{blockedByDocuments ? `${verifiedDocuments} of ${totalDocuments} files verified` : `All ${totalDocuments} files verified`}</strong>
+                      <span className="text-xs text-app-muted">{blockedByDocuments ? `${outstandingDocuments} still to decide` : blockedByRequests ? 'Waiting for requested documents' : 'Ready to forward'}</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-app-border" role="progressbar" aria-valuemin={0} aria-valuemax={totalDocuments} aria-valuenow={verifiedDocuments} aria-label="Files verified">
+                      <div className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${blockedByDocuments ? 'bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright' : 'bg-emerald-500'}`} style={{ width: `${Math.round((verifiedDocuments / totalDocuments) * 100)}%` }} />
+                    </div>
+                  </div>
+                ) : null}
+                {canRequestMore ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-app-muted">Need more from the student? Ask for extra files or another document.</span>
+                    <Button type="button" className="!min-h-8 !px-3 !py-1 !text-xs" onClick={() => setRequestDialog({})}>Request more documents</Button>
+                  </div>
+                ) : null}
                 {requirements.length ? (
                   <section className="grid gap-2">
-                    <h4 className={sectionHeading}>Required submissions</h4>
+                    <SectionTitle icon={ClipboardCheck}>Required submissions</SectionTitle>
                     <ul className="m-0 grid gap-3 p-0">
                       {requirements.map((requirement) => (
-                        <li key={requirement.id} className="grid gap-2 rounded-[14px] border border-app-border bg-app-surface p-3">
+                        <li key={requirement.id} className={`grid gap-2 rounded-2xl border border-app-border bg-app-surface p-3 ${canRequestMore && getRequestableRequirements([requirement]).length ? 'pb-2' : ''}`}>
                           <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                             <span className="min-w-0 text-sm font-semibold text-app-text">{requirement.label}</span>
                             <RequirementStateBadge state={requirement.state} />
@@ -806,13 +951,51 @@ export default function ApplicationReviewModal({
                               ))}
                             </ul>
                           ) : <span className="text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)}</span>}
+                          {canRequestMore && getRequestableRequirements([requirement]).length ? (
+                            <button
+                              type="button"
+                              className="proof-action justify-self-start !min-h-0 !py-0.5 text-xs"
+                              onClick={() => setRequestDialog({ kind: 'more_files', requirementId: requirement.id })}
+                            >
+                              Request more files
+                            </button>
+                          ) : null}
                         </li>
                       ))}
                     </ul>
                   </section>
                 ) : null}
+                {documentRequests.length ? (
+                  <section className="grid gap-2" aria-label="Requested from the student">
+                    <SectionTitle icon={MessageSquareText}>Requested from the student</SectionTitle>
+                    <ul className="m-0 grid gap-2 p-0">
+                      {documentRequests.map((request) => {
+                        const description = describeDocumentRequest(request);
+                        const tone = request.status === 'Open' ? 'warning' : request.status === 'Fulfilled' ? 'success' : 'neutral';
+                        return (
+                          <li key={request.id} className="grid gap-1.5 rounded-2xl border border-app-border bg-app-surface p-3">
+                            <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                              <span className="min-w-0 text-sm font-semibold text-app-text [overflow-wrap:anywhere]">{description.title}</span>
+                              <StatusBadge tone={tone}>{DOCUMENT_REQUEST_STATUS_LABELS[request.status] || request.status}</StatusBadge>
+                            </div>
+                            <span className="text-xs text-app-muted">
+                              {[description.summary, description.types, request.createdAt ? `Requested ${fmtDate(request.createdAt)}` : ''].filter(Boolean).join(' · ')}
+                            </span>
+                            <p className="m-0 whitespace-pre-line text-sm text-app-text [overflow-wrap:anywhere]">{request.note}</p>
+                            {request.status === 'Cancelled' && request.cancelReason ? (
+                              <span className="text-xs text-app-muted">{`Cancelled: ${request.cancelReason}`}</span>
+                            ) : null}
+                            {request.status === 'Open' && isAdmissionsAdmin && onCancelDocumentRequest ? (
+                              <button type="button" className="proof-action justify-self-start !min-h-0 !py-1 text-xs" onClick={() => setCancelRequestTarget(request)}>Cancel request</button>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                ) : null}
                 <section className="grid gap-2">
-                  <h4 className={sectionHeading}>{requirements.length ? 'Supporting documents' : 'Attached documents'}</h4>
+                  <SectionTitle icon={FileText}>{requirements.length ? 'Supporting documents' : 'Attached documents'}</SectionTitle>
                   {otherDocuments.length ? (
                     <ul className="m-0 grid gap-2 p-0">
                       {otherDocuments.map((doc) => (
@@ -827,7 +1010,7 @@ export default function ApplicationReviewModal({
                 {selectedDoc ? (
                   <Panel className="grid content-start gap-3">
                     <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                      <h4 className={sectionHeading}>Document verification</h4>
+                      <SectionTitle icon={CheckCircle2}>Document verification</SectionTitle>
                       {!isAdmissionsAdmin ? <span className="text-xs text-app-muted">Read-only · verified by the Admissions Office Admin</span> : null}
                     </div>
                     <DocumentVerificationItem
@@ -861,7 +1044,7 @@ export default function ApplicationReviewModal({
 
         {panelTab === 'profile' && (
           <Panel className="grid gap-1">
-            <h4 className={`${sectionHeading} mb-1`}>Profile at submission</h4>
+            <SectionTitle icon={UserRound}>Profile at submission</SectionTitle>
             <p className="m-0 mb-2 text-xs text-app-muted">The certified record. These badges are the ones the student saw then; the Overview shows the current review decisions.</p>
             <ProfileSnapshotList snapshot={applyLiveVerificationsToSnapshot(application.profileSnapshot, liveVerifications)} applicantPhoto={applicantPhoto} residencePhotos={getResidencePhotoDocuments(application, documents)} onPreviewPhoto={setPreviewDoc} extraSections={financialDetails.sections} />
             <FinancialDetailsNotice status={financialDetails.status} />
@@ -895,32 +1078,10 @@ export default function ApplicationReviewModal({
 
         {panelTab === 'history' && (
           <div className="grid gap-3">
-            {/* The recorded rejection reason is staff-only, and the Endorsement
-                tab's thread only exists from For Endorsement on. A case rejected
-                before that hand-off is still readable here, where the office
-                looks for the decision's justification. */}
-            {!endorsementUnlocked && caseNotes.length ? (
-              <Panel className="grid gap-2">
-                <h4 className={sectionHeading}>Internal notes</h4>
-                <p className="m-0 text-xs text-app-muted">Visible to reviewers only, never to the student.</p>
-                <ul className="m-0 grid gap-2 p-0">
-                  {caseNotes.map((comment) => (
-                    <li key={comment.id} className="grid gap-1 rounded-[14px] border border-app-border bg-app-surface p-3">
-                      <span className="text-xs text-app-muted">
-                        <strong className="text-app-text">{comment.authorName || 'Reviewer'}</strong>
-                        {' · '}{getActorRoleLabel(comment.authorRole) || 'Staff'}
-                        {' · '}{fmtDate(comment.createdAt)}
-                      </span>
-                      <p className="m-0 whitespace-pre-line text-sm text-app-text">{comment.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            ) : null}
             {isAdmissionsReviewer ? (
               <Panel className="grid content-start gap-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-                  <h4 className={sectionHeading}>Case officers</h4>
+                  <SectionTitle icon={Users}>Case officers</SectionTitle>
                   {isOnCase && onLeaveCase ? (
                     <Button
                       type="button"
@@ -937,8 +1098,11 @@ export default function ApplicationReviewModal({
                 {caseOfficersOnApplication.length ? (
                   <ul className="m-0 grid gap-2 p-0">
                     {caseOfficersOnApplication.map((officer) => (
-                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center justify-between gap-2 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
-                        <span className="min-w-0 text-sm font-semibold text-app-text">{officer.officerName}</span>
+                      <li key={officer.id} className="flex min-w-0 flex-wrap items-center gap-3 border-b border-app-border/60 pb-2 last:border-b-0 last:pb-0">
+                        <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-blue-500/15 text-xs font-bold text-blue-800 dark:text-blue-200">
+                          {String(officer.officerName || '?').split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase() || '?'}
+                        </span>
+                        <span className="min-w-0 flex-1 text-sm font-semibold text-app-text">{officer.officerName}</span>
                         <span className="text-xs text-app-muted">
                           {officer.officerRole === 'admissions_admin' ? 'Admissions Office Admin' : 'Admissions Office Staff'}
                           {officer.joinedAt ? ` · joined ${fmtDate(officer.joinedAt)}` : ''}
@@ -951,7 +1115,7 @@ export default function ApplicationReviewModal({
               </Panel>
             ) : null}
             <Panel className="grid gap-2">
-              <h4 className={sectionHeading}>Status history</h4>
+              <SectionTitle icon={HistoryIcon}>Status history</SectionTitle>
               <StatusHistoryList
                 statusLog={statusLog}
                 timeline={application.timeline}
@@ -961,8 +1125,9 @@ export default function ApplicationReviewModal({
           </div>
         )}
 
-        {panelTab === 'interview' && interviewWorkspace && (
+        {(panelTab === 'interview' || panelTab === 'evaluation') && interviewWorkspace && (
           <InterviewPanel
+            view={panelTab}
             application={application}
             role={role}
             scholarshipTitle={application.scholarshipTitle || scholarship?.title || ''}
@@ -992,10 +1157,11 @@ export default function ApplicationReviewModal({
         )}
       </div>
 
-      <footer className="application-review-actions grid shrink-0 gap-3 border-t border-app-border pt-4">
+      <footer className="application-review-actions mt-1 grid shrink-0 gap-3 rounded-2xl border border-app-border bg-app-surface p-3 shadow-[0_-8px_24px_-16px_rgba(0,20,80,0.35)] sm:p-4">
         {!documentsUnlocked && isAdmissionsAdmin ? (
-          <p className="m-0 rounded-[14px] border border-app-border bg-app-surface px-3 py-2 text-sm text-app-muted">
-            {lockedDocumentsMessage}
+          <p className="m-0 flex items-start gap-2 rounded-[14px] border border-app-border bg-app-card px-3 py-2 text-sm text-app-muted">
+            <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span className="min-w-0">{lockedDocumentsMessage}</span>
           </p>
         ) : null}
 
@@ -1010,8 +1176,9 @@ export default function ApplicationReviewModal({
                 ].filter(Boolean).join(' · ')}`}
               </p>
             ) : (
-              <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
-                No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Interview tab, add an evaluation note and choose a recommendation level.
+              <p className="m-0 flex items-start gap-2 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+                <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+                <span className="min-w-0">No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Evaluation tab, add an evaluation note and choose a recommendation level.</span>
               </p>
             )}
           </div>
@@ -1024,24 +1191,27 @@ export default function ApplicationReviewModal({
                 {`Grant amount: ${describeGrantAmount(finalCheck.grant)}`}
               </p>
             ) : (
-              <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
-                No grant amount recorded yet, so the final check is unavailable. In the Grant amount tab, enter a coverage percent, an amount per semester, or both.
+              <p className="m-0 flex items-start gap-2 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+                <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+                <span className="min-w-0">No grant amount recorded yet, so the final check is unavailable. In the Grant amount tab, enter a coverage percent, an amount per semester, or both.</span>
               </p>
             )}
           </div>
         ) : null}
 
         {actionError ? (
-          <p className="m-0 rounded-[14px] border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200" role="alert">
-            {actionError}
+          <p className="m-0 flex items-start gap-2 rounded-[14px] border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-200" role="alert">
+            <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span className="min-w-0">{actionError}</span>
           </p>
         ) : null}
 
         {adminOverrideNote ? <AdminOverrideNotice>{adminOverrideNote}</AdminOverrideNotice> : null}
 
         {canWaitlist && declaredSiblingOnAid ? (
-          <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
-            The applicant declared a sibling on AdDU financial aid. Consider placing this application on the waitlist.
+          <p className="m-0 flex items-start gap-2 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
+            <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span className="min-w-0">The applicant declared a sibling on AdDU financial aid. Consider placing this application on the waitlist.</span>
           </p>
         ) : null}
 
@@ -1170,6 +1340,30 @@ export default function ApplicationReviewModal({
           return result;
         }}
         onClose={() => setDocumentRejectTarget(null)}
+      />
+    ) : null}
+    {requestDialog ? (
+      <RequestDocumentsModal
+        requirements={requirements}
+        initialKind={requestDialog.kind || ''}
+        initialRequirementId={requestDialog.requirementId || ''}
+        onConfirm={(payload) => onRequestDocuments?.(application.id, payload)}
+        onClose={() => setRequestDialog(null)}
+      />
+    ) : null}
+    {cancelRequestTarget ? (
+      <ReasonModal
+        title="Cancel document request"
+        label="Why is this request being cancelled?"
+        hint={`Recorded with the request. “${cancelRequestTarget.label}” stops holding the case at verification.`}
+        confirmLabel="Cancel request"
+        onConfirm={async (reason) => {
+          const result = await onCancelDocumentRequest?.(cancelRequestTarget.id, reason);
+          if (result?.error) return result;
+          setCancelRequestTarget(null);
+          return result;
+        }}
+        onClose={() => setCancelRequestTarget(null)}
       />
     ) : null}
     {previewDoc ?<DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}

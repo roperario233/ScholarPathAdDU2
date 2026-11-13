@@ -64,6 +64,7 @@ half-provisioned account is never locked out.
 
 | Area | Where | Notes |
 | --- | --- | --- |
+| Public landing page | `src/pages/LandingPage.jsx`, `src/components/landing/`, `src/landing.css` | First screen for a signed-out visitor: the three grants, the application path, an illustrative eligibility check, features, FAQ; lazy-loaded, skipped for anyone mid sign-in |
 | Student Dashboard | `src/pages/DashboardView.jsx` | The three AdDU grants with explanations, coverage, requirements, and deadlines; one action into Scholarship Explorer |
 | Scholarship Explorer | `src/pages/ScholarshipExplorer.jsx` | Dynamic faceted search plus an always-open Smart Eligibility Checker per card |
 | Application workspace | `src/components/ApplicationWorkspaceModal.jsx` | Five steps: required documents, Application form, financial situation, statement, review and submit |
@@ -140,7 +141,7 @@ and `src/lib/supportChat.js` (support channel).
 ### Existing project
 
 Apply the migrations under `supabase/migrations/` in version order (`supabase db push` or
-`supabase migration up`). The repository head is `20261105000006_notification_outbox.sql`.
+`supabase migration up`). The repository head is `20261114000000_add_document_requests.sql`.
 The currently deployed project was last verified through `20261063000000_add_privacy_consent.sql`;
 check the target with `supabase migration list` before shipping the client. Never re-run
 `schema.sql` on a deployed project — it is the reference for fresh ones, and the two are kept
@@ -169,6 +170,7 @@ Areas worth knowing before you apply a batch:
 | `20261105000004` | Atomic, request-idempotent first-wave release RPC |
 | `20261105000005` | Role-scoped stage totals (`get_application_stage_counts()`, security invoker) used as a refresh integrity check |
 | `20261105000006` | Notification outbox (bounded, retried dispatch from the status and release triggers; pg_cron worker) and the append-only delivery-attempt history |
+| `20261114000000` | Additional document requests: the Admin asks for more files or one more document at verification (`application_document_requests`, three RPCs); an open request holds the case at `For Verification` |
 
 ### Storage
 
@@ -290,6 +292,17 @@ expires, so sign-out does not instantly revoke it.
 
 Row-level security is authoritative. The client never filters a staff-only slice — the policy
 refuses it, and `loadSupabaseWorkspace()` leaves staff-only slices empty for a student session.
+
+## Public landing page
+
+A signed-out visitor first sees the landing page (`src/pages/LandingPage.jsx`), which explains the
+three AdDU grants, the path of one application, and what ScholarPath is and is not, then leads to
+**Create account** or **Sign in**. On the sign-in card, the logo and "ScholarPath AdDU" name lead back to it. The landing page is
+skipped, and the login screen shown directly, for anyone in the middle of signing in: an OAuth
+return, a password-reset or email-confirmation link (or its error), a session-timeout or
+deactivation notice, or a remembered email (`src/lib/landingGate.js`). It is a separate lazy
+chunk, so signed-in sessions never download it, and it calls no Supabase API. Its eligibility
+"Try it" panel is an illustration over a made-up sample track, not a real result.
 
 ## Student journey
 
@@ -724,13 +737,14 @@ src/
   lib/                    domain logic: eligibility, requirements, constants, scope, helpers
   tailwind.css            theme primitives (Tailwind entry)
   styles.css              component CSS, print rules, pseudo-elements, keyframes
+  landing.css             the public landing page's styles (ships with its lazy chunk)
 supabase/
   schema.sql              reference schema for a fresh project
   migrations/             89 incremental migrations, applied in order
   functions/              seven Edge Functions + _shared/ modules
   maintenance_*.sql       manual operator scripts (never migrations)
 scripts/                  Google auth, storage cleanup, and application import operators
-tests/                    72 vitest files
+tests/                    83 vitest files
 ```
 
 | Module | Responsibility |
@@ -812,7 +826,7 @@ Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
 Remove-Item Env:APPLICATION_IMPORT_APPROVED_BATCH
 ```
 
-Apply migrations through `20261105000006_notification_outbox.sql` on the isolated staging
+Apply migrations through `20261114000000_add_document_requests.sql` on the isolated staging
 project first. The operator path uploads bytes to deterministic private object paths, commits up to
 25 cases per RPC call, validates each case inside its own transaction savepoint, and records only
 hashed source keys/checksums in the import ledger. A retry with the same batch and identical content
@@ -871,7 +885,7 @@ the space.
 ## Tests and validation
 
 ```powershell
-npm test        # vitest run: 72 files
+npm test        # vitest run: 83 files
 npm run build   # Vite production build
 npm run lint    # ESLint
 ```

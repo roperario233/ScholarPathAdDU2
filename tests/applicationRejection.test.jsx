@@ -97,14 +97,14 @@ describe('the staff-only rejection reason', () => {
     statusLog: [],
   };
 
-  it('is shown to the reviewer in the History tab', () => {
+  it('is shown to the reviewer in the Case notes tab, which is open from the first stage', () => {
     const html = renderToStaticMarkup(
       <ApplicationReviewModal
         application={rejectedApplication}
         scholarship={{ id: 'scholarship-1', title: 'Grant-in-Aid (GIA)' }}
         documents={[]}
         role="admissions_office"
-        initialTab="history"
+        initialTab="endorsement"
         reviewComments={[{
           id: 'c-1',
           applicationId: 'app-1',
@@ -117,11 +117,11 @@ describe('the staff-only rejection reason', () => {
         onStatusChange={() => ({ ok: true })}
       />,
     );
-    expect(html).toContain('Internal notes');
+    expect(html).toContain('Internal comments');
     expect(html).toContain('Rejection reason — Household income exceeds the ceiling.');
   });
 
-  it('is not repeated once the Endorsement tab owns the thread', () => {
+  it('is not repeated in the History tab now that Case notes owns the thread', () => {
     const html = renderToStaticMarkup(
       <ApplicationReviewModal
         application={{ ...rejectedApplication, status: 'Endorsed' }}

@@ -55,6 +55,7 @@ const continuingProfile = {
   // The remaining "Needed to apply" answers and the FORM 230-SCH core.
   civilStatus: 'Single',
   completeAddress: 'Roxas Ave, Davao City',
+  country: 'Philippines',
   housingType: 'I live at home',
   ipCommunity: 'No',
   pwd: 'No',

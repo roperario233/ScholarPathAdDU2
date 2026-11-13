@@ -1,4 +1,4 @@
-import { FormField, Panel, RequiredMark } from './ui';
+import { ChoiceToggle, FormField, Panel, RequiredMark } from './ui';
 import {
   COPING_OPTIONS,
   DIFFICULTY_REASON_OPTIONS,
@@ -30,16 +30,24 @@ function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, 
   const isSelected = (key) => selected.includes(key);
   return (
     <fieldset className="m-0 grid gap-2 border-0 p-0 md:col-span-2">
-      <legend className="mb-1 text-sm font-semibold text-app-text">
+      <legend className="mb-0.5 p-0 text-sm font-semibold text-app-text">
         {legend}
         {required && <RequiredMark />}
       </legend>
       {hint ? <small className="field-hint block">{hint}</small> : null}
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2">
         {options.map((option) => (
-          <label key={option.key} className="flex items-start gap-2 text-sm text-app-text">
-            <input type="checkbox" className="mt-1" checked={isSelected(option.key)} onChange={() => onToggle(option.key)} />
-            <span>{option.label}</span>
+          <label key={option.key} className="group relative block cursor-pointer">
+            {/* The native checkbox stays in the tab order and the accessibility tree; the card is its visual. */}
+            <input type="checkbox" className="peer sr-only" checked={isSelected(option.key)} onChange={() => onToggle(option.key)} />
+            <span className="flex min-h-[48px] items-center gap-3 rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-sm text-app-text transition-colors duration-150 group-hover:border-blue-500/50 peer-checked:border-blue-500/70 peer-checked:bg-blue-500/10 peer-checked:font-medium peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500/60 peer-checked:[&_.check-box]:border-blue-600 peer-checked:[&_.check-box]:bg-blue-600 peer-checked:[&_.check-icon]:opacity-100">
+              <span className="check-box grid h-5 w-5 shrink-0 place-items-center rounded-md border border-app-border bg-app-card transition-colors duration-150" aria-hidden="true">
+                <svg className="check-icon h-3.5 w-3.5 text-white opacity-0 transition-opacity duration-150" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3.5 8.5l3 3 6-7" />
+                </svg>
+              </span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">{option.label}</span>
+            </span>
           </label>
         ))}
       </div>
@@ -57,7 +65,7 @@ function CheckboxGroup({ legend, hint, options, selected, onToggle, otherValue, 
 // daily expenses). These answers are time-sensitive, so they belong to this
 // application rather than the reusable profile, and they go to the Admissions
 // Office only.
-export default function ApplicationFinancialStep({ answers, onChange, missing = [] }) {
+export default function ApplicationFinancialStep({ answers, onChange }) {
   const set = (key) => (value) => onChange({ ...answers, [key]: value });
   const text = (key) => (event) => set(key)(event.target.value);
   const selection = (key) => (Array.isArray(answers[key]) ? answers[key] : []);
@@ -77,11 +85,14 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </p>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Do you have other sources of income?" required={needs('otherIncomeAnswer')}>
-          <select className={controlClass} value={answers.otherIncomeAnswer} onChange={text('otherIncomeAnswer')}>
-            {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
+        <ChoiceToggle
+          fieldKey="otherIncomeAnswer"
+          label="Do you have other sources of income?"
+          value={answers.otherIncomeAnswer}
+          onChange={set('otherIncomeAnswer')}
+          options={yesNoAnswerOptions}
+          required={needs('otherIncomeAnswer')}
+        />
         {answers.otherIncomeAnswer === 'yes' ? (
           <>
             <FormField label="Other income sources" required={needs('otherIncomeSources')}>
@@ -95,11 +106,14 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
       </Panel>
 
       <Panel className="grid gap-4 md:grid-cols-2">
-        <FormField label="Has your family had financial difficulty in the last 3 months?" required={needs('difficultyAnswer')}>
-          <select className={controlClass} value={answers.difficultyAnswer} onChange={text('difficultyAnswer')}>
-            {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
+        <ChoiceToggle
+          fieldKey="difficultyAnswer"
+          label="Has your family had financial difficulty in the last 3 months?"
+          value={answers.difficultyAnswer}
+          onChange={set('difficultyAnswer')}
+          options={yesNoAnswerOptions}
+          required={needs('difficultyAnswer')}
+        />
         {answers.difficultyAnswer === 'yes' ? (
           <>
             <CheckboxGroup
@@ -132,17 +146,22 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
         <FormField label="Daily allowance (PHP)" required={needs('allowanceDaily')}>
           <AmountInput value={answers.allowanceDaily} onChange={set('allowanceDaily')} label="Daily allowance" />
         </FormField>
-        <FormField label="Is your daily allowance enough?" required={needs('allowanceEnough')}>
-          <select className={controlClass} value={answers.allowanceEnough} onChange={text('allowanceEnough')}>
-            {yesNoAnswerOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
-        <FormField label="Daily food intake" required={needs('foodIntakeAdequacy')}>
-          <select className={controlClass} value={answers.foodIntakeAdequacy} onChange={text('foodIntakeAdequacy')}>
-            <option value="">Select</option>
-            {foodIntakeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </FormField>
+        <ChoiceToggle
+          fieldKey="allowanceEnough"
+          label="Is your daily allowance enough?"
+          value={answers.allowanceEnough}
+          onChange={set('allowanceEnough')}
+          options={yesNoAnswerOptions}
+          required={needs('allowanceEnough')}
+        />
+        <ChoiceToggle
+          fieldKey="foodIntakeAdequacy"
+          label="Daily food intake"
+          value={answers.foodIntakeAdequacy}
+          onChange={set('foodIntakeAdequacy')}
+          options={foodIntakeOptions}
+          required={needs('foodIntakeAdequacy')}
+        />
         <FormField label="Mode of transport to school" required={needs('transportMode')}>
           <select className={controlClass} value={answers.transportMode} onChange={text('transportMode')}>
             <option value="">Select</option>
@@ -170,10 +189,6 @@ export default function ApplicationFinancialStep({ answers, onChange, missing = 
           <AmountInput value={answers.expenseOther} onChange={set('expenseOther')} label="Other daily expenses" />
         </FormField>
       </Panel>
-
-      {missing.length ? (
-        <p className="m-0 text-sm text-app-muted" role="status">Still needed: {missing.join('; ')}.</p>
-      ) : null}
     </section>
   );
 }

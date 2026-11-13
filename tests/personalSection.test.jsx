@@ -35,6 +35,24 @@ describe('My Profile personal information', () => {
     expect(html).toContain('Reyes, Ana');
   });
 
+  it('leaves the role out of the form and keeps the assignment', () => {
+    const html = render({}, 'admissions_office');
+    // The role is read from the sidebar, so the form no longer repeats it.
+    expect(html).not.toContain('>Role<');
+    expect(html).toContain('Sign-in email');
+    expect(html).toContain('>Office<');
+  });
+
+  it('asks sex assigned at birth as a pair of choices', () => {
+    const html = render({});
+    expect(html).toContain('aria-label="Sex assigned at birth"');
+    expect(html).toContain('>Female<');
+    expect(html).toContain('>Male<');
+    // Two radios under one name: no answer leaves both pills clear, so the answer
+    // keeps its real "not answered" state.
+    expect((html.match(/name="sexAtBirth"/g) || []).length).toBe(2);
+  });
+
   it('offers the expanded religion list and asks an "Other" answer to be named', () => {
     const html = render({});
     expect(html).toContain('Seventh-day Adventist');

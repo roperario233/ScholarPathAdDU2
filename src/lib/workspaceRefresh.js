@@ -109,6 +109,7 @@ const mergeWorkspaceDelta = (previous, workspace, ownerId) => {
     grantAmounts: mergeChangedRows(previous.grantAmounts, changes.grantAmounts, 'applicationId'),
     scholarshipOffers: mergeChangedRows(previous.scholarshipOffers, changes.scholarshipOffers, 'applicationId'),
     waitlistRanks: mergeChangedRows(previous.waitlistRanks, changes.waitlistRanks, 'applicationId'),
+    documentRequests: mergeChangedRows(previous.documentRequests, changes.documentRequests),
     staffDirectory: staffDirectoryRemovedUserIds.length
       ? staffDirectory.filter((entry) => !staffDirectoryRemovedUserIds.includes(entry.userId))
       : staffDirectory,

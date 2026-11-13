@@ -4,6 +4,7 @@ import {
   createEmptyFinancialProfile,
   getFinancialAnswersMissing,
   getFinancialDetailSections,
+  getHouseholdIncomeCheck,
   getMissingFinancialAnswerKeys,
   isFinancialAnswersComplete,
   normalizeFinancialAnswers,
@@ -142,6 +143,57 @@ describe('financial detail sections', () => {
   it('omits a group with nothing to show', () => {
     expect(getFinancialDetailSections({})).toEqual([]);
     expect(getFinancialDetailSections({ answers: normalizeFinancialAnswers(complete) }).map((section) => section.key)).toEqual(['situation']);
+  });
+});
+
+describe('household income cross-check', () => {
+  const finances = {
+    father: { employmentStatus: 'employed', annualIncome: 120000 },
+    mother: { employmentStatus: 'employed', annualIncome: 60000 },
+  };
+
+  it('flags parents who alone earn more than the declared household income', () => {
+    const check = getHouseholdIncomeCheck({ householdIncome: 150000, financialProfile: finances });
+    expect(check).toMatchObject({ status: 'over', parentTotal: 180000, householdIncome: 150000, difference: 30000 });
+    expect(check.message).toContain('more than the');
+  });
+
+  it('explains a household total above the parents’ share instead of warning', () => {
+    const check = getHouseholdIncomeCheck({ householdIncome: 240000, financialProfile: finances });
+    expect(check).toMatchObject({ status: 'under', parentTotal: 180000, difference: -60000 });
+    expect(check.message).toContain('another household member');
+    expect(getHouseholdIncomeCheck({ householdIncome: 180000, financialProfile: finances }).status).toBe('exact');
+  });
+
+  it('says nothing until both figures exist', () => {
+    expect(getHouseholdIncomeCheck({}).status).toBe('unanswered');
+    expect(getHouseholdIncomeCheck({ householdIncome: 150000 }).status).toBe('unanswered');
+    expect(getHouseholdIncomeCheck({ financialProfile: finances }).status).toBe('unanswered');
+    expect(getHouseholdIncomeCheck({ householdIncome: '', financialProfile: finances }).status).toBe('unanswered');
+  });
+
+  it('leaves a deceased or unknown parent out of the total', () => {
+    const check = getHouseholdIncomeCheck({ householdIncome: 60000, financialProfile: finances, family: { fatherDeceased: true } });
+    expect(check.parentTotal).toBe(60000);
+    expect(check.status).toBe('exact');
+    expect(getHouseholdIncomeCheck({ householdIncome: 1, financialProfile: finances, family: { fatherUnknown: true, motherUnknown: true } }).status).toBe('unanswered');
+  });
+
+  it('reads the declared income out of a frozen profile snapshot', () => {
+    // buildProfileSnapshot stores the answer with its verification badge.
+    const check = getHouseholdIncomeCheck({ householdIncome: { value: 150000, verification: 'Verified' }, financialProfile: finances });
+    expect(check.householdIncome).toBe(150000);
+    expect(check.status).toBe('over');
+  });
+
+  it('shows the office the parents’ total, and the warning with it', () => {
+    const [section] = getFinancialDetailSections({ financialProfile: finances, householdIncome: 150000 });
+    const rows = Object.fromEntries(section.rows.map((row) => [row.label, row]));
+    expect(rows["Parents' combined annual income"].value).toContain('180,000');
+    expect(rows['Income check'].tone).toBe('warning');
+    // A household total that covers the parents' share carries no warning row.
+    const [quiet] = getFinancialDetailSections({ financialProfile: finances, householdIncome: 240000 });
+    expect(quiet.rows.find((row) => row.label === 'Income check')).toBeUndefined();
   });
 });
 

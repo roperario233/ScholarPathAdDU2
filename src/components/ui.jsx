@@ -1,5 +1,5 @@
 import { Download } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const clsx = (...values) => values.flat(Infinity).filter(Boolean).join(' ');
 
@@ -130,7 +130,12 @@ export function RequiredMark() {
   );
 }
 
-export function FormField({ label, hint, error, labelAdornment, fieldKey, required = false, children, className = '' }) {
+export function FormField({ label, hint, error, labelAdornment, fieldKey, required = false, children, className = '', group = false }) {
+  // A choice group (ChoiceToggle) carries its own radio <label>s, so it cannot sit
+  // inside this component's field <label>: nested labels are invalid markup and the
+  // outer one forwards its clicks to the first control. `group` swaps the header
+  // wrapper for a plain group container and keeps every other row identical.
+  const Header = group ? 'div' : 'label';
   return (
     // The root is a plain container, not a <label>: a label adornment can carry an
     // action (the proof chip), and interactive content nested in a <label> is invalid
@@ -141,13 +146,13 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, requir
     // `data-field` names the answer(s) the field edits, so a link into My Profile
     // can find and highlight it (src/pages/ProfileView.jsx).
     <div className={clsx('grid min-w-0 content-start gap-2', className)} data-field={fieldKey}>
-      <label className="grid min-w-0 content-start gap-2">
+      <Header className="grid min-w-0 content-start gap-2">
         <span className="min-w-0 text-sm font-semibold text-app-text">
           {label}
           {required && <RequiredMark />}
         </span>
         {children}
-      </label>
+      </Header>
       {/* The adornment gets a row of its own under the control. Sharing the label
           line let a badge plus its action wrap the header onto a second line, which
           pushed this field's control out of line with the field beside it. */}
@@ -163,14 +168,15 @@ export function FormField({ label, hint, error, labelAdornment, fieldKey, requir
 // My Profile uses.
 export function SettingToggle({ checked, onChange, title, description, icon: Icon = null }) {
   const switchControl = (
-    <span className={clsx('relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors has-[:checked]:bg-ateneo', Icon ? 'bg-slate-400/30' : 'bg-slate-400/20')}>
+    <span className={clsx('relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors duration-300 has-[:checked]:bg-ateneo', Icon ? 'bg-slate-400/30' : 'bg-slate-400/20')}>
       <input
         type="checkbox"
         checked={checked}
         onChange={(event) => onChange(event.target.checked)}
         className="peer sr-only"
       />
-      <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+      {/* The knob springs across and stretches a little while pressed. */}
+      <span className="pointer-events-none absolute bottom-[3px] left-[3px] h-[22px] w-[22px] rounded-full bg-white shadow-sm transition-[transform,width] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] motion-reduce:transition-none peer-checked:translate-x-5 peer-active:w-[28px] peer-checked:peer-active:translate-x-[14px]" />
     </span>
   );
   const copy = (
@@ -200,6 +206,90 @@ export function SettingToggle({ checked, onChange, title, description, icon: Ico
   );
 }
 
+// A two-answer question (Yes / No, Filipino / Non-Filipino, Male / Female) as a
+// segmented pair of pills instead of a two-option <select>. The answer keeps a real
+// unanswered state — neither pill is checked and the required star stays visible —
+// which a plain switch cannot express: a silent "No" would skip the proof rule the
+// answer owns. The pills are <label>s around native radios, not <button>s, so the
+// authenticated shell's `.blue-action-view` page-button palette never repaints them,
+// and arrow keys move between them the way a radio group should.
+// Selecting the checked answer again clears it (allowClear), preserving the
+// "Select" escape hatch the native selects had.
+// A panel that eases open and shut instead of popping: the row height animates
+// between 0fr and 1fr, and a closed panel is hidden from tab order and screen
+// readers once it has finished closing. The caller owns the open state and the
+// control that toggles it (give that control `aria-expanded` and `aria-controls`).
+export function Collapse({ open, children, id, className = '' }) {
+  return (
+    <div
+      id={id}
+      inert={open ? undefined : ''}
+      className={clsx(
+        'grid transition-[grid-template-rows,opacity,visibility] duration-300 ease-out motion-reduce:transition-none',
+        open ? 'visible grid-rows-[1fr] opacity-100' : 'invisible grid-rows-[0fr] opacity-0',
+        className,
+      )}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
+export function ChoiceToggle({
+  label,
+  hint,
+  error,
+  labelAdornment,
+  fieldKey,
+  required = false,
+  value = '',
+  onChange,
+  options = [],
+  allowClear = true,
+  className = '',
+}) {
+  const choices = options.filter((option) => option.value !== '' && option.value !== undefined && option.value !== null);
+  const name = fieldKey || `choice-${String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  return (
+    <FormField label={label} hint={hint} error={error} labelAdornment={labelAdornment} fieldKey={fieldKey} required={required} className={className} group>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        className="relative grid min-h-12 items-stretch gap-1 rounded-xl border border-app-border bg-app-surface p-1"
+        style={{ gridTemplateColumns: `repeat(${Math.max(1, choices.length)}, minmax(0, 1fr))` }}
+      >
+        {/* One highlight slides to the chosen pill (and fades out while the answer
+            is cleared) instead of each pill repainting on its own. */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-1 left-1 rounded-lg bg-ateneo shadow-sm transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.34,1.3,0.64,1)] motion-reduce:transition-none"
+          style={{
+            width: `calc((100% - 0.5rem - ${(Math.max(1, choices.length) - 1) * 0.25}rem) / ${Math.max(1, choices.length)})`,
+            transform: `translateX(calc(${Math.max(0, choices.findIndex((option) => option.value === value))} * (100% + 0.25rem)))`,
+            opacity: choices.some((option) => option.value === value) ? 1 : 0,
+          }}
+        />
+        {choices.map((option) => (
+          <label
+            key={option.value}
+            className="relative z-10 flex min-h-9 cursor-pointer items-center justify-center rounded-lg border border-transparent px-3 text-center text-sm font-semibold text-app-muted transition-colors duration-200 hover:text-app-text has-[:checked]:text-white has-[:focus-visible]:ring-4 has-[:focus-visible]:ring-blue-500/20 has-[:focus-visible]:ring-offset-1 has-[:focus-visible]:ring-offset-app-surface"
+          >
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange?.(allowClear && value === option.value ? '' : option.value)}
+              className="peer sr-only"
+            />
+            <span className="min-w-0 [overflow-wrap:anywhere]">{option.label}</span>
+          </label>
+        ))}
+      </div>
+    </FormField>
+  );
+}
+
 export function EmptyState({ title, description, action, className = '' }) {
   return (
     <div className={clsx('rounded-app border border-dashed border-app-border p-6 text-center text-app-muted', className)}>
@@ -208,6 +298,43 @@ export function EmptyState({ title, description, action, className = '' }) {
       {action}
     </div>
   );
+}
+
+// `useLayoutEffect` warns during server rendering (the tests render statically).
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+// Keep in step with the `modal-overlay-out` duration in styles.css.
+const MODAL_EXIT_MS = 140;
+
+/**
+ * Parents close a modal by unmounting it, so there is nothing left to animate.
+ * When the dialog unmounts, this plays its exit on a throwaway copy of the DOM
+ * (`data-closing`, see `.modal-overlay` in styles.css) that removes itself
+ * afterwards. It works for every close path: backdrop, Close, Cancel, Escape, or
+ * the parent simply rendering something else.
+ */
+function useModalExitGhost() {
+  const overlayRef = useRef(null);
+  useIsomorphicLayoutEffect(() => {
+    const node = overlayRef.current;
+    if (!node) return undefined;
+    return () => {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return;
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      const ghost = node.cloneNode(true);
+      // By the time this microtask runs the commit has finished: a node that is
+      // still attached was only re-mounted (StrictMode), not closed.
+      queueMicrotask(() => {
+        if (node.isConnected) return;
+        ghost.setAttribute('data-closing', 'true');
+        ghost.setAttribute('aria-hidden', 'true');
+        ghost.setAttribute('inert', '');
+        document.body.appendChild(ghost);
+        window.setTimeout(() => ghost.remove(), MODAL_EXIT_MS + 40);
+      });
+    };
+  }, []);
+  return overlayRef;
 }
 
 /**
@@ -229,6 +356,7 @@ export function ModalShell({ title, closeLabel = 'Close', onClose, children, cla
   const markPress = (event) => {
     pressStartedOnOverlay.current = event.target === event.currentTarget;
   };
+  const overlayRef = useModalExitGhost();
   const handleOverlayClick = (event) => {
     if (!onClose) return;
     if (!shouldDismissOverlay({
@@ -242,6 +370,7 @@ export function ModalShell({ title, closeLabel = 'Close', onClose, children, cla
   return (
     <div
       className={clsx('modal-overlay', overlayClassName)}
+      ref={overlayRef}
       role="presentation"
       onPointerDown={markPress}
       onMouseDown={markPress}

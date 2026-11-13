@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search, Sun } from 'lucide-react';
 import bgImage from '../../pictures/background.jpg';
 import logoImage from '../../pictures/logo.png';
@@ -139,7 +139,10 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
   );
 }
 
-export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null }) {
+// `initialMode` opens the screen on sign-in ('signin', the default) or on the
+// create-account form ('create'); `onBackToHome` makes the sign-in card's logo and
+// "ScholarPath AdDU" name a button back to the public landing page.
+export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null, initialMode = 'signin', onBackToHome = null }) {
   const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -151,7 +154,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
-  const [showCreateAccount, setShowCreateAccount] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
+  const [showCreateAccount, setShowCreateAccount] = useState(initialMode === 'create');
   const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [createAccountData, setCreateAccountData] = useState({
     fullName: '',
@@ -174,6 +178,23 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     setFeedbackTone('error');
     clearAuthRedirectParams();
   }, []);
+
+  // Sign-in and create-account are two different cards. Where the browser has View
+  // Transitions the card morphs from one shape to the other (its content cross-fades);
+  // elsewhere, and under reduced motion, the swap is instant (a CSS fade-in covers
+  // browsers without the API).
+  const switchAuthView = (toCreate, beforeSwitch) => {
+    const apply = () => {
+      beforeSwitch?.();
+      setShowCreateAccount(toCreate);
+    };
+    const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !reduceMotion) {
+      document.startViewTransition(() => flushSync(apply));
+      return;
+    }
+    apply();
+  };
 
   const submitLogin = async (event) => {
     event.preventDefault();
@@ -202,22 +223,53 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     }
   };
 
-  const handleForgotPassword = async (event) => {
-    event.preventDefault();
+  const openForgotPassword = () => {
     setFeedbackMessage('');
     setFeedbackTone('info');
+    setResetSent(false);
+    // Start from the address already typed on the sign-in card.
+    if (!forgotEmail && email) setForgotEmail(email);
+    setShowForgotPassword(true);
+  };
 
-    const result = await onForgotPassword({ email: forgotEmail });
+  const closeForgotPassword = () => {
+    // The dialog shares the feedback banner with the sign-in card, so a reset
+    // message must not linger there once the dialog is gone.
+    setFeedbackMessage('');
+    setFeedbackTone('info');
+    setShowForgotPassword(false);
+  };
 
-    if (result?.success) {
-      setResetSent(true);
-      setFeedbackMessage(result.message);
-      setFeedbackTone('success');
-      return;
+  useEffect(() => {
+    if (!showForgotPassword) return undefined;
+    const handleKey = (event) => {
+      if (event.key === 'Escape') closeForgotPassword();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [showForgotPassword]);
+
+  const handleForgotPassword = async (event) => {
+    event.preventDefault();
+    if (isSendingReset) return;
+    setFeedbackMessage('');
+    setFeedbackTone('info');
+    setIsSendingReset(true);
+
+    try {
+      const result = await onForgotPassword({ email: forgotEmail.trim() });
+      if (result?.success) {
+        setResetSent(true);
+        return;
+      }
+      setFeedbackMessage(result?.message || 'Unable to send a reset link right now.');
+      setFeedbackTone('error');
+    } catch {
+      setFeedbackMessage('Unable to send a reset link right now.');
+      setFeedbackTone('error');
+    } finally {
+      setIsSendingReset(false);
     }
-
-    setFeedbackMessage(result?.message || 'Unable to send a reset link right now.');
-    setFeedbackTone('error');
   };
 
   const handleCreateAccount = async (event) => {
@@ -243,17 +295,18 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       setFeedbackMessage(result.message);
       setFeedbackTone('success');
       setTimeout(() => {
-        setShowCreateAccount(false);
-        setCreateAccountSuccess(false);
-        setCreateAccountData({
-          fullName: '',
-          email: '',
-          password: '',
-          confirmPassword: '',
-          role: 'student',
+        switchAuthView(false, () => {
+          setCreateAccountSuccess(false);
+          setCreateAccountData({
+            fullName: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            role: 'student',
+          });
+          setFeedbackMessage('');
+          setFeedbackTone('info');
         });
-        setFeedbackMessage('');
-        setFeedbackTone('info');
       }, 2000);
       return;
     }
@@ -315,6 +368,15 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
      setShowPassword((prev) => !prev);
    };
 
+   const brandMark = (
+     <>
+       <img src={logoImage} alt="Ateneo de Davao University logo" className="h-12 w-12 rounded-full border border-white/20 bg-white/10 object-contain p-1" />
+       <span className="font-sans text-2xl/none font-bold tracking-wide text-app-text sm:text-3xl/none">
+         ScholarPath <span className="text-blue-700 dark:text-sky-300">AdDU</span>
+       </span>
+     </>
+   );
+
    return (
      <div className="login-screen" style={{ '--login-bg': `url(${bgImage})` }}>
       <div className="login-overlay" />
@@ -331,14 +393,22 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       </button>
       <div className="login-content">
       {!showCreateAccount ? (
-         <section className="grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
+         <section className="auth-card grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
            <div className="grid content-start gap-4 rounded-app bg-gradient-to-br from-blue-500/10 to-slate-950/20 p-5 sm:p-6">
-             <div className="inline-flex items-center gap-3">
-               <img src={logoImage} alt="Ateneo de Davao University logo" className="h-12 w-12 rounded-full border border-white/20 bg-white/10 object-contain p-1" />
-               <span className="font-sans text-2xl/none font-bold tracking-wide text-app-text sm:text-3xl/none">
-                 ScholarPath <span className="font-display text-blue-700 dark:text-sky-300">AdDU</span>
-               </span>
-            </div>
+             {/* With the landing page in front of it, the logo and name are the way back. */}
+             {onBackToHome ? (
+               <button
+                 type="button"
+                 className="inline-flex w-fit items-center gap-3 rounded-xl bg-transparent p-0 text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+                 onClick={onBackToHome}
+                 aria-label="ScholarPath AdDU, back to home"
+                 title="Back to home"
+               >
+                 {brandMark}
+               </button>
+             ) : (
+               <div className="inline-flex items-center gap-3">{brandMark}</div>
+             )}
              <h1 className="hidden text-3xl font-extrabold leading-tight text-app-text sm:block lg:text-5xl">Sign in to your scholarship workspace</h1>
           </div>
 
@@ -375,12 +445,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                 <input className="login-remember-checkbox h-4 w-4 shrink-0 accent-[var(--primary)]" type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />
                  <span>Remember me</span>
               </label>
-               <button type="button" className="text-sm font-semibold text-app-primary hover:opacity-80" onClick={() => {
-                setFeedbackMessage('');
-                setFeedbackTone('info');
-                setResetSent(false);
-                setShowForgotPassword(true);
-              }}>Forgot password?</button>
+               <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={openForgotPassword}>Forgot password?</button>
             </div>
             {feedbackMessage && (
                <div className={`feedback-banner w-full rounded-xl border px-3 py-3 text-sm ${feedbackTone === 'error' ? 'feedback-banner--error border-rose-400/30 bg-rose-500/10 text-rose-200' : feedbackTone === 'success' ? 'feedback-banner--success border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'feedback-banner--info border-sky-400/30 bg-sky-500/10 text-sky-200'}`} role="status">
@@ -418,20 +483,22 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                )}
              </button>
             <button type="button" className="segmented-auth-action segmented-auth-action--create inline-flex min-h-10 min-w-0 flex-1 items-center justify-center bg-transparent px-3 py-2 text-sm font-semibold text-app-text transition hover:bg-blue-500/10 focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
-              setFeedbackMessage('');
-              setFeedbackTone('info');
-              setShowCreateAccount(true);
+              switchAuthView(true, () => {
+                setFeedbackMessage('');
+                setFeedbackTone('info');
+              });
             }}>Create account</button>
             </div>
           </form>
         </section>
       ) : (
-         <section className="create-account-section my-4 grid w-full max-w-2xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:my-6 sm:p-6">
+         <section className="auth-card create-account-section my-4 grid w-full max-w-2xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:my-6 sm:p-6">
            <div className="create-account-header grid gap-2 px-1 pt-1">
-             <button type="button" className="create-account-back inline-flex w-fit items-center gap-2 bg-transparent px-0 py-1 text-sm font-semibold text-app-primary hover:bg-transparent hover:opacity-80 focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => {
-              setFeedbackMessage('');
-              setFeedbackTone('info');
-              setShowCreateAccount(false);
+             <button type="button" className="create-account-back inline-flex w-fit items-center gap-2 bg-transparent px-0 py-1 text-sm font-semibold text-app-primary dark:text-sky-300 hover:bg-transparent hover:opacity-80 focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => {
+              switchAuthView(false, () => {
+                setFeedbackMessage('');
+                setFeedbackTone('info');
+              });
             }}>
               <ArrowLeft size={16} /> Back
             </button>
@@ -450,14 +517,15 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
               <p className="m-0 text-lg font-semibold text-app-text">Account created successfully!</p>
               <p className="m-0 text-sm text-app-muted">You can now sign in with your email and password.</p>
               <button type="button" className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
-                setShowCreateAccount(false);
-                setCreateAccountSuccess(false);
-                setCreateAccountData({
-                  fullName: '',
-                  email: '',
-                  password: '',
-                  confirmPassword: '',
-                  role: 'student',
+                switchAuthView(false, () => {
+                  setCreateAccountSuccess(false);
+                  setCreateAccountData({
+                    fullName: '',
+                    email: '',
+                    password: '',
+                    confirmPassword: '',
+                    role: 'student',
+                  });
                 });
               }}>Back to sign in</button>
             </div>
@@ -530,7 +598,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                     <button
                       key={key}
                       type="button"
-                      className="font-semibold text-app-primary underline-offset-2 hover:underline"
+                      className="font-semibold text-app-primary dark:text-sky-300 underline-offset-2 hover:underline"
                       onClick={() => onOpenLegalDocument?.(key)}
                     >
                       {getLegalDocumentTitle(key)}
@@ -544,56 +612,72 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
         </section>
       )}
       {showForgotPassword && (
-        <div className="modal-overlay" onClick={() => setShowForgotPassword(false)}>
-          <div className="w-full max-w-[420px] rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur" onClick={(e) => e.stopPropagation()}>
-            <h2 className="m-0 text-2xl font-bold text-app-text">Reset your password</h2>
-            <p className="mt-2 text-sm text-app-muted">Enter your email address and we’ll send you a password reset link.</p>
-            {feedbackMessage && (
-              <div className={`feedback-banner w-full rounded-xl border px-3 py-3 text-sm ${feedbackTone === 'error' ? 'feedback-banner--error border-rose-400/30 bg-rose-500/10 text-rose-200' : feedbackTone === 'success' ? 'feedback-banner--success border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'feedback-banner--info border-sky-400/30 bg-sky-500/10 text-sky-200'}`} role="status">
-                {feedbackMessage}
-              </div>
-            )}
-            {resetSent ? (
-              <div className="grid place-items-center gap-3 py-6 text-center">
-                <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-400"><Check size={24} /></div>
-                <p className="m-0 text-sm text-app-text">Reset link sent to <strong>{forgotEmail}</strong></p>
-                <p className="m-0 text-sm text-app-muted">Check your email for further instructions.</p>
-              </div>
-            ) : (
-                <form className="grid gap-4" onSubmit={handleForgotPassword}>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-app-text">Email address</span>
-                  <input
-                    type="email"
-                    value={forgotEmail}
-                    onChange={(event) => setForgotEmail(event.target.value)}
-                    placeholder="Email address"
-                    required
-                  />
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-              <button type="button" className="text-sm font-semibold text-app-primary hover:opacity-80" onClick={() => {
-                setFeedbackMessage('');
-                setFeedbackTone('info');
-                setResetSent(false);
-                setShowForgotPassword(true);
-              }}>Forgot password?</button>
-                  <button type="submit" className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" disabled={!forgotEmail}>Send reset link</button>
+        <ModalShell
+          title="Reset your password"
+          onClose={closeForgotPassword}
+          className="w-full max-w-[420px]"
+          header={(
+            <div className="mb-5 grid gap-1.5">
+              <h2 className="m-0 text-xl font-bold text-app-text">Reset your password</h2>
+              <p className="m-0 text-sm leading-relaxed text-app-muted">
+                {resetSent
+                  ? 'Check your inbox for the link to choose a new password.'
+                  : 'Enter the email address you use to sign in, and we’ll send you a link to choose a new password.'}
+              </p>
+            </div>
+          )}
+        >
+          {resetSent ? (
+            <div className="grid gap-5">
+              <div className="flex min-w-0 items-start gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"><Check size={18} /></div>
+                <div className="grid min-w-0 gap-0.5 text-sm">
+                  <span className="text-app-text">Reset link sent to <strong className="[overflow-wrap:anywhere]">{forgotEmail}</strong></span>
+                  <span className="text-app-muted">It can take a minute to arrive. Check your spam folder too.</span>
                 </div>
-              </form>
-            )}
-          </div>
-        </div>
+              </div>
+              <Button variant="primary" type="button" className="w-full" onClick={closeForgotPassword}>Back to sign in</Button>
+            </div>
+          ) : (
+            <form className="grid gap-5" onSubmit={handleForgotPassword}>
+              <FormField label="Email address">
+                <input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(event) => setForgotEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </FormField>
+              {feedbackMessage && feedbackTone === 'error' && (
+                <div className="feedback-banner feedback-banner--error w-full rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-3 text-sm text-rose-200" role="alert">
+                  {feedbackMessage}
+                </div>
+              )}
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <Button variant="ghost" type="button" onClick={closeForgotPassword}>Cancel</Button>
+                <Button variant="primary" type="submit" disabled={!forgotEmail.trim() || isSendingReset}>
+                  {isSendingReset ? 'Sending…' : 'Send reset link'}
+                </Button>
+              </div>
+            </form>
+          )}
+        </ModalShell>
       )}
       {/* The privacy documents are reachable before sign-in: the browser storage the
           notice describes already exists at this point. */}
+      {/* The create-account form already carries these links beside its consent
+          checkbox, so the footer card is shown on the sign-in view only. */}
+      {!showCreateAccount && (
       <div className="login-legal-links mt-1 grid w-full max-w-5xl justify-items-center gap-1 text-center text-xs text-app-muted">
         <span className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
           {LEGAL_DOCUMENT_KEYS.map((key) => (
             <button
               key={key}
               type="button"
-              className="font-semibold text-app-primary hover:opacity-80"
+              className="font-semibold text-app-primary dark:text-sky-300 hover:opacity-80"
               onClick={() => onOpenLegalDocument?.(key)}
             >
               {getLegalDocumentTitle(key)}
@@ -602,6 +686,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
         </span>
         <span>ScholarPath AdDU is a research prototype of Ateneo de Davao University. Your information is handled under the Data Privacy Act of 2012.</span>
       </div>
+      )}
       </div>
     </div>
   );

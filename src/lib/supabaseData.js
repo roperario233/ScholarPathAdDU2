@@ -187,6 +187,25 @@ const toWaitlistRank = (row) => ({
   rank: Number(row.rank) || 0,
   updatedAt: row.updated_at,
 });
+// An additional-documents request (application_document_requests). The note is
+// shown to the student, so it is carried as-is; there is no staff-only text here.
+const toDocumentRequest = (row) => ({
+  id: row.id,
+  applicationId: row.application_id,
+  kind: row.kind,
+  requirementId: row.requirement_id || null,
+  documentTypes: Array.isArray(row.document_types) ? row.document_types : [],
+  label: row.label || '',
+  note: row.note || '',
+  minFiles: Number(row.min_files) || 1,
+  status: row.status || 'Open',
+  requestedBy: row.requested_by || null,
+  requestedByRole: row.requested_by_role || '',
+  createdAt: row.created_at,
+  updatedAt: row.updated_at,
+  fulfilledAt: row.fulfilled_at || null,
+  cancelReason: row.cancel_reason || '',
+});
 const toNotification = (row) => ({ ...row, profileId: row.profile_id, createdAt: row.created_at, updatedAt: row.updated_at });
 const toDepartmentReview = (row) => ({
   ...row,
@@ -455,6 +474,23 @@ export const loadSupabaseWorkspace = async ({ role, userId, department, signal, 
     if (!ranksResult.error) waitlistRanks = (ranksResult.data || []).map(toWaitlistRank);
   }
 
+  // Additional-document requests (application_document_requests, from
+  // 20261114000000). Every role reads them through RLS: the student their own, the
+  // office all, the ladder its scope. A pending migration yields no rows and reports
+  // documentRequestsReady: false.
+  let documentRequests = [];
+  let documentRequestsReady = true;
+  if (applicationIds.length) {
+    const requestsResult = await fetchRowsInBatches(applicationIds, (ids) => supabase
+      .from('application_document_requests')
+      .select('*')
+      .in('application_id', ids)
+      .order('created_at', { ascending: true })
+      .order('id', { ascending: true }));
+    if (requestsResult.error) documentRequestsReady = false;
+    else documentRequests = (requestsResult.data || []).map(toDocumentRequest);
+  }
+
   // The Admissions Office case-officer roster (application_case_officers, from
   // 20261027043147). Admissions Office sessions only: the student and the
   // Department Chair never receive these rows. The roster is what splits the
@@ -531,6 +567,8 @@ export const loadSupabaseWorkspace = async ({ role, userId, department, signal, 
     scholarshipOffers,
     scholarshipOffersReady,
     waitlistRanks,
+    documentRequests,
+    documentRequestsReady,
     staffDirectory,
     // Staff-only case-officer roster: which Admissions Office accounts have
     // opened which application. Empty for a student or Department Chair session.
@@ -648,7 +686,8 @@ export const loadSupabaseWorkspaceChanges = async ({
   const [applicationsResult, documentsResult, notificationsResult, profilesResult, scholarshipsResult,
     linkChangesResult, commentsResult, notesResult, panelistsResult, caseOfficersResult,
     grantAmountsResult, waitlistRanksResult, offersResult, releasesResult, officeEntriesResult,
-    approvalLevelsResult, interviewLocationsResult, announcementsResult, deadlinesResult, reviewsResult] = await Promise.all([
+    approvalLevelsResult, interviewLocationsResult, announcementsResult, deadlinesResult, reviewsResult,
+    documentRequestsResult] = await Promise.all([
     fetchPagedRows(() => supabase.from('applications').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }), { signal }),
     fetchPagedRows(() => supabase.from('documents').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true }), { signal }),
     fetchPagedRows(() => supabase.from('notifications').select('*').eq('profile_id', userId).gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true })),
@@ -687,6 +726,7 @@ export const loadSupabaseWorkspaceChanges = async ({
     isReviewer
       ? fetchPagedRows(() => supabase.from('department_reviews').select('*').eq('department', department).gt('created_at', sinceIso).order('created_at', { ascending: true }).order('id', { ascending: true }))
       : Promise.resolve(emptyResult),
+    fetchPagedRows(() => supabase.from('application_document_requests').select('*').gt('updated_at', sinceIso).order('updated_at', { ascending: true }).order('id', { ascending: true })),
   ]);
 
   if (signal?.aborted) return { success: false, fallback: false, cancelled: true };
@@ -821,6 +861,7 @@ export const loadSupabaseWorkspaceChanges = async ({
     ...(notesReady ? { interviewNotes: (notesResult.data || []).map((row) => toInterviewNote(row, nameById)) } : {}),
     ...(grantAmountsResult.error || relatedGrantResult.error ? {} : { grantAmounts }),
     ...(waitlistRanksResult.error || relatedRanksResult.error ? {} : { waitlistRanks }),
+    ...(documentRequestsResult.error ? {} : { documentRequests: (documentRequestsResult.data || []).map(toDocumentRequest), documentRequestsReady: true }),
     ...(offersResult.error || relatedOffersResult.error ? {} : { scholarshipOffers, scholarshipOffersReady: true }),
     ...(panelistsResult.error || relatedPanelistsResult.error ? {} : { interviewPanelists }),
     ...(caseOfficersResult.error ? {} : { caseOfficers: (caseOfficersResult.data || []).map(toCaseOfficer), caseOfficersReady: true }),
@@ -1247,6 +1288,41 @@ export const replaceSupabaseApplicationDocument = (applicationId, oldDocumentId,
         p_new_document_id: newDocumentId,
       }).then(({ error }) => ({ error }))
     : Promise.resolve({ error: { message: 'Supabase is not configured.' } })
+);
+
+// Additional-document requests (20261114000000). Each RPC re-checks the caller:
+// the Admin raises and cancels a request, the owning student answers it.
+const documentRequestResult = ({ data, error }) => (
+  error ? { error } : { request: toDocumentRequest(Array.isArray(data) ? data[0] : data) }
+);
+const supabaseNotConfigured = () => Promise.resolve({ error: { message: 'Supabase is not configured.' } });
+
+export const requestSupabaseApplicationDocuments = (applicationId, {
+  kind, requirementId = null, documentTypes = [], label, note, minFiles = 1,
+} = {}) => (
+  ensureReady()
+    ? supabase.rpc('request_application_documents', {
+        p_application_id: applicationId,
+        p_kind: kind,
+        p_requirement_id: requirementId,
+        p_document_types: documentTypes,
+        p_label: label,
+        p_note: note,
+        p_min_files: minFiles,
+      }).then(documentRequestResult)
+    : supabaseNotConfigured()
+);
+
+export const cancelSupabaseDocumentRequest = (requestId, reason) => (
+  ensureReady()
+    ? supabase.rpc('cancel_document_request', { p_request_id: requestId, p_reason: reason }).then(documentRequestResult)
+    : supabaseNotConfigured()
+);
+
+export const fulfillSupabaseDocumentRequest = (requestId, documentIds) => (
+  ensureReady()
+    ? supabase.rpc('fulfill_document_request', { p_request_id: requestId, p_document_ids: documentIds }).then(documentRequestResult)
+    : supabaseNotConfigured()
 );
 
 export const detachSupabaseApplicationDocument = (applicationId, documentId) => (

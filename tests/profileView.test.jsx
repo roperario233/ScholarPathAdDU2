@@ -21,6 +21,7 @@ const student = {
   academicStanding: 'good',
   civilStatus: '',
   completeAddress: 'Roxas Ave, Davao City',
+  country: 'Philippines',
   housingType: 'I live at home',
   ipCommunity: 'No',
   pwd: 'No',
@@ -74,9 +75,17 @@ describe('My Profile as the application form', () => {
     expect(html).toContain('Reverted');
     expect(html).toContain(': Needs attention, 1 proof to replace');
     expect(html).toContain('Continue: Personal information');
-    expect(html).toContain('answers to go');
+    // The header counts what is left to finish the form, not only answers: a proof
+    // the office reverted is one of those items too.
+    expect(html).toContain('items left');
     expect(html).toContain('>Application form<');
     expect(html).toContain('Your application form');
+  });
+
+  it('reads one remaining item in the singular', () => {
+    const html = render({ profile: { ...student, civilStatus: 'Single' }, role: 'student' });
+    expect(html).toContain('item left');
+    expect(html).not.toContain('items left');
   });
 
   it('offers a scholarship search once every part is complete', () => {

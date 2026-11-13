@@ -77,17 +77,17 @@ function ScheduleRow({ application, schedulers = [], isAdmin = false, onOpen }) 
           </p>
         )}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-        {isAdmin ? (
-          <p className="m-0 min-w-0 flex-1 text-xs font-semibold text-amber-700 dark:text-amber-200">
-            Not the intended flow: the interviewers above schedule this. Step in only if needed.
-          </p>
-        ) : (
-          <p className="m-0 min-w-0 flex-1 text-xs text-app-muted">Read-only for Admissions Office Staff.</p>
-        )}
+      <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-2">
         <Button type="button" onClick={() => onOpen(application.id)}>
           {isAdmin ? 'Schedule as Admin (override)' : 'View case'}
         </Button>
+        {isAdmin ? (
+          <p className="m-0 min-w-0 flex-1 text-left text-xs font-semibold text-amber-700 dark:text-amber-200">
+            Not the intended flow: the interviewers above schedule this. Step in only if needed.
+          </p>
+        ) : (
+          <p className="m-0 min-w-0 flex-1 text-left text-xs text-app-muted">Read-only for Admissions Office Staff.</p>
+        )}
       </div>
     </article>
   );

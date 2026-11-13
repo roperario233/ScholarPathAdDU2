@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, X } from 'lucide-react';
 import { getApplicationProgress, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
@@ -112,21 +112,52 @@ export function AnnouncementItem({ entry }) {
   );
 }
 
+// How long the menu plays its exit before unmounting (styles.css, `.notification-dropdown`).
+const NOTIFICATION_MENU_CLOSE_MS = 140;
+
 export function NotificationDropdown({ notifications, announcements, onMarkRead, loading = false }) {
   const [isOpen, setIsOpen] = useState(false);
+  // The menu stays mounted while it plays its exit (`.notification-dropdown`
+  // `data-state="closed"` in styles.css), then the timer unmounts it. Every way of
+  // closing goes through `closeMenu`, so none of them cuts the animation short.
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef(null);
   const dropdownRef = useRef(null);
   const unreadCount = notifications.filter((entry) => entry.status === 'Unread').length;
+
+  useEffect(() => () => window.clearTimeout(closeTimerRef.current), []);
+
+  const openMenu = () => {
+    window.clearTimeout(closeTimerRef.current);
+    closeTimerRef.current = null;
+    setIsClosing(false);
+    setIsOpen(true);
+  };
+
+  const closeMenu = useCallback(() => {
+    if (closeTimerRef.current) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setIsOpen(false);
+      return;
+    }
+    setIsClosing(true);
+    closeTimerRef.current = window.setTimeout(() => {
+      closeTimerRef.current = null;
+      setIsOpen(false);
+      setIsClosing(false);
+    }, NOTIFICATION_MENU_CLOSE_MS);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return undefined;
 
     const closeOnOutsideClick = (event) => {
       if (!dropdownRef.current?.contains(event.target)) {
-        setIsOpen(false);
+        closeMenu();
       }
     };
     const closeOnEscape = (event) => {
-      if (event.key === 'Escape') setIsOpen(false);
+      if (event.key === 'Escape') closeMenu();
     };
 
     document.addEventListener('mousedown', closeOnOutsideClick);
@@ -135,16 +166,16 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead,
       document.removeEventListener('mousedown', closeOnOutsideClick);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [isOpen]);
+  }, [isOpen, closeMenu]);
 
   return (
     <div className="relative z-[45] min-w-0" ref={dropdownRef}>
       <button
         type="button"
         className={`relative inline-grid h-11 w-11 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20 ${unreadCount ? 'ring-2 ring-rose-400/30' : ''}`}
-        onClick={() => setIsOpen((previous) => !previous)}
+        onClick={() => (isOpen && !isClosing ? closeMenu() : openMenu())}
         aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ''}`}
-        aria-expanded={isOpen}
+        aria-expanded={isOpen && !isClosing}
         title="View notifications and announcements"
       >
         <Bell aria-hidden="true" size={20} />
@@ -152,7 +183,7 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead,
       </button>
 
       {isOpen && (
-        <div className="notification-dropdown absolute right-0 top-[calc(100%+0.7rem)] w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-app-border bg-app-card shadow-2xl animate-[notificationMenuIn_140ms_ease-out] sm:w-96" role="dialog" aria-label="Notifications and announcements">
+        <div className="notification-dropdown absolute right-0 top-[calc(100%+0.7rem)] w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-2xl border border-app-border bg-app-card shadow-2xl sm:w-96" data-state={isClosing ? 'closed' : 'open'} role="dialog" aria-label="Notifications and announcements">
           <div className="flex items-start justify-between gap-4 border-b border-app-border px-4 py-3">
             <div className="grid gap-1">
               <strong className="text-sm text-app-text">Notifications</strong>
@@ -160,7 +191,7 @@ export function NotificationDropdown({ notifications, announcements, onMarkRead,
                 ? <Skeleton className="h-3 w-28" />
                 : <span className="text-xs text-app-muted">{unreadCount ? `${unreadCount} unread update${unreadCount === 1 ? '' : 's'}` : 'You are all caught up'}</span>}
             </div>
-            <button type="button" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-app-surface hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => setIsOpen(false)} aria-label="Close notifications"><X size={18} /></button>
+            <button type="button" className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg text-app-muted transition hover:bg-app-surface hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={closeMenu} aria-label="Close notifications"><X size={18} /></button>
           </div>
           <div className="app-scroll grid max-h-[min(62vh,32rem)] gap-2 overflow-y-auto p-3">
             {notifications.slice(0, 5).map((entry) => (

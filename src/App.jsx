@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, serializePersistedState, storageKey } from './lib/appState';
 import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
@@ -18,15 +19,16 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { INTERVIEW_STAGE_CLOSED, buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, loadSupabaseWorkspaceChanges, loadSupabaseWorkspaceDetails, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, releaseSupabaseScholarshipResults, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, loadSupabaseWorkspaceChanges, loadSupabaseWorkspaceDetails, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, releaseSupabaseScholarshipResults, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, requestSupabaseApplicationDocuments, cancelSupabaseDocumentRequest, fulfillSupabaseDocumentRequest, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
-import { SidebarNav, SidebarProfile, SidebarStats } from './components/SidebarParts';
+import { SidebarNav, SidebarNavAction, SidebarProfile, SidebarStats } from './components/SidebarParts';
 import { ViewSkeleton } from './components/Skeleton';
 import SessionTimeoutModal from './components/SessionTimeoutModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
+import { shouldSkipLanding } from './lib/landingGate';
 import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
@@ -52,8 +54,10 @@ import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { memoizeLast } from './lib/memoizeLast';
 import { CaseDetailsContext } from './lib/caseDetailsContext';
+import { DocumentRequestsContext } from './lib/documentRequestsContext';
 import WorkspaceSyncNotice from './components/WorkspaceSyncNotice';
 import { classifySupabaseError, describeWriteError, isTransientErrorKind } from './lib/errorKinds';
+import { canRequestDocuments } from './lib/documentRequests';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 import { getGrantAmountForApplication, isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
 import { getOfferForApplication, isOfferRoundClosed, isValidConfirmBy } from './lib/resultsRound';
@@ -71,7 +75,38 @@ import AdminSupportInboxPage from './pages/admin/AdminSupportInbox';
 
 const EMPTY_NOTIFICATIONS = [];
 
-const SUPPORT_INBOX_CHANNEL_ENABLED = isSupportInboxChannel();
+// The public landing page is its own chunk: a signed-in session never downloads it.
+const LandingPage = lazy(() => import('./pages/LandingPage'));
+
+// Swaps the signed-out screen inside a view transition where the browser has one
+// and motion is welcome; elsewhere it is a plain state change.
+// `kind` is exposed as `data-vt` on <html> for the length of the transition so a
+// stylesheet rule can target one transition (the sign-in hand-off) without
+// changing how the others (sign-in <-> create account) animate.
+const withViewTransition = (update, kind = '') => {
+  const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || reduceMotion) {
+    update();
+    return;
+  }
+  const root = document.documentElement;
+  if (kind) root.dataset.vt = kind;
+  const clear = () => { if (kind && root.dataset.vt === kind) delete root.dataset.vt; };
+  try {
+    document.startViewTransition(() => flushSync(update)).finished.then(clear, clear);
+  } catch {
+    clear();
+    update();
+  }
+};
+
+// How long the workspace plays its exit before sign-out clears it (styles.css,
+// `data-shell-leaving`; the longest part of the sweep ends at about 330ms).
+const SIGN_OUT_EXIT_MS = 300;
+// How long the mobile page drawer takes to slide shut (styles.css, `.mobile-nav-panel`).
+const MOBILE_NAV_CLOSE_MS = 190;
+
+const SUPPORT_INBOX_CHANNEL_ENABLED =isSupportInboxChannel();
 const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT ?? 'true').trim().toLowerCase() !== 'false';
 // The optional tawk.to live chat is the only third party in the build that can set a
 // cookie, so the storage notice offers it only when this deployment really uses it:
@@ -327,10 +362,6 @@ const selectStudentApplications = memoizeLast((applications, ownerId, holdResult
   .map((entry) => (holdResults ? maskApplicationForStudent(entry, releases) : entry)));
 const selectOwnedDocuments = memoizeLast((documents, ownerId) => documents.filter((entry) => entry.ownerId === ownerId));
 
-// Pages whose figures read the per-case status history or panel notes, which a
-// staff session loads just after the first screen.
-const HISTORY_DEPENDENT_VIEWS = new Set(['admin', 'admin-statistics', 'chair-statistics', 'admin-calendar', 'chair-calendar']);
-
 function App() {
   const [state, setState] = useState(createInitialState);
   const lastPersistedStateRef = useRef(null);
@@ -339,11 +370,49 @@ function App() {
   const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
   const [isStudentSupportOpen, setIsStudentSupportOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  // The drawer stays mounted while it slides shut: `isMobileNavClosing` plays the
+  // exit (styles.css, `.mobile-nav-*[data-state='closed']`) and the timer then
+  // unmounts it, so closing animates instead of vanishing.
+  const [isMobileNavClosing, setIsMobileNavClosing] = useState(false);
+  const mobileNavCloseTimerRef = useRef(null);
+  useEffect(() => () => window.clearTimeout(mobileNavCloseTimerRef.current), []);
+  const openMobileNav = () => {
+    window.clearTimeout(mobileNavCloseTimerRef.current);
+    setIsMobileNavClosing(false);
+    setIsMobileNavOpen(true);
+  };
+  const closeMobileNav = () => {
+    if (!isMobileNavOpen || isMobileNavClosing) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setIsMobileNavOpen(false);
+      return;
+    }
+    setIsMobileNavClosing(true);
+    mobileNavCloseTimerRef.current = window.setTimeout(() => {
+      setIsMobileNavOpen(false);
+      setIsMobileNavClosing(false);
+    }, MOBILE_NAV_CLOSE_MS);
+  };
   // theme: 'dark' | 'light' — persisted in state
   const [isBooting, setIsBooting] = useState(true);
   const [isSessionChecked, setIsSessionChecked] = useState(false);
   const [sessionTimeoutState, setSessionTimeoutState] = useState(null);
   const [sessionNotice, setSessionNotice] = useState('');
+  // Signed-out screen: null follows the skip rule (src/lib/landingGate.js);
+  // 'landing' or 'login' is the visitor's own choice and wins until they sign in.
+  const [landingChoice, setLandingChoice] = useState(null);
+  const [loginMode, setLoginMode] = useState('signin');
+  // A sign-in points the signed-out screen at the login card, so a later
+  // sign-out or timeout returns to sign in rather than the landing page; the
+  // card's logo still leads back to it (state adjusted during render, not in an effect).
+  const [landingAuthSeen, setLandingAuthSeen] = useState(false);
+  if (state.isAuthenticated !== landingAuthSeen) {
+    setLandingAuthSeen(state.isAuthenticated);
+    if (state.isAuthenticated) {
+      setLandingChoice('login');
+      setLoginMode('signin');
+    }
+  }
   const endingSessionRef = useRef(false);
   const absoluteWarningDismissedRef = useRef(false);
   const lastValidationAtRef = useRef(0);
@@ -429,22 +498,49 @@ function App() {
             : '';
     // Remove the authenticated UI immediately. Network sign-out can take time;
     // the local guard must not wait for token revocation to complete.
-    setState((previous) => createFreshState(devicePreferencesOf(previous)));
-    setProfileOnboarding(null);
-    setIsSupabaseWorkspaceLoaded(false);
-    setIsWorkspaceSettled(false);
-    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
-    setDeadlineSync(null);
-    setAvatarPreview({ path: '', url: '' });
-    setFinancial(emptyFinancialState);
-    // The consent record slice and the open policy dialog belong to the account that
-    // is leaving; the next person on this browser starts from a clean read.
-    setPrivacyConsent(null);
-    setPrivacyConsentError('');
-    setLegalDocDialog(null);
-    setSessionTimeoutState(null);
-    setSessionNotice(notice);
-    setIsSessionChecked(true);
+    const clearAuthenticatedUi = () => {
+      setState((previous) => createFreshState(devicePreferencesOf(previous)));
+      setProfileOnboarding(null);
+      setIsSupabaseWorkspaceLoaded(false);
+      setIsWorkspaceSettled(false);
+      setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
+      setDeadlineSync(null);
+      setAvatarPreview({ path: '', url: '' });
+      setFinancial(emptyFinancialState);
+      // The consent record slice and the open policy dialog belong to the account that
+      // is leaving; the next person on this browser starts from a clean read.
+      setPrivacyConsent(null);
+      setPrivacyConsentError('');
+      setLegalDocDialog(null);
+      setSessionTimeoutState(null);
+      setSessionNotice(notice);
+      setIsSessionChecked(true);
+    };
+    // A visible workspace sweeps out on the live page (CSS keyed to
+    // data-shell-leaving), then the sign-in screen eases in (data-entering). It is
+    // not a view transition: that flattens the frosted header, sidebar and cards
+    // into images and they render blurry. A boot-time failure (no workspace on
+    // screen yet), a hidden tab, or reduced motion swaps plainly.
+    const root = document.documentElement;
+    const sweep = Boolean(latestWorkspaceStateRef.current?.isAuthenticated)
+      && !document.hidden
+      && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (sweep) {
+      root.dataset.shellLeaving = '';
+      try {
+        await new Promise((resolve) => { window.setTimeout(resolve, SIGN_OUT_EXIT_MS); });
+        // Applied in the same tick as the attribute swap below, so the old page
+        // never flashes back for a frame between the exit and the entrance.
+        flushSync(clearAuthenticatedUi);
+        root.dataset.entering = 'sign-out';
+        window.setTimeout(() => { if (root.dataset.entering === 'sign-out') delete root.dataset.entering; }, 1000);
+      } finally {
+        // The flag disables pointer events on the page, so it must never outlive the exit.
+        delete root.dataset.shellLeaving;
+      }
+    } else {
+      clearAuthenticatedUi();
+    }
     try {
       if (!skipSupabaseSignOut) await signOutFromSupabase();
     } catch {
@@ -453,7 +549,7 @@ function App() {
     } finally {
       endingSessionRef.current = false;
     }
-  }, [setLegalDocDialog]);
+  }, [setLegalDocDialog, setDeadlineSync]);
 
   const persistedState = serializePersistedState(state);
   useEffect(() => {
@@ -1066,7 +1162,12 @@ function App() {
       const profileAvatar = await getProfileAvatar(user.id);
       if (!active) return;
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
-      updateState((previous) => {
+      // A Google return hands over from the sign-in card; a restored session or
+      // reload comes from the loading screen, which a plain swap suits better.
+      const enterWorkspace = oauthStartedAt !== null
+        ? (update) => withViewTransition(update, 'sign-in')
+        : (update) => update();
+      enterWorkspace(() => updateState((previous) => {
         const base = adoptStateOwner(previous, user.id);
         return {
           ...base,
@@ -1100,7 +1201,7 @@ function App() {
             ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
           },
         };
-      });
+      }));
       // Resolve a short-lived URL for the stored avatar; the persisted value is
       // only the object path, never an expiring URL.
       if (active) {
@@ -1580,7 +1681,7 @@ function App() {
     // the route without one keeps the tab the reader was last on.
     if (view === 'legal' && options.doc) setLegalDoc(options.doc);
     updateState({ activeView: view });
-    setIsMobileNavOpen(false);
+    closeMobileNav();
   };
 
   const login = async (credentials) => {
@@ -1616,7 +1717,8 @@ function App() {
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const accountId = authResult.user?.id;
       const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
-      updateState((previous) => {
+      // The sign-in card hands over to the workspace inside a view transition.
+      withViewTransition(() => updateState((previous) => {
         const base = adoptStateOwner(previous, accountId);
         return {
           ...base,
@@ -1655,7 +1757,7 @@ function App() {
             ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
           },
         };
-      });
+      }), 'sign-in');
       const workspace = await loadSupabaseWorkspace({ role: resolvedRole, userId: accountId, department: profile?.department || '' });
       if (workspace.success) {
         updateState((previous) => {
@@ -2073,8 +2175,8 @@ function App() {
     // database trigger repeats the rule, so this guard only stops a stale
     // client from optimistically advancing an application it should not.
     if (ENDORSEMENT_BLOCKED_STATUSES.includes(status)
-      && !isApplicationVerifiedForEndorsement(application, state.documents)) {
-      return { error: 'Every attached document must be Verified before this stage.' };
+      && !isApplicationVerifiedForEndorsement(application, state.documents, state.documentRequests)) {
+      return { error: 'Every attached document must be Verified, and every document request answered, before this stage.' };
     }
     // Stage authority lives once in getNextApplicationStatuses
     // (src/lib/constants.js), so this guard and the role maps cannot drift apart.
@@ -2318,8 +2420,8 @@ function App() {
     // Manuscript 3.3.3: never record an endorsement for an application whose
     // attached documents are not all Verified. The status write refuses that
     // change too, so checking first keeps the client from a stale attempt.
-    if (!isApplicationVerifiedForEndorsement(application, state.documents)) {
-      return { error: 'Every attached document must be Verified before endorsement.' };
+    if (!isApplicationVerifiedForEndorsement(application, state.documents, state.documentRequests)) {
+      return { error: 'Every attached document must be Verified, and every document request answered, before endorsement.' };
     }
     const record = {
       reviewedBy: currentProfile.fullName || 'Admissions Office Admin',
@@ -2853,7 +2955,7 @@ function App() {
       (state.interviewNotes || []).filter((entry) => entry.applicationId === applicationId),
     );
     if (!panelRecommendation) {
-      return { error: 'Record a recommendation level with an evaluation note in the Interview tab first.' };
+      return { error: 'Record a recommendation level with an evaluation note in the Evaluation tab first.' };
     }
     let base = application;
     let closeWarning = '';
@@ -3306,6 +3408,98 @@ function App() {
     // The replacement's id lets the details view confirm which file now stands
     // in for the reverted one.
     return { ok: true, documentId: replacementId };
+  };
+
+  // Additional documents (20261114000000). The Admissions Office Admin may ask for
+  // more files, or one more document, while an application is at document
+  // verification; the stage does not change, but an open request holds the case
+  // there. The note is shown to the student. The database repeats every check
+  // (request_application_documents, fulfill_document_request,
+  // cancel_document_request), so these guards only avoid a stale attempt.
+  const upsertDocumentRequest = (request) => setState((previous) => {
+    const others = (previous.documentRequests || []).filter((entry) => entry.id !== request.id);
+    return { ...previous, documentRequests: [...others, request] };
+  });
+
+  const requestApplicationDocuments = async (applicationId, payload) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can request additional documents.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || !canRequestDocuments(application.status)) {
+      return { error: 'Documents can be requested only while the application is at document verification.' };
+    }
+    if (state.documentRequestsReady === false) {
+      return { error: 'Document requests are not available yet. Apply the pending database migration.' };
+    }
+    // RequestDocumentsModal validates the form with validateDocumentRequest(); the
+    // RPC checks the same rules again against the scholarship's own requirements.
+    const result = await requestSupabaseApplicationDocuments(applicationId, payload);
+    if (result.error) return { error: describeWriteError(result.error, 'The request could not be sent. Apply the pending database migration.') };
+    upsertDocumentRequest(result.request);
+    // The RPC appended the timeline event and, for a student with in-app alerts on,
+    // the notice; the next refresh delivers both. Mirror the timeline locally.
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => entry.id === applicationId ? {
+        ...entry,
+        timeline: [...(entry.timeline || []), {
+          id: `ev-${crypto.randomUUID()}`,
+          stage: 'For Verification',
+          note: 'The Admissions Office asked for additional documents.',
+          actor: 'Admissions Office',
+          at: new Date().toISOString().slice(0, 10),
+        }],
+      } : entry),
+    }));
+    return { ok: true, request: result.request };
+  };
+
+  const cancelDocumentRequest = async (requestId, reason) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can cancel a document request.' };
+    }
+    const note = String(reason || '').trim();
+    if (!note) return { error: 'Record why the request is being cancelled.' };
+    const result = await cancelSupabaseDocumentRequest(requestId, note);
+    if (result.error) return { error: describeWriteError(result.error, 'The request could not be cancelled.') };
+    upsertDocumentRequest(result.request);
+    return { ok: true };
+  };
+
+  // The student answers a request with vault files and/or new uploads (which land in
+  // the vault first, like the application workspace). The files arrive Pending for
+  // the Admin to verify, and the request closes in the same transaction.
+  const fulfillDocumentRequest = async (requestId, { documentIds = [], uploads = [] } = {}) => {
+    const request = (state.documentRequests || []).find((entry) => entry.id === requestId);
+    const application = request && state.applications.find((entry) => entry.id === request.applicationId);
+    if (!request || request.status !== 'Open' || !application
+      || application.studentId !== currentProfile.id || !canRequestDocuments(application.status)) {
+      return { error: 'This request is no longer open.' };
+    }
+    const uploadedIds = [];
+    for (const { file, documentType } of uploads) {
+      const upload = await uploadVaultDocument({ file, documentType });
+      if (upload.error) {
+        return { error: uploadedIds.length
+          ? `${upload.error} The files uploaded before it are in your Document Vault; choose them from the list to finish.`
+          : upload.error };
+      }
+      uploadedIds.push(upload.document.id);
+    }
+    const ids = [...new Set([...documentIds, ...uploadedIds])];
+    if (ids.length < (request.minFiles || 1)) {
+      return { error: `Add at least ${request.minFiles || 1} file${(request.minFiles || 1) === 1 ? '' : 's'} to answer this request.` };
+    }
+    const result = await fulfillSupabaseDocumentRequest(requestId, ids);
+    if (result.error) {
+      return { error: uploadedIds.length
+        ? `The files were saved to your Document Vault but could not be added to the application: ${result.error.message || 'please try again.'}`
+        : result.error.message || 'The files could not be added.' };
+    }
+    upsertDocumentRequest(result.request);
+    setApplicationAttachments(application.id, (current) => [...new Set([...current, ...ids])], { touch: false });
+    return { ok: true, count: ids.length };
   };
 
   const deleteDocument = async (documentId) => {
@@ -3810,8 +4004,10 @@ function App() {
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => (
-    <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className} />
+  const renderNavigation = (className = '', extraRows = null) => (
+    <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className}>
+      {extraRows}
+    </SidebarNav>
   );
 
   // The privacy documents are one quiet footer row rather than three more page
@@ -3857,19 +4053,47 @@ function App() {
   }
 
   if (!state.isAuthenticated) {
+    const toggleTheme = () => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }));
+    const showLanding = landingChoice
+      ? landingChoice === 'landing'
+      : !shouldSkipLanding({ sessionNotice, savedEmail: state.savedEmail, rememberMe: state.rememberMe });
+    const openLogin = (mode) => withViewTransition(() => {
+      setLoginMode(mode);
+      setLandingChoice('login');
+      window.scrollTo(0, 0);
+    });
+    const openLanding = () => withViewTransition(() => {
+      setLandingChoice('landing');
+      window.scrollTo(0, 0);
+    });
     return (
       <>
+        {showLanding ? (
+          <Suspense fallback={<div className="min-h-screen" style={{ background: 'var(--bg)' }} aria-busy="true" />}>
+            <LandingPage
+              theme={state.theme}
+              onToggleTheme={toggleTheme}
+              onGetStarted={() => openLogin('create')}
+              onSignIn={() => openLogin('signin')}
+              onOpenLegalDocument={openPrivacyDocument}
+            />
+          </Suspense>
+        ) : (
         <LoginScreenPage
+          key={loginMode}
+          initialMode={loginMode}
+          onBackToHome={openLanding}
           onLogin={login}
           onSignUp={signup}
           onForgotPassword={requestPasswordReset}
           rememberedEmail={state.savedEmail}
           isRemembered={state.rememberMe}
           theme={state.theme}
-          onToggleTheme={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+          onToggleTheme={toggleTheme}
           sessionNotice={sessionNotice}
           onOpenLegalDocument={openPrivacyDocument}
         />
+        )}
         {/* The notice is shown before sign-in too: the browser storage it describes
             already exists at this point. */}
         <PrivacyConsentBanner
@@ -3885,8 +4109,30 @@ function App() {
     );
   }
 
+  // The header's logo and title, rendered as a button below `lg` and as plain
+  // content from `lg` up (see the header).
+  const brandLockup = (
+    <>
+      <img src={logoImage} alt="Ateneo de Davao University logo" className="h-9 w-9 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-10 min-[400px]:w-10 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
+      <div className="min-w-0 font-sans text-[0.9375rem]/[1] font-bold tracking-wide text-app-text min-[400px]:text-base/[1] sm:text-3xl/none lg:text-4xl/none">
+        <span className="block truncate sm:inline">ScholarPath</span>{' '}
+        <span className="block truncate text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
+      </div>
+    </>
+  );
+
+  // The Admin's additional-document requests for the staff review modal (see
+  // src/lib/documentRequestsContext.js). Plain object: App re-renders its subtree anyway.
+  const documentRequestsContextValue = {
+    requests: state.documentRequests || [],
+    ready: state.documentRequestsReady !== false,
+    onRequest: requestApplicationDocuments,
+    onCancel: cancelDocumentRequest,
+  };
+
   return (
     <CaseDetailsContext.Provider value={ensureCaseDetails}>
+    <DocumentRequestsContext.Provider value={documentRequestsContextValue}>
     <div className={`min-h-screen max-w-[100vw] overflow-x-clip bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
       {sessionTimeoutState && (
         <SessionTimeoutModal
@@ -3922,16 +4168,24 @@ function App() {
         />
       )}
       {/* A solid bar that bleeds past the page padding to the screen edges. On a
-          phone the title stacks as a two-line lockup and the buttons compact so the
-          bigger logo and title still sit beside the avatar, theme toggle, bell, menu, and logout. */}
-      <header className="app-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] bg-[image:var(--header-gradient)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
+          phone the title stacks as a two-line lockup with a compact logo and title so the
+          full name fits beside the avatar, theme toggle, bell, menu, and logout. */}
+      <header className="app-header shell-enter-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] bg-[image:var(--header-gradient)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
         <div className="min-w-0 flex-1">
-          <div className="flex max-w-full items-center gap-2 sm:gap-3">
-            <img src={logoImage} alt="Ateneo de Davao University logo" className="h-11 w-11 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-12 min-[400px]:w-12 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
-            <div className="min-w-0 font-sans text-base/[0.95] font-bold tracking-wide text-app-text min-[375px]:text-lg/[0.95] min-[390px]:text-xl/[0.95] min-[400px]:text-2xl/[0.95] sm:text-3xl/none lg:text-4xl/none">
-              <span className="block truncate sm:inline">ScholarPath</span>{' '}
-              <span className="block truncate font-display text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
-            </div>
+          {/* Below `lg` (where the sidebar and its Dashboard link are in the drawer)
+              the logo and title are a shortcut home: the role's landing view, the
+              same one sign-in opens. From `lg` up the sidebar has that link, so the
+              lockup stays plain. */}
+          <button
+            type="button"
+            className="flex max-w-full min-w-0 items-center gap-2 rounded-xl text-left transition active:scale-[0.98] focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 sm:gap-3 lg:hidden"
+            onClick={() => navigate(landingViewForRole(state.viewerRole))}
+            aria-label="ScholarPath AdDU, go to home"
+          >
+            {brandLockup}
+          </button>
+          <div className="hidden max-w-full items-center gap-2 sm:gap-3 lg:flex">
+            {brandLockup}
           </div>
         </div>
 
@@ -3953,7 +4207,7 @@ function App() {
           )}
           <button
             type="button"
-            className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:h-11 sm:w-11"
+            className="hidden h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:h-11 sm:w-11 lg:inline-grid"
             onClick={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
             aria-label={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             title={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
@@ -3971,13 +4225,14 @@ function App() {
           <button
             type="button"
             className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 lg:hidden"
-            onClick={() => setIsMobileNavOpen((open) => !open)}
-            aria-label={isMobileNavOpen ? 'Close page navigation' : 'Open page navigation'}
-            aria-expanded={isMobileNavOpen}
+            onClick={() => (isMobileNavOpen && !isMobileNavClosing ? closeMobileNav() : openMobileNav())}
+            aria-label={isMobileNavOpen && !isMobileNavClosing ? 'Close page navigation' : 'Open page navigation'}
+            aria-expanded={isMobileNavOpen && !isMobileNavClosing}
           >
-            {isMobileNavOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
+            {isMobileNavOpen && !isMobileNavClosing ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
           </button>
-          <button className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-2 py-2 text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 sm:px-3" onClick={logout} aria-label="Logout" title="Logout">
+          {/* Below `lg` sign out lives at the bottom of the page drawer. */}
+          <button className="hidden min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-2 py-2 text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 sm:px-3 lg:inline-flex" onClick={logout} aria-label="Logout" title="Logout">
             <LogOut size={16} aria-hidden="true" />
           </button>
         </div>
@@ -3987,15 +4242,29 @@ function App() {
         <>
           <button
             type="button"
-            className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
-            onClick={() => setIsMobileNavOpen(false)}
+            className="mobile-nav-backdrop fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
+            data-state={isMobileNavClosing ? 'closed' : 'open'}
+            onClick={closeMobileNav}
             aria-label="Close page navigation"
           />
-          <aside className="app-scroll fixed inset-y-0 right-0 z-50 w-[min(21rem,88vw)] overflow-y-auto border-l border-app-border bg-app-card p-5 shadow-2xl lg:hidden" aria-label="Page navigation">
-            <div className="mb-5 flex justify-end">
-              <button type="button" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text" onClick={() => setIsMobileNavOpen(false)} aria-label="Close page navigation"><X size={18} /></button>
+          <aside className="mobile-nav-panel app-scroll fixed inset-y-0 right-0 z-50 w-[min(21rem,88vw)] overflow-y-auto border-l border-app-border bg-app-card p-5 shadow-2xl lg:hidden" data-state={isMobileNavClosing ? 'closed' : 'open'} aria-label="Page navigation">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              {/* The theme toggle lives here below `lg` (the header keeps it from `lg` up). */}
+              <button
+                type="button"
+                className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                onClick={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+                aria-label={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+                title={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              >
+                <span className="theme-toggle-icon" aria-hidden="true">
+                  {state.theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
+                </span>
+              </button>
+              <button type="button" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text" onClick={closeMobileNav} aria-label="Close page navigation"><X size={18} /></button>
             </div>
-            {renderNavigation()}
+            {/* Sign out is the last row of the page list, under Settings. */}
+            {renderNavigation('', <SidebarNavAction icon={LogOut} label="Sign out" onClick={() => { closeMobileNav(); logout(); }} />)}
             {renderLegalLinks('mt-5 border-t border-app-border pt-4')}
           </aside>
         </>
@@ -4005,7 +4274,7 @@ function App() {
         {/* Floats beside long pages from `lg`. It never scrolls on its own: when it is
             taller than the window its top (the page links) stays in view and the
             summary boxes below come into view at the bottom of the page. */}
-        <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
+        <aside className="shell-enter-aside sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
           <SidebarProfile avatarUrl={avatarPreview.url} name={currentIdentity.fullName} roleLine={identityRoleLine} detailLine={state.viewerRole === 'student' ? '' : identityDetailLine} />
 
           {renderNavigation('my-4')}
@@ -4016,14 +4285,15 @@ function App() {
           {renderLegalLinks('mt-4')}
         </aside>
 
-        <section className="blue-action-view grid min-w-0 content-start gap-5">
+        <section className="shell-enter-main blue-action-view grid min-w-0 content-start gap-5">
           <WorkspaceSyncNotice
             sync={workspaceSync}
             onRetry={() => refreshNowRef.current?.()}
-            historyLoading={state.viewerRole !== 'student' && !state.workspaceDetailsReady && HISTORY_DEPENDENT_VIEWS.has(state.activeView)}
           />
           {showViewSkeleton ? <ViewSkeleton view={state.activeView} /> : (
-          <>
+          // Keyed by the view so every page change, for every role, replays the
+          // short `.page-enter` ease-in instead of snapping into place.
+          <div key={state.activeView} className="page-enter grid min-w-0 content-start gap-5">
           {state.viewerRole === 'student' && state.activeView === 'dashboard' && (
             <DashboardViewPage
               profile={currentIdentity}
@@ -4064,6 +4334,8 @@ function App() {
               onDetach={detachDocumentFromApplication}
               onUploadAndAttach={uploadAndAttachDocument}
               onReplaceDocument={replaceRejectedDocument}
+              documentRequests={state.documentRequests || []}
+              onFulfillDocumentRequest={fulfillDocumentRequest}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
               financialAnswersByApplication={financial.answersByApplication}
@@ -4343,7 +4615,6 @@ function App() {
             <ProfileViewPage
               profile={currentIdentity}
               role={state.viewerRole}
-              roleLabel={roleLabels[state.viewerRole]}
               academicPrograms={activeAcademicPrograms}
               academicProgramGroups={activeAcademicProgramGroups}
               initialSection={profilePresetSection}
@@ -4450,7 +4721,7 @@ function App() {
               onSetStatus={updateSupportThreadStatus}
             />
           )}
-          </>
+          </div>
           )}
         </section>
       </main>
@@ -4500,6 +4771,7 @@ function App() {
         <LegalDocumentDialog doc={legalDocDialog} onClose={() => setLegalDocDialog(null)} />
       )}
     </div>
+    </DocumentRequestsContext.Provider>
     </CaseDetailsContext.Provider>
   );
 }

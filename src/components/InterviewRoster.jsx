@@ -59,18 +59,18 @@ export function InterviewRosterRow({
             {notesCount ? ` · ${notesCount} note${notesCount === 1 ? '' : 's'}` : ''}
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
-          <div className="flex flex-wrap justify-end gap-1.5">
-            <StatusBadge tone={getInterviewStateTone(entry.state)}>{getInterviewStateLabel(entry.state)}</StatusBadge>
-            {entry.revision > 1 ? <StatusBadge tone="warning">Rescheduled</StatusBadge> : null}
-            {entry.status === 'Interview' && entry.state === 'scheduled' && !panel.length ? <StatusBadge tone="warning">No panel</StatusBadge> : null}
-            {!entry.live && entry.state === 'scheduled' ? <StatusBadge tone="neutral">Closed</StatusBadge> : null}
-            {yourRole === 'lead' ? <StatusBadge tone="info">Lead</StatusBadge> : null}
-            {yourRole === 'member' ? <StatusBadge tone="neutral">On panel</StatusBadge> : null}
-            {yourRole === 'observer' ? <StatusBadge tone="neutral">View only</StatusBadge> : null}
-          </div>
-          <Button type="button" onClick={() => onOpen?.(entry.applicationId)}>{openLabel}</Button>
+        <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+          <StatusBadge tone={getInterviewStateTone(entry.state)}>{getInterviewStateLabel(entry.state)}</StatusBadge>
+          {entry.revision > 1 ? <StatusBadge tone="warning">Rescheduled</StatusBadge> : null}
+          {entry.status === 'Interview' && entry.state === 'scheduled' && !panel.length ? <StatusBadge tone="warning">No panel</StatusBadge> : null}
+          {!entry.live && entry.state === 'scheduled' ? <StatusBadge tone="neutral">Closed</StatusBadge> : null}
+          {yourRole === 'lead' ? <StatusBadge tone="info">Lead</StatusBadge> : null}
+          {yourRole === 'member' ? <StatusBadge tone="neutral">On panel</StatusBadge> : null}
+          {yourRole === 'observer' ? <StatusBadge tone="neutral">View only</StatusBadge> : null}
         </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-3">
+        <Button type="button" onClick={() => onOpen?.(entry.applicationId)}>{openLabel}</Button>
       </div>
     </article>
   );

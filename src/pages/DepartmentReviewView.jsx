@@ -4,6 +4,7 @@ import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader'
 import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
+import FilterChips from '../components/FilterChips';
 import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isInterviewerRole } from '../lib/reviewScope';
@@ -23,6 +24,12 @@ const queueTone = (status) => {
 
 const REVIEW_LIST_PAGE_SIZE = 50;
 const EMPTY_STAGE_CONTEXT = () => ({});
+const EMPTY_COPY = {
+  action: { title: 'Nothing needs your action', description: 'Interviews to schedule, interviews on your panel, and recommendations routed to your level appear here.' },
+  interviews: { title: 'No interviews waiting', description: 'Applicants appear here once the Admissions Office has verified their documents.' },
+  approval: { title: 'No recommendations awaiting your approval', description: 'Recommendations your school routes to your level appear here.' },
+  all: { title: 'No applicants in scope', description: 'Applications appear here as students in your scope submit them.' },
+};
 
 // The workspace of every account scoped to the academic hierarchy (Consultation
 // 2): an interviewer, and the Chairperson, Assistant Dean, or Dean of a school.
@@ -46,8 +53,11 @@ export default function DepartmentReviewView({
 }) {
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
-  const [visibleQueueCount, setVisibleQueueCount] = useState(REVIEW_LIST_PAGE_SIZE);
-  const [visibleInterviewCount, setVisibleInterviewCount] = useState(REVIEW_LIST_PAGE_SIZE);
+  const [visibleCount, setVisibleCount] = useState(REVIEW_LIST_PAGE_SIZE);
+  // null = not chosen yet: open on the work waiting for this reviewer, or on the
+  // whole scope when nothing is waiting. Opening a case pins the pick so the chip
+  // never switches under the reader.
+  const [chosenFilter, setChosenFilter] = useState(null);
   const role = profile.role || 'department_chair';
   const isInterviewer = isInterviewerRole(role);
   const selected = queue.find((entry) => entry.id === selectedId);
@@ -74,15 +84,34 @@ export default function DepartmentReviewView({
   }, [interviewWorkspace?.notes]);
   const notesFor = (applicationId) => notesByApplication.get(applicationId) || [];
   const programIndex = useMemo(() => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []), [interviewWorkspace?.academicPrograms]);
-  const interviewRows = [...awaitingInterview, ...inInterview];
-  const visibleInterviewRows = interviewRows.slice(0, visibleInterviewCount);
-  const visibleQueue = queue.slice(0, visibleQueueCount);
-  // After a stage move the case's row in the work lists glows, or a notice says
-  // where it went. The all-applications list is left out: it always holds the
-  // case, so pointing there would scroll the page away from the work.
-  const moved = useMovedCase([...awaitingInterview, ...inInterview, ...awaitingApproval].map((entry) => entry.id));
+  const awaitingApprovalIds = useMemo(() => new Set(awaitingApproval.map((entry) => entry.id)), [awaitingApproval]);
+  const needsAction = useMemo(() => queue.filter((entry) => (
+    awaitingApprovalIds.has(entry.id)
+    || entry.status === 'Endorsed'
+    || (entry.status === 'Interview' && panelApplicationIds.has(entry.id))
+  )), [queue, awaitingApprovalIds, panelApplicationIds]);
+  const interviewEntries = useMemo(() => queue.filter((entry) => ['Endorsed', 'Interview'].includes(entry.status)), [queue]);
+  const filters = [
+    { key: 'action', label: 'Needs action', entries: needsAction, alert: true },
+    { key: 'interviews', label: 'Interviews', entries: interviewEntries, alert: awaitingInterview.length > 0 },
+    ...(isInterviewer ? [] : [{ key: 'approval', label: 'Awaiting approval', entries: awaitingApproval, alert: true }]),
+    { key: 'all', label: 'All applications', entries: queue, alert: false },
+  ];
+  const filter = filters.some((entry) => entry.key === chosenFilter)
+    ? chosenFilter
+    : needsAction.length ? 'action' : 'all';
+  const activeEntries = filters.find((entry) => entry.key === filter).entries;
+  const visibleEntries = activeEntries.slice(0, visibleCount);
+  // After a stage move the case's row glows, or a notice says where it went.
+  const moved = useMovedCase(activeEntries.map((entry) => entry.id));
+
+  const changeFilter = (key) => {
+    setChosenFilter(key);
+    setVisibleCount(REVIEW_LIST_PAGE_SIZE);
+  };
 
   const openCase = (entry, tab = null) => {
+    setChosenFilter(filter);
     setReviewTab(tab);
     setSelectedId(entry.id);
   };
@@ -106,29 +135,49 @@ export default function DepartmentReviewView({
     },
   }, getApplicantSummaryFileName(getReviewScopeLabel(profile) || 'scope', 'recommendations'));
 
-  const renderInterviewRow = (entry) => {
+  const renderRow = (entry) => {
     const onPanel = panelApplicationIds.has(entry.id);
     const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
+    const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
+    const decidable = awaitingApprovalIds.has(entry.id);
+    let action = { label: 'Open review', tab: null };
+    let hint = `${verified}/${total || 0} linked documents verified${!ready ? ` · ${outstanding} with the Admissions Office Admin` : ''}`;
+    let hintTone = ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300';
+    if (entry.status === 'Endorsed') {
+      action = { label: 'Schedule interview', tab: 'interview' };
+      hint = `Documents verified${entry.updatedAt ? ` ${fmtDate(entry.updatedAt)}` : ''}. Schedule the interview.`;
+      hintTone = 'text-app-muted';
+    } else if (entry.status === 'Interview') {
+      action = { label: onPanel ? 'Open interview' : 'View interview', tab: 'interview' };
+      hint = recommendation
+        ? `Recommendation recorded: ${recommendation.label}`
+        : onPanel ? 'You are on this panel. Record the recommendation after the interview.' : 'Another reviewer is on this panel.';
+      hintTone = 'text-app-muted';
+    } else if (decidable) {
+      action = { label: 'Review and decide', tab: null };
+      hint = [recommendation?.authorName ? `Interviewed by ${recommendation.authorName}` : '', entry.deliberation?.decidedAt ? `sent ${fmtDate(entry.deliberation.decidedAt)}` : ''].filter(Boolean).join(' · ') || 'Read the case before deciding.';
+      hintTone = 'text-app-muted';
+    }
     return (
-      <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
-        <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
+      <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass(queueTone(entry.status))}>
+        <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
           <div className="min-w-0 w-full">
             <h3 className="truncate">{entry.studentName}</h3>
-            <p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
+            <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
+            <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
           </div>
-          <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
+          <StatusBadge tone={queueTone(entry.status)}>
+            {decidable && recommendation?.label ? recommendation.label : getApplicationStatusLabel(entry.status)}
+          </StatusBadge>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-          <span className="text-xs text-app-muted">
-            {entry.status === 'Endorsed'
-              ? `Documents verified ${entry.updatedAt ? fmtDate(entry.updatedAt) : ''}. Schedule the interview.`
-              : recommendation
-                ? `Recommendation recorded: ${recommendation.label}`
-                : onPanel ? 'You are on this panel. Record the recommendation after the interview.' : 'Another reviewer is on this panel.'}
-          </span>
-          <Button type="button" onClick={() => openCase(entry, 'interview')}>
-            {entry.status === 'Endorsed' ? 'Schedule interview' : onPanel ? 'Open interview' : 'View interview'}
-          </Button>
+        <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-3">
+          <div className="flex flex-wrap gap-2 !flex-none">
+            <Button type="button" onClick={() => openCase(entry, action.tab)}>{action.label}</Button>
+            {areEndorsementRecordsVisible(entry.status) ? (
+              <Button type="button" variant="secondary" onClick={() => openCase(entry, 'endorsement')}>Case notes</Button>
+            ) : null}
+          </div>
+          <span className={`min-w-0 flex-1 text-left text-xs ${hintTone}`}>{hint}</span>
         </div>
       </article>
     );
@@ -177,7 +226,7 @@ export default function DepartmentReviewView({
         )}
       </AdminPageHeader>
 
-      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It stays listed under All applications in your scope." />
+      <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It stays listed under All applications." />
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
         <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
@@ -188,87 +237,40 @@ export default function DepartmentReviewView({
         <StatCard icon={Layers} tone="neutral" label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
       </section>
 
-      {!isInterviewer ? (
-        <Card
-          title="Recommendations awaiting your approval"
-          action={<StatusBadge tone={awaitingApproval.length ? 'warning' : 'success'}>{awaitingApproval.length} to decide</StatusBadge>}
-        >
-          <div className="grid max-h-[520px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-            {awaitingApproval.length ? awaitingApproval.map((entry) => {
-              const recommendation = getLatestPanelRecommendation(notesFor(entry.id));
-              return (
-                <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
-                  <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-                    <div className="min-w-0 w-full">
-                      <h3 className="truncate">{entry.studentName}</h3>
-                      <p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p>
-                    </div>
-                    <StatusBadge tone="warning">{recommendation?.label || 'Recommended'}</StatusBadge>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-                    <span className="text-xs text-app-muted">
-                      {[recommendation?.authorName ? `Interviewed by ${recommendation.authorName}` : '', entry.deliberation?.decidedAt ? `sent ${fmtDate(entry.deliberation.decidedAt)}` : ''].filter(Boolean).join(' · ') || 'Read the case before deciding.'}
-                    </span>
-                    <Button type="button" onClick={() => openCase(entry)}>Review and decide</Button>
-                  </div>
-                </article>
-              );
-            }) : <EmptyState title="No recommendations awaiting your approval" description="Recommendations your school routes to your level appear here." />}
-          </div>
-          <ExportButton className="mt-3" disabled={!decidedInScope.length} onClick={exportSummary}>Export recommended and decided cases</ExportButton>
-        </Card>
-      ) : null}
-
-      <Card
-        title="Interviews"
-        action={<StatusBadge tone={awaitingInterview.length ? 'warning' : 'success'}>{awaitingInterview.length} to schedule</StatusBadge>}
-      >
-        <div className="grid max-h-[620px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {interviewRows.length
-            ? visibleInterviewRows.map(renderInterviewRow)
-            : <EmptyState title="No interviews waiting" description="Applicants appear here once the Admissions Office has verified their documents." />}
+      <Card title="Applications in your scope" className="min-w-0">
+        <FilterChips
+          name="review-filter"
+          legend="Filter applications in your scope"
+          className="mb-3"
+          value={filter}
+          onChange={changeFilter}
+          options={filters.map((entry) => ({
+            value: entry.key,
+            label: entry.label,
+            count: entry.entries.length,
+            alert: entry.alert && entry.entries.length > 0,
+          }))}
+        />
+        <div className="grid max-h-[720px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
+          {activeEntries.length ? visibleEntries.map(renderRow) : (
+            <EmptyState
+              title={EMPTY_COPY[filter].title}
+              description={EMPTY_COPY[filter].description}
+              action={filter !== 'all' && queue.length ? (
+                <div className="mt-3 flex justify-center">
+                  <Button type="button" onClick={() => changeFilter('all')}>Show all applications ({queue.length})</Button>
+                </div>
+              ) : null}
+            />
+          )}
         </div>
-        {visibleInterviewRows.length < interviewRows.length ? (
-          <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleInterviewCount((count) => count + REVIEW_LIST_PAGE_SIZE)}>
-            Show {Math.min(REVIEW_LIST_PAGE_SIZE, interviewRows.length - visibleInterviewRows.length)} more interviews
+        {visibleEntries.length < activeEntries.length ? (
+          <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleCount((count) => count + REVIEW_LIST_PAGE_SIZE)}>
+            Show {Math.min(REVIEW_LIST_PAGE_SIZE, activeEntries.length - visibleEntries.length)} more applications
           </Button>
         ) : null}
-      </Card>
-
-      <Card title="All applications in your scope" className="min-w-0">
-        <div className="grid max-h-[620px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {queue.length ? visibleQueue.map((entry) => {
-            const { verified, total, outstanding, ready } = getDocumentVerificationReadiness(entry, documents);
-            return (
-              <article key={entry.id} className={getCaseCardClass(queueTone(entry.status))}>
-                <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
-                  <div className="min-w-0 w-full">
-                    <h3 className="truncate">{entry.studentName}</h3>
-                    <p className="mt-1 text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram}</p>
-                    <p className="mt-1 text-xs text-app-muted">{describeApplicantAcademic(entry)} · {fmtCurrency(Number(entry.studentHouseholdIncome || 0))} · Updated {fmtDate(entry.updatedAt)}</p>
-                  </div>
-                  <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
-                </div>
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
-                  <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
-                    {verified}/{total || 0} linked documents verified
-                    {!ready ? ` · ${outstanding} with the Admissions Office Admin` : ''}
-                  </span>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" onClick={() => openCase(entry)}>Open review</Button>
-                    {areEndorsementRecordsVisible(entry.status) ? (
-                      <Button type="button" variant="secondary" onClick={() => openCase(entry, 'endorsement')}>Case notes</Button>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-            );
-          }) : <EmptyState title="No applicants in scope" description="Applications appear here as students in your scope submit them." />}
-        </div>
-        {visibleQueue.length < queue.length ? (
-          <Button type="button" variant="secondary" className="mt-3 w-full" onClick={() => setVisibleQueueCount((count) => count + REVIEW_LIST_PAGE_SIZE)}>
-            Show {Math.min(REVIEW_LIST_PAGE_SIZE, queue.length - visibleQueue.length)} more applications
-          </Button>
+        {!isInterviewer ? (
+          <ExportButton className="mt-3" disabled={!decidedInScope.length} onClick={exportSummary}>Export recommended and decided cases</ExportButton>
         ) : null}
       </Card>
 

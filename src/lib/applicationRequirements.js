@@ -691,19 +691,30 @@ export const getResidencePhotoDocuments = (application, documents = []) => (
 // attached file must be Verified. The reviewer UI reads this to disable forward
 // actions, and `tests/applicationRequirements.test.js` pins the behavior; the
 // database repeats the rule in a trigger so a direct write cannot bypass it.
-export const getDocumentVerificationReadiness = (application, documents = []) => {
+//
+// An additional-documents request the Admin raised (documentRequests, from
+// 20261114000000) also holds the case until the student answers it or the Admin
+// cancels it, so a student who attached nothing cannot pass the gate by default.
+export const countOpenDocumentRequests = (application, documentRequests = []) => (
+  (Array.isArray(documentRequests) ? documentRequests : [])
+    .filter((request) => request?.applicationId === application?.id && request.status === 'Open').length
+);
+
+export const getDocumentVerificationReadiness = (application, documents = [], documentRequests = []) => {
   const linked = getLinkedDocuments(application, documents);
   const outstanding = linked.filter((doc) => doc.verificationStatus !== 'Verified').length;
+  const openRequests = countOpenDocumentRequests(application, documentRequests);
   return {
     total: linked.length,
     verified: linked.length - outstanding,
     outstanding,
-    ready: outstanding === 0,
+    openRequests,
+    ready: outstanding === 0 && openRequests === 0,
   };
 };
 
-export const isApplicationVerifiedForEndorsement = (application, documents = []) => (
-  getDocumentVerificationReadiness(application, documents).ready
+export const isApplicationVerifiedForEndorsement = (application, documents = [], documentRequests = []) => (
+  getDocumentVerificationReadiness(application, documents, documentRequests).ready
 );
 
 // The actor label for an `application_status_log` row (RQ2). Staff see the

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Award, CalendarClock, CheckCircle2, CircleAlert, FileEdit, Eye, Hourglass, Search, TriangleAlert, X } from 'lucide-react';
+import { ArrowRight, Award, Bell, CalendarClock, Check, CheckCircle2, CircleAlert, ClipboardList, FileEdit, FileText, Eye, History as HistoryIcon, Hourglass, Info, Paperclip, PenLine, Search, ShieldCheck, TriangleAlert, UserRound, Users, X } from 'lucide-react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import { SkeletonRegion, SkeletonText } from '../components/Skeleton';
@@ -8,11 +8,13 @@ import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
 import ReasonModal from '../components/ReasonModal';
+import DocumentRequestResponder from '../components/DocumentRequestResponder';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, SopStageTrack, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { spotlightRow } from '../components/MovedCaseNotice';
 import { applyLiveVerificationsToSnapshot, buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationLiveAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { describeGrantAmount, getGrantAmountForApplication } from '../lib/grantAmount';
-import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusGuidance, getDocumentTypeLabel, getStudentApplicationStatusLabel, studentApplicationStatuses } from '../lib/constants';
+import { canRequestDocuments, getOpenDocumentRequests, getRequestFulfilmentOptions } from '../lib/documentRequests';
+import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel, getStudentApplicationStatusLabel, sopStageIndex, sopStages, studentApplicationStatuses } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
 import { getFinancialDetailSections } from '../lib/financialDetails';
@@ -36,6 +38,16 @@ const statusAccent = {
   info: { bar: 'before:bg-blue-500', fill: 'from-ateneo-strong via-ateneo to-ateneo-bright' },
   neutral: { bar: 'before:bg-slate-400', fill: 'from-slate-500 via-slate-400 to-slate-300' },
 };
+
+// A detail-modal section title: the usual small-caps heading with a tinted icon.
+function SectionHeading({ icon: Icon, children }) {
+  return (
+    <h3 className={`${sectionHeading} flex items-center gap-2`}>
+      <span className="grid h-6 w-6 shrink-0 place-items-center rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-300" aria-hidden="true"><Icon size={14} /></span>
+      {children}
+    </h3>
+  );
+}
 
 // The accepted applicant's answer to the award, or the waitlisted applicant's
 // way off the waitlist. A position on the waitlist is never shown.
@@ -109,7 +121,14 @@ function ApplicationMetric({ icon: Icon, label, value, note, tone }) {
 // Shown the moment a submission is saved, in place of the workspace (which only
 // renders a Draft): what was sent, where the application now stands, and what
 // happens next. Closing it lands on the application's card, which glows.
+const NEXT_STEPS = [
+  { icon: ShieldCheck, title: 'Document verification', text: 'The Admissions Office verifies your documents. If a file needs correcting, you are asked to replace it.' },
+  { icon: Users, title: 'Interview', text: 'An interviewer from your school schedules your interview.' },
+  { icon: Award, title: 'School decision', text: 'Your school decides. Results are released to every applicant at the same time.' },
+];
+
 function SubmittedConfirmation({ application, onClose }) {
+  const stageIndex = Math.max(0, sopStageIndex(application.status === 'Draft' ? 'Submitted' : application.status) ?? 0);
   const sharedCount = Array.isArray(application.attachedDocuments) ? application.attachedDocuments.length : 0;
   return (
     <ModalShell
@@ -122,34 +141,81 @@ function SubmittedConfirmation({ application, onClose }) {
         </div>
       )}
     >
-      <div className="stage-outcome-enter grid content-start gap-4" role="status" aria-live="polite">
-        <div className="flex min-w-0 items-start gap-3 rounded-2xl border border-emerald-400/40 bg-emerald-500/10 p-4">
-          <CheckCircle2 size={24} aria-hidden="true" className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" />
-          <div className="grid min-w-0 gap-1">
-            <h3 className="m-0 text-base font-bold text-app-text">Application submitted</h3>
-            <p className="m-0 text-sm text-app-muted">
-              Submitted {fmtDate(application.submittedAt || application.updatedAt)}. It is now locked for review.
-            </p>
+      <div className="application-detail-modal-body grid content-start gap-4 !pr-0 ![scrollbar-gutter:auto]" role="status" aria-live="polite">
+        <div className="relative overflow-hidden rounded-2xl border border-emerald-400/40 bg-gradient-to-b from-emerald-500/15 via-emerald-500/5 to-transparent px-4 py-6 text-center">
+          <span aria-hidden="true" className="pointer-events-none absolute left-1/2 top-0 h-36 w-72 -translate-x-1/2 -translate-y-1/3 rounded-full bg-emerald-400/30 blur-3xl" />
+          <div className="relative mx-auto grid h-16 w-16 place-items-center">
+            <span aria-hidden="true" className="submitted-ring absolute inset-0 rounded-full bg-emerald-400/40" />
+            <span className="submitted-badge relative grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white shadow-lg shadow-emerald-600/30 ring-4 ring-emerald-400/20">
+              <Check size={30} strokeWidth={3} aria-hidden="true" />
+            </span>
           </div>
+          <h3 className="submitted-rise relative m-0 mt-4 text-xl font-bold text-app-text" style={{ '--rise-delay': '120ms' }}>Application submitted</h3>
+          <p className="submitted-rise relative m-0 mt-1 text-sm text-app-muted" style={{ '--rise-delay': '180ms' }}>
+            Submitted {fmtDate(application.submittedAt || application.updatedAt)}. It is now locked for review.
+          </p>
         </div>
-        <SopStageTrack status={application.status === 'Draft' ? 'Submitted' : application.status} />
-        <Panel className="grid gap-2 text-sm">
-          <h4 className={sectionHeading}>Sent to the Admissions Office</h4>
-          <p className="m-0 text-app-text">
-            {sharedCount} attached {sharedCount === 1 ? 'document' : 'documents'}, your statement, and your Application Form answers.
+
+        <section className="submitted-rise grid gap-2" style={{ '--rise-delay': '240ms' }} aria-labelledby="submitted-sent-heading">
+          <h4 id="submitted-sent-heading" className={sectionHeading}>Sent to the Admissions Office</h4>
+          <ul className="m-0 grid list-none grid-cols-3 gap-2 p-0">
+            {[
+              { icon: FileText, value: sharedCount, label: sharedCount === 1 ? 'Document' : 'Documents' },
+              { icon: PenLine, value: <Check size={18} strokeWidth={3} aria-hidden="true" />, label: 'Statement' },
+              { icon: ClipboardList, value: <Check size={18} strokeWidth={3} aria-hidden="true" />, label: 'Form answers' },
+            ].map(({ icon: Icon, value, label }) => (
+              <li key={label} className="grid min-w-0 justify-items-center gap-1 rounded-2xl border border-app-border bg-app-surface px-2 py-3 text-center">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-500/10 text-blue-700 dark:text-blue-300" aria-hidden="true"><Icon size={18} /></span>
+                <strong className="flex h-6 items-center text-lg leading-none text-app-text">{value}</strong>
+                <span className="text-xs font-medium text-app-muted [overflow-wrap:anywhere]">{label}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="submitted-rise grid gap-2" style={{ '--rise-delay': '300ms' }}>
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+            <h4 className={sectionHeading}>Where it stands</h4>
+            <span className="text-xs font-semibold text-app-text">
+              Stage {stageIndex + 1} of {sopStages.length} · {getApplicationStatusLabel(sopStages[stageIndex])}
+            </span>
+          </div>
+          <ol className="m-0 grid list-none auto-cols-fr grid-flow-col gap-1 p-0" aria-label="Standard Procedure stage track">
+            {sopStages.map((stage, index) => (
+              <li
+                key={stage}
+                title={getApplicationStatusLabel(stage)}
+                aria-current={index === stageIndex ? 'step' : undefined}
+                className={`h-2 rounded-full ${index < stageIndex ? 'bg-emerald-500' : index === stageIndex ? 'bg-sky-500 shadow-[0_0_10px_rgba(14,165,233,0.65)] dark:bg-sky-400' : 'bg-app-border'}`}
+              >
+                <span className="sr-only">{getApplicationStatusLabel(stage)}</span>
+              </li>
+            ))}
+          </ol>
+        </section>
+
+        <Panel className="submitted-rise grid gap-3 text-sm" style={{ '--rise-delay': '360ms' }}>
+          <h4 className={sectionHeading}>What happens next</h4>
+          <ol className="m-0 grid list-none gap-0 p-0">
+            {NEXT_STEPS.map(({ icon: Icon, title, text }, index) => (
+              <li key={title} className="relative flex min-w-0 gap-3 pb-4 last:pb-0">
+                {index < NEXT_STEPS.length - 1 ? <span aria-hidden="true" className="absolute left-4 top-9 bottom-1 w-px -translate-x-1/2 bg-app-border" /> : null}
+                <span className="relative grid h-8 w-8 shrink-0 place-items-center rounded-full border border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300" aria-hidden="true"><Icon size={15} /></span>
+                <div className="grid min-w-0 gap-0.5">
+                  <strong className="text-sm text-app-text">{title}</strong>
+                  <p className="m-0 text-app-muted">{text}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          <p className="m-0 flex items-start gap-2 rounded-xl bg-app-surface px-3 py-2 text-xs text-app-muted">
+            <Bell size={14} aria-hidden="true" className="mt-0.5 shrink-0" />
+            <span className="min-w-0">You are notified at each step, through the channels you chose in Settings.</span>
           </p>
         </Panel>
-        <Panel className="grid gap-2 text-sm">
-          <h4 className={sectionHeading}>What happens next</h4>
-          <ol className="m-0 grid gap-1.5 pl-5 text-app-text">
-            <li>The Admissions Office verifies your documents. If a file needs correcting, you are asked to replace it.</li>
-            <li>An interviewer from your school schedules your interview.</li>
-            <li>Your school decides. Results are released to every applicant at the same time.</li>
-          </ol>
-          <p className="m-0 text-xs text-app-muted">You are notified at each step, through the channels you chose in Settings.</p>
-        </Panel>
-        <div className="flex justify-end">
-          <Button variant="primary" type="button" onClick={onClose}>Back to my applications</Button>
+
+        <div className="flex">
+          <Button className="w-full sm:ml-auto sm:w-auto" variant="primary" type="button" onClick={onClose}>Back to my applications</Button>
         </div>
       </div>
     </ModalShell>
@@ -183,6 +249,11 @@ export default function ApplicationsView({
   resultsReleases = [],
   onRespondToOffer,
   onWithdrawFromWaitlist,
+  // Additional documents the Admissions Office asked for while the application is at
+  // document verification (application_document_requests, the student's own rows),
+  // and the answer that links the chosen files.
+  documentRequests = [],
+  onFulfillDocumentRequest,
   // Opens the privacy documents over the workspace instead of navigating away from a
   // half-finished draft.
   onOpenPrivacyDocument = null,
@@ -198,9 +269,15 @@ export default function ApplicationsView({
   const [submittedId, setSubmittedId] = useState(null);
   const [spotlightId, setSpotlightId] = useState(null);
   const [replacedNote, setReplacedNote] = useState(null);
+  // The last request answered in the details view (its panel disappears with it).
+  const [requestNote, setRequestNote] = useState(null);
   // The decline / withdraw dialogs ({ applicationId, kind }).
   const [responseDialog, setResponseDialog] = useState(null);
   const offerFor = (entry) => getOfferForApplication(scholarshipOffers, entry.id);
+  // The Admin's open requests for one application; they exist only at verification.
+  const openRequestsFor = (entry) => (
+    onFulfillDocumentRequest && canRequestDocuments(entry.status) ? getOpenDocumentRequests(documentRequests, entry.id) : []
+  );
   // An accepted applicant still has to answer the offer.
   const awaitsAnswer = (entry) => {
     if (entry.status !== 'Released') return false;
@@ -240,6 +317,9 @@ export default function ApplicationsView({
     financialProfile: financialSnapshotsByApplication[entry.id] || (entry.status === 'Draft' ? profile?.financialProfile : null),
     answers: financialAnswersByApplication[entry.id],
     family: entry.profileSnapshot?.family || profile?.familyDetails || {},
+    // The declared household income travels with the frozen snapshot; a Draft reads
+    // the live profile answer.
+    householdIncome: entry.profileSnapshot?.householdIncome ?? (entry.status === 'Draft' ? profile?.householdIncome : undefined),
   });
 
   // The frozen snapshot with its badges read from the attached files now, so a
@@ -292,6 +372,7 @@ export default function ApplicationsView({
   const closeDetails = () => {
     setSelectedId(null);
     setReplacedNote(null);
+    setRequestNote(null);
   };
 
   // A replacement makes its "Action needed" row disappear, so a confirmation
@@ -314,6 +395,13 @@ export default function ApplicationsView({
 
   // A rejected attached file the student can still replace is shown in one
   // prominent panel above the lists, so it cannot be missed.
+  const selectedOpenRequests = selected ? openRequestsFor(selected) : [];
+  const answerRequest = async (requestId, payload) => {
+    const request = selectedOpenRequests.find((entry) => entry.id === requestId);
+    const result = await onFulfillDocumentRequest(requestId, payload);
+    if (!result?.error && request) setRequestNote({ applicationId: request.applicationId, label: request.label, count: result.count || 0 });
+    return result;
+  };
   const replaceableRejected = selected && onReplaceDocument && DOCUMENT_REPLACEMENT_STATUSES.includes(selected.status)
     ? getReplaceableRejectedDocuments(selected, documents)
     : [];
@@ -337,7 +425,7 @@ export default function ApplicationsView({
     if (entry.status === 'Draft') acc.drafts += 1;
     else if (entry.status === 'Released') acc.decided += 1;
     else if (!CLOSED_STUDENT_STATUSES.includes(entry.status)) acc.inReview += 1;
-    if (getReplaceableRejectedDocuments(entry, documents).length || awaitsAnswer(entry)) acc.actionNeeded += 1;
+    if (getReplaceableRejectedDocuments(entry, documents).length || awaitsAnswer(entry) || openRequestsFor(entry).length) acc.actionNeeded += 1;
     return acc;
   }, { drafts: 0, inReview: 0, actionNeeded: 0, decided: 0 });
 
@@ -373,9 +461,12 @@ export default function ApplicationsView({
           const accent = statusAccent[isTracked ? 'neutral' : statusTone[entry.status] || 'info'] || statusAccent.info;
           const progress = isDraft ? Math.round((readiness.attachedCount / Math.max(readiness.requiredCount, 1)) * 100) : getApplicationProgress(entry.status);
           const needsAnswer = !isTracked && awaitsAnswer(entry);
+          const openRequestCount = isTracked ? 0 : openRequestsFor(entry).length;
           const offer = needsAnswer ? offerFor(entry) : null;
           const nextStep = needsReplacement
             ? 'Action needed: replace the file that was reverted for resubmission so your application can continue.'
+            : openRequestCount
+              ? `Action needed: the Admissions Office asked for ${openRequestCount === 1 ? 'additional documents' : `${openRequestCount} sets of additional documents`}. Open your application to send them.`
             : needsAnswer
               ? `Action needed: confirm or decline your award${offer?.confirmBy ? ` by ${fmtDate(offer.confirmBy)}` : ''}.`
             : isDraft
@@ -396,7 +487,7 @@ export default function ApplicationsView({
             {nextStep ? (
               needsAnswer
                 ? <p className="m-0 flex items-start gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-app-text"><Award size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden="true" /><span className="min-w-0">{nextStep}</span></p>
-                : needsReplacement
+                : needsReplacement || openRequestCount
                 ? <p className="m-0 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-app-text"><CircleAlert size={16} className="mt-0.5 shrink-0 text-rose-500" aria-hidden="true" /><span className="min-w-0">{nextStep}</span></p>
                 : <p className="m-0 text-sm text-app-muted">{nextStep}</p>
             ) : null}
@@ -406,7 +497,7 @@ export default function ApplicationsView({
             <div className="flex flex-wrap items-center gap-3 border-t border-app-border/60 pt-3">
               {isDraft
                 ? <Button variant="primary" type="button" className="gap-2" onClick={() => onOpenApplication(entry.id)}>Continue application<ArrowRight size={16} aria-hidden="true" /></Button>
-                : <Button variant={needsReplacement || needsAnswer ? 'primary' : 'secondary'} type="button" className="gap-2" onClick={() => setSelectedId(entry.id)}><Eye size={16} aria-hidden="true" />{needsAnswer ? 'Answer the offer' : 'View details'}</Button>}
+                : <Button variant={needsReplacement || needsAnswer || openRequestCount ? 'primary' : 'secondary'} type="button" className="gap-2" onClick={() => setSelectedId(entry.id)}><Eye size={16} aria-hidden="true" />{needsAnswer ? 'Answer the offer' : 'View details'}</Button>}
               {isTracked ? null : <ApplicationPrintButton label="Print" sheet={printSheetFor(entry, readiness)} />}
             </div>
           </article>;
@@ -430,10 +521,20 @@ export default function ApplicationsView({
         )}
       >
         <div className="application-detail-modal-body grid content-start gap-4">
-          <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm text-app-muted"><span><strong>Status</strong> {selectedReadiness.route === 'external' ? 'Tracked' : getStudentApplicationStatusLabel(selected.status)}</span><span><strong>Submitted</strong> {selected.submittedAt ? fmtDate(selected.submittedAt) : 'Not yet'}</span>{selected.certifiedAt ? <span><strong>Certified</strong> {fmtDate(selected.certifiedAt)}</span> : null}</div>
+          <div className="grid gap-3 rounded-2xl border border-app-border bg-app-surface p-3 sm:p-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-app-muted">
+              <StatusBadge tone={selectedReadiness.route === 'external' ? 'neutral' : statusTone[selected.status] || 'neutral'} className="!px-3.5 !py-1 !text-sm">
+                {selectedReadiness.route === 'external' ? 'Tracked' : getStudentApplicationStatusLabel(selected.status)}
+              </StatusBadge>
+              <span className="inline-flex items-center gap-1.5"><CalendarClock size={14} aria-hidden="true" /><strong className="font-semibold text-app-text">Submitted</strong> {selected.submittedAt ? fmtDate(selected.submittedAt) : 'Not yet'}</span>
+              {selected.certifiedAt ? <span className="inline-flex items-center gap-1.5"><CheckCircle2 size={14} aria-hidden="true" /><strong className="font-semibold text-app-text">Certified</strong> {fmtDate(selected.certifiedAt)}</span> : null}
+            </div>
+            {selectedReadiness.route !== 'external' && sopStageIndex(selected.status) != null ? <SopStageTrack status={selected.status} /> : null}
+          </div>
           {selectedReadiness.route !== 'external' && getApplicationStatusGuidance(selected.status) ? (
-            <p className="m-0 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-sm text-app-text">
-              {getApplicationStatusGuidance(selected.status)}
+            <p className="m-0 flex items-start gap-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2.5 text-sm text-app-text">
+              <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-blue-600 dark:text-blue-300" />
+              <span className="min-w-0">{getApplicationStatusGuidance(selected.status)}</span>
             </p>
           ) : null}
           {selectedReadiness.route === 'external' ? <p className="m-0 text-sm text-app-muted">{selected.notes}</p> : (
@@ -453,6 +554,40 @@ export default function ApplicationsView({
                     <X size={16} />
                   </button>
                 </div>
+              ) : null}
+              {requestNote && requestNote.applicationId === selected.id ? (
+                <div className="stage-outcome-enter flex min-w-0 items-start justify-between gap-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-100" role="status">
+                  <CheckCircle2 size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+                  <p className="m-0 min-w-0 flex-1">
+                    Sent {requestNote.count} file{requestNote.count === 1 ? '' : 's'} for “{requestNote.label}”. {selectedOpenRequests.length ? 'Another request is still waiting for you.' : 'They are waiting for Admissions Office verification.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                    onClick={() => setRequestNote(null)}
+                    aria-label="Dismiss sent documents message"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : null}
+              {selectedOpenRequests.length ? (
+                <Panel className="grid gap-3 !border-amber-400/40">
+                  <div className="grid gap-1">
+                    <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-amber-700 dark:text-amber-300">Documents requested</h3>
+                    <p className="m-0 text-sm text-app-text">
+                      The Admissions Office asked for {selectedOpenRequests.length === 1 ? 'more documents' : 'more documents in several parts'} while it verifies your application. Send {selectedOpenRequests.length === 1 ? 'them' : 'each part'} so the review can continue.
+                    </p>
+                  </div>
+                  {selectedOpenRequests.map((request) => (
+                    <DocumentRequestResponder
+                      key={request.id}
+                      request={request}
+                      candidates={getRequestFulfilmentOptions({ application: selected, request, documents })}
+                      onFulfill={answerRequest}
+                    />
+                  ))}
+                </Panel>
               ) : null}
               {replaceableRejected.length ? (
                 <Panel className="grid gap-3 !border-rose-400/40">
@@ -484,17 +619,17 @@ export default function ApplicationsView({
               {selected.interview ? <StudentInterviewCard application={selected} scholarshipTitle={selected.scholarshipTitle} /> : null}
               {selectedGrantAmount ? (
                 <Panel className="grid gap-2">
-                  <h3 className={sectionHeading}>Grant amount</h3>
+                  <SectionHeading icon={Award}>Grant amount</SectionHeading>
                   <strong className="text-base text-app-text">{describeGrantAmount(selectedGrantAmount)}</strong>
                   <p className="m-0 text-xs text-app-muted">A figure recorded for your grant. ScholarPath does not disburse funds; the Admissions Office will advise you on the next steps.</p>
                 </Panel>
               ) : null}
-              <Panel className="grid gap-2"><h3 className={sectionHeading}>Required documents</h3><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
-              <Panel className="grid gap-2"><h3 className={sectionHeading}>Supporting documents</h3><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
-              <Panel className="grid gap-2"><h3 className={sectionHeading}>Statement</h3><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
-              <Panel className="grid gap-1"><h3 className={sectionHeading}>Profile snapshot</h3><ProfileSnapshotList snapshot={liveSnapshotFor(selected)} applicantPhoto={getApplicantPhotoDocument(selected, documents)} residencePhotos={getResidencePhotoDocuments(selected, documents)} onPreviewPhoto={setPreview} extraSections={financialSectionsFor(selected)} />{financialLoaded ? null : <SkeletonRegion label="Loading the financial details" className="pt-2"><SkeletonText lines={3} /></SkeletonRegion>}</Panel>
+              <Panel className="grid gap-2"><SectionHeading icon={FileText}>Required documents</SectionHeading><RequirementChecklist requirements={selectedReadiness.requirements} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
+              <Panel className="grid gap-2"><SectionHeading icon={Paperclip}>Supporting documents</SectionHeading><SupportingDocumentList documents={selectedReadiness.supportingDocuments} onPreview={setPreview} renderAttachmentNote={renderAttachmentNote} /></Panel>
+              <Panel className="grid gap-2"><SectionHeading icon={PenLine}>Statement</SectionHeading><p className="m-0 whitespace-pre-line text-sm text-app-text">{selected.statement || 'No statement recorded.'}</p></Panel>
+              <Panel className="grid gap-1"><SectionHeading icon={UserRound}>Profile snapshot</SectionHeading><ProfileSnapshotList snapshot={liveSnapshotFor(selected)} applicantPhoto={getApplicantPhotoDocument(selected, documents)} residencePhotos={getResidencePhotoDocuments(selected, documents)} onPreviewPhoto={setPreview} extraSections={financialSectionsFor(selected)} />{financialLoaded ? null : <SkeletonRegion label="Loading the financial details" className="pt-2"><SkeletonText lines={3} /></SkeletonRegion>}</Panel>
               <Panel className="grid gap-2">
-                <h3 className={sectionHeading}>Status history</h3>
+                <SectionHeading icon={HistoryIcon}>Status history</SectionHeading>
                 {/* The student sees the actor's role (their profile read is scoped
                     to their own row, so a reviewer's name cannot be resolved). */}
                 <StatusHistoryList statusLog={selected.statusLog} timeline={selected.timeline} />
