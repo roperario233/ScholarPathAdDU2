@@ -632,6 +632,71 @@ main article > .flex > :last-child {
   ::view-transition-group(auth-legal) { animation-duration: 0.01ms; }
 }
 
+/* Signing in. App.jsx sets data-vt="sign-in" on <html> while the workspace takes
+   over from the sign-in screen. The card lifts and fades away (it has no
+   counterpart in the workspace, so only its old snapshot exists), the legal
+   links fade with it, and the page behind cross-fades into the shell, whose own
+   `.shell-enter-*` entrance runs underneath. Scoped to this one transition so
+   the sign-in <-> create-account morph above is untouched. */
+:root[data-vt='sign-in']::view-transition-old(auth-card) {
+  animation: sign-in-card-out 0.26s cubic-bezier(0.4, 0, 1, 1) both;
+}
+:root[data-vt='sign-in']::view-transition-old(auth-legal) {
+  animation: sign-in-card-out 0.2s ease-in both;
+}
+:root[data-vt='sign-in']::view-transition-old(root) {
+  animation: 0.3s ease-in both vt-fade-out;
+}
+:root[data-vt='sign-in']::view-transition-new(root) {
+  animation: 0.3s ease-out both vt-fade-in;
+}
+@keyframes sign-in-card-out {
+  to { opacity: 0; transform: translateY(-8px) scale(0.985); }
+}
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-fade-in { from { opacity: 0; } }
+
+/* Signing out: the reverse sweep, played on the live page (no view transition:
+   that flattens each part into an image, and the frosted `backdrop-blur` cards
+   in the header, sidebar and content do not survive being captured alone, which
+   showed up as blurry, mismatched patches). App.jsx sets data-shell-leaving on
+   <html> for ~300ms before it clears the session: the header lifts away, the
+   sidebar slides off to the left and the content fades and sinks, a beat apart.
+   Then it sets data-entering="sign-out" for about a second, so the sign-in
+   screen fades in and its card rises in last. */
+:root[data-shell-leaving] body { pointer-events: none; }
+:root[data-shell-leaving] .app-header {
+  animation: sign-out-header 0.28s cubic-bezier(0.4, 0, 1, 1) both;
+}
+:root[data-shell-leaving] .shell-enter-aside {
+  animation: sign-out-aside 0.3s cubic-bezier(0.4, 0, 1, 1) 30ms both;
+}
+:root[data-shell-leaving] .shell-enter-main {
+  animation: sign-out-main 0.28s ease-in 60ms both;
+}
+:root[data-entering='sign-out'] .login-screen,
+:root[data-entering='sign-out'] .lp {
+  animation: vt-fade-in 0.35s ease-out both;
+}
+:root[data-entering='sign-out'] .auth-card {
+  animation: sign-out-card-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+:root[data-entering='sign-out'] .login-legal-links {
+  animation: vt-fade-in 0.4s ease-out 260ms both;
+}
+@keyframes sign-out-header {
+  to { opacity: 0; transform: translateY(-8px); }
+}
+@keyframes sign-out-aside {
+  to { opacity: 0; transform: translateX(-12px); }
+}
+@keyframes sign-out-main {
+  to { opacity: 0; transform: translateY(5px); }
+}
+@keyframes sign-out-card-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+}
+
 .login-overlay {
   position: absolute;
   inset: 0;
@@ -1826,6 +1891,55 @@ a:focus-visible {
   }
 }
 
+/* Signing in (or restoring a session) mounts the whole authenticated shell at
+   once. Its three parts ease in on a short stagger: the header settles down, the
+   sidebar slides in from the left, then the content area fades up (opacity only,
+   because `.page-enter` inside it already supplies the rise). `backwards` fill
+   holds the start state during the delay and leaves nothing behind afterwards,
+   so the sticky sidebar and fixed overlays are never anchored to a transform. */
+.shell-enter-header {
+  animation: shell-header-in 340ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.shell-enter-aside {
+  animation: shell-aside-in 380ms cubic-bezier(0.22, 1, 0.36, 1) 60ms backwards;
+}
+
+.shell-enter-main {
+  animation: shell-main-in 360ms ease-out 120ms backwards;
+}
+
+@keyframes shell-header-in {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shell-aside-in {
+  from {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes shell-main-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 /* A queue row the review modal just moved glows for a moment when the page
    comes back (MovedCaseNotice adds the class, then removes it). The ring and the
    tint are inset so a scrolling list never clips them and the card keeps its
@@ -1912,6 +2026,9 @@ a:focus-visible {
 
 @media (prefers-reduced-motion: reduce) {
   .page-enter,
+  .shell-enter-header,
+  .shell-enter-aside,
+  .shell-enter-main,
   .profile-section-enter,
   .stage-outcome-enter,
   .submitted-badge,

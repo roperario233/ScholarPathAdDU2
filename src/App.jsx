@@ -78,16 +78,31 @@ const LandingPage = lazy(() => import('./pages/LandingPage'));
 
 // Swaps the signed-out screen inside a view transition where the browser has one
 // and motion is welcome; elsewhere it is a plain state change.
-const withViewTransition = (update) => {
+// `kind` is exposed as `data-vt` on <html> for the length of the transition so a
+// stylesheet rule can target one transition (the sign-in hand-off) without
+// changing how the others (sign-in <-> create account) animate.
+const withViewTransition = (update, kind = '') => {
   const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || reduceMotion) {
     update();
     return;
   }
-  document.startViewTransition(() => flushSync(update));
+  const root = document.documentElement;
+  if (kind) root.dataset.vt = kind;
+  const clear = () => { if (kind && root.dataset.vt === kind) delete root.dataset.vt; };
+  try {
+    document.startViewTransition(() => flushSync(update)).finished.then(clear, clear);
+  } catch {
+    clear();
+    update();
+  }
 };
 
-const SUPPORT_INBOX_CHANNEL_ENABLED = isSupportInboxChannel();
+// How long the workspace plays its exit before sign-out clears it (styles.css,
+// `data-shell-leaving`; the longest part of the sweep ends at about 330ms).
+const SIGN_OUT_EXIT_MS = 300;
+
+const SUPPORT_INBOX_CHANNEL_ENABLED =isSupportInboxChannel();
 const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT ?? 'true').trim().toLowerCase() !== 'false';
 // The optional tawk.to live chat is the only third party in the build that can set a
 // cookie, so the storage notice offers it only when this deployment really uses it:
@@ -460,22 +475,49 @@ function App() {
             : '';
     // Remove the authenticated UI immediately. Network sign-out can take time;
     // the local guard must not wait for token revocation to complete.
-    setState((previous) => createFreshState(devicePreferencesOf(previous)));
-    setProfileOnboarding(null);
-    setIsSupabaseWorkspaceLoaded(false);
-    setIsWorkspaceSettled(false);
-    setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
-    setDeadlineSync(null);
-    setAvatarPreview({ path: '', url: '' });
-    setFinancial(emptyFinancialState);
-    // The consent record slice and the open policy dialog belong to the account that
-    // is leaving; the next person on this browser starts from a clean read.
-    setPrivacyConsent(null);
-    setPrivacyConsentError('');
-    setLegalDocDialog(null);
-    setSessionTimeoutState(null);
-    setSessionNotice(notice);
-    setIsSessionChecked(true);
+    const clearAuthenticatedUi = () => {
+      setState((previous) => createFreshState(devicePreferencesOf(previous)));
+      setProfileOnboarding(null);
+      setIsSupabaseWorkspaceLoaded(false);
+      setIsWorkspaceSettled(false);
+      setSupportInbox({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
+      setDeadlineSync(null);
+      setAvatarPreview({ path: '', url: '' });
+      setFinancial(emptyFinancialState);
+      // The consent record slice and the open policy dialog belong to the account that
+      // is leaving; the next person on this browser starts from a clean read.
+      setPrivacyConsent(null);
+      setPrivacyConsentError('');
+      setLegalDocDialog(null);
+      setSessionTimeoutState(null);
+      setSessionNotice(notice);
+      setIsSessionChecked(true);
+    };
+    // A visible workspace sweeps out on the live page (CSS keyed to
+    // data-shell-leaving), then the sign-in screen eases in (data-entering). It is
+    // not a view transition: that flattens the frosted header, sidebar and cards
+    // into images and they render blurry. A boot-time failure (no workspace on
+    // screen yet), a hidden tab, or reduced motion swaps plainly.
+    const root = document.documentElement;
+    const sweep = Boolean(latestWorkspaceStateRef.current?.isAuthenticated)
+      && !document.hidden
+      && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (sweep) {
+      root.dataset.shellLeaving = '';
+      try {
+        await new Promise((resolve) => { window.setTimeout(resolve, SIGN_OUT_EXIT_MS); });
+        // Applied in the same tick as the attribute swap below, so the old page
+        // never flashes back for a frame between the exit and the entrance.
+        flushSync(clearAuthenticatedUi);
+        root.dataset.entering = 'sign-out';
+        window.setTimeout(() => { if (root.dataset.entering === 'sign-out') delete root.dataset.entering; }, 1000);
+      } finally {
+        // The flag disables pointer events on the page, so it must never outlive the exit.
+        delete root.dataset.shellLeaving;
+      }
+    } else {
+      clearAuthenticatedUi();
+    }
     try {
       if (!skipSupabaseSignOut) await signOutFromSupabase();
     } catch {
@@ -1097,7 +1139,12 @@ function App() {
       const profileAvatar = await getProfileAvatar(user.id);
       if (!active) return;
       const userRole = normalizeRole(profile?.role || user.user_metadata?.role);
-      updateState((previous) => {
+      // A Google return hands over from the sign-in card; a restored session or
+      // reload comes from the loading screen, which a plain swap suits better.
+      const enterWorkspace = oauthStartedAt !== null
+        ? (update) => withViewTransition(update, 'sign-in')
+        : (update) => update();
+      enterWorkspace(() => updateState((previous) => {
         const base = adoptStateOwner(previous, user.id);
         return {
           ...base,
@@ -1131,7 +1178,7 @@ function App() {
             ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
           },
         };
-      });
+      }));
       // Resolve a short-lived URL for the stored avatar; the persisted value is
       // only the object path, never an expiring URL.
       if (active) {
@@ -1647,7 +1694,8 @@ function App() {
       const resolvedRole = normalizeRole(profile?.role || authResult.user?.user_metadata?.role || selectedRole);
       const accountId = authResult.user?.id;
       const displayName = profile?.full_name || authResult.user?.user_metadata?.full_name || authResult.user?.email || '';
-      updateState((previous) => {
+      // The sign-in card hands over to the workspace inside a view transition.
+      withViewTransition(() => updateState((previous) => {
         const base = adoptStateOwner(previous, accountId);
         return {
           ...base,
@@ -1686,7 +1734,7 @@ function App() {
             ...(profile?.degree_program ? { degreeProgram: profile.degree_program } : {}),
           },
         };
-      });
+      }), 'sign-in');
       const workspace = await loadSupabaseWorkspace({ role: resolvedRole, userId: accountId, department: profile?.department || '' });
       if (workspace.success) {
         updateState((previous) => {
@@ -3983,7 +4031,7 @@ function App() {
       {/* A solid bar that bleeds past the page padding to the screen edges. On a
           phone the title stacks as a two-line lockup and the buttons compact so the
           bigger logo and title still sit beside the avatar, theme toggle, bell, menu, and logout. */}
-      <header className="app-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] bg-[image:var(--header-gradient)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
+      <header className="app-header shell-enter-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] bg-[image:var(--header-gradient)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
         <div className="min-w-0 flex-1">
           <div className="flex max-w-full items-center gap-2 sm:gap-3">
             <img src={logoImage} alt="Ateneo de Davao University logo" className="h-11 w-11 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-12 min-[400px]:w-12 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
@@ -4064,7 +4112,7 @@ function App() {
         {/* Floats beside long pages from `lg`. It never scrolls on its own: when it is
             taller than the window its top (the page links) stays in view and the
             summary boxes below come into view at the bottom of the page. */}
-        <aside className="sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
+        <aside className="shell-enter-aside sticky top-5 hidden h-fit rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur lg:block">
           <SidebarProfile avatarUrl={avatarPreview.url} name={currentIdentity.fullName} roleLine={identityRoleLine} detailLine={state.viewerRole === 'student' ? '' : identityDetailLine} />
 
           {renderNavigation('my-4')}
@@ -4075,7 +4123,7 @@ function App() {
           {renderLegalLinks('mt-4')}
         </aside>
 
-        <section className="blue-action-view grid min-w-0 content-start gap-5">
+        <section className="shell-enter-main blue-action-view grid min-w-0 content-start gap-5">
           <WorkspaceSyncNotice
             sync={workspaceSync}
             onRetry={() => refreshNowRef.current?.()}
