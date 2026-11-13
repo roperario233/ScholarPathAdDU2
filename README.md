@@ -64,6 +64,7 @@ half-provisioned account is never locked out.
 
 | Area | Where | Notes |
 | --- | --- | --- |
+| Public landing page | `src/pages/LandingPage.jsx`, `src/components/landing/`, `src/landing.css` | First screen for a signed-out visitor: the three grants, the application path, an illustrative eligibility check, features, FAQ; lazy-loaded, skipped for anyone mid sign-in |
 | Student Dashboard | `src/pages/DashboardView.jsx` | The three AdDU grants with explanations, coverage, requirements, and deadlines; one action into Scholarship Explorer |
 | Scholarship Explorer | `src/pages/ScholarshipExplorer.jsx` | Dynamic faceted search plus an always-open Smart Eligibility Checker per card |
 | Application workspace | `src/components/ApplicationWorkspaceModal.jsx` | Five steps: required documents, Application form, financial situation, statement, review and submit |
@@ -290,6 +291,17 @@ expires, so sign-out does not instantly revoke it.
 
 Row-level security is authoritative. The client never filters a staff-only slice — the policy
 refuses it, and `loadSupabaseWorkspace()` leaves staff-only slices empty for a student session.
+
+## Public landing page
+
+A signed-out visitor first sees the landing page (`src/pages/LandingPage.jsx`), which explains the
+three AdDU grants, the path of one application, and what ScholarPath is and is not, then leads to
+**Create account** or **Sign in**. On the sign-in card, the logo and "ScholarPath AdDU" name lead back to it. The landing page is
+skipped, and the login screen shown directly, for anyone in the middle of signing in: an OAuth
+return, a password-reset or email-confirmation link (or its error), a session-timeout or
+deactivation notice, or a remembered email (`src/lib/landingGate.js`). It is a separate lazy
+chunk, so signed-in sessions never download it, and it calls no Supabase API. Its eligibility
+"Try it" panel is an illustration over a made-up sample track, not a real result.
 
 ## Student journey
 
@@ -724,13 +736,14 @@ src/
   lib/                    domain logic: eligibility, requirements, constants, scope, helpers
   tailwind.css            theme primitives (Tailwind entry)
   styles.css              component CSS, print rules, pseudo-elements, keyframes
+  landing.css             the public landing page's styles (ships with its lazy chunk)
 supabase/
   schema.sql              reference schema for a fresh project
   migrations/             89 incremental migrations, applied in order
   functions/              seven Edge Functions + _shared/ modules
   maintenance_*.sql       manual operator scripts (never migrations)
 scripts/                  Google auth, storage cleanup, and application import operators
-tests/                    72 vitest files
+tests/                    83 vitest files
 ```
 
 | Module | Responsibility |
@@ -871,7 +884,7 @@ the space.
 ## Tests and validation
 
 ```powershell
-npm test        # vitest run: 72 files
+npm test        # vitest run: 83 files
 npm run build   # Vite production build
 npm run lint    # ESLint
 ```

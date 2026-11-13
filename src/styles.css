@@ -602,16 +602,42 @@ main article > .flex > :last-child {
   min-height: calc(100dvh - 2.5rem);
 }
 
+/* The campus photo's veil. The sign-in screen and the landing hero both read this
+   one value, so the photo looks the same when the landing page hands over to the
+   login screen. Heavier in dark mode, where the photo should stay in the
+   background. */
+:root { --campus-veil: rgba(6, 10, 18, 0.74); }
+.theme-light { --campus-veil: rgba(255, 255, 255, 0.66); }
+
+/* Sign-in <-> create-account. Each card carries a view-transition name, so where the
+   browser supports View Transitions it morphs between the two shapes. Browsers
+   without them get a short fade-in instead; reduced motion gets neither. */
+.auth-card { view-transition-name: auth-card; }
+.login-legal-links { view-transition-name: auth-legal; }
+::view-transition-group(auth-card),
+::view-transition-group(auth-legal) {
+  animation-duration: 0.5s;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes auth-card-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+}
+@supports not (view-transition-name: auth-card) {
+  @media (prefers-reduced-motion: no-preference) {
+    .auth-card { animation: auth-card-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both; }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(auth-card),
+  ::view-transition-group(auth-legal) { animation-duration: 0.01ms; }
+}
+
 .login-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(rgba(6, 10, 18, 0.56), rgba(6, 10, 18, 0.56));
+  background: linear-gradient(var(--campus-veil), var(--campus-veil));
   z-index: 0;
   pointer-events: none;
-}
-
-.theme-light .login-overlay {
-  background: linear-gradient(rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.58));
 }
 
 .role-picker-menu {
@@ -1109,13 +1135,15 @@ main article > .flex > :last-child {
 }
 
 @media (max-width: 640px) {
+  /* Centred on the screen like on desktop; a card taller than the screen simply
+     grows the page (min-height, not height), so nothing is cut off at the top. */
   .login-screen {
-    align-items: start;
+    align-items: center;
     padding: max(0.75rem, env(safe-area-inset-top)) 0.75rem 1rem;
   }
 
   .login-content {
-    align-content: start;
+    align-content: center;
     min-height: calc(100vh - max(0.75rem, env(safe-area-inset-top)) - 1rem);
     min-height: calc(100dvh - max(0.75rem, env(safe-area-inset-top)) - 1rem);
   }

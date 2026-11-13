@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { LogOut, Menu, Moon, Sun, X } from 'lucide-react';
 import { createFreshState, createInitialState, readStoredState, serializePersistedState, storageKey } from './lib/appState';
 import { OFFICE_ENTRY_KINDS } from './lib/calendarMarks';
@@ -27,6 +28,7 @@ import { ViewSkeleton } from './components/Skeleton';
 import SessionTimeoutModal from './components/SessionTimeoutModal';
 import { NotificationDropdown } from './components/pageParts';
 import LoginScreenPage from './pages/LoginScreen';
+import { shouldSkipLanding } from './lib/landingGate';
 import DashboardViewPage from './pages/DashboardView';
 import ScholarshipExplorerPage from './pages/ScholarshipExplorer';
 import ApplicationsViewPage from './pages/ApplicationsView';
@@ -70,6 +72,20 @@ import StudentSupportChat from './components/StudentSupportChat';
 import AdminSupportInboxPage from './pages/admin/AdminSupportInbox';
 
 const EMPTY_NOTIFICATIONS = [];
+
+// The public landing page is its own chunk: a signed-in session never downloads it.
+const LandingPage = lazy(() => import('./pages/LandingPage'));
+
+// Swaps the signed-out screen inside a view transition where the browser has one
+// and motion is welcome; elsewhere it is a plain state change.
+const withViewTransition = (update) => {
+  const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+  if (typeof document === 'undefined' || typeof document.startViewTransition !== 'function' || reduceMotion) {
+    update();
+    return;
+  }
+  document.startViewTransition(() => flushSync(update));
+};
 
 const SUPPORT_INBOX_CHANNEL_ENABLED = isSupportInboxChannel();
 const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT ?? 'true').trim().toLowerCase() !== 'false';
@@ -344,6 +360,17 @@ function App() {
   const [isSessionChecked, setIsSessionChecked] = useState(false);
   const [sessionTimeoutState, setSessionTimeoutState] = useState(null);
   const [sessionNotice, setSessionNotice] = useState('');
+  // Signed-out screen: null follows the skip rule (src/lib/landingGate.js);
+  // 'landing' or 'login' is the visitor's own choice and wins until they sign in.
+  const [landingChoice, setLandingChoice] = useState(null);
+  const [loginMode, setLoginMode] = useState('signin');
+  // A sign-in forgets the landing choice, so a later timeout or sign-out is
+  // judged by the skip rule again (state adjusted during render, not in an effect).
+  const [landingAuthSeen, setLandingAuthSeen] = useState(false);
+  if (state.isAuthenticated !== landingAuthSeen) {
+    setLandingAuthSeen(state.isAuthenticated);
+    if (state.isAuthenticated) setLandingChoice(null);
+  }
   const endingSessionRef = useRef(false);
   const absoluteWarningDismissedRef = useRef(false);
   const lastValidationAtRef = useRef(0);
@@ -3857,19 +3884,47 @@ function App() {
   }
 
   if (!state.isAuthenticated) {
+    const toggleTheme = () => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }));
+    const showLanding = landingChoice
+      ? landingChoice === 'landing'
+      : !shouldSkipLanding({ sessionNotice, savedEmail: state.savedEmail, rememberMe: state.rememberMe });
+    const openLogin = (mode) => withViewTransition(() => {
+      setLoginMode(mode);
+      setLandingChoice('login');
+      window.scrollTo(0, 0);
+    });
+    const openLanding = () => withViewTransition(() => {
+      setLandingChoice('landing');
+      window.scrollTo(0, 0);
+    });
     return (
       <>
+        {showLanding ? (
+          <Suspense fallback={<div className="min-h-screen" style={{ background: 'var(--bg)' }} aria-busy="true" />}>
+            <LandingPage
+              theme={state.theme}
+              onToggleTheme={toggleTheme}
+              onGetStarted={() => openLogin('create')}
+              onSignIn={() => openLogin('signin')}
+              onOpenLegalDocument={openPrivacyDocument}
+            />
+          </Suspense>
+        ) : (
         <LoginScreenPage
+          key={loginMode}
+          initialMode={loginMode}
+          onBackToHome={openLanding}
           onLogin={login}
           onSignUp={signup}
           onForgotPassword={requestPasswordReset}
           rememberedEmail={state.savedEmail}
           isRemembered={state.rememberMe}
           theme={state.theme}
-          onToggleTheme={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+          onToggleTheme={toggleTheme}
           sessionNotice={sessionNotice}
           onOpenLegalDocument={openPrivacyDocument}
         />
+        )}
         {/* The notice is shown before sign-in too: the browser storage it describes
             already exists at this point. */}
         <PrivacyConsentBanner

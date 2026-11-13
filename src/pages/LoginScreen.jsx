@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search, Sun } from 'lucide-react';
 import bgImage from '../../pictures/background.jpg';
 import logoImage from '../../pictures/logo.png';
@@ -139,7 +139,10 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
   );
 }
 
-export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null }) {
+// `initialMode` opens the screen on sign-in ('signin', the default) or on the
+// create-account form ('create'); `onBackToHome` makes the sign-in card's logo and
+// "ScholarPath AdDU" name a button back to the public landing page.
+export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null, initialMode = 'signin', onBackToHome = null }) {
   const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -151,7 +154,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
-  const [showCreateAccount, setShowCreateAccount] = useState(false);
+  const [showCreateAccount, setShowCreateAccount] = useState(initialMode === 'create');
   const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [createAccountData, setCreateAccountData] = useState({
     fullName: '',
@@ -174,6 +177,23 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     setFeedbackTone('error');
     clearAuthRedirectParams();
   }, []);
+
+  // Sign-in and create-account are two different cards. Where the browser has View
+  // Transitions the card morphs from one shape to the other (its content cross-fades);
+  // elsewhere, and under reduced motion, the swap is instant (a CSS fade-in covers
+  // browsers without the API).
+  const switchAuthView = (toCreate, beforeSwitch) => {
+    const apply = () => {
+      beforeSwitch?.();
+      setShowCreateAccount(toCreate);
+    };
+    const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !reduceMotion) {
+      document.startViewTransition(() => flushSync(apply));
+      return;
+    }
+    apply();
+  };
 
   const submitLogin = async (event) => {
     event.preventDefault();
@@ -243,17 +263,18 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       setFeedbackMessage(result.message);
       setFeedbackTone('success');
       setTimeout(() => {
-        setShowCreateAccount(false);
-        setCreateAccountSuccess(false);
-        setCreateAccountData({
-          fullName: '',
-          email: '',
-          password: '',
-          confirmPassword: '',
-          role: 'student',
+        switchAuthView(false, () => {
+          setCreateAccountSuccess(false);
+          setCreateAccountData({
+            fullName: '',
+            email: '',
+            password: '',
+            confirmPassword: '',
+            role: 'student',
+          });
+          setFeedbackMessage('');
+          setFeedbackTone('info');
         });
-        setFeedbackMessage('');
-        setFeedbackTone('info');
       }, 2000);
       return;
     }
@@ -315,6 +336,15 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
      setShowPassword((prev) => !prev);
    };
 
+   const brandMark = (
+     <>
+       <img src={logoImage} alt="Ateneo de Davao University logo" className="h-12 w-12 rounded-full border border-white/20 bg-white/10 object-contain p-1" />
+       <span className="font-sans text-2xl/none font-bold tracking-wide text-app-text sm:text-3xl/none">
+         ScholarPath <span className="text-blue-700 dark:text-sky-300">AdDU</span>
+       </span>
+     </>
+   );
+
    return (
      <div className="login-screen" style={{ '--login-bg': `url(${bgImage})` }}>
       <div className="login-overlay" />
@@ -331,14 +361,22 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       </button>
       <div className="login-content">
       {!showCreateAccount ? (
-         <section className="grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
+         <section className="auth-card grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
            <div className="grid content-start gap-4 rounded-app bg-gradient-to-br from-blue-500/10 to-slate-950/20 p-5 sm:p-6">
-             <div className="inline-flex items-center gap-3">
-               <img src={logoImage} alt="Ateneo de Davao University logo" className="h-12 w-12 rounded-full border border-white/20 bg-white/10 object-contain p-1" />
-               <span className="font-sans text-2xl/none font-bold tracking-wide text-app-text sm:text-3xl/none">
-                 ScholarPath <span className="text-blue-700 dark:text-sky-300">AdDU</span>
-               </span>
-            </div>
+             {/* With the landing page in front of it, the logo and name are the way back. */}
+             {onBackToHome ? (
+               <button
+                 type="button"
+                 className="inline-flex w-fit items-center gap-3 rounded-xl bg-transparent p-0 text-left transition hover:opacity-80 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+                 onClick={onBackToHome}
+                 aria-label="ScholarPath AdDU, back to home"
+                 title="Back to home"
+               >
+                 {brandMark}
+               </button>
+             ) : (
+               <div className="inline-flex items-center gap-3">{brandMark}</div>
+             )}
              <h1 className="hidden text-3xl font-extrabold leading-tight text-app-text sm:block lg:text-5xl">Sign in to your scholarship workspace</h1>
           </div>
 
@@ -375,7 +413,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                 <input className="login-remember-checkbox h-4 w-4 shrink-0 accent-[var(--primary)]" type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />
                  <span>Remember me</span>
               </label>
-               <button type="button" className="text-sm font-semibold text-app-primary hover:opacity-80" onClick={() => {
+               <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={() => {
                 setFeedbackMessage('');
                 setFeedbackTone('info');
                 setResetSent(false);
@@ -418,20 +456,22 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                )}
              </button>
             <button type="button" className="segmented-auth-action segmented-auth-action--create inline-flex min-h-10 min-w-0 flex-1 items-center justify-center bg-transparent px-3 py-2 text-sm font-semibold text-app-text transition hover:bg-blue-500/10 focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
-              setFeedbackMessage('');
-              setFeedbackTone('info');
-              setShowCreateAccount(true);
+              switchAuthView(true, () => {
+                setFeedbackMessage('');
+                setFeedbackTone('info');
+              });
             }}>Create account</button>
             </div>
           </form>
         </section>
       ) : (
-         <section className="create-account-section my-4 grid w-full max-w-2xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:my-6 sm:p-6">
+         <section className="auth-card create-account-section my-4 grid w-full max-w-2xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:my-6 sm:p-6">
            <div className="create-account-header grid gap-2 px-1 pt-1">
-             <button type="button" className="create-account-back inline-flex w-fit items-center gap-2 bg-transparent px-0 py-1 text-sm font-semibold text-app-primary hover:bg-transparent hover:opacity-80 focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => {
-              setFeedbackMessage('');
-              setFeedbackTone('info');
-              setShowCreateAccount(false);
+             <button type="button" className="create-account-back inline-flex w-fit items-center gap-2 bg-transparent px-0 py-1 text-sm font-semibold text-app-primary dark:text-sky-300 hover:bg-transparent hover:opacity-80 focus:outline-none focus:ring-4 focus:ring-blue-500/20" onClick={() => {
+              switchAuthView(false, () => {
+                setFeedbackMessage('');
+                setFeedbackTone('info');
+              });
             }}>
               <ArrowLeft size={16} /> Back
             </button>
@@ -450,14 +490,15 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
               <p className="m-0 text-lg font-semibold text-app-text">Account created successfully!</p>
               <p className="m-0 text-sm text-app-muted">You can now sign in with your email and password.</p>
               <button type="button" className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
-                setShowCreateAccount(false);
-                setCreateAccountSuccess(false);
-                setCreateAccountData({
-                  fullName: '',
-                  email: '',
-                  password: '',
-                  confirmPassword: '',
-                  role: 'student',
+                switchAuthView(false, () => {
+                  setCreateAccountSuccess(false);
+                  setCreateAccountData({
+                    fullName: '',
+                    email: '',
+                    password: '',
+                    confirmPassword: '',
+                    role: 'student',
+                  });
                 });
               }}>Back to sign in</button>
             </div>
@@ -530,7 +571,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                     <button
                       key={key}
                       type="button"
-                      className="font-semibold text-app-primary underline-offset-2 hover:underline"
+                      className="font-semibold text-app-primary dark:text-sky-300 underline-offset-2 hover:underline"
                       onClick={() => onOpenLegalDocument?.(key)}
                     >
                       {getLegalDocumentTitle(key)}
@@ -572,7 +613,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   />
                 </label>
                 <div className="grid grid-cols-2 gap-3">
-              <button type="button" className="text-sm font-semibold text-app-primary hover:opacity-80" onClick={() => {
+              <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={() => {
                 setFeedbackMessage('');
                 setFeedbackTone('info');
                 setResetSent(false);
@@ -587,13 +628,16 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
       )}
       {/* The privacy documents are reachable before sign-in: the browser storage the
           notice describes already exists at this point. */}
+      {/* The create-account form already carries these links beside its consent
+          checkbox, so the footer card is shown on the sign-in view only. */}
+      {!showCreateAccount && (
       <div className="login-legal-links mt-1 grid w-full max-w-5xl justify-items-center gap-1 text-center text-xs text-app-muted">
         <span className="inline-flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
           {LEGAL_DOCUMENT_KEYS.map((key) => (
             <button
               key={key}
               type="button"
-              className="font-semibold text-app-primary hover:opacity-80"
+              className="font-semibold text-app-primary dark:text-sky-300 hover:opacity-80"
               onClick={() => onOpenLegalDocument?.(key)}
             >
               {getLegalDocumentTitle(key)}
@@ -602,6 +646,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
         </span>
         <span>ScholarPath AdDU is a research prototype of Ateneo de Davao University. Your information is handled under the Data Privacy Act of 2012.</span>
       </div>
+      )}
       </div>
     </div>
   );
