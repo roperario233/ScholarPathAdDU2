@@ -165,8 +165,8 @@ function RoundProgress({ checked, total, title }) {
 }
 
 const LIST_CLASS = 'm-0 grid list-none gap-2 p-0';
-const ROW_CLASS = 'relative grid gap-3 overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-r from-white via-blue-50/60 to-sky-50/60 p-3.5 pl-5 shadow-sm transition hover:-translate-y-px hover:border-blue-300 hover:shadow-md before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-full before:bg-gradient-to-b before:from-blue-500 before:to-sky-300 dark:border-blue-300/15 dark:from-slate-900 dark:via-blue-950/30 dark:to-slate-900 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center lg:gap-4';
-const ROW_ACTION_CLASS = 'flex min-w-0 flex-wrap items-start gap-2 lg:justify-end';
+const ROW_CLASS = 'relative grid gap-3 overflow-hidden rounded-2xl border border-blue-200/70 bg-gradient-to-r from-white via-blue-50/60 to-sky-50/60 p-3.5 pl-5 shadow-sm transition hover:-translate-y-px hover:border-blue-300 hover:shadow-md before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-full before:bg-gradient-to-b before:from-blue-500 before:to-sky-300 dark:border-blue-300/15 dark:from-slate-900 dark:via-blue-950/30 dark:to-slate-900';
+const ROW_ACTION_CLASS = 'flex min-w-0 flex-wrap items-start gap-2';
 const NOTE_CLASS = 'm-0 text-sm text-app-muted';
 const EMPTY_CLASS = 'm-0 rounded-[14px] border border-dashed border-app-border px-3 py-8 text-center text-sm text-app-muted';
 
@@ -812,9 +812,9 @@ export default function AdminResultsRelease({
                   <div className="min-w-0 w-full"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p></div>
                   <StatusBadge tone="info">With the {REVIEW_ROLE_LABELS[approver] || 'Chairperson'}</StatusBadge>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-                  <span className="text-xs text-app-muted">{recommendationOf(entry)?.label || 'Recommended'} · the school approves, waitlists, or does not accept; you can override from the case.</span>
+                <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-2">
                   <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>Open case</Button>
+                  <span className="min-w-0 flex-1 text-left text-xs text-app-muted">{recommendationOf(entry)?.label || 'Recommended'} · the school approves, waitlists, or does not accept; you can override from the case.</span>
                 </div>
               </article>
             );

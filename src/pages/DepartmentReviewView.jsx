@@ -118,17 +118,17 @@ export default function DepartmentReviewView({
           </div>
           <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-          <span className="text-xs text-app-muted">
+        <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-2">
+          <Button type="button" onClick={() => openCase(entry, 'interview')}>
+            {entry.status === 'Endorsed' ? 'Schedule interview' : onPanel ? 'Open interview' : 'View interview'}
+          </Button>
+          <span className="min-w-0 flex-1 text-left text-xs text-app-muted">
             {entry.status === 'Endorsed'
               ? `Documents verified ${entry.updatedAt ? fmtDate(entry.updatedAt) : ''}. Schedule the interview.`
               : recommendation
                 ? `Recommendation recorded: ${recommendation.label}`
                 : onPanel ? 'You are on this panel. Record the recommendation after the interview.' : 'Another reviewer is on this panel.'}
           </span>
-          <Button type="button" onClick={() => openCase(entry, 'interview')}>
-            {entry.status === 'Endorsed' ? 'Schedule interview' : onPanel ? 'Open interview' : 'View interview'}
-          </Button>
         </div>
       </article>
     );
@@ -205,11 +205,11 @@ export default function DepartmentReviewView({
                     </div>
                     <StatusBadge tone="warning">{recommendation?.label || 'Recommended'}</StatusBadge>
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-2">
-                    <span className="text-xs text-app-muted">
+                  <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-2">
+                    <Button type="button" onClick={() => openCase(entry)}>Review and decide</Button>
+                    <span className="min-w-0 flex-1 text-left text-xs text-app-muted">
                       {[recommendation?.authorName ? `Interviewed by ${recommendation.authorName}` : '', entry.deliberation?.decidedAt ? `sent ${fmtDate(entry.deliberation.decidedAt)}` : ''].filter(Boolean).join(' · ') || 'Read the case before deciding.'}
                     </span>
-                    <Button type="button" onClick={() => openCase(entry)}>Review and decide</Button>
                   </div>
                 </article>
               );
@@ -249,17 +249,17 @@ export default function DepartmentReviewView({
                   </div>
                   <StatusBadge tone={queueTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border pt-3">
-                  <span className={`text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
-                    {verified}/{total || 0} linked documents verified
-                    {!ready ? ` · ${outstanding} with the Admissions Office Admin` : ''}
-                  </span>
-                  <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-3">
+                  <div className="flex flex-wrap gap-2 !flex-none">
                     <Button type="button" onClick={() => openCase(entry)}>Open review</Button>
                     {areEndorsementRecordsVisible(entry.status) ? (
                       <Button type="button" variant="secondary" onClick={() => openCase(entry, 'endorsement')}>Case notes</Button>
                     ) : null}
                   </div>
+                  <span className={`min-w-0 flex-1 text-left text-xs ${ready ? 'text-app-muted' : 'text-amber-700 dark:text-amber-300'}`}>
+                    {verified}/{total || 0} linked documents verified
+                    {!ready ? ` · ${outstanding} with the Admissions Office Admin` : ''}
+                  </span>
                 </div>
               </article>
             );
