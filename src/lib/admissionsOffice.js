@@ -122,6 +122,44 @@ export const getMyReviewQueue = (applications = [], caseOfficers = [], officerId
     .sort(byOldestSubmission);
 };
 
+// The review queue's compact controls: one search box, one stage select, one sort.
+// A presentation filter over the already-scoped queue; it never widens it.
+export const REVIEW_QUEUE_SORTS = [
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'applicant', label: 'Applicant A–Z' },
+  { value: 'scholarship', label: 'Scholarship A–Z' },
+];
+
+export const DEFAULT_REVIEW_QUEUE_FILTERS = { query: '', stage: 'all', sort: 'oldest' };
+
+export const filterReviewQueue = (queue = [], filters = {}) => {
+  const merged = { ...DEFAULT_REVIEW_QUEUE_FILTERS, ...(filters || {}) };
+  const query = String(merged.query || '').trim().toLowerCase();
+  const list = asList(queue).filter((entry) => {
+    if (merged.stage && merged.stage !== 'all' && entry.status !== merged.stage) return false;
+    if (!query) return true;
+    return [entry.studentName, entry.scholarshipTitle, entry.studentProgram]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+      .includes(query);
+  });
+  const sorters = {
+    oldest: byOldestSubmission,
+    newest: (left, right) => byOldestSubmission(right, left),
+    applicant: (left, right) => (
+      String(left.studentName || '').localeCompare(String(right.studentName || ''))
+      || byOldestSubmission(left, right)
+    ),
+    scholarship: (left, right) => (
+      String(left.scholarshipTitle || '').localeCompare(String(right.scholarshipTitle || ''))
+      || byOldestSubmission(left, right)
+    ),
+  };
+  return list.sort(sorters[merged.sort] || byOldestSubmission);
+};
+
 // Officer workload for the Admin's oversight card: how many open cases each active
 // officer is working. Read-only; membership is still self-selected.
 export const getOfficerWorkload = (applications = [], caseOfficers = []) => {

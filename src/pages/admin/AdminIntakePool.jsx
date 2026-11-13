@@ -295,7 +295,7 @@ export default function AdminIntakePool({
 
       <section>
         <Card
-          title="Find a case"
+          title="Applications"
           action={(
             <div className="flex flex-wrap items-center justify-end gap-2">
               {onOpenApplicationForStudent ? (
@@ -360,7 +360,8 @@ export default function AdminIntakePool({
             </Button>
             {hasActiveFilters ? <Button type="button" variant="ghost" onClick={resetFilters}>Reset</Button> : null}
           </div>
-          <div id="intake-more-filters" hidden={!showMoreFilters} className="mt-3 grid gap-2 border-t border-app-border pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+          {showMoreFilters ? (
+          <div id="intake-more-filters" className="mt-3 grid gap-2 border-t border-app-border pt-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             <FormField label="Stage" className="gap-1 [&_span]:text-xs">
               <select className="min-h-10 py-2 text-sm" value={filters.stage} onChange={(event) => updateFilter({ stage: event.target.value })}>
                 <option value="all">All stages</option>
@@ -401,15 +402,8 @@ export default function AdminIntakePool({
               </select>
             </FormField>
           </div>
-        </Card>
-      </section>
-
-
-      <section>
-        <Card
-          title="Applications"
-          action={<StatusBadge tone={filtered.length ? 'warning' : 'success'}>{filtered.length} in view</StatusBadge>}
-        >
+          ) : null}
+          <div className="mt-4 border-t border-app-border pt-4">
           {filtered.length ? (
             <div className="grid gap-3">
               {visible.map(renderRow)}
@@ -430,15 +424,19 @@ export default function AdminIntakePool({
               action={<Button type="button" variant="ghost" onClick={resetFilters}>Reset filters</Button>}
             />
           )}
+          </div>
         </Card>
       </section>
 
       {isAdmin ? (
         <section>
           <Card
-            title="Interviewer workload"
-            action={<StatusBadge tone="info">{interviewerWorkload.length} interviewer{interviewerWorkload.length === 1 ? '' : 's'}</StatusBadge>}
+            title="Office workload"
+            action={<StatusBadge tone="info">{interviewerWorkload.length} interviewer{interviewerWorkload.length === 1 ? '' : 's'} · {workload.length} officer{workload.length === 1 ? '' : 's'}</StatusBadge>}
           >
+            <div className="grid gap-5 lg:grid-cols-2">
+              <div className="min-w-0">
+                <h3 className="mt-0 mb-2 text-sm font-semibold text-app-text">Interviewer workload</h3>
             {interviewerWorkload.length ? (
               <ul className="m-0 grid gap-2 p-0">
                 {interviewerWorkload.map((interviewer) => (
@@ -453,16 +451,9 @@ export default function AdminIntakePool({
             ) : (
               <p className="m-0 text-sm text-app-muted">No interviewer account exists yet. Applicants are routed by school and cluster once one does.</p>
             )}
-          </Card>
-        </section>
-      ) : null}
-
-      {isAdmin ? (
-        <section>
-          <Card
-            title="Officer workload"
-            action={<StatusBadge tone="info">{workload.length} officer{workload.length === 1 ? '' : 's'} on cases</StatusBadge>}
-          >
+              </div>
+              <div className="min-w-0">
+                <h3 className="mt-0 mb-2 text-sm font-semibold text-app-text">Officer workload</h3>
             {workload.length ? (
               <ul className="m-0 grid gap-2 p-0">
                 {workload.map((officer) => (
@@ -480,6 +471,8 @@ export default function AdminIntakePool({
             <p className="mt-3 mb-0 text-xs text-app-muted">
               Officers join a case themselves, so this list reflects who is actually working each application. It is read-only: there is no assignment step.
             </p>
+              </div>
+            </div>
           </Card>
         </section>
       ) : null}
