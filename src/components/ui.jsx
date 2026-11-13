@@ -1,5 +1,5 @@
 import { Download } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const clsx = (...values) => values.flat(Infinity).filter(Boolean).join(' ');
 
@@ -300,6 +300,43 @@ export function EmptyState({ title, description, action, className = '' }) {
   );
 }
 
+// `useLayoutEffect` warns during server rendering (the tests render statically).
+const useIsomorphicLayoutEffect = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+
+// Keep in step with the `modal-overlay-out` duration in styles.css.
+const MODAL_EXIT_MS = 140;
+
+/**
+ * Parents close a modal by unmounting it, so there is nothing left to animate.
+ * When the dialog unmounts, this plays its exit on a throwaway copy of the DOM
+ * (`data-closing`, see `.modal-overlay` in styles.css) that removes itself
+ * afterwards. It works for every close path: backdrop, Close, Cancel, Escape, or
+ * the parent simply rendering something else.
+ */
+function useModalExitGhost() {
+  const overlayRef = useRef(null);
+  useIsomorphicLayoutEffect(() => {
+    const node = overlayRef.current;
+    if (!node) return undefined;
+    return () => {
+      if (typeof window === 'undefined' || typeof document === 'undefined') return;
+      if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+      const ghost = node.cloneNode(true);
+      // By the time this microtask runs the commit has finished: a node that is
+      // still attached was only re-mounted (StrictMode), not closed.
+      queueMicrotask(() => {
+        if (node.isConnected) return;
+        ghost.setAttribute('data-closing', 'true');
+        ghost.setAttribute('aria-hidden', 'true');
+        ghost.setAttribute('inert', '');
+        document.body.appendChild(ghost);
+        window.setTimeout(() => ghost.remove(), MODAL_EXIT_MS + 40);
+      });
+    };
+  }, []);
+  return overlayRef;
+}
+
 /**
  * The backdrop only dismisses a modal when the press and the click both land on
  * the backdrop itself. A drag-select that starts inside the dialog and is released
@@ -319,6 +356,7 @@ export function ModalShell({ title, closeLabel = 'Close', onClose, children, cla
   const markPress = (event) => {
     pressStartedOnOverlay.current = event.target === event.currentTarget;
   };
+  const overlayRef = useModalExitGhost();
   const handleOverlayClick = (event) => {
     if (!onClose) return;
     if (!shouldDismissOverlay({
@@ -332,6 +370,7 @@ export function ModalShell({ title, closeLabel = 'Close', onClose, children, cla
   return (
     <div
       className={clsx('modal-overlay', overlayClassName)}
+      ref={overlayRef}
       role="presentation"
       onPointerDown={markPress}
       onMouseDown={markPress}
