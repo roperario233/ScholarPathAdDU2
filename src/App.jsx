@@ -2853,7 +2853,7 @@ function App() {
       (state.interviewNotes || []).filter((entry) => entry.applicationId === applicationId),
     );
     if (!panelRecommendation) {
-      return { error: 'Record a recommendation level with an evaluation note in the Interview tab first.' };
+      return { error: 'Record a recommendation level with an evaluation note in the Evaluation tab first.' };
     }
     let base = application;
     let closeWarning = '';

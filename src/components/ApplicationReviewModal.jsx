@@ -17,7 +17,7 @@ import FinalCheckToggle from './FinalCheckToggle';
 import StageOutcomeCard, { StageMoveStrip } from './StageOutcomeCard';
 import { describeGrantAmount, getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
 import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, RESULTS_LANE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
-import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getActorRoleLabel, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
+import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
 import { describeAttributeVerification, getAttributeVerificationLabel, getAttributeVerificationTone } from '../lib/verification';
@@ -291,6 +291,13 @@ export default function ApplicationReviewModal({
     INTERVIEW_TAB_STATUSES.includes(application.status)
     || (application.status === 'Rejected' && Boolean(application.interview))
   );
+  // The evaluation notes were part of the Interview tab; they now have their own
+  // tab, available to the same roles under the same stage gate.
+  const applicationNotes = (interviewWorkspace?.notes || []).filter((note) => note.applicationId === application.id);
+  const evaluationTabVisible = interviewUnlocked && (isAdmissionsReviewer || isReviewerRole(role));
+  const recommendationDue = application.status === 'Interview'
+    && Boolean(stageContext.isPanelist)
+    && !latestPanelRecommendation;
   // The recorded grant amount: the school's approving level or the Admissions
   // Office Admin sets it while the case is Recommended or Approved, and Staff read
   // it. Any other reviewer never sees the tab.
@@ -313,7 +320,7 @@ export default function ApplicationReviewModal({
 
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab === 'documents' && !documentsTabVisible) return 'overview';
-    if (initialTab === 'endorsement' && !endorsementUnlocked) return 'overview';
+    if (initialTab === 'evaluation' && !evaluationTabVisible) return 'overview';
     if (initialTab) return initialTab;
     // Open on the stage the application is in, so the reviewer lands on the work
     // that stage needs: the files at For Verification, the endorsement record at
@@ -484,15 +491,23 @@ export default function ApplicationReviewModal({
         : null,
       alert: canCoordinateInterview && application.status === 'Endorsed' && !isAdmissionsAdmin,
     }] : []),
-    // The forwarding record and the internal thread. It sits beside History
-    // because both are the case's record rather than a stage's work; it appears
-    // once the case is forwarded and stays readable afterwards.
-    ...(endorsementUnlocked ? [{
+    // SOP step 5-6: the panel's evaluation notes and recommendation level. It is
+    // its own tab so the Interview tab stays about the schedule and the panel.
+    ...(evaluationTabVisible ? [{
+      key: 'evaluation',
+      label: 'Evaluation',
+      badge: recommendationDue ? 'Recommendation due' : (applicationNotes.length || null),
+      alert: recommendationDue,
+    }] : []),
+    // The forwarding record and the internal thread. It is visible from the first
+    // stage, so the office can leave a note on a case at any point, and it stays
+    // readable afterwards.
+    {
       key: 'endorsement',
       label: 'Case notes',
-      badge: application.status === 'For Endorsement' ? 'Decision due' : null,
+      badge: application.status === 'For Endorsement' ? 'Decision due' : (caseNotes.length || null),
       alert: application.status === 'For Endorsement',
-    }] : []),
+    },
     // The approving level's recorded grant figure (Recommended, Approved, Released).
     ...(grantTabVisible ? [{
       key: 'grant',
@@ -584,7 +599,7 @@ export default function ApplicationReviewModal({
   const showDeliberationField = nextStatuses.includes('Recommended');
   // Every recommendation, the Admin's override included, carries one of the five
   // recommendation levels (Consultation 2, #7), recorded with an evaluation note
-  // in the Interview tab.
+  // in the Evaluation tab.
   const needsRecommendationLevel = !latestPanelRecommendation;
   // Why the Documents tab is not shown yet, phrased for the role that is reading
   // it. It appears with the action guidance at the verification gate.
@@ -595,7 +610,7 @@ export default function ApplicationReviewModal({
       : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
-    if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Interview tab';
+    if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Evaluation tab';
     return '';
   };
   const runAction = async (status) => {
@@ -706,12 +721,12 @@ export default function ApplicationReviewModal({
   return (
     <>
     <ModalShell
-      title={application.scholarshipTitle}
+      title={`${application.scholarshipTitle} - Application`}
       onClose={closeReview}
       className="application-review-modal"
       header={(
         <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
-          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle}</h2>
+          <h2 className="m-0 min-w-0 flex-1">{application.scholarshipTitle} - Application</h2>
           <div className="shrink-0"><Button variant="secondary" type="button" onClick={closeReview}>Close</Button></div>
         </div>
       )}
@@ -895,28 +910,6 @@ export default function ApplicationReviewModal({
 
         {panelTab === 'history' && (
           <div className="grid gap-3">
-            {/* The recorded rejection reason is staff-only, and the Endorsement
-                tab's thread only exists from For Endorsement on. A case rejected
-                before that hand-off is still readable here, where the office
-                looks for the decision's justification. */}
-            {!endorsementUnlocked && caseNotes.length ? (
-              <Panel className="grid gap-2">
-                <h4 className={sectionHeading}>Internal notes</h4>
-                <p className="m-0 text-xs text-app-muted">Visible to reviewers only, never to the student.</p>
-                <ul className="m-0 grid gap-2 p-0">
-                  {caseNotes.map((comment) => (
-                    <li key={comment.id} className="grid gap-1 rounded-[14px] border border-app-border bg-app-surface p-3">
-                      <span className="text-xs text-app-muted">
-                        <strong className="text-app-text">{comment.authorName || 'Reviewer'}</strong>
-                        {' · '}{getActorRoleLabel(comment.authorRole) || 'Staff'}
-                        {' · '}{fmtDate(comment.createdAt)}
-                      </span>
-                      <p className="m-0 whitespace-pre-line text-sm text-app-text">{comment.body}</p>
-                    </li>
-                  ))}
-                </ul>
-              </Panel>
-            ) : null}
             {isAdmissionsReviewer ? (
               <Panel className="grid content-start gap-3">
                 <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
@@ -961,8 +954,9 @@ export default function ApplicationReviewModal({
           </div>
         )}
 
-        {panelTab === 'interview' && interviewWorkspace && (
+        {(panelTab === 'interview' || panelTab === 'evaluation') && interviewWorkspace && (
           <InterviewPanel
+            view={panelTab}
             application={application}
             role={role}
             scholarshipTitle={application.scholarshipTitle || scholarship?.title || ''}
@@ -1011,7 +1005,7 @@ export default function ApplicationReviewModal({
               </p>
             ) : (
               <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
-                No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Interview tab, add an evaluation note and choose a recommendation level.
+                No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Evaluation tab, add an evaluation note and choose a recommendation level.
               </p>
             )}
           </div>

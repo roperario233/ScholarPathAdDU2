@@ -97,6 +97,20 @@ describe('ApplicationReviewModal default tab', () => {
       .toBe('overview');
   });
 
+  it('names the modal after the scholarship application', () => {
+    const html = render({ application: application({ status: 'Submitted' }), role: 'admissions_office' });
+    expect(html).toContain('Grant-in-Aid (GIA) - Application');
+  });
+
+  it('shows Case notes from the first stage, and Evaluation only with the interview stages', () => {
+    const submitted = render({ application: application({ status: 'Submitted' }), role: 'admissions_admin', interviewWorkspace: workspace() });
+    expect(submitted).toContain('id="review-tab-endorsement"');
+    expect(submitted).not.toContain('id="review-tab-evaluation"');
+    const interview = render({ application: application({ status: 'Interview', interview: pastInterview }), role: 'admissions_admin', interviewWorkspace: workspace() });
+    expect(interview).toContain('id="review-tab-evaluation"');
+    expect(interview).toContain('id="review-tab-interview"');
+  });
+
   it('keeps an explicitly requested tab over the stage default', () => {
     expect(selectedTab(render({
       application: application({ status: 'For Endorsement' }),
@@ -195,16 +209,23 @@ describe('ApplicationReviewModal Interview tab', () => {
   });
 
   it('lets a Chair on the panel read the schedule and add notes without attendance controls', () => {
-    const html = render({
+    const chairOnPanel = (initialTab) => render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'department_chair',
-      initialTab: 'interview',
+      initialTab,
       interviewWorkspace: workspace({
         viewerId: 'chair-sea',
         panelists: [{ id: 'p-1', applicationId: 'app-1', profileId: 'chair-sea', name: 'Ana Reyes', isLead: true, removedAt: null }],
       }),
     });
-    expect(html).toContain('Interview Room A');
+    // The schedule and the evaluation are separate tabs.
+    const schedule = chairOnPanel('interview');
+    expect(schedule).toContain('Interview Room A');
+    expect(schedule).not.toContain('Panel evaluation notes');
+    expect(buttonLabels(schedule)).not.toContain('Add note');
+    const html = chairOnPanel('evaluation');
+    expect(html).toContain('Panel evaluation notes');
+    expect(html).not.toContain('Interview Room A');
     expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add note']));
     expect(buttonLabels(html)).not.toContain('Mark attended');
     expect(buttonLabels(html)).not.toContain('Mark did not attend');
@@ -217,7 +238,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'department_chair',
-      initialTab: 'interview',
+      initialTab: 'evaluation',
       interviewWorkspace: workspace({
         viewerId: 'chair-other',
         notes: [{ id: 'n-1', applicationId: 'app-1', authorName: 'Ana Reyes', authorRole: 'department_chair', rating: 4, body: 'Clear goals.', createdAt: '2026-01-05T02:00:00.000Z' }],
@@ -297,7 +318,7 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
   const atInterview = () => render({
     application: application({ status: 'Interview', interview: pastInterview }),
     role: 'admissions_admin',
-    initialTab: 'interview',
+    initialTab: 'evaluation',
     interviewWorkspace: workspace(),
   });
 
@@ -361,7 +382,7 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
     const html = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'admissions_admin',
-      initialTab: 'interview',
+      initialTab: 'evaluation',
       interviewWorkspace: workspace({
         notes: [{ id: 'n-1', applicationId: 'app-1', authorName: 'Ana Reyes', authorRole: 'department_chair', rating: 4, body: 'Clear goals.', createdAt: '2026-01-05T02:00:00.000Z' }],
       }),

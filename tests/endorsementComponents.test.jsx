@@ -167,7 +167,7 @@ describe('ApplicationReviewModal endorsement tab', () => {
     expect(html).toContain('The Admissions Office Admin verifies the documents before the interview.');
   });
 
-  it('keeps the Endorsement tab hidden until the case reaches endorsement', () => {
+  it('shows the Case notes tab from the first stage, before the case is forwarded', () => {
     const html = renderToStaticMarkup(
       <ApplicationReviewModal
         application={application({ status: 'For Verification', statusLog: [] })}
@@ -180,10 +180,12 @@ describe('ApplicationReviewModal endorsement tab', () => {
       />,
     );
 
-    // SOP step 4 starts at the hand-off, so the tab cannot be opened while the
-    // case is still with the Admissions Office for document verification.
-    expect(html).not.toContain('id="review-tab-endorsement"');
-    expect(html).toContain('id="review-panel-overview"');
+    // Consultation 2 folded the hand-off into verification, so the tab is the
+    // case's note thread and is open from the start; the forwarding record says
+    // the case has not gone to interview yet.
+    expect(html).toContain('id="review-tab-endorsement"');
+    expect(html).toContain('id="review-panel-endorsement"');
+    expect(html).toContain('Not forwarded to interview yet.');
   });
 
   it('shows the recorded hand-off to the Admissions Office once it is with the Chair', () => {

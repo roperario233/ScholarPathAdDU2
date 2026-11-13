@@ -1,6 +1,6 @@
 import ApplicationCommentThread from './ApplicationCommentThread';
 import { Panel } from './ui';
-import { getDocumentVerificationReadiness } from '../lib/applicationRequirements';
+import { ENDORSEMENT_STAGE_STATUSES, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
 import { isAdmissionsAdminRole } from '../lib/constants';
 import {
   getApplicationComments,
@@ -58,7 +58,7 @@ export default function EndorsementCasePanel({
             </p>
           ) : (
             <p className="m-0 text-sm text-app-muted">
-              {application.status === 'For Verification'
+              {!ENDORSEMENT_STAGE_STATUSES.includes(application.status) && application.status !== 'Rejected'
                 ? 'Not forwarded to interview yet.'
                 : 'No separate hand-off: the Admissions Office Admin forwarded the verified case.'}
             </p>

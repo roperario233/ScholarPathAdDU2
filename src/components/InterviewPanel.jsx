@@ -747,6 +747,7 @@ function ScheduleOverrideNotice({ application, workspace }) {
  * everything.
  */
 export default function InterviewPanel({
+  view = 'interview',
   application,
   role,
   scholarshipTitle = '',
@@ -764,7 +765,6 @@ export default function InterviewPanel({
   const [feedback, setFeedback] = useState(null);
   const [locationsOpen, setLocationsOpen] = useState(false);
 
-  const isOffice = role === 'admissions_office' || role === 'admissions_admin';
   // Consultation 2: the interviewer schedules its own interviews, and a
   // Chairperson, Assistant Dean, or Dean whose scope covers the applicant may run
   // the interview itself. The Admin keeps the office override; Staff only read.
@@ -816,6 +816,26 @@ export default function InterviewPanel({
     setFeedback(null);
     setEditing(true);
   };
+
+  // The panel's evaluation notes and recommendation level have their own tab, so
+  // this component renders either the schedule or the evaluation, never both.
+  if (view === 'evaluation') {
+    return (
+      <div className={`grid gap-4 ${fieldScope}`}>
+        <Panel className="grid gap-3">
+          <div className="grid gap-0.5">
+            <h4 className={sectionHeading}>Panel evaluation notes</h4>
+            <p className="m-0 text-sm text-app-muted">Private to staff. Applicants never see panel notes or recommendations.</p>
+          </div>
+          <InterviewNotes
+            notes={notes}
+            canAdd={canAddNotes && Boolean(interview)}
+            onAddNote={(note) => workspace.onAddNote(application.id, note)}
+          />
+        </Panel>
+      </div>
+    );
+  }
 
   return (
     <div className={`grid gap-4 ${fieldScope}`}>
@@ -924,20 +944,6 @@ export default function InterviewPanel({
               >{busy ? 'Saving…' : 'Save new schedule'}</Button>
             </div>
           ) : null}
-        </Panel>
-      ) : null}
-
-      {isOffice || isReviewerRole(role) ? (
-        <Panel className="grid gap-3">
-          <div className="grid gap-0.5">
-            <h4 className={sectionHeading}>Panel evaluation notes</h4>
-            <p className="m-0 text-sm text-app-muted">Private to staff. Applicants never see panel notes or recommendations.</p>
-          </div>
-          <InterviewNotes
-            notes={notes}
-            canAdd={canAddNotes && Boolean(interview)}
-            onAddNote={(note) => workspace.onAddNote(application.id, note)}
-          />
         </Panel>
       ) : null}
 
