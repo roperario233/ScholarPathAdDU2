@@ -358,10 +358,6 @@ const selectStudentApplications = memoizeLast((applications, ownerId, holdResult
   .map((entry) => (holdResults ? maskApplicationForStudent(entry, releases) : entry)));
 const selectOwnedDocuments = memoizeLast((documents, ownerId) => documents.filter((entry) => entry.ownerId === ownerId));
 
-// Pages whose figures read the per-case status history or panel notes, which a
-// staff session loads just after the first screen.
-const HISTORY_DEPENDENT_VIEWS = new Set(['admin', 'admin-statistics', 'chair-statistics', 'admin-calendar', 'chair-calendar']);
-
 function App() {
   const [state, setState] = useState(createInitialState);
   const lastPersistedStateRef = useRef(null);
@@ -4127,7 +4123,6 @@ function App() {
           <WorkspaceSyncNotice
             sync={workspaceSync}
             onRetry={() => refreshNowRef.current?.()}
-            historyLoading={state.viewerRole !== 'student' && !state.workspaceDetailsReady && HISTORY_DEPENDENT_VIEWS.has(state.activeView)}
           />
           {showViewSkeleton ? <ViewSkeleton view={state.activeView} /> : (
           // Keyed by the view so every page change, for every role, replays the
