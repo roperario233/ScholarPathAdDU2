@@ -23,7 +23,7 @@ import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSu
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
-import { SidebarNav, SidebarProfile, SidebarStats } from './components/SidebarParts';
+import { SidebarNav, SidebarNavAction, SidebarProfile, SidebarStats } from './components/SidebarParts';
 import { ViewSkeleton } from './components/Skeleton';
 import SessionTimeoutModal from './components/SessionTimeoutModal';
 import { NotificationDropdown } from './components/pageParts';
@@ -101,6 +101,8 @@ const withViewTransition = (update, kind = '') => {
 // How long the workspace plays its exit before sign-out clears it (styles.css,
 // `data-shell-leaving`; the longest part of the sweep ends at about 330ms).
 const SIGN_OUT_EXIT_MS = 300;
+// How long the mobile page drawer takes to slide shut (styles.css, `.mobile-nav-panel`).
+const MOBILE_NAV_CLOSE_MS = 190;
 
 const SUPPORT_INBOX_CHANNEL_ENABLED =isSupportInboxChannel();
 const SUPPORT_ASSISTANT_ENABLED = String(import.meta.env?.VITE_SUPPORT_ASSISTANT ?? 'true').trim().toLowerCase() !== 'false';
@@ -366,6 +368,29 @@ function App() {
   const [supportInbox, setSupportInbox] = useState({ threads: [], messages: [], students: {}, selectedThreadId: '', ready: false, loaded: false, messagesLoaded: false, loading: false, availability: { online: false, officeHoursOpen: false }, assistantReady: null });
   const [isStudentSupportOpen, setIsStudentSupportOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+  // The drawer stays mounted while it slides shut: `isMobileNavClosing` plays the
+  // exit (styles.css, `.mobile-nav-*[data-state='closed']`) and the timer then
+  // unmounts it, so closing animates instead of vanishing.
+  const [isMobileNavClosing, setIsMobileNavClosing] = useState(false);
+  const mobileNavCloseTimerRef = useRef(null);
+  useEffect(() => () => window.clearTimeout(mobileNavCloseTimerRef.current), []);
+  const openMobileNav = () => {
+    window.clearTimeout(mobileNavCloseTimerRef.current);
+    setIsMobileNavClosing(false);
+    setIsMobileNavOpen(true);
+  };
+  const closeMobileNav = () => {
+    if (!isMobileNavOpen || isMobileNavClosing) return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      setIsMobileNavOpen(false);
+      return;
+    }
+    setIsMobileNavClosing(true);
+    mobileNavCloseTimerRef.current = window.setTimeout(() => {
+      setIsMobileNavOpen(false);
+      setIsMobileNavClosing(false);
+    }, MOBILE_NAV_CLOSE_MS);
+  };
   // theme: 'dark' | 'light' — persisted in state
   const [isBooting, setIsBooting] = useState(true);
   const [isSessionChecked, setIsSessionChecked] = useState(false);
@@ -522,7 +547,7 @@ function App() {
     } finally {
       endingSessionRef.current = false;
     }
-  }, [setLegalDocDialog]);
+  }, [setLegalDocDialog, setDeadlineSync]);
 
   const persistedState = serializePersistedState(state);
   useEffect(() => {
@@ -1654,7 +1679,7 @@ function App() {
     // the route without one keeps the tab the reader was last on.
     if (view === 'legal' && options.doc) setLegalDoc(options.doc);
     updateState({ activeView: view });
-    setIsMobileNavOpen(false);
+    closeMobileNav();
   };
 
   const login = async (credentials) => {
@@ -3885,8 +3910,10 @@ function App() {
     { view: 'settings', label: 'Settings', visible: true },
   ].filter((item) => item.visible);
 
-  const renderNavigation = (className = '') => (
-    <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className} />
+  const renderNavigation = (className = '', extraRows = null) => (
+    <SidebarNav items={navigationItems} activeView={state.activeView} onNavigate={navigate} className={className}>
+      {extraRows}
+    </SidebarNav>
   );
 
   // The privacy documents are one quiet footer row rather than three more page
@@ -3988,6 +4015,18 @@ function App() {
     );
   }
 
+  // The header's logo and title, rendered as a button below `lg` and as plain
+  // content from `lg` up (see the header).
+  const brandLockup = (
+    <>
+      <img src={logoImage} alt="Ateneo de Davao University logo" className="h-9 w-9 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-10 min-[400px]:w-10 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
+      <div className="min-w-0 font-sans text-[0.9375rem]/[1] font-bold tracking-wide text-app-text min-[400px]:text-base/[1] sm:text-3xl/none lg:text-4xl/none">
+        <span className="block truncate sm:inline">ScholarPath</span>{' '}
+        <span className="block truncate text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
+      </div>
+    </>
+  );
+
   return (
     <CaseDetailsContext.Provider value={ensureCaseDetails}>
     <div className={`min-h-screen max-w-[100vw] overflow-x-clip bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
@@ -4029,12 +4068,20 @@ function App() {
           full name fits beside the avatar, theme toggle, bell, menu, and logout. */}
       <header className="app-header shell-enter-header relative -mx-3 -mt-3 mb-5 flex min-w-0 items-center justify-between gap-2 border-b border-app-border bg-[color:var(--header-bg)] bg-[image:var(--header-gradient)] px-3 py-2 shadow-card sm:-mx-5 sm:-mt-5 sm:gap-4 sm:px-5 sm:py-3">
         <div className="min-w-0 flex-1">
-          <div className="flex max-w-full items-center gap-2 sm:gap-3">
-            <img src={logoImage} alt="Ateneo de Davao University logo" className="h-9 w-9 shrink-0 rounded-full border border-app-border bg-white/10 object-contain p-0.5 shadow-card min-[400px]:h-10 min-[400px]:w-10 sm:h-14 sm:w-14 lg:h-16 lg:w-16" />
-            <div className="min-w-0 font-sans text-[0.9375rem]/[1] font-bold tracking-wide text-app-text min-[400px]:text-base/[1] sm:text-3xl/none lg:text-4xl/none">
-              <span className="block truncate sm:inline">ScholarPath</span>{' '}
-              <span className="block truncate text-blue-700 dark:text-sky-300 sm:inline">AdDU</span>
-            </div>
+          {/* Below `lg` (where the sidebar and its Dashboard link are in the drawer)
+              the logo and title are a shortcut home: the role's landing view, the
+              same one sign-in opens. From `lg` up the sidebar has that link, so the
+              lockup stays plain. */}
+          <button
+            type="button"
+            className="flex max-w-full min-w-0 items-center gap-2 rounded-xl text-left transition active:scale-[0.98] focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 sm:gap-3 lg:hidden"
+            onClick={() => navigate(landingViewForRole(state.viewerRole))}
+            aria-label="ScholarPath AdDU, go to home"
+          >
+            {brandLockup}
+          </button>
+          <div className="hidden max-w-full items-center gap-2 sm:gap-3 lg:flex">
+            {brandLockup}
           </div>
         </div>
 
@@ -4056,7 +4103,7 @@ function App() {
           )}
           <button
             type="button"
-            className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:h-11 sm:w-11"
+            className="hidden h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:h-11 sm:w-11 lg:inline-grid"
             onClick={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
             aria-label={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             title={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
@@ -4074,13 +4121,14 @@ function App() {
           <button
             type="button"
             className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 lg:hidden"
-            onClick={() => setIsMobileNavOpen((open) => !open)}
-            aria-label={isMobileNavOpen ? 'Close page navigation' : 'Open page navigation'}
-            aria-expanded={isMobileNavOpen}
+            onClick={() => (isMobileNavOpen && !isMobileNavClosing ? closeMobileNav() : openMobileNav())}
+            aria-label={isMobileNavOpen && !isMobileNavClosing ? 'Close page navigation' : 'Open page navigation'}
+            aria-expanded={isMobileNavOpen && !isMobileNavClosing}
           >
-            {isMobileNavOpen ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
+            {isMobileNavOpen && !isMobileNavClosing ? <X aria-hidden="true" size={20} /> : <Menu aria-hidden="true" size={20} />}
           </button>
-          <button className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-2 py-2 text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 sm:px-3" onClick={logout} aria-label="Logout" title="Logout">
+          {/* Below `lg` sign out lives at the bottom of the page drawer. */}
+          <button className="hidden min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface px-2 py-2 text-app-text transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 sm:min-h-11 sm:min-w-11 sm:px-3 lg:inline-flex" onClick={logout} aria-label="Logout" title="Logout">
             <LogOut size={16} aria-hidden="true" />
           </button>
         </div>
@@ -4090,15 +4138,29 @@ function App() {
         <>
           <button
             type="button"
-            className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
-            onClick={() => setIsMobileNavOpen(false)}
+            className="mobile-nav-backdrop fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
+            data-state={isMobileNavClosing ? 'closed' : 'open'}
+            onClick={closeMobileNav}
             aria-label="Close page navigation"
           />
-          <aside className="app-scroll fixed inset-y-0 right-0 z-50 w-[min(21rem,88vw)] overflow-y-auto border-l border-app-border bg-app-card p-5 shadow-2xl lg:hidden" aria-label="Page navigation">
-            <div className="mb-5 flex justify-end">
-              <button type="button" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text" onClick={() => setIsMobileNavOpen(false)} aria-label="Close page navigation"><X size={18} /></button>
+          <aside className="mobile-nav-panel app-scroll fixed inset-y-0 right-0 z-50 w-[min(21rem,88vw)] overflow-y-auto border-l border-app-border bg-app-card p-5 shadow-2xl lg:hidden" data-state={isMobileNavClosing ? 'closed' : 'open'} aria-label="Page navigation">
+            <div className="mb-5 flex items-center justify-between gap-3">
+              {/* The theme toggle lives here below `lg` (the header keeps it from `lg` up). */}
+              <button
+                type="button"
+                className="inline-grid h-10 w-10 shrink-0 place-items-center rounded-full border border-app-border bg-app-surface text-app-text shadow-card transition hover:-translate-y-px hover:shadow-app focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                onClick={() => updateState((prev) => ({ theme: prev.theme === 'light' ? 'dark' : 'light' }))}
+                aria-label={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+                title={state.theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
+              >
+                <span className="theme-toggle-icon" aria-hidden="true">
+                  {state.theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
+                </span>
+              </button>
+              <button type="button" className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text" onClick={closeMobileNav} aria-label="Close page navigation"><X size={18} /></button>
             </div>
-            {renderNavigation()}
+            {/* Sign out is the last row of the page list, under Settings. */}
+            {renderNavigation('', <SidebarNavAction icon={LogOut} label="Sign out" onClick={() => { closeMobileNav(); logout(); }} />)}
             {renderLegalLinks('mt-5 border-t border-app-border pt-4')}
           </aside>
         </>

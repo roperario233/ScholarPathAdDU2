@@ -41,7 +41,24 @@ const getNavIcon = (item) => {
 // primary action); the rest stay flat so a long list of routes reads quietly.
 // Never give these buttons `bg-app-surface` / `bg-app-card`: a global rule repaints
 // every button carrying those classes as a tinted page action.
-export function SidebarNav({ items, activeView, onNavigate, className = '' }) {
+// A row that does something instead of opening a page (the drawer's Sign out). It
+// wears the inactive page-link treatment exactly, so it reads as part of the list.
+export function SidebarNavAction({ icon: Icon, label, onClick }) {
+  return (
+    <button
+      type="button"
+      className="group flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-semibold text-app-muted transition hover:bg-blue-500/10 hover:text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+      onClick={onClick}
+    >
+      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-app-muted-surface text-app-muted transition-colors group-hover:bg-blue-500/15 group-hover:text-blue-600 dark:group-hover:text-blue-200" aria-hidden="true">
+        <Icon size={16} />
+      </span>
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{label}</span>
+    </button>
+  );
+}
+
+export function SidebarNav({ items, activeView, onNavigate, className = '', children = null }) {
   return (
     <nav className={`grid gap-1 ${className}`} aria-label="Page navigation">
       {items.map((item) => {
@@ -75,6 +92,7 @@ export function SidebarNav({ items, activeView, onNavigate, className = '' }) {
           </button>
         );
       })}
+      {children}
     </nav>
   );
 }

@@ -1266,6 +1266,27 @@ main article > .flex > :last-child {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+@keyframes notificationMenuOut {
+  from { opacity: 1; transform: translateY(0) scale(1); }
+  to { opacity: 0; transform: translateY(-5px) scale(0.98); }
+}
+
+/* The notification menu opens and closes with the same short motion, anchored to
+   the bell. NotificationDropdown keeps it mounted for NOTIFICATION_MENU_CLOSE_MS
+   (140ms) while \`data-state\` is "closed", so the exit actually plays. */
+.notification-dropdown {
+  transform-origin: top right;
+}
+
+.notification-dropdown[data-state='open'] {
+  animation: notificationMenuIn 140ms ease-out;
+}
+
+.notification-dropdown[data-state='closed'] {
+  animation: notificationMenuOut 140ms ease-in forwards;
+  pointer-events: none;
+}
+
 .theme-toggle-icon {
   width: 2.05rem;
   height: 2.05rem;
@@ -2024,7 +2045,77 @@ a:focus-visible {
   }
 }
 
+/* Mobile page drawer (below `lg`). It stays mounted while it closes: App.jsx
+   flips data-state to "closed", these rules play the exit, and a timer of
+   MOBILE_NAV_CLOSE_MS (190ms) then unmounts it. Opening fades the backdrop in,
+   slides the panel in from the right and lets the links follow one after another.
+   `backwards` fill on the entrance leaves no transform behind afterwards. */
+.mobile-nav-backdrop[data-state='open'] {
+  animation: mobile-nav-fade-in 170ms ease-out backwards;
+}
+
+.mobile-nav-backdrop[data-state='closed'] {
+  animation: mobile-nav-fade-out 190ms ease-in forwards;
+  pointer-events: none;
+}
+
+.mobile-nav-panel[data-state='open'] {
+  animation: mobile-nav-slide-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.mobile-nav-panel[data-state='closed'] {
+  animation: mobile-nav-slide-out 190ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > * {
+  animation: mobile-nav-item-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(80ms + var(--nav-i, 0) * 30ms);
+}
+
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(1) { --nav-i: 0; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(2) { --nav-i: 1; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(3) { --nav-i: 2; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(4) { --nav-i: 3; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(5) { --nav-i: 4; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(6) { --nav-i: 5; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(7) { --nav-i: 6; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(8) { --nav-i: 7; }
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(1) > :nth-child(n + 9) { --nav-i: 8; }
+
+.mobile-nav-panel[data-state='open'] > nav:nth-of-type(2) {
+  animation: mobile-nav-fade-in 240ms ease-out 260ms backwards;
+}
+
+@keyframes mobile-nav-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes mobile-nav-fade-out {
+  to { opacity: 0; }
+}
+
+@keyframes mobile-nav-slide-in {
+  from { transform: translateX(100%); }
+}
+
+@keyframes mobile-nav-slide-out {
+  to { transform: translateX(100%); }
+}
+
+@keyframes mobile-nav-item-in {
+  from { opacity: 0; transform: translateX(14px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .notification-dropdown,
+  .mobile-nav-backdrop,
+  .mobile-nav-panel,
+  .mobile-nav-panel > nav,
+  .mobile-nav-panel > nav > * {
+    animation: none !important;
+  }
+
   .page-enter,
   .shell-enter-header,
   .shell-enter-aside,
