@@ -198,7 +198,7 @@ const applicationStatusGuidance = {
   Draft: 'Attach the required documents, write your statement, then certify and submit.',
   Submitted: 'Waiting for the Admissions Office to begin review.',
   'Under Review': 'The Admissions Office is reviewing your application.',
-  'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified if a replacement is needed.',
+  'For Verification': 'Your documents are with the Admissions Office for verification. You will be notified if a replacement or additional documents are needed.',
   'For Endorsement': 'Documents verified. No action needed.',
   Endorsed: 'Documents verified. An interviewer from your school will schedule your interview next.',
   Interview: 'Your interview is scheduled. Open the application for the details.',

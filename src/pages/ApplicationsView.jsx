@@ -8,10 +8,12 @@ import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import StudentInterviewCard from '../components/StudentInterviewCard';
 import ReasonModal from '../components/ReasonModal';
+import DocumentRequestResponder from '../components/DocumentRequestResponder';
 import { DocumentDecisionRecord, DocumentRejectionReason, ProfileSnapshotList, RejectedDocumentReplacer, RequirementChecklist, SopStageTrack, StatusHistoryList, SupportingDocumentList } from '../components/ApplicationParts';
 import { spotlightRow } from '../components/MovedCaseNotice';
 import { applyLiveVerificationsToSnapshot, buildProfileSnapshot, getApplicantPhotoDocument, getApplicationAttributeVerifications, getApplicationLiveAttributeVerifications, getApplicationReadiness, getReplacementOptions, getReplaceableRejectedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { describeGrantAmount, getGrantAmountForApplication } from '../lib/grantAmount';
+import { canRequestDocuments, getOpenDocumentRequests, getRequestFulfilmentOptions } from '../lib/documentRequests';
 import { DOCUMENT_REPLACEMENT_STATUSES, getApplicationStatusGuidance, getApplicationStatusLabel, getDocumentTypeLabel, getStudentApplicationStatusLabel, sopStageIndex, sopStages, studentApplicationStatuses } from '../lib/constants';
 import { getApplicationProgress, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtDate, toPercent } from '../lib/formatters';
@@ -247,6 +249,11 @@ export default function ApplicationsView({
   resultsReleases = [],
   onRespondToOffer,
   onWithdrawFromWaitlist,
+  // Additional documents the Admissions Office asked for while the application is at
+  // document verification (application_document_requests, the student's own rows),
+  // and the answer that links the chosen files.
+  documentRequests = [],
+  onFulfillDocumentRequest,
   // Opens the privacy documents over the workspace instead of navigating away from a
   // half-finished draft.
   onOpenPrivacyDocument = null,
@@ -262,9 +269,15 @@ export default function ApplicationsView({
   const [submittedId, setSubmittedId] = useState(null);
   const [spotlightId, setSpotlightId] = useState(null);
   const [replacedNote, setReplacedNote] = useState(null);
+  // The last request answered in the details view (its panel disappears with it).
+  const [requestNote, setRequestNote] = useState(null);
   // The decline / withdraw dialogs ({ applicationId, kind }).
   const [responseDialog, setResponseDialog] = useState(null);
   const offerFor = (entry) => getOfferForApplication(scholarshipOffers, entry.id);
+  // The Admin's open requests for one application; they exist only at verification.
+  const openRequestsFor = (entry) => (
+    onFulfillDocumentRequest && canRequestDocuments(entry.status) ? getOpenDocumentRequests(documentRequests, entry.id) : []
+  );
   // An accepted applicant still has to answer the offer.
   const awaitsAnswer = (entry) => {
     if (entry.status !== 'Released') return false;
@@ -359,6 +372,7 @@ export default function ApplicationsView({
   const closeDetails = () => {
     setSelectedId(null);
     setReplacedNote(null);
+    setRequestNote(null);
   };
 
   // A replacement makes its "Action needed" row disappear, so a confirmation
@@ -381,6 +395,13 @@ export default function ApplicationsView({
 
   // A rejected attached file the student can still replace is shown in one
   // prominent panel above the lists, so it cannot be missed.
+  const selectedOpenRequests = selected ? openRequestsFor(selected) : [];
+  const answerRequest = async (requestId, payload) => {
+    const request = selectedOpenRequests.find((entry) => entry.id === requestId);
+    const result = await onFulfillDocumentRequest(requestId, payload);
+    if (!result?.error && request) setRequestNote({ applicationId: request.applicationId, label: request.label, count: result.count || 0 });
+    return result;
+  };
   const replaceableRejected = selected && onReplaceDocument && DOCUMENT_REPLACEMENT_STATUSES.includes(selected.status)
     ? getReplaceableRejectedDocuments(selected, documents)
     : [];
@@ -404,7 +425,7 @@ export default function ApplicationsView({
     if (entry.status === 'Draft') acc.drafts += 1;
     else if (entry.status === 'Released') acc.decided += 1;
     else if (!CLOSED_STUDENT_STATUSES.includes(entry.status)) acc.inReview += 1;
-    if (getReplaceableRejectedDocuments(entry, documents).length || awaitsAnswer(entry)) acc.actionNeeded += 1;
+    if (getReplaceableRejectedDocuments(entry, documents).length || awaitsAnswer(entry) || openRequestsFor(entry).length) acc.actionNeeded += 1;
     return acc;
   }, { drafts: 0, inReview: 0, actionNeeded: 0, decided: 0 });
 
@@ -440,9 +461,12 @@ export default function ApplicationsView({
           const accent = statusAccent[isTracked ? 'neutral' : statusTone[entry.status] || 'info'] || statusAccent.info;
           const progress = isDraft ? Math.round((readiness.attachedCount / Math.max(readiness.requiredCount, 1)) * 100) : getApplicationProgress(entry.status);
           const needsAnswer = !isTracked && awaitsAnswer(entry);
+          const openRequestCount = isTracked ? 0 : openRequestsFor(entry).length;
           const offer = needsAnswer ? offerFor(entry) : null;
           const nextStep = needsReplacement
             ? 'Action needed: replace the file that was reverted for resubmission so your application can continue.'
+            : openRequestCount
+              ? `Action needed: the Admissions Office asked for ${openRequestCount === 1 ? 'additional documents' : `${openRequestCount} sets of additional documents`}. Open your application to send them.`
             : needsAnswer
               ? `Action needed: confirm or decline your award${offer?.confirmBy ? ` by ${fmtDate(offer.confirmBy)}` : ''}.`
             : isDraft
@@ -463,7 +487,7 @@ export default function ApplicationsView({
             {nextStep ? (
               needsAnswer
                 ? <p className="m-0 flex items-start gap-2 rounded-xl border border-emerald-400/40 bg-emerald-500/10 px-3 py-2 text-sm text-app-text"><Award size={16} className="mt-0.5 shrink-0 text-emerald-600 dark:text-emerald-300" aria-hidden="true" /><span className="min-w-0">{nextStep}</span></p>
-                : needsReplacement
+                : needsReplacement || openRequestCount
                 ? <p className="m-0 flex items-start gap-2 rounded-xl border border-rose-400/40 bg-rose-500/10 px-3 py-2 text-sm text-app-text"><CircleAlert size={16} className="mt-0.5 shrink-0 text-rose-500" aria-hidden="true" /><span className="min-w-0">{nextStep}</span></p>
                 : <p className="m-0 text-sm text-app-muted">{nextStep}</p>
             ) : null}
@@ -473,7 +497,7 @@ export default function ApplicationsView({
             <div className="flex flex-wrap items-center gap-3 border-t border-app-border/60 pt-3">
               {isDraft
                 ? <Button variant="primary" type="button" className="gap-2" onClick={() => onOpenApplication(entry.id)}>Continue application<ArrowRight size={16} aria-hidden="true" /></Button>
-                : <Button variant={needsReplacement || needsAnswer ? 'primary' : 'secondary'} type="button" className="gap-2" onClick={() => setSelectedId(entry.id)}><Eye size={16} aria-hidden="true" />{needsAnswer ? 'Answer the offer' : 'View details'}</Button>}
+                : <Button variant={needsReplacement || needsAnswer || openRequestCount ? 'primary' : 'secondary'} type="button" className="gap-2" onClick={() => setSelectedId(entry.id)}><Eye size={16} aria-hidden="true" />{needsAnswer ? 'Answer the offer' : 'View details'}</Button>}
               {isTracked ? null : <ApplicationPrintButton label="Print" sheet={printSheetFor(entry, readiness)} />}
             </div>
           </article>;
@@ -530,6 +554,40 @@ export default function ApplicationsView({
                     <X size={16} />
                   </button>
                 </div>
+              ) : null}
+              {requestNote && requestNote.applicationId === selected.id ? (
+                <div className="stage-outcome-enter flex min-w-0 items-start justify-between gap-3 rounded-xl border border-emerald-400/40 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-100" role="status">
+                  <CheckCircle2 size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
+                  <p className="m-0 min-w-0 flex-1">
+                    Sent {requestNote.count} file{requestNote.count === 1 ? '' : 's'} for “{requestNote.label}”. {selectedOpenRequests.length ? 'Another request is still waiting for you.' : 'They are waiting for Admissions Office verification.'}
+                  </p>
+                  <button
+                    type="button"
+                    className="inline-flex min-h-8 min-w-8 shrink-0 items-center justify-center rounded-lg text-current transition hover:bg-black/5 focus:outline-none focus:ring-4 focus:ring-blue-500/20"
+                    onClick={() => setRequestNote(null)}
+                    aria-label="Dismiss sent documents message"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              ) : null}
+              {selectedOpenRequests.length ? (
+                <Panel className="grid gap-3 !border-amber-400/40">
+                  <div className="grid gap-1">
+                    <h3 className="m-0 text-sm font-bold uppercase tracking-[0.1em] text-amber-700 dark:text-amber-300">Documents requested</h3>
+                    <p className="m-0 text-sm text-app-text">
+                      The Admissions Office asked for {selectedOpenRequests.length === 1 ? 'more documents' : 'more documents in several parts'} while it verifies your application. Send {selectedOpenRequests.length === 1 ? 'them' : 'each part'} so the review can continue.
+                    </p>
+                  </div>
+                  {selectedOpenRequests.map((request) => (
+                    <DocumentRequestResponder
+                      key={request.id}
+                      request={request}
+                      candidates={getRequestFulfilmentOptions({ application: selected, request, documents })}
+                      onFulfill={answerRequest}
+                    />
+                  ))}
+                </Panel>
               ) : null}
               {replaceableRejected.length ? (
                 <Panel className="grid gap-3 !border-rose-400/40">

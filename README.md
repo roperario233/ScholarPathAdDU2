@@ -141,7 +141,7 @@ and `src/lib/supportChat.js` (support channel).
 ### Existing project
 
 Apply the migrations under `supabase/migrations/` in version order (`supabase db push` or
-`supabase migration up`). The repository head is `20261105000006_notification_outbox.sql`.
+`supabase migration up`). The repository head is `20261114000000_add_document_requests.sql`.
 The currently deployed project was last verified through `20261063000000_add_privacy_consent.sql`;
 check the target with `supabase migration list` before shipping the client. Never re-run
 `schema.sql` on a deployed project — it is the reference for fresh ones, and the two are kept
@@ -170,6 +170,7 @@ Areas worth knowing before you apply a batch:
 | `20261105000004` | Atomic, request-idempotent first-wave release RPC |
 | `20261105000005` | Role-scoped stage totals (`get_application_stage_counts()`, security invoker) used as a refresh integrity check |
 | `20261105000006` | Notification outbox (bounded, retried dispatch from the status and release triggers; pg_cron worker) and the append-only delivery-attempt history |
+| `20261114000000` | Additional document requests: the Admin asks for more files or one more document at verification (`application_document_requests`, three RPCs); an open request holds the case at `For Verification` |
 
 ### Storage
 
@@ -825,7 +826,7 @@ Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
 Remove-Item Env:APPLICATION_IMPORT_APPROVED_BATCH
 ```
 
-Apply migrations through `20261105000006_notification_outbox.sql` on the isolated staging
+Apply migrations through `20261114000000_add_document_requests.sql` on the isolated staging
 project first. The operator path uploads bytes to deterministic private object paths, commits up to
 25 cases per RPC call, validates each case inside its own transaction savepoint, and records only
 hashed source keys/checksums in the import ledger. A retry with the same batch and identical content

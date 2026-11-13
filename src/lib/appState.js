@@ -22,6 +22,8 @@ const serverBackedStateKeys = [
   'scholarshipOffers',
   'scholarshipOffersReady',
   'waitlistRanks',
+  'documentRequests',
+  'documentRequestsReady',
   'caseOfficers',
   'caseOfficersReady',
   'staffDirectory',
@@ -182,6 +184,12 @@ const createDefaultState = () => ({
   scholarshipOffers: [],
   scholarshipOffersReady: true,
   waitlistRanks: [],
+  // Additional-document requests the Admissions Office Admin raised at document
+  // verification (application_document_requests). RLS decides the rows: the owning
+  // student, the office, and the scoped reviewers. `documentRequestsReady` turns
+  // false while the migration is pending, so the review surface can say so.
+  documentRequests: [],
+  documentRequestsReady: true,
   // The Admissions Office case-officer roster: which office accounts have opened
   // which application. Staff-only, so a student or Department Chair session always
   // keeps this empty. `caseOfficersReady` turns false when the roster migration is
@@ -297,6 +305,8 @@ export const createInitialState = () => {
     scholarshipOffers: defaults.scholarshipOffers,
     scholarshipOffersReady: defaults.scholarshipOffersReady,
     waitlistRanks: defaults.waitlistRanks,
+    documentRequests: defaults.documentRequests,
+    documentRequestsReady: defaults.documentRequestsReady,
     caseOfficers: defaults.caseOfficers,
     caseOfficersReady: defaults.caseOfficersReady,
     staffDirectory: defaults.staffDirectory,

@@ -25,6 +25,9 @@ import { describeAttributeVerification, getAttributeVerificationLabel, getAttrib
 import { fmtCurrency, fmtDate } from '../lib/formatters';
 import { createInterviewDraft, getLatestPanelRecommendation, validateInterviewSchedule } from '../lib/interview';
 import { describeStageOutcome } from '../lib/stageOutcome';
+import RequestDocumentsModal from './RequestDocumentsModal';
+import { useDocumentRequests } from '../lib/documentRequestsContext';
+import { DOCUMENT_REQUEST_STATUS_LABELS, canRequestDocuments, describeDocumentRequest, getDocumentRequestsForApplication, getRequestableRequirements } from '../lib/documentRequests';
 
 const TERMINAL_STATUSES = ['Released', 'Rejected', 'Declined'];
 // SOP step 5 onward: the Interview tab appears once the Office of Admissions &
@@ -297,8 +300,17 @@ export default function ApplicationReviewModal({
   // Rejected cannot be endorsed or advance to any later SOP stage. The database
   // enforces the same rule, so the UI disables the forward actions first and
   // explains why.
-  const { outstanding: outstandingDocuments, verified: verifiedDocuments, total: totalDocuments } = getDocumentVerificationReadiness(application, documents);
+  const { requests: allDocumentRequests, ready: documentRequestsReady, onRequest: onRequestDocuments, onCancel: onCancelDocumentRequest } = useDocumentRequests();
+  const { outstanding: outstandingDocuments, verified: verifiedDocuments, total: totalDocuments, openRequests: openRequestCount } = getDocumentVerificationReadiness(application, documents, allDocumentRequests);
   const blockedByDocuments = outstandingDocuments > 0;
+  // An additional-documents request the Admin raised holds the case at
+  // verification until the student answers it or the Admin cancels it
+  // (enforce_document_verification_before_progress repeats the rule).
+  const blockedByRequests = openRequestCount > 0;
+  const documentRequests = getDocumentRequestsForApplication(allDocumentRequests, application.id);
+  const canRequestMore = isAdmissionsAdmin && Boolean(onRequestDocuments)
+    && documentRequestsReady && canRequestDocuments(application.status);
+  const requestBlockReason = `${openRequestCount} document request${openRequestCount === 1 ? ' is' : 's are'} still waiting for the student`;
   // SOP step 3 gates the Document Vault review: an application's attached files
   // stay out of reach until it reaches the verification stage, and a rejected
   // application keeps them readable for its recorded decision.
@@ -391,6 +403,10 @@ export default function ApplicationReviewModal({
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
+  // Additional-document requests: the dialog (optionally preset to one requirement)
+  // and the request whose cancellation is being recorded.
+  const [requestDialog, setRequestDialog] = useState(null);
+  const [cancelRequestTarget, setCancelRequestTarget] = useState(null);
   // Verification is attributed to the signed-in Admissions Office account and
   // dated by the database, so it is confirmed before it is written.
   const [verifyTarget, setVerifyTarget] = useState(null);
@@ -528,8 +544,8 @@ export default function ApplicationReviewModal({
     ...(documentsTabVisible ? [{
       key: 'documents',
       label: 'Documents',
-      badge: blockedByDocuments ? `${outstandingDocuments} to verify` : linkedDocuments.length,
-      alert: blockedByDocuments,
+      badge: blockedByDocuments ? `${outstandingDocuments} to verify` : blockedByRequests ? `${openRequestCount} requested` : linkedDocuments.length,
+      alert: blockedByDocuments || blockedByRequests,
     }] : []),
     // SOP step 5: the schedule, the panel from the applicant's school, and the
     // private evaluation notes.
@@ -662,6 +678,7 @@ export default function ApplicationReviewModal({
       : 'No files attached. Continue to verification to begin document review.';
   const blockReasonFor = (status) => {
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
+    if (blockedByRequests && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return requestBlockReason;
     if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Evaluation tab';
     return '';
   };
@@ -754,6 +771,9 @@ export default function ApplicationReviewModal({
     if (stageMove && showStageMove) return null;
     if (documentsTabVisible && blockedByDocuments && application.status === 'For Verification') {
       return { tone: 'warning', title: documentBlockReason, detail: 'Verify or revert each attached file before the case can go to interview.', tab: 'documents', action: 'Open documents' };
+    }
+    if (documentsTabVisible && blockedByRequests && application.status === 'For Verification') {
+      return { tone: 'warning', title: requestBlockReason, detail: 'Verify the new files when the student adds them, or cancel the request, before the case can go to interview.', tab: 'documents', action: 'Open documents' };
     }
     if (recommendationDue && evaluationTabVisible) {
       return { tone: 'warning', title: 'Your recommendation is due', detail: 'Add an evaluation note and choose a recommendation level before the case can move on.', tab: 'evaluation', action: 'Open evaluation' };
@@ -901,11 +921,17 @@ export default function ApplicationReviewModal({
                   <div className={`grid gap-2 rounded-2xl border p-3 ${blockedByDocuments ? 'border-app-border bg-app-surface' : 'border-emerald-400/40 bg-emerald-500/10'}`}>
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                       <strong className="text-sm text-app-text">{blockedByDocuments ? `${verifiedDocuments} of ${totalDocuments} files verified` : `All ${totalDocuments} files verified`}</strong>
-                      <span className="text-xs text-app-muted">{blockedByDocuments ? `${outstandingDocuments} still to decide` : 'Ready to forward'}</span>
+                      <span className="text-xs text-app-muted">{blockedByDocuments ? `${outstandingDocuments} still to decide` : blockedByRequests ? 'Waiting for requested documents' : 'Ready to forward'}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-app-border" role="progressbar" aria-valuemin={0} aria-valuemax={totalDocuments} aria-valuenow={verifiedDocuments} aria-label="Files verified">
                       <div className={`h-full rounded-full transition-[width] duration-500 motion-reduce:transition-none ${blockedByDocuments ? 'bg-gradient-to-r from-ateneo-strong via-ateneo to-ateneo-bright' : 'bg-emerald-500'}`} style={{ width: `${Math.round((verifiedDocuments / totalDocuments) * 100)}%` }} />
                     </div>
+                  </div>
+                ) : null}
+                {canRequestMore ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs text-app-muted">Need more from the student? Ask for extra files or another document.</span>
+                    <Button type="button" className="!min-h-8 !px-3 !py-1 !text-xs" onClick={() => setRequestDialog({})}>Request more documents</Button>
                   </div>
                 ) : null}
                 {requirements.length ? (
@@ -913,7 +939,7 @@ export default function ApplicationReviewModal({
                     <SectionTitle icon={ClipboardCheck}>Required submissions</SectionTitle>
                     <ul className="m-0 grid gap-3 p-0">
                       {requirements.map((requirement) => (
-                        <li key={requirement.id} className="grid gap-2 rounded-2xl border border-app-border bg-app-surface p-3">
+                        <li key={requirement.id} className={`grid gap-2 rounded-2xl border border-app-border bg-app-surface p-3 ${canRequestMore && getRequestableRequirements([requirement]).length ? 'pb-2' : ''}`}>
                           <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
                             <span className="min-w-0 text-sm font-semibold text-app-text">{requirement.label}</span>
                             <RequirementStateBadge state={requirement.state} />
@@ -925,8 +951,46 @@ export default function ApplicationReviewModal({
                               ))}
                             </ul>
                           ) : <span className="text-xs text-app-muted">Accepts {describeRequirementTypes(requirement)}</span>}
+                          {canRequestMore && getRequestableRequirements([requirement]).length ? (
+                            <button
+                              type="button"
+                              className="proof-action justify-self-start !min-h-0 !py-0.5 text-xs"
+                              onClick={() => setRequestDialog({ kind: 'more_files', requirementId: requirement.id })}
+                            >
+                              Request more files
+                            </button>
+                          ) : null}
                         </li>
                       ))}
+                    </ul>
+                  </section>
+                ) : null}
+                {documentRequests.length ? (
+                  <section className="grid gap-2" aria-label="Requested from the student">
+                    <SectionTitle icon={MessageSquareText}>Requested from the student</SectionTitle>
+                    <ul className="m-0 grid gap-2 p-0">
+                      {documentRequests.map((request) => {
+                        const description = describeDocumentRequest(request);
+                        const tone = request.status === 'Open' ? 'warning' : request.status === 'Fulfilled' ? 'success' : 'neutral';
+                        return (
+                          <li key={request.id} className="grid gap-1.5 rounded-2xl border border-app-border bg-app-surface p-3">
+                            <div className="flex min-w-0 flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                              <span className="min-w-0 text-sm font-semibold text-app-text [overflow-wrap:anywhere]">{description.title}</span>
+                              <StatusBadge tone={tone}>{DOCUMENT_REQUEST_STATUS_LABELS[request.status] || request.status}</StatusBadge>
+                            </div>
+                            <span className="text-xs text-app-muted">
+                              {[description.summary, description.types, request.createdAt ? `Requested ${fmtDate(request.createdAt)}` : ''].filter(Boolean).join(' · ')}
+                            </span>
+                            <p className="m-0 whitespace-pre-line text-sm text-app-text [overflow-wrap:anywhere]">{request.note}</p>
+                            {request.status === 'Cancelled' && request.cancelReason ? (
+                              <span className="text-xs text-app-muted">{`Cancelled: ${request.cancelReason}`}</span>
+                            ) : null}
+                            {request.status === 'Open' && isAdmissionsAdmin && onCancelDocumentRequest ? (
+                              <button type="button" className="proof-action justify-self-start !min-h-0 !py-1 text-xs" onClick={() => setCancelRequestTarget(request)}>Cancel request</button>
+                            ) : null}
+                          </li>
+                        );
+                      })}
                     </ul>
                   </section>
                 ) : null}
@@ -1276,6 +1340,30 @@ export default function ApplicationReviewModal({
           return result;
         }}
         onClose={() => setDocumentRejectTarget(null)}
+      />
+    ) : null}
+    {requestDialog ? (
+      <RequestDocumentsModal
+        requirements={requirements}
+        initialKind={requestDialog.kind || ''}
+        initialRequirementId={requestDialog.requirementId || ''}
+        onConfirm={(payload) => onRequestDocuments?.(application.id, payload)}
+        onClose={() => setRequestDialog(null)}
+      />
+    ) : null}
+    {cancelRequestTarget ? (
+      <ReasonModal
+        title="Cancel document request"
+        label="Why is this request being cancelled?"
+        hint={`Recorded with the request. “${cancelRequestTarget.label}” stops holding the case at verification.`}
+        confirmLabel="Cancel request"
+        onConfirm={async (reason) => {
+          const result = await onCancelDocumentRequest?.(cancelRequestTarget.id, reason);
+          if (result?.error) return result;
+          setCancelRequestTarget(null);
+          return result;
+        }}
+        onClose={() => setCancelRequestTarget(null)}
       />
     ) : null}
     {previewDoc ?<DocumentPreviewModal doc={previewDoc} onClose={() => setPreviewDoc(null)} /> : null}

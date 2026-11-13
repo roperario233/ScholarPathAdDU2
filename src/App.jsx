@@ -19,7 +19,7 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { INTERVIEW_STAGE_CLOSED, buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, loadSupabaseWorkspaceChanges, loadSupabaseWorkspaceDetails, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, releaseSupabaseScholarshipResults, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, loadSupabaseWorkspaceChanges, loadSupabaseWorkspaceDetails, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, releaseSupabaseScholarshipResults, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, requestSupabaseApplicationDocuments, cancelSupabaseDocumentRequest, fulfillSupabaseDocumentRequest, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -54,8 +54,10 @@ import ProfileViewPage from './pages/ProfileView';
 import logoImage from '../pictures/logo.png';
 import { memoizeLast } from './lib/memoizeLast';
 import { CaseDetailsContext } from './lib/caseDetailsContext';
+import { DocumentRequestsContext } from './lib/documentRequestsContext';
 import WorkspaceSyncNotice from './components/WorkspaceSyncNotice';
 import { classifySupabaseError, describeWriteError, isTransientErrorKind } from './lib/errorKinds';
+import { canRequestDocuments } from './lib/documentRequests';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 import { getGrantAmountForApplication, isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
 import { getOfferForApplication, isOfferRoundClosed, isValidConfirmBy } from './lib/resultsRound';
@@ -2173,8 +2175,8 @@ function App() {
     // database trigger repeats the rule, so this guard only stops a stale
     // client from optimistically advancing an application it should not.
     if (ENDORSEMENT_BLOCKED_STATUSES.includes(status)
-      && !isApplicationVerifiedForEndorsement(application, state.documents)) {
-      return { error: 'Every attached document must be Verified before this stage.' };
+      && !isApplicationVerifiedForEndorsement(application, state.documents, state.documentRequests)) {
+      return { error: 'Every attached document must be Verified, and every document request answered, before this stage.' };
     }
     // Stage authority lives once in getNextApplicationStatuses
     // (src/lib/constants.js), so this guard and the role maps cannot drift apart.
@@ -2418,8 +2420,8 @@ function App() {
     // Manuscript 3.3.3: never record an endorsement for an application whose
     // attached documents are not all Verified. The status write refuses that
     // change too, so checking first keeps the client from a stale attempt.
-    if (!isApplicationVerifiedForEndorsement(application, state.documents)) {
-      return { error: 'Every attached document must be Verified before endorsement.' };
+    if (!isApplicationVerifiedForEndorsement(application, state.documents, state.documentRequests)) {
+      return { error: 'Every attached document must be Verified, and every document request answered, before endorsement.' };
     }
     const record = {
       reviewedBy: currentProfile.fullName || 'Admissions Office Admin',
@@ -3408,6 +3410,98 @@ function App() {
     return { ok: true, documentId: replacementId };
   };
 
+  // Additional documents (20261114000000). The Admissions Office Admin may ask for
+  // more files, or one more document, while an application is at document
+  // verification; the stage does not change, but an open request holds the case
+  // there. The note is shown to the student. The database repeats every check
+  // (request_application_documents, fulfill_document_request,
+  // cancel_document_request), so these guards only avoid a stale attempt.
+  const upsertDocumentRequest = (request) => setState((previous) => {
+    const others = (previous.documentRequests || []).filter((entry) => entry.id !== request.id);
+    return { ...previous, documentRequests: [...others, request] };
+  });
+
+  const requestApplicationDocuments = async (applicationId, payload) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can request additional documents.' };
+    }
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!application || !canRequestDocuments(application.status)) {
+      return { error: 'Documents can be requested only while the application is at document verification.' };
+    }
+    if (state.documentRequestsReady === false) {
+      return { error: 'Document requests are not available yet. Apply the pending database migration.' };
+    }
+    // RequestDocumentsModal validates the form with validateDocumentRequest(); the
+    // RPC checks the same rules again against the scholarship's own requirements.
+    const result = await requestSupabaseApplicationDocuments(applicationId, payload);
+    if (result.error) return { error: describeWriteError(result.error, 'The request could not be sent. Apply the pending database migration.') };
+    upsertDocumentRequest(result.request);
+    // The RPC appended the timeline event and, for a student with in-app alerts on,
+    // the notice; the next refresh delivers both. Mirror the timeline locally.
+    setState((previous) => ({
+      ...previous,
+      applications: previous.applications.map((entry) => entry.id === applicationId ? {
+        ...entry,
+        timeline: [...(entry.timeline || []), {
+          id: `ev-${crypto.randomUUID()}`,
+          stage: 'For Verification',
+          note: 'The Admissions Office asked for additional documents.',
+          actor: 'Admissions Office',
+          at: new Date().toISOString().slice(0, 10),
+        }],
+      } : entry),
+    }));
+    return { ok: true, request: result.request };
+  };
+
+  const cancelDocumentRequest = async (requestId, reason) => {
+    if (!isAdmissionsAdminRole(state.viewerRole)) {
+      return { error: 'Only the Admissions Office Admin can cancel a document request.' };
+    }
+    const note = String(reason || '').trim();
+    if (!note) return { error: 'Record why the request is being cancelled.' };
+    const result = await cancelSupabaseDocumentRequest(requestId, note);
+    if (result.error) return { error: describeWriteError(result.error, 'The request could not be cancelled.') };
+    upsertDocumentRequest(result.request);
+    return { ok: true };
+  };
+
+  // The student answers a request with vault files and/or new uploads (which land in
+  // the vault first, like the application workspace). The files arrive Pending for
+  // the Admin to verify, and the request closes in the same transaction.
+  const fulfillDocumentRequest = async (requestId, { documentIds = [], uploads = [] } = {}) => {
+    const request = (state.documentRequests || []).find((entry) => entry.id === requestId);
+    const application = request && state.applications.find((entry) => entry.id === request.applicationId);
+    if (!request || request.status !== 'Open' || !application
+      || application.studentId !== currentProfile.id || !canRequestDocuments(application.status)) {
+      return { error: 'This request is no longer open.' };
+    }
+    const uploadedIds = [];
+    for (const { file, documentType } of uploads) {
+      const upload = await uploadVaultDocument({ file, documentType });
+      if (upload.error) {
+        return { error: uploadedIds.length
+          ? `${upload.error} The files uploaded before it are in your Document Vault; choose them from the list to finish.`
+          : upload.error };
+      }
+      uploadedIds.push(upload.document.id);
+    }
+    const ids = [...new Set([...documentIds, ...uploadedIds])];
+    if (ids.length < (request.minFiles || 1)) {
+      return { error: `Add at least ${request.minFiles || 1} file${(request.minFiles || 1) === 1 ? '' : 's'} to answer this request.` };
+    }
+    const result = await fulfillSupabaseDocumentRequest(requestId, ids);
+    if (result.error) {
+      return { error: uploadedIds.length
+        ? `The files were saved to your Document Vault but could not be added to the application: ${result.error.message || 'please try again.'}`
+        : result.error.message || 'The files could not be added.' };
+    }
+    upsertDocumentRequest(result.request);
+    setApplicationAttachments(application.id, (current) => [...new Set([...current, ...ids])], { touch: false });
+    return { ok: true, count: ids.length };
+  };
+
   const deleteDocument = async (documentId) => {
     const documentToDelete = state.documents.find((entry) => entry.id === documentId);
     if (!documentToDelete) return;
@@ -4027,8 +4121,18 @@ function App() {
     </>
   );
 
+  // The Admin's additional-document requests for the staff review modal (see
+  // src/lib/documentRequestsContext.js). Plain object: App re-renders its subtree anyway.
+  const documentRequestsContextValue = {
+    requests: state.documentRequests || [],
+    ready: state.documentRequestsReady !== false,
+    onRequest: requestApplicationDocuments,
+    onCancel: cancelDocumentRequest,
+  };
+
   return (
     <CaseDetailsContext.Provider value={ensureCaseDetails}>
+    <DocumentRequestsContext.Provider value={documentRequestsContextValue}>
     <div className={`min-h-screen max-w-[100vw] overflow-x-clip bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
       {sessionTimeoutState && (
         <SessionTimeoutModal
@@ -4230,6 +4334,8 @@ function App() {
               onDetach={detachDocumentFromApplication}
               onUploadAndAttach={uploadAndAttachDocument}
               onReplaceDocument={replaceRejectedDocument}
+              documentRequests={state.documentRequests || []}
+              onFulfillDocumentRequest={fulfillDocumentRequest}
               onSaveDraft={saveApplicationDraft}
               onSubmit={submitApplication}
               financialAnswersByApplication={financial.answersByApplication}
@@ -4665,6 +4771,7 @@ function App() {
         <LegalDocumentDialog doc={legalDocDialog} onClose={() => setLegalDocDialog(null)} />
       )}
     </div>
+    </DocumentRequestsContext.Provider>
     </CaseDetailsContext.Provider>
   );
 }
