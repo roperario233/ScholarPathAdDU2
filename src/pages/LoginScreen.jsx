@@ -154,6 +154,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
+  const [isSendingReset, setIsSendingReset] = useState(false);
   const [showCreateAccount, setShowCreateAccount] = useState(initialMode === 'create');
   const [showCreatePassword, setShowCreatePassword] = useState(false);
   const [createAccountData, setCreateAccountData] = useState({
@@ -222,22 +223,53 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     }
   };
 
-  const handleForgotPassword = async (event) => {
-    event.preventDefault();
+  const openForgotPassword = () => {
     setFeedbackMessage('');
     setFeedbackTone('info');
+    setResetSent(false);
+    // Start from the address already typed on the sign-in card.
+    if (!forgotEmail && email) setForgotEmail(email);
+    setShowForgotPassword(true);
+  };
 
-    const result = await onForgotPassword({ email: forgotEmail });
+  const closeForgotPassword = () => {
+    // The dialog shares the feedback banner with the sign-in card, so a reset
+    // message must not linger there once the dialog is gone.
+    setFeedbackMessage('');
+    setFeedbackTone('info');
+    setShowForgotPassword(false);
+  };
 
-    if (result?.success) {
-      setResetSent(true);
-      setFeedbackMessage(result.message);
-      setFeedbackTone('success');
-      return;
+  useEffect(() => {
+    if (!showForgotPassword) return undefined;
+    const handleKey = (event) => {
+      if (event.key === 'Escape') closeForgotPassword();
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [showForgotPassword]);
+
+  const handleForgotPassword = async (event) => {
+    event.preventDefault();
+    if (isSendingReset) return;
+    setFeedbackMessage('');
+    setFeedbackTone('info');
+    setIsSendingReset(true);
+
+    try {
+      const result = await onForgotPassword({ email: forgotEmail.trim() });
+      if (result?.success) {
+        setResetSent(true);
+        return;
+      }
+      setFeedbackMessage(result?.message || 'Unable to send a reset link right now.');
+      setFeedbackTone('error');
+    } catch {
+      setFeedbackMessage('Unable to send a reset link right now.');
+      setFeedbackTone('error');
+    } finally {
+      setIsSendingReset(false);
     }
-
-    setFeedbackMessage(result?.message || 'Unable to send a reset link right now.');
-    setFeedbackTone('error');
   };
 
   const handleCreateAccount = async (event) => {
@@ -413,12 +445,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                 <input className="login-remember-checkbox h-4 w-4 shrink-0 accent-[var(--primary)]" type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.target.checked)} />
                  <span>Remember me</span>
               </label>
-               <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={() => {
-                setFeedbackMessage('');
-                setFeedbackTone('info');
-                setResetSent(false);
-                setShowForgotPassword(true);
-              }}>Forgot password?</button>
+               <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={openForgotPassword}>Forgot password?</button>
             </div>
             {feedbackMessage && (
                <div className={`feedback-banner w-full rounded-xl border px-3 py-3 text-sm ${feedbackTone === 'error' ? 'feedback-banner--error border-rose-400/30 bg-rose-500/10 text-rose-200' : feedbackTone === 'success' ? 'feedback-banner--success border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'feedback-banner--info border-sky-400/30 bg-sky-500/10 text-sky-200'}`} role="status">
@@ -585,46 +612,59 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
         </section>
       )}
       {showForgotPassword && (
-        <div className="modal-overlay" onClick={() => setShowForgotPassword(false)}>
-          <div className="w-full max-w-[420px] rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur" onClick={(e) => e.stopPropagation()}>
-            <h2 className="m-0 text-2xl font-bold text-app-text">Reset your password</h2>
-            <p className="mt-2 text-sm text-app-muted">Enter your email address and we’ll send you a password reset link.</p>
-            {feedbackMessage && (
-              <div className={`feedback-banner w-full rounded-xl border px-3 py-3 text-sm ${feedbackTone === 'error' ? 'feedback-banner--error border-rose-400/30 bg-rose-500/10 text-rose-200' : feedbackTone === 'success' ? 'feedback-banner--success border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'feedback-banner--info border-sky-400/30 bg-sky-500/10 text-sky-200'}`} role="status">
-                {feedbackMessage}
-              </div>
-            )}
-            {resetSent ? (
-              <div className="grid place-items-center gap-3 py-6 text-center">
-                <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-400"><Check size={24} /></div>
-                <p className="m-0 text-sm text-app-text">Reset link sent to <strong>{forgotEmail}</strong></p>
-                <p className="m-0 text-sm text-app-muted">Check your email for further instructions.</p>
-              </div>
-            ) : (
-                <form className="grid gap-4" onSubmit={handleForgotPassword}>
-                <label className="grid gap-2">
-                  <span className="text-sm font-semibold text-app-text">Email address</span>
-                  <input
-                    type="email"
-                    value={forgotEmail}
-                    onChange={(event) => setForgotEmail(event.target.value)}
-                    placeholder="Email address"
-                    required
-                  />
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-              <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={() => {
-                setFeedbackMessage('');
-                setFeedbackTone('info');
-                setResetSent(false);
-                setShowForgotPassword(true);
-              }}>Forgot password?</button>
-                  <button type="submit" className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" disabled={!forgotEmail}>Send reset link</button>
+        <ModalShell
+          title="Reset your password"
+          onClose={closeForgotPassword}
+          className="w-full max-w-[420px]"
+          header={(
+            <div className="mb-5 grid gap-1.5">
+              <h2 className="m-0 text-xl font-bold text-app-text">Reset your password</h2>
+              <p className="m-0 text-sm leading-relaxed text-app-muted">
+                {resetSent
+                  ? 'Check your inbox for the link to choose a new password.'
+                  : 'Enter the email address you use to sign in, and we’ll send you a link to choose a new password.'}
+              </p>
+            </div>
+          )}
+        >
+          {resetSent ? (
+            <div className="grid gap-5">
+              <div className="flex min-w-0 items-start gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/10 p-3">
+                <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"><Check size={18} /></div>
+                <div className="grid min-w-0 gap-0.5 text-sm">
+                  <span className="text-app-text">Reset link sent to <strong className="[overflow-wrap:anywhere]">{forgotEmail}</strong></span>
+                  <span className="text-app-muted">It can take a minute to arrive. Check your spam folder too.</span>
                 </div>
-              </form>
-            )}
-          </div>
-        </div>
+              </div>
+              <Button variant="primary" type="button" className="w-full" onClick={closeForgotPassword}>Back to sign in</Button>
+            </div>
+          ) : (
+            <form className="grid gap-5" onSubmit={handleForgotPassword}>
+              <FormField label="Email address">
+                <input
+                  type="email"
+                  value={forgotEmail}
+                  onChange={(event) => setForgotEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  autoFocus
+                  required
+                />
+              </FormField>
+              {feedbackMessage && feedbackTone === 'error' && (
+                <div className="feedback-banner feedback-banner--error w-full rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-3 text-sm text-rose-200" role="alert">
+                  {feedbackMessage}
+                </div>
+              )}
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <Button variant="ghost" type="button" onClick={closeForgotPassword}>Cancel</Button>
+                <Button variant="primary" type="submit" disabled={!forgotEmail.trim() || isSendingReset}>
+                  {isSendingReset ? 'Sending…' : 'Send reset link'}
+                </Button>
+              </div>
+            </form>
+          )}
+        </ModalShell>
       )}
       {/* The privacy documents are reachable before sign-in: the browser storage the
           notice describes already exists at this point. */}

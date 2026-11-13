@@ -4078,7 +4078,9 @@ function App() {
             historyLoading={state.viewerRole !== 'student' && !state.workspaceDetailsReady && HISTORY_DEPENDENT_VIEWS.has(state.activeView)}
           />
           {showViewSkeleton ? <ViewSkeleton view={state.activeView} /> : (
-          <>
+          // Keyed by the view so every page change, for every role, replays the
+          // short `.page-enter` ease-in instead of snapping into place.
+          <div key={state.activeView} className="page-enter grid min-w-0 content-start gap-5">
           {state.viewerRole === 'student' && state.activeView === 'dashboard' && (
             <DashboardViewPage
               profile={currentIdentity}
@@ -4504,7 +4506,7 @@ function App() {
               onSetStatus={updateSupportThreadStatus}
             />
           )}
-          </>
+          </div>
           )}
         </section>
       </main>
