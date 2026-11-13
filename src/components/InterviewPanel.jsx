@@ -31,6 +31,8 @@ import {
 const sectionHeading = 'm-0 text-base font-semibold text-app-text';
 const fieldError = 'text-sm text-rose-700 dark:text-rose-200';
 const fieldLabel = 'text-sm font-semibold text-app-text';
+// Date, time and select render at different native heights; one fixed box keeps the row level.
+const scheduleControl = 'h-12 min-h-12 rounded-[14px] px-4 py-0 text-base font-normal leading-none';
 const fieldHint = 'text-sm text-app-muted';
 // The global text controls paint with --surface, the same colour as the panels
 // this tab sits them in, behind a faint border, so a field vanished into its
@@ -203,17 +205,17 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="grid content-start gap-1 text-app-text">
             <span className={fieldLabel}>Date</span>
-            <input type="date" min={todayManila()} value={draft.date} onChange={(event) => update({ date: event.target.value })} />
+            <input type="date" className={scheduleControl} min={todayManila()} value={draft.date} onChange={(event) => update({ date: event.target.value })} />
             {show('date')}
           </label>
           <label className="grid content-start gap-1 text-app-text">
             <span className={fieldLabel}>Start time</span>
-            <input type="time" step="300" value={draft.time} onChange={(event) => update({ time: event.target.value })} />
+            <input type="time" step="300" className={scheduleControl} value={draft.time} onChange={(event) => update({ time: event.target.value })} />
             {show('time')}
           </label>
           <label className="grid content-start gap-1 text-app-text">
             <span className={fieldLabel}>Length</span>
-            <select value={draft.durationMinutes} onChange={(event) => update({ durationMinutes: Number(event.target.value) })}>
+            <select className={scheduleControl} value={draft.durationMinutes} onChange={(event) => update({ durationMinutes: Number(event.target.value) })}>
               {INTERVIEW_DURATIONS.map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes</option>)}
             </select>
             {show('durationMinutes')}
