@@ -364,12 +364,16 @@ function App() {
   // 'landing' or 'login' is the visitor's own choice and wins until they sign in.
   const [landingChoice, setLandingChoice] = useState(null);
   const [loginMode, setLoginMode] = useState('signin');
-  // A sign-in forgets the landing choice, so a later timeout or sign-out is
-  // judged by the skip rule again (state adjusted during render, not in an effect).
+  // A sign-in points the signed-out screen at the login card, so a later
+  // sign-out or timeout returns to sign in rather than the landing page; the
+  // card's logo still leads back to it (state adjusted during render, not in an effect).
   const [landingAuthSeen, setLandingAuthSeen] = useState(false);
   if (state.isAuthenticated !== landingAuthSeen) {
     setLandingAuthSeen(state.isAuthenticated);
-    if (state.isAuthenticated) setLandingChoice(null);
+    if (state.isAuthenticated) {
+      setLandingChoice('login');
+      setLoginMode('signin');
+    }
   }
   const endingSessionRef = useRef(false);
   const absoluteWarningDismissedRef = useRef(false);
