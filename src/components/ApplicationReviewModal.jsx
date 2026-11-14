@@ -380,6 +380,9 @@ export default function ApplicationReviewModal({
   const interviewErrors = validateInterviewSchedule(interviewDraft, {
     autoMeeting: Boolean(interviewWorkspace?.calendarConfigured) && interviewDraft.mode === 'online' && !String(interviewDraft.meetingUrl || '').trim(),
     activeLocationIds: (interviewWorkspace?.locations || []).filter((entry) => entry.isActive).map((entry) => entry.id),
+    // An interview needs a panel. A reviewer scheduling a new interview is added to
+    // it automatically (App.jsx scheduleInterview), so only the rest must name one.
+    requirePanel: !(isReviewerRole(role) && application.status === 'Endorsed'),
   });
 
   const [activeTab, setActiveTab] = useState(() => {
@@ -680,6 +683,7 @@ export default function ApplicationReviewModal({
     if (blockedByDocuments && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return documentBlockReason;
     if (blockedByRequests && ENDORSEMENT_BLOCKED_STATUSES.includes(status)) return requestBlockReason;
     if (status === 'Recommended' && needsRecommendationLevel) return 'Record a recommendation level in the Evaluation tab';
+    if (status === 'Interview' && interviewErrors.panel) return 'Add a panel member in the Interview tab';
     return '';
   };
   const runAction = async (status) => {

@@ -222,11 +222,11 @@ describe('ApplicationReviewModal Interview tab', () => {
     const schedule = chairOnPanel('interview');
     expect(schedule).toContain('Interview Room A');
     expect(schedule).not.toContain('Panel evaluation notes');
-    expect(buttonLabels(schedule)).not.toContain('Add note');
+    expect(buttonLabels(schedule)).not.toContain('Add recommendation');
     const html = chairOnPanel('evaluation');
     expect(html).toContain('Panel evaluation notes');
     expect(html).not.toContain('Interview Room A');
-    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add note']));
+    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add recommendation']));
     expect(buttonLabels(html)).not.toContain('Mark attended');
     expect(buttonLabels(html)).not.toContain('Mark did not attend');
     expect(html).not.toContain('Outcome due');
@@ -246,7 +246,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     });
     expect(html).toContain('Clear goals.');
     expect(buttonLabels(html)).not.toContain('Mark attended');
-    expect(buttonLabels(html)).not.toContain('Add note');
+    expect(buttonLabels(html)).not.toContain('Add recommendation');
   });
 
   it('offers the recommendation as a normal stage action', () => {

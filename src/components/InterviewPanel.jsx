@@ -150,6 +150,9 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
   const eligible = getEligiblePanelists(workspace.staffDirectory, application, applicantScope);
   const onPanel = new Set(draft.panel.map((member) => member.profileId).filter(Boolean));
   const addable = eligible.filter((entry) => !onPanel.has(entry.userId));
+  // "Add myself" shows only while the signed-in account is itself an eligible,
+  // not-yet-listed panelist (the Admin always is; a reviewer only within scope).
+  const canAddSelf = Boolean(workspace.viewerId) && addable.some((entry) => entry.userId === workspace.viewerId);
   // The Chair picker and the added-member rows name each reviewer's scope, so the
   // reviewer can see which level of the school the panel is drawn from (SOP 5a).
   const departmentById = Object.fromEntries(
@@ -406,11 +409,15 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               );
             })}
           </ul>
-        ) : <p className={`m-0 ${fieldHint}`}>No panel members yet. You can add them after saving.</p>}
+        ) : (
+          <p className="m-0 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm font-semibold text-amber-700 dark:text-amber-200" role="status">
+            No panel members yet. Add at least one to schedule the interview.
+          </p>
+        )}
 
         <div className="grid gap-1">
           <span className={fieldLabel}>Add a panel member</span>
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className={`grid gap-2 ${canAddSelf ? 'sm:grid-cols-[minmax(0,1fr)_auto_auto]' : 'sm:grid-cols-[minmax(0,1fr)_auto]'}`}>
             <select value={chairToAdd} onChange={(event) => setChairToAdd(event.target.value)} disabled={!addable.length} aria-label="Panel member">
               <option value="">{eligible.length ? (addable.length ? 'Select a panel member…' : 'Everyone eligible is already on the panel') : 'No panel accounts available'}</option>
               {addable.map((entry) => (
@@ -424,6 +431,9 @@ function ScheduleForm({ application, draft, onDraftChange, errors, showErrors, w
               disabled={!chairToAdd}
               onClick={() => { addMember({ profileId: chairToAdd }); setChairToAdd(''); }}
             >Add member</Button>
+            {canAddSelf ? (
+              <Button type="button" onClick={() => { addMember({ profileId: workspace.viewerId }); setChairToAdd(''); }}>Add myself</Button>
+            ) : null}
           </div>
         </div>
 
@@ -688,7 +698,7 @@ function InterviewNotes({ notes, canAdd, onAddNote }) {
             <span className={`text-right ${fieldHint}`}>{body.length}/2000</span>
           </label>
           <div className="flex justify-end">
-            <Button type="submit" variant="primary" disabled={busy || !body.trim()}>{busy ? 'Saving…' : 'Add note'}</Button>
+            <Button type="submit" variant="primary" disabled={busy || !body.trim()}>{busy ? 'Saving…' : 'Add recommendation'}</Button>
           </div>
           {error ? <p className="m-0 text-sm text-rose-700 dark:text-rose-200" role="alert">{error}</p> : null}
         </form>

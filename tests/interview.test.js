@@ -137,11 +137,18 @@ describe('validateInterviewSchedule', () => {
     expect(validateInterviewSchedule(validDraft(), { now: NOW, activeLocationIds: ['loc-1'] })).toEqual({});
   });
 
-  it('requires a future start and a location, and allows an empty panel', () => {
+  it('requires a future start and a location, and allows an empty panel unless one is required', () => {
     const errors = validateInterviewSchedule(validDraft({ date: '2026-10-30', locationId: '', panel: [] }), { now: NOW });
     expect(errors.time).toMatch(/future/);
     expect(errors.locationId).toMatch(/location/);
     expect(errors.panel).toBeUndefined();
+  });
+
+  it('requires at least one panel member when the surface asks for it', () => {
+    const empty = validateInterviewSchedule(validDraft({ panel: [] }), { now: NOW, requirePanel: true });
+    expect(empty.panel).toMatch(/at least one panel member/);
+    const filled = validateInterviewSchedule(validDraft(), { now: NOW, requirePanel: true, activeLocationIds: ['loc-1'] });
+    expect(filled).toEqual({});
   });
 
   it('refuses an archived location', () => {

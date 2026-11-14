@@ -2578,7 +2578,7 @@ function App() {
   // Google Calendar event when the integration is configured.
   const prepareInterviewSchedule = async (application, draft, { previous = null, reason = '' } = {}) => {
     const wantsAutoMeeting = interviewCalendar.configured && draft.mode === 'online' && !String(draft.meetingUrl || '').trim();
-    const errors = validateInterviewSchedule(draft, { autoMeeting: wantsAutoMeeting, activeLocationIds });
+    const errors = validateInterviewSchedule(draft, { autoMeeting: wantsAutoMeeting, activeLocationIds, requirePanel: true });
     if (Object.keys(errors).length) {
       return { error: Object.values(errors)[0], errors };
     }

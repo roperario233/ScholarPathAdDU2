@@ -261,7 +261,7 @@ export const createInterviewDraft = (application = {}, panelists = []) => {
  * `autoMeeting` is true when the Google Calendar integration will generate the
  * Meet link, so an online interview needs no pasted link.
  */
-export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMeeting = false, activeLocationIds = null } = {}) => {
+export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMeeting = false, activeLocationIds = null, requirePanel = false } = {}) => {
   const errors = {};
   if (!INTERVIEW_MODES.some((entry) => entry.value === draft.mode)) errors.mode = 'Choose on-site or online.';
   if (!draft.date) errors.date = 'Choose the interview date.';
@@ -282,11 +282,12 @@ export const validateInterviewSchedule = (draft = {}, { now = new Date(), autoMe
     else if (!link && !autoMeeting) errors.meetingUrl = 'Paste the meeting link for the online interview.';
   }
 
-  // The panel is optional: an interview can be scheduled before the office has
-  // settled who sits on it. When members are listed, exactly one is the lead, and
-  // any of them — Department Chair, Admissions Office account, or faculty guest —
-  // may hold that role.
+  // Scheduling needs at least one panel member (`requirePanel`, which the schedule
+  // and reschedule surfaces pass). When members are listed, exactly one is the lead,
+  // and any of them — Department Chair, Admissions Office account, or faculty
+  // guest — may hold that role.
   const panel = (Array.isArray(draft.panel) ? draft.panel : []).map(normalizePanelMember);
+  if (!panel.length && requirePanel) errors.panel = 'Add at least one panel member to schedule the interview.';
   if (panel.length) {
     const leads = panel.filter((member) => member.isLead).length;
     const accountIds = panel.map((member) => member.profileId).filter(Boolean);
