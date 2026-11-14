@@ -1,9 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Clock, Eye, FileImage, FileText, Layers, Lock, RotateCcw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Clock, Eye, FileImage, FileText, Layers, Lock, RotateCcw, ShieldCheck, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { Card, EmptyState, SummaryCards } from '../components/pageParts';
 import { Button, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
-import DocumentUploadForm from '../components/DocumentUploadForm';
+import DocumentUploadModal from '../components/DocumentUploadModal';
 import ListToolbar from '../components/ListToolbar';
 import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
@@ -65,6 +65,7 @@ export default function DocumentVaultView({ documents, applications = [], profil
   const [status, setStatus] = useState('all');
   const [sort, setSort] = useState('newest');
   const [preview, setPreview] = useState(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
   // Usage is derived from the applications that attach each file, so the count
   // always matches the application workspace. A file a submitted application
   // relies on is locked until that review ends.
@@ -136,16 +137,15 @@ export default function DocumentVaultView({ documents, applications = [], profil
         <VaultMetric icon={RotateCcw} label="Needs resubmission" value={countByStatus('Rejected')} note="Reverted for resubmission" tone="bg-rose-500/15 text-rose-700 dark:text-rose-300" />
       </SummaryCards>
 
-      <Card title="Upload a document">
-        <DocumentUploadForm
-          profile={profile}
-          onUpload={onUpload}
-          presetAttribute={presetAttribute}
-          presetDocumentType={presetDocumentType}
-        />
-      </Card>
-
-      <Card title="Your documents" className="document-list-card">
+      <Card
+        title="Your documents"
+        action={(
+          <Button variant="primary" type="button" className="gap-2" onClick={() => setUploadOpen(true)}>
+            <Upload size={16} aria-hidden="true" /> Upload a document
+          </Button>
+        )}
+        className="document-list-card"
+      >
         <ListToolbar
           name="document-status"
           legend="Filter documents by verification status"
@@ -240,6 +240,16 @@ export default function DocumentVaultView({ documents, applications = [], profil
         </div>
       </Card>
 
+      {uploadOpen ? (
+        <DocumentUploadModal
+          title="Upload a document"
+          profile={profile}
+          onUpload={onUpload}
+          presetAttribute={presetAttribute}
+          presetDocumentType={presetDocumentType}
+          onClose={() => setUploadOpen(false)}
+        />
+      ) : null}
       {preview ? <DocumentPreviewModal doc={preview} onClose={() => setPreview(null)} /> : null}
     </div>
   );

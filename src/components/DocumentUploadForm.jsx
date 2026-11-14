@@ -161,7 +161,7 @@ export default function DocumentUploadForm({ profile = null, onUpload, onUploade
         )}
         <div className="flex flex-wrap items-center justify-between gap-3">
           {documentType ? <p className="field-hint m-0">Saved as <strong>{derivedTitle}</strong></p> : null}
-          <button className="vault-upload-button inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>
+          <button className="vault-upload-button ml-auto inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" type="submit" disabled={isUploading}>{isUploading ? 'Uploading…' : 'Upload to vault'}</button>
         </div>
         {formError && <p className="form-error" role="alert">{formError}</p>}
       </form>

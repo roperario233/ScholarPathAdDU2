@@ -6,9 +6,9 @@ import DocumentUploadForm from './DocumentUploadForm';
 // preselected; a successful upload closes it, and the badge behind it re-derives
 // from the vault. `blue-action-view` carries the shell's button palette that the
 // vault page gets from its own wrapper.
-export default function DocumentUploadModal({ profile, presetAttribute = '', presetDocumentType = '', onUpload, onClose }) {
+export default function DocumentUploadModal({ title = 'Upload a proof', profile, presetAttribute = '', presetDocumentType = '', onUpload, onClose }) {
   return (
-    <ModalShell title="Upload a proof" closeLabel="Cancel" onClose={onClose} className="blue-action-view w-[min(560px,100%)]">
+    <ModalShell title={title} closeLabel="Cancel" onClose={onClose} className="blue-action-view w-[min(560px,100%)]">
       <DocumentUploadForm
         profile={profile}
         onUpload={onUpload}
