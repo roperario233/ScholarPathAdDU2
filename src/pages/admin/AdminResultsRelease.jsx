@@ -2,6 +2,7 @@ import { ArrowDown, ArrowRight, ArrowUp, Award, CheckCircle2, Gavel, Hourglass, 
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
+import FilterChips from '../../components/FilterChips';
 import { STAGE_BAR_TONES, STAGE_LABEL_TONES, StageIcon } from '../../components/ApplicationParts';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import ReasonModal from '../../components/ReasonModal';
@@ -13,18 +14,23 @@ import { getActorRoleLabel } from '../../lib/applicationRequirements';
 import { getApplicationStatusLabel, isEarlyClosure } from '../../lib/constants';
 import { buildProgramScopeIndex, getApplicationScope } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
+import { getCurrentAcademicYear } from '../../lib/profile';
 import FinalCheckToggle from '../../components/FinalCheckToggle';
 import { describeGrantAmount } from '../../lib/grantAmount';
 import {
   OFFER_STATE_LABELS,
   formatAcademicYear,
   OFFER_STATE_TONES,
+  RESULTS_FILTER_ALL,
   getConfirmByDaysRemaining,
   getDefaultConfirmBy,
   getManilaToday,
   getOfferState,
+  getReleaseAcademicYear,
   getResultsRounds,
+  getResultsYearOptions,
   isValidConfirmBy,
+  matchesResultsFilter,
   moveInOrder,
 } from '../../lib/resultsRound';
 import { fmtDate, plural } from '../../lib/formatters';
@@ -250,6 +256,10 @@ export default function AdminResultsRelease({
   initialOpenRoundId = null,
 }) {
   const [openId, setOpenId] = useState(null);
+  // One chip row (the grant) and one dropdown (the academic year) narrow both the
+  // results rounds and the released results. The year opens on today's.
+  const [grantFilter, setGrantFilter] = useState(RESULTS_FILTER_ALL);
+  const [yearFilter, setYearFilter] = useState(() => getCurrentAcademicYear());
   // The tab the review modal opens on: the case notes and the grant amount have
   // their own buttons on the final-check list, so the Admin need not hunt for them.
   const [openTab, setOpenTab] = useState(null);
@@ -335,6 +345,46 @@ export default function AdminResultsRelease({
     ...rounds.flatMap((round) => [...round.approved, ...round.waitlist, ...round.offers.map((row) => row.application)]),
   ].map((entry) => entry.id));
   const releasedHistory = useMemo(() => [...resultsReleases].filter((release) => release.releasedBy).reverse(), [resultsReleases]);
+  const applicationById = useMemo(() => new Map(applications.map((entry) => [entry.id, entry])), [applications]);
+  const releaseYears = useMemo(
+    () => new Map(releasedHistory.map((release) => [release.id, getReleaseAcademicYear(release, applicationById)])),
+    [releasedHistory, applicationById],
+  );
+  const yearOptions = useMemo(
+    () => getResultsYearOptions([...rounds.map((round) => round.academicYear), ...releaseYears.values()]),
+    [rounds, releaseYears],
+  );
+  const yearChoice = yearFilter === RESULTS_FILTER_ALL || yearOptions.includes(yearFilter) ? yearFilter : RESULTS_FILTER_ALL;
+  // The grants that have a round or a release at all, so a chip never disappears
+  // when another year is chosen; its count follows the chosen year.
+  const grantChips = useMemo(() => {
+    const grants = new Map();
+    rounds.forEach((round) => grants.set(round.scholarshipId, round.title));
+    releasedHistory.forEach((release) => {
+      if (!grants.has(release.scholarshipId)) grants.set(release.scholarshipId, scholarships.find((entry) => entry.id === release.scholarshipId)?.title || 'Scholarship');
+    });
+    const inYear = { year: yearChoice };
+    return [
+      {
+        value: RESULTS_FILTER_ALL,
+        label: 'All grants',
+        count: rounds.filter((round) => matchesResultsFilter(round, inYear)).length
+          + releasedHistory.filter((release) => matchesResultsFilter({ ...release, academicYear: releaseYears.get(release.id) }, inYear)).length,
+      },
+      ...[...grants.entries()]
+        .sort((left, right) => left[1].localeCompare(right[1]))
+        .map(([value, label]) => ({
+          value,
+          label,
+          count: rounds.filter((round) => matchesResultsFilter(round, { ...inYear, grant: value })).length
+            + releasedHistory.filter((release) => matchesResultsFilter({ ...release, academicYear: releaseYears.get(release.id) }, { ...inYear, grant: value })).length,
+        })),
+    ];
+  }, [rounds, releasedHistory, releaseYears, scholarships, yearChoice]);
+  const grantChoice = grantChips.some((chip) => chip.value === grantFilter) ? grantFilter : RESULTS_FILTER_ALL;
+  const resultsFilter = { grant: grantChoice, year: yearChoice };
+  const shownRounds = rounds.filter((round) => matchesResultsFilter(round, resultsFilter));
+  const shownReleases = releasedHistory.filter((release) => matchesResultsFilter({ ...release, academicYear: releaseYears.get(release.id) }, resultsFilter));
   const openRelease = releasedHistory.find((release) => release.id === openReleaseId) || null;
   // Memoised: the list dialog filters this on every keystroke of its search.
   const openReleaseCovered = useMemo(() => {
@@ -342,7 +392,7 @@ export default function AdminResultsRelease({
     const ids = new Set(openRelease.applicationIds || []);
     return applications.filter((entry) => ids.has(entry.id));
   }, [openRelease, applications]);
-  const visibleReleasedHistory = visibleRowsFor('all', 'released-history', releasedHistory);
+  const visibleReleasedHistory = visibleRowsFor('all', 'released-history', shownReleases);
   const titleById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title])), [scholarships]);
   const grantAmounts = interviewWorkspace?.grantAmounts || EMPTY_LIST;
   const grantByApplication = useMemo(() => new Map(grantAmounts.map((entry) => [entry.applicationId, entry])), [grantAmounts]);
@@ -742,9 +792,41 @@ export default function AdminResultsRelease({
         >{feedback.message}</p>
       ) : null}
 
-      <Card title="Results by scholarship" action={<ExportButton disabled={!finalList.length} onClick={exportFinalList} />}>
+      {/* One surface in design only: the filter bar, the results rounds, and the
+          released results share a card, but stay separate sections with their own
+          lists and actions. */}
+      <Card>
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-3 border-b border-app-border pb-4">
+          <FilterChips
+            name="results-grant"
+            legend="Filter results by grant"
+            value={grantChoice}
+            onChange={setGrantFilter}
+            options={grantChips}
+          />
+          <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-app-text">
+            <span className="shrink-0 text-xs text-app-muted">Academic year</span>
+            <select
+              aria-label="Filter results by academic year"
+              className="min-h-10 py-2 text-sm"
+              value={yearChoice}
+              onChange={(event) => setYearFilter(event.target.value)}
+            >
+              <option value={RESULTS_FILTER_ALL}>All academic years</option>
+              {yearOptions.map((year) => (
+                <option key={year} value={year}>{formatAcademicYear(year)}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <section className="pt-5" aria-labelledby="results-by-scholarship-heading">
+          <div className="mb-4 flex min-w-0 flex-wrap items-start justify-between gap-3">
+            <h3 id="results-by-scholarship-heading" className="min-w-0 flex-1">Results by scholarship</h3>
+            <div className="shrink-0"><ExportButton disabled={!finalList.length} onClick={exportFinalList} /></div>
+          </div>
         <div className="grid gap-4">
-          {rounds.length ? rounds.map((round) => {
+          {shownRounds.length ? shownRounds.map((round) => {
             const view = roundView(round);
             return (
               <article key={round.scholarshipId} className={`${getCaseCardClass('info')} group isolate border-blue-300/60 bg-gradient-to-br from-blue-50/80 via-app-surface to-sky-50/50 p-4 pl-5 shadow-md hover:border-blue-400/70 hover:shadow-lg dark:from-blue-950/25 dark:via-app-surface dark:to-sky-950/10 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-stretch sm:gap-5 sm:p-5 sm:pl-6`}>
@@ -800,15 +882,23 @@ export default function AdminResultsRelease({
                 </div>
               </article>
             );
-          }) : <EmptyState title="Nothing to release yet" description="Approved and waitlisted applications appear here after the school's decision." />}
+          }) : rounds.length ? (
+            <EmptyState
+              title="No results rounds for this selection"
+              description="Choose another grant or academic year to see the rest."
+              action={<div className="mt-3 flex justify-center"><Button type="button" onClick={() => { setGrantFilter(RESULTS_FILTER_ALL); setYearFilter(RESULTS_FILTER_ALL); }}>Show all grants and years</Button></div>}
+            />
+          ) : <EmptyState title="Nothing to release yet" description="Approved and waitlisted applications appear here after the school's decision." />}
         </div>
-      </Card>
+        </section>
 
-      {releasedHistory.length ? (
-        <Card title="Released results">
+        {releasedHistory.length ? (
+        <section className="mt-5 border-t border-app-border pt-5" aria-labelledby="released-results-heading">
+          <h3 id="released-results-heading" className="mb-4">Released results</h3>
           {/* One pressable card per release. The covered applications can run to
               hundreds or thousands, so they open in their own dialog instead of
               unfolding down the page. */}
+          {shownReleases.length ? (
           <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
             {visibleReleasedHistory.map((release) => {
               const title = titleById[release.scholarshipId] || 'Scholarship';
@@ -844,11 +934,13 @@ export default function AdminResultsRelease({
               );
             })}
           </ul>
-          {visibleReleasedHistory.length < releasedHistory.length ? (
-            <div className="mt-3">{showMoreRows('all', 'released-history', visibleReleasedHistory.length, releasedHistory.length)}</div>
+          ) : <EmptyState title="No released results for this selection" description="Choose another grant or academic year to see the rest." />}
+          {visibleReleasedHistory.length < shownReleases.length ? (
+            <div className="mt-3">{showMoreRows('all', 'released-history', visibleReleasedHistory.length, shownReleases.length)}</div>
           ) : null}
-        </Card>
-      ) : null}
+        </section>
+        ) : null}
+      </Card>
 
       {openRelease ? (
         <ReleasedResultsModal

@@ -58,6 +58,31 @@ export const getRoundAcademicYear = (entries = []) => {
 
 export const formatAcademicYear = (value) => String(value || '').replace('-', '–');
 
+// The academic year a release belongs to: the year of the applications it covered
+// (the same reading a results round uses), so a round and its releases always land
+// under one year. A release that covers nothing we hold falls back to its own date.
+export const getReleaseAcademicYear = (release, applicationById = new Map()) => {
+  const covered = asList(release?.applicationIds).map((id) => applicationById.get(id)).filter(Boolean);
+  if (covered.length) return getRoundAcademicYear(covered);
+  const when = Date.parse(release?.releasedAt || '');
+  return Number.isFinite(when) ? getCurrentAcademicYear(new Date(when)) : getCurrentAcademicYear();
+};
+
+// The Final check and release page's two filters: the grant (scholarship) chips and
+// the academic-year dropdown. `all` on either side means no narrowing.
+export const RESULTS_FILTER_ALL = 'all';
+
+export const matchesResultsFilter = ({ scholarshipId, academicYear }, { grant = RESULTS_FILTER_ALL, year = RESULTS_FILTER_ALL } = {}) => (
+  (grant === RESULTS_FILTER_ALL || scholarshipId === grant)
+  && (year === RESULTS_FILTER_ALL || academicYear === year)
+);
+
+// Newest first, always including today's year so the default choice exists even
+// before any round does.
+export const getResultsYearOptions = (years = [], today = new Date()) => (
+  [...new Set([...asList(years).filter(Boolean), getCurrentAcademicYear(today)])].sort((left, right) => right.localeCompare(left))
+);
+
 // Manila's calendar date (YYYY-MM-DD), the day the confirm-by date is read against.
 export const getManilaToday = (now = new Date()) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit',
