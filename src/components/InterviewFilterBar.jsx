@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown, Search } from 'lucide-react';
+import AcademicYearSelect from './AcademicYearSelect';
 import { Button, FormField } from './ui';
 import {
   INTERVIEW_MODE_OPTIONS,
@@ -24,6 +25,10 @@ export default function InterviewFilterBar({
   shown = 0,
   total = 0,
   noun = 'interview',
+  // The academic-year choice belongs to the page, which scopes the whole board by it.
+  academicYear = null,
+  academicYears = [],
+  onAcademicYearChange = null,
 }) {
   const [open, setOpen] = useState(false);
   const activeCount = countActiveInterviewFilters(filters) - (showScheduleFilters ? 0 : ['mode', 'when'].filter((key) => filters[key] !== 'all').length);
@@ -55,6 +60,9 @@ export default function InterviewFilterBar({
             ))}
           </select>
         </label>
+        {onAcademicYearChange ? (
+          <AcademicYearSelect value={academicYear} onChange={onAcademicYearChange} years={academicYears} />
+        ) : null}
         <Button
           type="button"
           aria-expanded={open}

@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { CalendarClock, CheckCircle2, ChevronDown, ClipboardCheck, Layers, Search, SendHorizontal, UserCheck } from 'lucide-react';
+import AcademicYearSelect from '../components/AcademicYearSelect';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { ACADEMIC_YEAR_ALL, filterByAcademicYear, getAcademicYearChoices, getDefaultAcademicYear, resolveAcademicYear } from '../lib/academicYearFilter';
 import {
   DEFAULT_REVIEW_QUEUE_FILTERS,
   REVIEW_QUEUE_SORTS,
@@ -68,6 +70,8 @@ export default function DepartmentReviewView({
   // never switches under the reader.
   const [chosenFilter, setChosenFilter] = useState(null);
   const [refine, setRefine] = useState(DEFAULT_REVIEW_QUEUE_FILTERS);
+  // The lists open on today's academic year; the dropdown widens them to any year.
+  const [academicYear, setAcademicYear] = useState(() => getDefaultAcademicYear());
   const [showMoreFilters, setShowMoreFilters] = useState(false);
   const role = profile.role || 'department_chair';
   const isInterviewer = isInterviewerRole(role);
@@ -102,15 +106,21 @@ export default function DepartmentReviewView({
     || (entry.status === 'Interview' && panelApplicationIds.has(entry.id))
   )), [queue, awaitingApprovalIds, panelApplicationIds]);
   const interviewEntries = useMemo(() => queue.filter((entry) => ['Endorsed', 'Interview'].includes(entry.status)), [queue]);
+  const yearChoices = useMemo(() => getAcademicYearChoices(queue), [queue]);
+  const yearChoice = resolveAcademicYear(academicYear, yearChoices);
+  // The lane chips and their lists follow the chosen academic year together, so a
+  // count never promises cases the list hides. The header and stat tiles above stay
+  // whole-scope.
+  const inYear = (entries) => filterByAcademicYear(entries, yearChoice);
   const filters = [
-    { key: 'action', label: 'Needs action', entries: needsAction, alert: true },
-    { key: 'interviews', label: 'Interviews', entries: interviewEntries, alert: awaitingInterview.length > 0 },
-    ...(isInterviewer ? [] : [{ key: 'approval', label: 'Awaiting approval', entries: awaitingApproval, alert: true }]),
-    { key: 'all', label: 'All applications', entries: queue, alert: false },
+    { key: 'action', label: 'Needs action', entries: inYear(needsAction), alert: true },
+    { key: 'interviews', label: 'Interviews', entries: inYear(interviewEntries), alert: awaitingInterview.length > 0 },
+    ...(isInterviewer ? [] : [{ key: 'approval', label: 'Awaiting approval', entries: inYear(awaitingApproval), alert: true }]),
+    { key: 'all', label: 'All applications', entries: inYear(queue), alert: false },
   ];
   const filter = filters.some((entry) => entry.key === chosenFilter)
     ? chosenFilter
-    : needsAction.length ? 'action' : 'all';
+    : filters[0].entries.length ? 'action' : 'all';
   const laneEntries = filters.find((entry) => entry.key === filter).entries;
   // Search, facets, and sorting narrow whatever the chosen lane holds. The facets
   // read the whole scope so a pick stays valid when the lane changes.
@@ -293,6 +303,11 @@ export default function DepartmentReviewView({
               onChange={(event) => updateRefine({ query: event.target.value })}
             />
           </div>
+          <AcademicYearSelect
+            value={yearChoice}
+            onChange={(year) => { setAcademicYear(year); setVisibleCount(REVIEW_LIST_PAGE_SIZE); }}
+            years={yearChoices}
+          />
           <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-app-text">
             <span className="shrink-0 text-xs text-app-muted">Sort by</span>
             <select
@@ -368,13 +383,13 @@ export default function DepartmentReviewView({
           {activeEntries.length ? visibleEntries.map(renderRow) : isRefined && laneEntries.length ? (
             <EmptyState
               title="No applications match"
-              description="Clear the search or a filter to see the rest of this list."
+              description="Clear the search or a filter, or choose another academic year, to see the rest of this list."
               action={<div className="mt-3 flex justify-center"><Button type="button" onClick={resetRefine}>Reset search and filters</Button></div>}
             />
           ) : (
             <EmptyState
               title={EMPTY_COPY[filter].title}
-              description={EMPTY_COPY[filter].description}
+              description={`${EMPTY_COPY[filter].description}${yearChoice === ACADEMIC_YEAR_ALL ? '' : ' Choose All academic years to see older cases.'}`}
               action={filter !== 'all' && queue.length ? (
                 <div className="mt-3 flex justify-center">
                   <Button type="button" onClick={() => changeFilter('all')}>Show all applications ({queue.length})</Button>

@@ -4,6 +4,7 @@ import { isAdduInternalProgram } from './eligibility';
 import { findAcademicProgram } from './academicPrograms';
 import { buildXlsx, buildXlsxAsync, columnName, downloadBytes } from './xlsxWriter';
 import { getReviewScopeLabel, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
+import { matchesAcademicYear } from './academicYearFilter';
 
 // The Admissions Office workspace is split into one route per function
 // (dashboard, application review, catalog management, results release, and
@@ -224,6 +225,8 @@ export const DEFAULT_INTAKE_POOL_FILTERS = {
   school: 'all',
   department: 'all',
   waitingOverDays: 0,
+  // 'all' here; the page opens on today's academic year.
+  academicYear: 'all',
   sort: 'oldest',
 };
 
@@ -272,6 +275,7 @@ export const filterIntakePool = (applications = [], caseOfficers = [], filters =
     if (merged.scholarshipId && merged.scholarshipId !== 'all' && entry.scholarshipId !== merged.scholarshipId) return false;
     if (merged.school && merged.school !== 'all' && schoolOf(entry) !== merged.school) return false;
     if (merged.department && merged.department !== 'all' && departmentOf(entry) !== merged.department) return false;
+    if (!matchesAcademicYear(entry, merged.academicYear)) return false;
     if (waitingOverDays > 0) {
       const days = getSubmissionWaitDays(entry, today);
       if (days == null || days < waitingOverDays) return false;

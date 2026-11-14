@@ -5,6 +5,7 @@ import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { SopStageTrack } from '../../components/ApplicationParts';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
+import AcademicYearSelect from '../../components/AcademicYearSelect';
 import FilterChips from '../../components/FilterChips';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
@@ -28,6 +29,7 @@ import { formatInterviewDateShort, getInterviewModeLabel, isInterviewLive } from
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApproverRoleForApplication } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import { useDebouncedValue } from '../../lib/useDebouncedValue';
+import { ACADEMIC_YEAR_ALL, filterByAcademicYear, getAcademicYearChoices, getDefaultAcademicYear, resolveAcademicYear } from '../../lib/academicYearFilter';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { fmtDate, plural } from '../../lib/formatters';
 
@@ -82,7 +84,9 @@ export default function AdminReviewQueue({
   // opened, every interview (applicants waiting for a schedule and interviews under
   // way), and the recommendations waiting on the school. A row says when it is not
   // the officer's own or is waiting on the school.
-  const queueCases = useMemo(() => {
+  // The queue opens on today's academic year; the dropdown widens it to any year.
+  const [academicYear, setAcademicYear] = useState(() => getDefaultAcademicYear());
+  const wholeQueue = useMemo(() => {
     const seen = new Set();
     return [
       ...myQueue,
@@ -94,6 +98,9 @@ export default function AdminReviewQueue({
       return true;
     });
   }, [myQueue, applications]);
+  const yearChoices = useMemo(() => getAcademicYearChoices(wholeQueue), [wholeQueue]);
+  const yearChoice = resolveAcademicYear(academicYear, yearChoices);
+  const queueCases = useMemo(() => filterByAcademicYear(wholeQueue, yearChoice), [wholeQueue, yearChoice]);
   const myCaseIds = useMemo(() => new Set(myQueue.map((entry) => entry.id)), [myQueue]);
 
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
@@ -281,6 +288,11 @@ export default function AdminReviewQueue({
                 ))}
               </select>
             </label>
+            <AcademicYearSelect
+              value={yearChoice}
+              onChange={(year) => { setAcademicYear(year); setVisibleQueueCount(REVIEW_QUEUE_PAGE_SIZE); }}
+              years={yearChoices}
+            />
             <Button
               type="button"
               aria-expanded={showMoreFilters}
@@ -427,7 +439,7 @@ export default function AdminReviewQueue({
             }) : (
               <EmptyState
                 title="No cases in the review queue yet"
-                description="Open a case from the intake pool and it is added here. Interviews and recommendations waiting on the school appear here too."
+                description={`Open a case from the intake pool and it is added here. Interviews and recommendations waiting on the school appear here too.${yearChoice === ACADEMIC_YEAR_ALL ? '' : ' Choose All academic years to see older cases.'}`}
                 action={onOpenWorkspace
                   ? <Button type="button" onClick={() => onOpenWorkspace('admin-intake')}>Open intake pool</Button>
                   : undefined}

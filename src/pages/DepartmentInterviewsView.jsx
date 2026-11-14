@@ -16,6 +16,7 @@ import {
   getUpcomingInterviews,
 } from '../lib/interviewRoster';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { filterByAcademicYear, getAcademicYearChoices, getDefaultAcademicYear, resolveAcademicYear } from '../lib/academicYearFilter';
 import {
   DEFAULT_INTERVIEW_FILTERS,
   INTERVIEW_SORTS,
@@ -54,14 +55,21 @@ export default function DepartmentInterviewsView({
   const [filter, setFilter] = useState('panel');
   const [selectedId, setSelectedId] = useState(null);
   const [filters, setFilters] = useState(DEFAULT_INTERVIEW_FILTERS);
+  // The page opens on today's academic year; the dropdown widens it to any year.
+  const [academicYear, setAcademicYear] = useState(() => getDefaultAcademicYear());
 
   const panelists = interviewWorkspace?.panelists || [];
   const notes = interviewWorkspace?.notes || [];
   const viewerId = interviewWorkspace?.viewerId || '';
   const panelIds = getPanelApplicationIds(panelists, viewerId);
-  const entries = getInterviewEntries(queue);
+  // The categories, their counts, and the lists all read the cases of the chosen
+  // academic year, so a chip never promises interviews the list hides.
+  const yearChoices = useMemo(() => getAcademicYearChoices(queue), [queue]);
+  const yearChoice = resolveAcademicYear(academicYear, yearChoices);
+  const yearQueue = useMemo(() => filterByAcademicYear(queue, yearChoice), [queue, yearChoice]);
+  const entries = getInterviewEntries(yearQueue);
   const panelEntries = entries.filter((entry) => panelIds.has(entry.applicationId));
-  const panelUpcoming = getUpcomingInterviews(queue, { now }).filter((entry) => panelIds.has(entry.applicationId));
+  const panelUpcoming = getUpcomingInterviews(yearQueue, { now }).filter((entry) => panelIds.has(entry.applicationId));
   const scheduled = entries.filter((entry) => entry.live && entry.state === 'scheduled');
   const selected = queue.find((entry) => entry.id === selectedId) || null;
 
@@ -141,6 +149,9 @@ export default function DepartmentInterviewsView({
           sorts={INTERVIEW_SORTS}
           shown={visibleEntries.length}
           total={categoryEntries.length}
+          academicYear={yearChoice}
+          academicYears={yearChoices}
+          onAcademicYearChange={setAcademicYear}
         />
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {groups.length ? groups.map((group) => {

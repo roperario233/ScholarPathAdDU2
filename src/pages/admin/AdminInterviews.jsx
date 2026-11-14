@@ -18,6 +18,7 @@ import {
 } from '../../lib/interviewRoster';
 import { getInterviewSchedulers } from '../../lib/admissionsOffice';
 import { useDebouncedValue } from '../../lib/useDebouncedValue';
+import { filterByAcademicYear, getAcademicYearChoices, getDefaultAcademicYear, resolveAcademicYear } from '../../lib/academicYearFilter';
 import {
   DEFAULT_INTERVIEW_FILTERS,
   INTERVIEW_SORTS,
@@ -140,10 +141,17 @@ export default function AdminInterviews({
   const [chosenFilter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : null);
   const [selectedId, setSelectedId] = useState(null);
   const [filters, setFilters] = useState(DEFAULT_INTERVIEW_FILTERS);
+  // The board opens on today's academic year; the dropdown widens it to any year.
+  const [academicYear, setAcademicYear] = useState(() => getDefaultAcademicYear());
 
-  const entries = getInterviewEntries(applications);
-  const upcoming = getUpcomingInterviews(applications, { now });
-  const needsSchedule = getInterviewsNeedingSchedule(applications);
+  // The categories, their counts, and the lists all read the cases of the chosen
+  // academic year, so a chip never promises interviews the list hides.
+  const yearChoices = useMemo(() => getAcademicYearChoices(applications), [applications]);
+  const yearChoice = resolveAcademicYear(academicYear, yearChoices);
+  const yearApplications = useMemo(() => filterByAcademicYear(applications, yearChoice), [applications, yearChoice]);
+  const entries = getInterviewEntries(yearApplications);
+  const upcoming = getUpcomingInterviews(yearApplications, { now });
+  const needsSchedule = getInterviewsNeedingSchedule(yearApplications);
   const cancelled = entries.filter((entry) => entry.state === 'cancelled');
   const counts = {
     upcoming: upcoming.length,
@@ -260,6 +268,9 @@ export default function AdminInterviews({
           shown={shownCount}
           total={sourceCount}
           noun={showScheduleList ? 'applicant' : 'interview'}
+          academicYear={yearChoice}
+          academicYears={yearChoices}
+          onAcademicYearChange={setAcademicYear}
         />
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {showScheduleList ? (

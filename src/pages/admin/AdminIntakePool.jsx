@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
+import AcademicYearSelect from '../../components/AcademicYearSelect';
 import FilterChips from '../../components/FilterChips';
 import OpenApplicationForStudentModal from '../../components/OpenApplicationForStudentModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
@@ -27,9 +28,12 @@ import {
   getUnclaimedInProgress,
 } from '../../lib/admissionsOffice';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
+import { getAcademicYearChoices, getDefaultAcademicYear, resolveAcademicYear } from '../../lib/academicYearFilter';
 import { buildProgramScopeIndex } from '../../lib/reviewScope';
 import { fmtDate, plural } from '../../lib/formatters';
 
+// Defined once so a Reset returns to the same opening view: today's academic year.
+const OPENING_FILTERS = { ...DEFAULT_INTAKE_POOL_FILTERS, academicYear: getDefaultAcademicYear() };
 const PAGE_SIZE = 20;
 const WAITING_THRESHOLD_DAYS = 7;
 
@@ -80,7 +84,8 @@ export default function AdminIntakePool({
     () => (isAdmin ? getInterviewerWorkload(applications, staffDirectory, programIndex) : []),
     [applications, staffDirectory, programIndex, isAdmin],
   );
-  const [filters, setFilters] = useState(DEFAULT_INTAKE_POOL_FILTERS);
+  // The pool opens on today's academic year; the dropdown widens it to any year.
+  const [filters, setFilters] = useState(OPENING_FILTERS);
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [selectedId, setSelectedId] = useState(null);
   const [reviewTab, setReviewTab] = useState(null);
@@ -107,6 +112,8 @@ export default function AdminIntakePool({
     [applications, caseOfficers, isAdmin],
   );
   const facets = useMemo(() => getIntakePoolFacets(applications), [applications]);
+  const yearChoices = useMemo(() => getAcademicYearChoices(applications), [applications]);
+  const yearChoice = resolveAcademicYear(filters.academicYear, yearChoices);
   // The search box answers every keystroke, but the filter over the whole pool
   // runs once the typing pauses.
   const settledQuery = useDebouncedValue(filters.query, 250);
@@ -129,7 +136,7 @@ export default function AdminIntakePool({
     setVisibleCount(PAGE_SIZE);
   };
   const resetFilters = () => {
-    setFilters(DEFAULT_INTAKE_POOL_FILTERS);
+    setFilters(OPENING_FILTERS);
     setVisibleCount(PAGE_SIZE);
   };
 
@@ -161,18 +168,18 @@ export default function AdminIntakePool({
   // The filters behind "More filters" that differ from their defaults, so a
   // collapsed panel still says it is narrowing the list.
   const moreFilterCount = ['stage', 'scholarshipId', 'school', 'department', 'sort']
-    .filter((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]).length;
+    .filter((key) => filters[key] !== OPENING_FILTERS[key]).length;
 
   // How many cases each coverage holds under the other filters at their defaults,
   // so a chip says what is behind it before it is opened.
   const coverageCounts = useMemo(() => Object.fromEntries(
     INTAKE_POOL_COVERAGE.map((option) => [
       option.value,
-      filterIntakePool(applications, caseOfficers, { coverage: option.value }, today).length,
+      filterIntakePool(applications, caseOfficers, { coverage: option.value, academicYear: filters.academicYear }, today).length,
     ]),
-  ), [applications, caseOfficers, today]);
-  const hasActiveFilters = Object.keys(DEFAULT_INTAKE_POOL_FILTERS)
-    .some((key) => filters[key] !== DEFAULT_INTAKE_POOL_FILTERS[key]);
+  ), [applications, caseOfficers, today, filters.academicYear]);
+  const hasActiveFilters = Object.keys(OPENING_FILTERS)
+    .some((key) => filters[key] !== OPENING_FILTERS[key]);
 
   const renderRow = (entry) => {
     const officers = getCaseOfficers(caseOfficers, entry.id);
@@ -347,6 +354,7 @@ export default function AdminIntakePool({
                 onChange={(event) => updateFilter({ query: event.target.value })}
               />
             </div>
+            <AcademicYearSelect value={yearChoice} onChange={(academicYear) => updateFilter({ academicYear })} years={yearChoices} />
             <Button
               type="button"
               aria-expanded={showMoreFilters}
