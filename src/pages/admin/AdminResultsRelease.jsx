@@ -1,10 +1,11 @@
-import { ArrowDown, ArrowUp, Award, CheckCircle2, ChevronDown, Gavel, Hourglass, ListOrdered, SendHorizontal } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, Award, CheckCircle2, Gavel, Hourglass, ListOrdered, SendHorizontal } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import { STAGE_BAR_TONES, STAGE_LABEL_TONES, StageIcon } from '../../components/ApplicationParts';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import ReasonModal from '../../components/ReasonModal';
+import ReleasedResultsModal from '../../components/ReleasedResultsModal';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, ExportButton, ModalShell, Panel, StatusBadge } from '../../components/ui';
 import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue, getFinalCheckHints } from '../../lib/admissionsOffice';
@@ -267,7 +268,8 @@ export default function AdminResultsRelease({
   const [visibleCounts, setVisibleCounts] = useState({});
   const [busyKey, setBusyKey] = useState('');
   const [feedback, setFeedback] = useState(null);
-  const [expandedReleases, setExpandedReleases] = useState({});
+  // The release whose covered applications are open in their own dialog.
+  const [openReleaseId, setOpenReleaseId] = useState(null);
   // Dialogs: offer a slot, record a decline or a withdrawal, close a round.
   const [offerTarget, setOfferTarget] = useState(null);
   const [offerConfirmBy, setOfferConfirmBy] = useState(getDefaultConfirmBy());
@@ -334,6 +336,13 @@ export default function AdminResultsRelease({
     ...rounds.flatMap((round) => [...round.approved, ...round.waitlist, ...round.offers.map((row) => row.application)]),
   ].map((entry) => entry.id));
   const releasedHistory = useMemo(() => [...resultsReleases].filter((release) => release.releasedBy).reverse(), [resultsReleases]);
+  const openRelease = releasedHistory.find((release) => release.id === openReleaseId) || null;
+  // Memoised: the list dialog filters this on every keystroke of its search.
+  const openReleaseCovered = useMemo(() => {
+    if (!openRelease) return EMPTY_LIST;
+    const ids = new Set(openRelease.applicationIds || []);
+    return applications.filter((entry) => ids.has(entry.id));
+  }, [openRelease, applications]);
   const visibleAwaitingSchool = visibleRowsFor('all', 'awaiting-school', awaitingSchool);
   const visibleReleasedHistory = visibleRowsFor('all', 'released-history', releasedHistory);
   const titleById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title])), [scholarships]);
@@ -385,11 +394,6 @@ export default function AdminResultsRelease({
     scholarship: round.title,
     releasedIds: allReleasedIds,
   }), getApplicantSummaryFileName(round.title, 'final_check'));
-
-  const releaseApplications = (release) => {
-    const ids = new Set(release.applicationIds || []);
-    return applications.filter((entry) => ids.has(entry.id));
-  };
 
   const exportRelease = (release, covered) => {
     const title = titleById[release.scholarshipId] || 'Scholarship';
@@ -825,77 +829,62 @@ export default function AdminResultsRelease({
 
       {releasedHistory.length ? (
         <Card title="Released results">
-          <ul className="m-0 grid gap-2 p-0">
+          {/* One pressable card per release. The covered applications can run to
+              hundreds or thousands, so they open in their own dialog instead of
+              unfolding down the page. */}
+          <ul className="m-0 grid list-none gap-3 p-0 sm:grid-cols-2 xl:grid-cols-3">
             {visibleReleasedHistory.map((release) => {
               const title = titleById[release.scholarshipId] || 'Scholarship';
-              const covered = releaseApplications(release);
-              const visibleCovered = visibleRowsFor(release.id, 'coverage', covered);
-              const open = Boolean(expandedReleases[release.id]);
-              const panelId = `release-${release.id}`;
-              const isOffers = release.kind === 'offers';
+              const coveredTotal = (release.applicationIds || []).length;
               return (
-                <li key={release.id} className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">
+                <li key={release.id} className="min-w-0">
                   <button
                     type="button"
-                    className="disclosure-action flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 border-0 bg-transparent px-3 py-2.5 text-left transition hover:bg-app-card/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                    aria-expanded={open}
-                    aria-controls={panelId}
-                    onClick={() => setExpandedReleases((previous) => ({ ...previous, [release.id]: !previous[release.id] }))}
+                    className="disclosure-action group relative grid h-full w-full content-start gap-3 overflow-hidden rounded-2xl border border-app-border bg-[color:var(--surface)] p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-400/50 hover:shadow-app focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+                    aria-haspopup="dialog"
+                    onClick={() => setOpenReleaseId(release.id)}
                   >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full border border-app-border bg-app-card text-app-muted">
-                      <ChevronDown className={`h-4 w-4 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    <span className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-blue-500/10 transition group-hover:scale-125" aria-hidden="true" />
+                    <span className="relative flex min-w-0 items-center gap-3">
+                      <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-md shadow-blue-900/20" aria-hidden="true"><Award size={20} /></span>
+                      <span className="grid min-w-0 gap-0.5">
+                        <strong className="truncate text-sm font-bold text-app-text">{title}</strong>
+                        <span className="text-xs font-normal text-app-muted">{RELEASE_KIND_LABELS[release.kind] || RELEASE_KIND_LABELS.legacy}</span>
+                      </span>
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-app-text">{title}</span>
-                      <span className="block text-xs text-app-muted">{RELEASE_KIND_LABELS[release.kind] || RELEASE_KIND_LABELS.legacy}</span>
-                    </span>
-                    <span className="flex flex-wrap items-center gap-2 text-xs text-app-muted">
-                      {isOffers
-                        ? <StatusBadge tone="info">{plural(covered.length || (release.applicationIds || []).length, 'applicant')}</StatusBadge>
+                    <span className="relative flex flex-wrap items-center gap-2 text-xs font-normal text-app-muted">
+                      {release.kind === 'offers'
+                        ? <StatusBadge tone="info">{plural(coveredTotal, 'applicant')}</StatusBadge>
                         : <StatusBadge tone="success">{release.acceptedCount} of {release.applicantCount} accepted</StatusBadge>}
                       <span>{fmtDate(release.releasedAt)}</span>
                     </span>
+                    <span className="relative mt-auto inline-flex items-center gap-1.5 text-sm font-bold text-[color:var(--accent)]">
+                      View {coveredTotal ? plural(coveredTotal, 'application') : 'applications'}
+                      <ArrowRight size={15} aria-hidden="true" className="transition group-hover:translate-x-0.5" />
+                    </span>
                   </button>
-                  {open ? (
-                    <div id={panelId} className="grid gap-2 border-t border-app-border bg-app-card/40 px-3 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <p className="m-0 text-xs text-app-muted">
-                          {covered.length ? `${plural(covered.length, 'application')} covered` : 'The covered applications are not loaded in this session.'}
-                        </p>
-                        <ExportButton disabled={!covered.length} onClick={() => exportRelease(release, covered)} />
-                      </div>
-                      {covered.length ? (
-                        <ul className="m-0 grid max-h-[320px] list-none gap-1.5 overflow-y-auto p-0 pr-1">
-                          {visibleCovered.map((entry) => {
-                            const result = coveredResult(entry, offerOf(entry.id));
-                            return (
-                              <li key={entry.id} className="flex min-w-0 flex-col items-start gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                                <div className="min-w-0 [overflow-wrap:anywhere]">
-                                  <strong className="block text-sm font-semibold">{entry.studentName}</strong>
-                                  <span className="text-xs text-app-muted">{entry.studentProgram || 'Program on file'}</span>
-                                </div>
-                                <div className="flex shrink-0 flex-wrap items-center gap-2">
-                                  <StatusBadge tone={result.tone}>{result.label}</StatusBadge>
-                                  <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>View case</Button>
-                                </div>
-                              </li>
-                            );
-                          })}
-                          {visibleCovered.length < covered.length ? (
-                            <li className="list-none">{showMoreRows(release.id, 'coverage', visibleCovered.length, covered.length)}</li>
-                          ) : null}
-                        </ul>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </li>
               );
             })}
-            {visibleReleasedHistory.length < releasedHistory.length ? (
-              <li className="list-none">{showMoreRows('all', 'released-history', visibleReleasedHistory.length, releasedHistory.length)}</li>
-            ) : null}
           </ul>
+          {visibleReleasedHistory.length < releasedHistory.length ? (
+            <div className="mt-3">{showMoreRows('all', 'released-history', visibleReleasedHistory.length, releasedHistory.length)}</div>
+          ) : null}
         </Card>
+      ) : null}
+
+      {openRelease ? (
+        <ReleasedResultsModal
+          title={titleById[openRelease.scholarshipId] || 'Scholarship'}
+          kindLabel={RELEASE_KIND_LABELS[openRelease.kind] || RELEASE_KIND_LABELS.legacy}
+          releasedAtLabel={fmtDate(openRelease.releasedAt)}
+          coveredCount={(openRelease.applicationIds || []).length}
+          covered={openReleaseCovered}
+          getResult={(entry) => coveredResult(entry, offerOf(entry.id))}
+          onOpenCase={openCase}
+          onExport={() => exportRelease(openRelease, openReleaseCovered)}
+          onClose={() => setOpenReleaseId(null)}
+        />
       ) : null}
 
       {openRound ? (() => {
