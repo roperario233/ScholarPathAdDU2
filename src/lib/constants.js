@@ -1,4 +1,4 @@
-import { buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
+import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getReviewerScope, isApplicationInReviewerScope, isInterviewerRole, isReviewerRole } from './reviewScope';
 
 export const coverageTypes = ['all', 'Full Tuition', 'Partial Tuition', 'Allowance'];
 export const applicationStatuses = ['Draft', 'Submitted', 'Under Review', 'For Verification', 'For Endorsement', 'Endorsed', 'Interview', 'Recommended', 'Approved', 'Waitlisted', 'Released', 'Declined', 'Rejected'];
@@ -84,11 +84,14 @@ export const RESULTS_LANE_STATUSES = ['Released', 'Declined'];
 
 // A scoped reviewer's moves depend on the case, not only the role: any reviewer
 // in scope may schedule, only a panel member recommends, and only the approving
-// level approves. `context` carries those two facts (App.jsx `stageContextFor`).
-const reviewerNextStatuses = (status, role, { isPanelist = false, isApprover = false } = {}) => {
+// level approves. A ladder level above the configured approver (a Dean over a
+// Chairperson) may decide in its place, with a recorded reason
+// (`canOverrideApproval`, see isApprovalOverrideForApplication). `context` carries
+// those facts (App.jsx `stageContextFor`).
+const reviewerNextStatuses = (status, role, { isPanelist = false, isApprover = false, canOverrideApproval = false } = {}) => {
   if (status === 'Endorsed') return ['Interview'];
   if (status === 'Interview') return isPanelist ? ['Recommended'] : [];
-  if (status === 'Recommended' && role !== 'interviewer' && isApprover) return ['Approved', 'Waitlisted', 'Rejected'];
+  if (status === 'Recommended' && role !== 'interviewer' && (isApprover || canOverrideApproval)) return ['Approved', 'Waitlisted', 'Rejected'];
   return [];
 };
 
@@ -160,9 +163,39 @@ export const isAdminOverrideAction = (status, role) => (
   role === 'admissions_admin' && Object.prototype.hasOwnProperty.call(adminOverrideLabels, status)
 );
 
-export const getStageActionLabel = (status, role) => (
-  isAdminOverrideAction(status, role) ? adminOverrideLabels[status] : stageActionLabels[status] || status
+// A ladder level stepping in for the school's configured approver decides the
+// recommendation as an override. The button names the role and says so, like the
+// Admin's, and the move carries a recorded reason.
+const approvalOverrideVerbs = {
+  Approved: 'Approve',
+  Waitlisted: 'Waitlist',
+  Rejected: 'Mark not accepted',
+};
+
+export const isApprovalOverrideAction = (status, role, { override = false } = {}) => (
+  override && isReviewerRole(role) && Object.prototype.hasOwnProperty.call(approvalOverrideVerbs, status)
 );
+
+export const getStageActionLabel = (status, role, { override = false } = {}) => {
+  if (isApprovalOverrideAction(status, role, { override })) {
+    const ellipsis = status === 'Approved' ? '' : '…';
+    return `${approvalOverrideVerbs[status]} as ${REVIEW_ROLE_LABELS[role] || 'reviewer'} (override)${ellipsis}`;
+  }
+  return isAdminOverrideAction(status, role) ? adminOverrideLabels[status] : stageActionLabels[status] || status;
+};
+
+// Why a ladder level decided in place of the school's configured approver. The
+// reason is filed in the staff-only `application_review_comments` thread with this
+// prefix (never a student-readable column), and the database refuses the move
+// without it (require_approval_override_reason). Keep the prefix identical to the
+// trigger's.
+export const APPROVAL_OVERRIDE_REASON_PREFIX = 'Approval override — ';
+export const APPROVAL_OVERRIDE_REASONS = [
+  { value: 'unavailable', label: 'The approving level is unavailable' },
+  { value: 'escalated', label: 'Escalated to this level' },
+  { value: 'conflict', label: 'The approving level has a conflict of interest' },
+  { value: 'other', label: 'Other', requiresNotes: true },
+];
 
 // The one sentence a student is told when an application is rejected (FORM
 // 230-SCH affidavit clause 6: the results and the minutes of the deliberations

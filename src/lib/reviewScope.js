@@ -178,3 +178,23 @@ export const isApproverForApplication = (application, profile = {}, approvalLeve
   return getApproverRoleForApplication(application, approvalLevels, programIndex) === scope.role;
 };
 
+// The ladder, narrowest first. A level may step in for the configured approver only
+// when it sits above it: a Dean over an Assistant Dean or a Chairperson, an Assistant
+// Dean over a Chairperson, never the other way. Mirrors `public.review_ladder_rank()`
+// (20261116000000_approval_override.sql).
+export const LADDER_RANK = { department_chair: 1, assistant_dean: 2, dean: 3 };
+
+// Can this signed-in reviewer decide the recommendation in place of the configured
+// approving level? Scope first (the same predicate as approving), then rank: the
+// account must sit above the level the school configured. An interviewer never can,
+// and neither can the configured approver (it simply approves). The move carries a
+// recorded reason (APPROVAL_OVERRIDE_REASON_PREFIX) and the lane trigger repeats the
+// whole rule.
+export const isApprovalOverrideForApplication = (application, profile = {}, approvalLevels = [], programIndex = new Map()) => {
+  const scope = getReviewerScope(profile);
+  if (!isLadderRole(scope.role)) return false;
+  if (!isApplicationInReviewerScope(application, scope, programIndex)) return false;
+  const approver = getApproverRoleForApplication(application, approvalLevels, programIndex);
+  return (LADDER_RANK[scope.role] || 0) > (LADDER_RANK[approver] || 0);
+};
+

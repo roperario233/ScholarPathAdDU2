@@ -17,7 +17,7 @@ import GrantAmountPanel from './GrantAmountPanel';
 import FinalCheckToggle from './FinalCheckToggle';
 import StageOutcomeCard, { StageMoveStrip } from './StageOutcomeCard';
 import { describeGrantAmount, getGrantAmountForApplication, isGrantAmountEditableStage, isGrantAmountStage } from '../lib/grantAmount';
-import { AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, RESULTS_LANE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
+import { APPROVAL_OVERRIDE_REASONS, AUTOMATIC_STAGE_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, RESULTS_LANE_STATUSES, getApplicationStatusLabel, getDocumentRejectionReasons, getDocumentStatusLabel, getDocumentTypeLabel, getNextApplicationStatuses, getStageActionLabel, isAdmissionsAdminRole, isAdminOverrideAction, isApprovalOverrideAction, isAdmissionsReviewerRole, sopStageIndex } from '../lib/constants';
 import { ENDORSEMENT_BLOCKED_STATUSES, applyLiveVerificationsToSnapshot, areApplicationDocumentsVisible, areEndorsementRecordsVisible, describeRequirementTypes, getApplicantPhotoDocument, getApplicationLiveAttributeVerifications, getApplicationReadiness, getDocumentVerificationReadiness, getLinkedDocuments, getResidencePhotoDocuments } from '../lib/applicationRequirements';
 import { getApplicationComments } from '../lib/endorsement';
 import { getCaseOfficers, getReviewStageTab, isCaseOfficer } from '../lib/admissionsOffice';
@@ -405,6 +405,13 @@ export default function ApplicationReviewModal({
   const [previewDoc, setPreviewDoc] = useState(null);
   const [rejectReasonOpen, setRejectReasonOpen] = useState(false);
   const [waitlistOpen, setWaitlistOpen] = useState(false);
+  // A ladder level deciding in place of the school's configured approver says why
+  // first. `overrideDialog` is the decision waiting for that reason, and
+  // `overrideReason` holds it while the decision's own dialog (reject, waitlist) is
+  // open, so cancelling that dialog never leaves a reason filed for a move that did
+  // not happen: App.jsx writes it only together with the move.
+  const [overrideDialog, setOverrideDialog] = useState(null);
+  const [overrideReason, setOverrideReason] = useState('');
   const [documentRejectTarget, setDocumentRejectTarget] = useState(null);
   // Additional-document requests: the dialog (optionally preset to one requirement)
   // and the request whose cancellation is being recorded.
@@ -650,19 +657,25 @@ export default function ApplicationReviewModal({
   // approving level (Consultation 2); the Admin's version of either move is an
   // override, so the footer says who the move normally belongs to. Scheduling is
   // flagged in the Interview tab.
+  // The level the school configured to decide this recommendation (the Chairperson
+  // unless the Admin set another), named wherever the case waits on it.
+  const approverRole = application.status === 'Recommended' && interviewWorkspace
+    ? getApproverRoleForApplication(
+      application,
+      interviewWorkspace.approvalLevels || [],
+      buildProgramScopeIndex(interviewWorkspace.academicPrograms || []),
+    )
+    : '';
+  const approverLabel = REVIEW_ROLE_LABELS[approverRole] || '';
+  // A ladder level above the configured approver may decide in its place; the move
+  // is an override, labelled as one, and carries a recorded reason.
+  const overrideDecision = application.status === 'Recommended' && Boolean(stageContext.canOverrideApproval);
   const adminOverrideNote = (() => {
     if (!isAdmissionsAdmin) return '';
     if (forwardStatuses.includes('Recommended')) return 'The interview panel records the recommendation.';
     if (forwardStatuses.includes('Approved')) {
-      const approver = interviewWorkspace
-        ? getApproverRoleForApplication(
-          application,
-          interviewWorkspace.approvalLevels || [],
-          buildProgramScopeIndex(interviewWorkspace.academicPrograms || []),
-        )
-        : '';
-      return approver
-        ? `The school's ${REVIEW_ROLE_LABELS[approver] || 'approving level'} decides this recommendation.`
+      return approverLabel
+        ? `The school's ${approverLabel} decides this recommendation.`
         : 'The school’s approving level decides this recommendation.';
     }
     return '';
@@ -686,7 +699,14 @@ export default function ApplicationReviewModal({
     if (status === 'Interview' && interviewErrors.panel) return 'Add a panel member in the Interview tab';
     return '';
   };
-  const runAction = async (status) => {
+  const runAction = async (status, decidedReason = overrideReason) => {
+    // Deciding in place of the configured approver starts with the reason. The
+    // decision then continues below with it in hand.
+    if (overrideDecision && ['Approved', 'Waitlisted', 'Rejected'].includes(status) && !decidedReason) {
+      setActionError('');
+      setOverrideDialog(status);
+      return;
+    }
     if (status === 'Rejected') {
       // A rejection must carry a recorded reason. The reason stays with the
       // office (internal notes); the student receives the general notice.
@@ -723,7 +743,9 @@ export default function ApplicationReviewModal({
       ? {
         note: 'Continued to document verification. Attached files are queued for Admissions Office review.',
       }
-      : undefined;
+      : status === 'Approved' && overrideDecision
+        ? { overrideReason: decidedReason }
+        : undefined;
     // Scheduling confirms the Interview tab's draft. An incomplete draft opens
     // the tab with its field errors instead of writing anything.
     if (status === 'Interview') {
@@ -807,7 +829,9 @@ export default function ApplicationReviewModal({
           : application.status === 'Interview'
             ? 'Only a member of this interview panel records the recommendation.'
             : application.status === 'Recommended'
-              ? "The approving level for the applicant's school decides this recommendation."
+              ? (approverLabel
+                ? `The ${approverLabel} decides this recommendation.`
+                : "The approving level for the applicant's school decides this recommendation.")
               : application.status === 'Approved'
                 ? 'Approved. The Admissions Office Admin does the final check and releases the results.'
                 : application.status === 'Waitlisted'
@@ -1211,6 +1235,11 @@ export default function ApplicationReviewModal({
         ) : null}
 
         {adminOverrideNote ? <AdminOverrideNotice>{adminOverrideNote}</AdminOverrideNotice> : null}
+        {overrideDecision ? (
+          <AdminOverrideNotice label={`${REVIEW_ROLE_LABELS[role] || 'Reviewer'} override — not the intended flow.`}>
+            {`The ${approverLabel || 'approving level'} decides this recommendation. Deciding in their place asks for a reason, kept in the internal notes.`}
+          </AdminOverrideNotice>
+        ) : null}
 
         {canWaitlist && declaredSiblingOnAid ? (
           <p className="m-0 flex items-start gap-2 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
@@ -1222,7 +1251,7 @@ export default function ApplicationReviewModal({
         {nextStatuses.length ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap gap-2">
-              {canReject ? <Button className="max-w-full" type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role)}</Button> : null}
+              {canReject ? <Button className="max-w-full" type="button" variant="danger" disabled={actionBusy} onClick={() => runAction('Rejected')}>{getStageActionLabel('Rejected', role, { override: overrideDecision })}</Button> : null}
               {canWaitlist ? (
                 <Button
                   className="max-w-full"
@@ -1231,7 +1260,7 @@ export default function ApplicationReviewModal({
                   title={blockReasonFor('Waitlisted') || undefined}
                   onClick={() => runAction('Waitlisted')}
                 >
-                  {getStageActionLabel('Waitlisted', role)}
+                  {getStageActionLabel('Waitlisted', role, { override: overrideDecision })}
                 </Button>
               ) : null}
             </div>
@@ -1254,18 +1283,21 @@ export default function ApplicationReviewModal({
                 const reason = blockReasonFor(status);
                 // The Admin's scheduling is a step-in, not the intended flow, so it
                 // never takes the primary treatment and explains itself on hover.
-                const isOverride = isAdminOverrideAction(status, role);
+                const isApprovalOverride = isApprovalOverrideAction(status, role, { override: overrideDecision });
+                const isOverride = isAdminOverrideAction(status, role) || isApprovalOverride;
                 return (
                   <Button
                     key={status}
                     type="button"
                     variant={index === forwardStatuses.length - 1 && !isOverride ? 'primary' : 'secondary'}
                     disabled={Boolean(reason) || actionBusy}
-                    title={reason || (isOverride ? 'Not the intended flow: use only to step in for the interviewers or the school.' : undefined)}
+                    title={reason || (isApprovalOverride
+                      ? 'Not the intended flow: you will be asked why you are deciding in place of the approving level.'
+                      : isOverride ? 'Not the intended flow: use only to step in for the interviewers or the school.' : undefined)}
                     aria-describedby={reason ? `review-block-${status}` : undefined}
                     onClick={() => runAction(status)}
                   >
-                    {actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role)}
+                    {actionBusy && status === 'Interview' ? 'Scheduling…' : getStageActionLabel(status, role, { override: overrideDecision })}
                   </Button>
                 );
               })}
@@ -1297,14 +1329,15 @@ export default function ApplicationReviewModal({
         confirmLabel="Mark not accepted"
         onConfirm={async (note) => {
           const result = onRejectApplication
-            ? await onRejectApplication(application.id, note)
+            ? await onRejectApplication(application.id, note, { overrideReason })
             : { error: 'Rejection is not available on this page.' };
           if (result?.error) return result;
           setRejectReasonOpen(false);
+          setOverrideReason('');
           recordStageMove('Rejected');
           return result;
         }}
-        onClose={() => setRejectReasonOpen(false)}
+        onClose={() => { setRejectReasonOpen(false); setOverrideReason(''); }}
       />
     ) : null}
     {waitlistOpen ? (
@@ -1317,14 +1350,36 @@ export default function ApplicationReviewModal({
         optional
         onConfirm={async (note) => {
           const result = onWaitlistApplication
-            ? await onWaitlistApplication(application.id, note)
+            ? await onWaitlistApplication(application.id, note, { overrideReason })
             : { error: 'The waitlist is not available on this page.' };
           if (result?.error) return result;
           setWaitlistOpen(false);
+          setOverrideReason('');
           recordStageMove('Waitlisted');
           return result;
         }}
-        onClose={() => setWaitlistOpen(false)}
+        onClose={() => { setWaitlistOpen(false); setOverrideReason(''); }}
+      />
+    ) : null}
+    {overrideDialog ? (
+      <ReasonModal
+        title={`Decide in place of the ${approverLabel || 'approving level'}`}
+        label="Why are you deciding this case?"
+        hint={`The ${approverLabel || 'approving level'} normally decides this recommendation. The reason is kept in the internal notes, and the applicant is never told.`}
+        options={APPROVAL_OVERRIDE_REASONS}
+        notesHint="Add any detail the office should know."
+        confirmLabel="Continue"
+        confirmVariant="primary"
+        onConfirm={(reason) => {
+          const status = overrideDialog;
+          setOverrideDialog(null);
+          // Approving needs no second dialog and uses the reason directly. A
+          // rejection and a waitlist open their own, which carry it into the same
+          // write, so it is held until they close.
+          if (status !== 'Approved') setOverrideReason(reason);
+          runAction(status, reason);
+        }}
+        onClose={() => setOverrideDialog(null)}
       />
     ) : null}
     {documentRejectTarget ? (

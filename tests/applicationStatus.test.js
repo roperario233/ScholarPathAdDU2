@@ -61,6 +61,26 @@ describe('role-aware application stage actions', () => {
     });
   });
 
+  it('lets a ladder level above the configured approver decide in its place, with an override label', () => {
+    ['dean', 'assistant_dean', 'department_chair'].forEach((role) => {
+      expect(getNextApplicationStatuses('Recommended', role, { canOverrideApproval: true })).toEqual(['Approved', 'Waitlisted', 'Rejected']);
+      // The override reaches no other stage.
+      expect(getNextApplicationStatuses('Interview', role, { canOverrideApproval: true })).toEqual([]);
+      expect(getNextApplicationStatuses('Approved', role, { canOverrideApproval: true })).toEqual([]);
+      expect(getNextApplicationStatuses('Waitlisted', role, { canOverrideApproval: true })).toEqual([]);
+    });
+    // An interviewer never decides, override or not.
+    expect(getNextApplicationStatuses('Recommended', 'interviewer', { canOverrideApproval: true })).toEqual([]);
+    expect(getStageActionLabel('Approved', 'dean', { override: true })).toBe('Approve as Dean (override)');
+    expect(getStageActionLabel('Waitlisted', 'assistant_dean', { override: true })).toBe('Waitlist as Assistant Dean (override)…');
+    expect(getStageActionLabel('Rejected', 'dean', { override: true })).toBe('Mark not accepted as Dean (override)…');
+    // The configured approver, and every other move, keep the plain wording.
+    expect(getStageActionLabel('Approved', 'dean')).toBe('Approve');
+    expect(getStageActionLabel('Rejected', 'dean')).toBe('Mark not accepted…');
+    expect(getStageActionLabel('Recommended', 'dean', { override: true })).toBe('Recommend for approval');
+    expect(getStageActionLabel('Approved', 'admissions_admin')).toBe('Approve as Admin (override)');
+  });
+
   it('preserves the generic legacy status map when no role is supplied', () => {
     expect(getNextApplicationStatuses('For Verification')).toEqual(['For Endorsement', 'Rejected']);
   });

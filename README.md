@@ -141,7 +141,7 @@ and `src/lib/supportChat.js` (support channel).
 ### Existing project
 
 Apply the migrations under `supabase/migrations/` in version order (`supabase db push` or
-`supabase migration up`). The repository head is `20261115000001_leave_interview_panel.sql`.
+`supabase migration up`). The repository head is `20261116000000_approval_override.sql`.
 The currently deployed project was last verified through `20261063000000_add_privacy_consent.sql`;
 check the target with `supabase migration list` before shipping the client. Never re-run
 `schema.sql` on a deployed project — it is the reference for fresh ones, and the two are kept
@@ -173,6 +173,7 @@ Areas worth knowing before you apply a batch:
 | `20261114000000` | Additional document requests: the Admin asks for more files or one more document at verification (`application_document_requests`, three RPCs); an open request holds the case at `For Verification` |
 | `20261115000000` | Join panel: `join_interview_panel()` lets an in-scope Dean, Assistant Dean, Chairperson, or interviewer add themselves to a scheduled interview's panel without a reschedule |
 | `20261115000001` | Leave panel: `leave_interview_panel()` lets a non-lead panelist who has recorded no note take their seat back while the case is at `Interview` |
+| `20261116000000` | Approval override: a ladder level above the school's configured approver (a Dean over a Chairperson) may decide a `Recommended` case in its place, with a reason recorded in the internal notes (`review_ladder_rank()`, the rewritten lane-transition trigger, `require_approval_override_reason`) |
 
 ### Storage
 
@@ -374,7 +375,7 @@ are answering an offer and leaving a waitlist.
 | `Endorsed` | For Interview | The Admin, once every attached file is Verified |
 | `Interview` | Interview | An in-scope reviewer records the schedule |
 | `Recommended` | Recommended | A panel member records the evaluation and its recommendation level |
-| `Approved` | Approved | The school's configured approving level, or the Admin as an override |
+| `Approved` | Approved | The school's configured approving level, a higher ladder level as an override, or the Admin as an override |
 | `Waitlisted` | Waitlisted | The approving level or the Admin, at `Recommended` |
 | `Released` | Accepted (student) | The Admin, from **Final check and release** |
 | `Declined` | Declined | The student answering an offer or leaving the waitlist, or the Admin recording an answer given offline |
@@ -518,6 +519,13 @@ Studies → Assistant Dean.
 **Check that an active account holds the configured role at that school or cluster** before
 changing a level. A level with no scoped account dead-ends a case at `Recommended`
 (`supabase/maintenance_restore_sas_approval_levels.sql` repairs one known drift).
+
+**Override.** A level above the configured one may decide a `Recommended` case in its place: a Dean
+for an Assistant Dean or a Chairperson, an Assistant Dean for a Chairperson, within its own review
+scope, never the other way and never an interviewer. The review modal labels it **Approve as Dean
+(override)** and asks for a reason first. The reason is kept in the staff-only internal notes, and
+the database refuses the decision without it. The grant amount stays with the configured level and
+the Admin, so the Admin records it before the final check.
 
 ## Provisioning accounts
 
@@ -835,7 +843,7 @@ Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
 Remove-Item Env:APPLICATION_IMPORT_APPROVED_BATCH
 ```
 
-Apply migrations through `20261115000001_leave_interview_panel.sql` on the isolated staging
+Apply migrations through `20261116000000_approval_override.sql` on the isolated staging
 project first. The operator path uploads bytes to deterministic private object paths, commits up to
 25 cases per RPC call, validates each case inside its own transaction savepoint, and records only
 hashed source keys/checksums in the import ledger. A retry with the same batch and identical content

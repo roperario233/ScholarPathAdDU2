@@ -13,6 +13,7 @@ import {
   getReviewerScope,
   getScopedQueue,
   isApplicationInReviewerScope,
+  isApprovalOverrideForApplication,
   isApproverForApplication,
   isReviewerRole,
 } from '../src/lib/reviewScope';
@@ -211,5 +212,39 @@ describe('approving level by school', () => {
     expect(isApproverForApplication(application(), { role: 'interviewer', reviewSchool: SAS, reviewCluster: 'Computer Studies' }, levels, index)).toBe(false);
     // A Dean of another school is out of scope.
     expect(isApproverForApplication(application(), dean, [{ school: SAS, cluster: '', approverRole: 'dean' }], index)).toBe(false);
+  });
+});
+
+// A level above the configured approver may decide in its place; mirrors the lane
+// trigger's review_ladder_rank comparison (20261116000000_approval_override.sql).
+describe('approval override by a higher ladder level', () => {
+  const index = buildProgramScopeIndex(academicPrograms);
+  const sasDean = { role: 'dean', reviewSchool: SAS, department: SAS };
+  const clusterLevels = [{ school: SAS, cluster: 'Computer Studies', approverRole: 'assistant_dean' }];
+
+  it('lets a Dean and an Assistant Dean step in for the default Chairperson', () => {
+    expect(isApprovalOverrideForApplication(application(), sasDean, [], index)).toBe(true);
+    expect(isApprovalOverrideForApplication(application(), assistantDean, [], index)).toBe(true);
+  });
+
+  it('lets a Dean step in for an Assistant Dean, but not the reverse or an equal level', () => {
+    expect(isApprovalOverrideForApplication(application(), sasDean, clusterLevels, index)).toBe(true);
+    // The configured level approves; it has nothing to override.
+    expect(isApprovalOverrideForApplication(application(), assistantDean, clusterLevels, index)).toBe(false);
+    // A Chairperson sits below the configured Assistant Dean.
+    expect(isApprovalOverrideForApplication(application(), chair, clusterLevels, index)).toBe(false);
+    expect(isApprovalOverrideForApplication(application(), sasDean, [{ school: SAS, cluster: '', approverRole: 'dean' }], index)).toBe(false);
+  });
+
+  it('never lets the Chairperson override, because nothing sits below it', () => {
+    expect(isApprovalOverrideForApplication(application(), chair, [], index)).toBe(false);
+  });
+
+  it('stays inside the reviewer scope and never opens to an interviewer', () => {
+    // A Dean of another school, and an Assistant Dean of another cluster.
+    expect(isApprovalOverrideForApplication(application(), dean, [], index)).toBe(false);
+    expect(isApprovalOverrideForApplication(application(), { role: 'assistant_dean', reviewSchool: SAS, reviewCluster: 'Natural Sciences' }, [], index)).toBe(false);
+    expect(isApprovalOverrideForApplication(application(), { role: 'interviewer', reviewSchool: SAS }, [], index)).toBe(false);
+    expect(isApprovalOverrideForApplication(application(), { role: 'admissions_admin' }, [], index)).toBe(false);
   });
 });

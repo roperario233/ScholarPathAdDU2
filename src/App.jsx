@@ -8,7 +8,7 @@ import { findStageCountMismatch, mergeWorkspaceDetails, mergeWorkspaceRefresh, W
 import { filterLocalDeadlinesForOwner, findDeadlinesMissingFromServer, isFutureDeadline, isRealUserId } from './lib/deadlineSync';
 import { evaluateApplicationGate, getAdduInternalPrograms, getDeadlineStatus, isAdduInternalProgram, searchScholarships } from './lib/eligibility';
 import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from './lib/academicPrograms';
-import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, APPLICATION_WAITLIST_NOTE_PREFIX, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
+import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPROVAL_OVERRIDE_REASON_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, APPLICATION_WAITLIST_NOTE_PREFIX, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfilePrivacyConsent, getProfileReviewScope, getSupabaseSession, getUserProfile, recordProfilePrivacyConsent, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
 import { canJoinInterviewPanel, canLeaveInterviewPanel, getUpcomingInterviews } from './lib/interviewRoster';
@@ -63,7 +63,7 @@ import { canRequestDocuments } from './lib/documentRequests';
 import { clearPendingSessionStart, consumePendingSessionStart, getSessionTimeoutConfig, getSessionTiming, markSessionEnded, readSessionActivity, startSessionActivity, subscribeToSessionActivity, touchSessionActivity } from './lib/sessionTimeout';
 import { getGrantAmountForApplication, isGrantAmountEditableStage, validateGrantAmount } from './lib/grantAmount';
 import { getOfferForApplication, isOfferRoundClosed, isValidConfirmBy } from './lib/resultsRound';
-import { buildProgramScopeIndex, getReviewPageLabel, getScopedQueue, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
+import { buildProgramScopeIndex, getReviewPageLabel, getScopedQueue, isApprovalOverrideForApplication, isApproverForApplication, isInterviewerRole, isReviewerRole } from './lib/reviewScope';
 import { getSupportChatConfig, getSupportChatVisitor, syncSupportChat, teardownSupportChat } from './lib/supportChat';
 import { LEGAL_DOCUMENT_KEYS, LEGAL_DOCUMENT_SHORT_LABELS, PRIVACY_NOTICE_VERSION, getLegalDocumentTitle } from './lib/legalDocs';
 import { createDefaultConsentChoice, normalizeConsentChoice } from './lib/privacyConsent';
@@ -2188,6 +2188,13 @@ function App() {
         return { error: 'Your role cannot move this application to that stage.' };
       }
     }
+    // A ladder level approving in place of the school's configured approver files
+    // its reason first, so a failed note leaves the stage untouched. A rejection or
+    // a waitlist files its own override reason before it reaches this point.
+    if (status === 'Approved' && application.status === 'Recommended') {
+      const overridden = await recordApprovalOverride(application, options?.overrideReason);
+      if (overridden?.error) return { error: overridden.error };
+    }
     const actor = roleLabels[state.viewerRole] || 'Admissions Office';
     const defaultNote = status === 'For Verification'
       ? 'Continued to document verification. Attached files are queued for Admissions Office review.'
@@ -2205,7 +2212,7 @@ function App() {
       actor,
       at: new Date().toISOString().slice(0, 10),
     };
-    const { note: _note, baseApplication: _baseApplication, ...stageFields } = options || {};
+    const { note: _note, baseApplication: _baseApplication, overrideReason: _overrideReason, ...stageFields } = options || {};
     if (!isSupabaseWorkspaceLoaded) {
       return { error: 'Supabase is not configured, so the stage change could not be saved.' };
     }
@@ -2255,6 +2262,23 @@ function App() {
     return { ok: true };
   };
 
+  // A Dean or Assistant Dean deciding in place of the school's configured approver
+  // (stageContextFor().canOverrideApproval) must say why. The reason is filed in the
+  // staff-only internal notes with APPROVAL_OVERRIDE_REASON_PREFIX, never in a
+  // student-readable column, and the database refuses the decision without it
+  // (require_approval_override_reason). The configured approver and the Admin have
+  // nothing to record, so this is a no-op for them.
+  const recordApprovalOverride = async (application, reason = '') => {
+    if (!stageContextFor(application).canOverrideApproval) return { ok: true };
+    const trimmed = String(reason || '').trim();
+    if (!trimmed) return { error: 'Record why you are deciding in place of the approving level.' };
+    const maxLength = 2000 - APPROVAL_OVERRIDE_REASON_PREFIX.length;
+    if (trimmed.length > maxLength) {
+      return { error: `Keep the reason to ${maxLength.toLocaleString()} characters or fewer.` };
+    }
+    return addReviewComment(application.id, `${APPROVAL_OVERRIDE_REASON_PREFIX}${trimmed}`);
+  };
+
   // An application rejection is recorded in two places on purpose. FORM 230-SCH
   // affidavit clause 6 keeps the deliberations and their minutes confidential, so
   // the reason a reviewer types is filed in the staff-only internal notes
@@ -2263,7 +2287,7 @@ function App() {
   // therefore through application_status_log.reason, which the trigger derives
   // from it. The note is written first: a rejection must never land without a
   // recorded reason, and a failed note leaves the stage untouched.
-  const rejectApplication = async (applicationId, reason = '') => {
+  const rejectApplication = async (applicationId, reason = '', { overrideReason = '' } = {}) => {
     if (state.viewerRole === 'student') {
       return { error: 'Only a reviewer can reject an application.' };
     }
@@ -2278,6 +2302,10 @@ function App() {
     if (trimmed.length > maxReasonLength) {
       return { error: `Keep the reason to ${maxReasonLength.toLocaleString()} characters or fewer.` };
     }
+    if (application.status === 'Recommended') {
+      const overridden = await recordApprovalOverride(application, overrideReason);
+      if (overridden?.error) return { error: overridden.error };
+    }
     const note = await addReviewComment(applicationId, `${APPLICATION_REJECTION_REASON_PREFIX}${trimmed}`);
     if (note?.error) return { error: note.error };
     return changeApplicationStatus(applicationId, 'Rejected', { note: APPLICATION_REJECTION_NOTICE });
@@ -2288,7 +2316,7 @@ function App() {
   // the waitlist on Final check and release. Like a rejection, the optional note
   // is staff-only (internal notes) and the timeline carries a fixed notice, so
   // the student never reads the approver's reasoning or a position.
-  const waitlistApplication = async (applicationId, note = '') => {
+  const waitlistApplication = async (applicationId, note = '', { overrideReason = '' } = {}) => {
     if (state.viewerRole === 'student') {
       return { error: 'Only a reviewer can waitlist an application.' };
     }
@@ -2303,6 +2331,8 @@ function App() {
     if (trimmed.length > maxLength) {
       return { error: `Keep the note to ${maxLength.toLocaleString()} characters or fewer.` };
     }
+    const overridden = await recordApprovalOverride(application, overrideReason);
+    if (overridden?.error) return { error: overridden.error };
     if (trimmed) {
       const recorded = await addReviewComment(applicationId, `${APPLICATION_WAITLIST_NOTE_PREFIX}${trimmed}`);
       if (recorded?.error) return { error: recorded.error };
@@ -2565,13 +2595,16 @@ function App() {
   const canCoordinateInterview = (application) => Boolean(application)
     && (isAdmissionsAdminRole(state.viewerRole) || isInViewerScope(application));
   // The case facts a scoped reviewer's stage moves depend on (constants.js
-  // getNextApplicationStatuses): only a panel member recommends, and only the
-  // level configured for the applicant's school approves.
+  // getNextApplicationStatuses): only a panel member recommends, the level
+  // configured for the applicant's school approves, and a ladder level above it may
+  // decide in its place (`canOverrideApproval`, with a recorded reason).
   const programScopeIndex = buildProgramScopeIndex(activeAcademicPrograms);
   const stageContextFor = (application) => ({
     isPanelist: Boolean(application) && isPanelistOn(application.id),
     isApprover: Boolean(application)
       && isApproverForApplication(application, reviewerProfile, state.approvalLevels || [], programScopeIndex),
+    canOverrideApproval: Boolean(application)
+      && isApprovalOverrideForApplication(application, reviewerProfile, state.approvalLevels || [], programScopeIndex),
   });
   const activeLocationIds = (state.interviewLocations || []).filter((entry) => entry.isActive).map((entry) => entry.id);
 
