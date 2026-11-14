@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
 import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search, Sun } from 'lucide-react';
 import bgImage from '../../pictures/background.jpg';
@@ -142,6 +142,10 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
 // `initialMode` opens the screen on sign-in ('signin', the default) or on the
 // create-account form ('create'); `onBackToHome` makes the sign-in card's logo and
 // "ScholarPath AdDU" name a button back to the public landing page.
+// How long the "Account created" card stays before it returns to sign-in on its
+// own; the progress bar under its button runs for the same time.
+const CREATE_SUCCESS_REDIRECT_MS = 2400;
+
 export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null, initialMode = 'signin', onBackToHome = null }) {
   const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
@@ -183,11 +187,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
   // Transitions the card morphs from one shape to the other (its content cross-fades);
   // elsewhere, and under reduced motion, the swap is instant (a CSS fade-in covers
   // browsers without the API).
-  const switchAuthView = (toCreate, beforeSwitch) => {
-    const apply = () => {
-      beforeSwitch?.();
-      setShowCreateAccount(toCreate);
-    };
+  const runAuthTransition = (apply) => {
     const reduceMotion = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
     if (typeof document !== 'undefined' && typeof document.startViewTransition === 'function' && !reduceMotion) {
       document.startViewTransition(() => flushSync(apply));
@@ -195,6 +195,17 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     }
     apply();
   };
+
+  const switchAuthView = (toCreate, beforeSwitch) => runAuthTransition(() => {
+    beforeSwitch?.();
+    setShowCreateAccount(toCreate);
+  });
+
+  // After "Account created", the card returns to sign-in by itself. The timer is
+  // kept so a manual "Back to sign in" (or leaving the screen) cancels it instead
+  // of firing a second, stray transition later.
+  const redirectTimerRef = useRef(null);
+  useEffect(() => () => window.clearTimeout(redirectTimerRef.current), []);
 
   const submitLogin = async (event) => {
     event.preventDefault();
@@ -291,10 +302,15 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     });
 
     if (result?.success) {
-      setCreateAccountSuccess(true);
-      setFeedbackMessage(result.message);
-      setFeedbackTone('success');
-      setTimeout(() => {
+      // The form morphs into the success card (the card is a named view transition).
+      runAuthTransition(() => {
+        setCreateAccountSuccess(true);
+        setFeedbackMessage(result.message);
+        setFeedbackTone('success');
+      });
+      window.clearTimeout(redirectTimerRef.current);
+      redirectTimerRef.current = window.setTimeout(() => {
+        redirectTimerRef.current = null;
         switchAuthView(false, () => {
           setCreateAccountSuccess(false);
           setCreateAccountData({
@@ -307,7 +323,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           setFeedbackMessage('');
           setFeedbackTone('info');
         });
-      }, 2000);
+      }, CREATE_SUCCESS_REDIRECT_MS);
       return;
     }
 
@@ -512,11 +528,20 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           )}
 
           {createAccountSuccess ? (
-            <div className="grid place-items-center gap-4 p-4 text-center">
-              <div className="grid h-14 w-14 place-items-center rounded-full bg-emerald-500/15 text-emerald-400"><Check size={24} /></div>
-              <p className="m-0 text-lg font-semibold text-app-text">Account created successfully!</p>
-              <p className="m-0 text-sm text-app-muted">You can now sign in with your email and password.</p>
+            <div className="grid place-items-center gap-4 p-4 text-center" role="status">
+              {/* The same check-and-ring the application's Submitted card uses. */}
+              <div className="relative grid h-14 w-14 place-items-center">
+                <span aria-hidden="true" className="submitted-ring absolute inset-0 rounded-full bg-emerald-400/40" />
+                <span className="submitted-badge relative grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 text-white shadow-lg shadow-emerald-600/30">
+                  <Check size={26} strokeWidth={3} aria-hidden="true" />
+                </span>
+              </div>
+              <p className="submitted-rise m-0 text-lg font-semibold text-app-text" style={{ '--rise-delay': '120ms' }}>Account created successfully!</p>
+              <p className="submitted-rise m-0 text-sm text-app-muted" style={{ '--rise-delay': '180ms' }}>You can now sign in with your email and password.</p>
+              <div className="submitted-rise grid w-full gap-2" style={{ '--rise-delay': '240ms' }}>
               <button type="button" className="inline-flex min-h-10 w-full items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60" onClick={() => {
+                window.clearTimeout(redirectTimerRef.current);
+                redirectTimerRef.current = null;
                 switchAuthView(false, () => {
                   setCreateAccountSuccess(false);
                   setCreateAccountData({
@@ -528,6 +553,11 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                   });
                 });
               }}>Back to sign in</button>
+              {/* Counts down to the automatic return to sign-in. */}
+              <div className="h-1 w-full overflow-hidden rounded-full bg-app-border" aria-hidden="true">
+                <span className="create-success-progress block h-full origin-left rounded-full bg-emerald-400" style={{ animationDuration: `${CREATE_SUCCESS_REDIRECT_MS}ms` }} />
+              </div>
+              </div>
             </div>
           ) : (
             <form className="grid gap-4" onSubmit={handleCreateAccount}>

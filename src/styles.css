@@ -2169,7 +2169,23 @@ a:focus-visible {
   from { opacity: 0; transform: scale(0.4); }
 }
 
+/* "Account created" card: the bar under its button fills over the time the card
+   stays before it hands back to sign-in (CREATE_SUCCESS_REDIRECT_MS in
+   LoginScreen.jsx sets the duration). */
+.create-success-progress {
+  animation: create-success-progress 2400ms linear both;
+}
+
+@keyframes create-success-progress {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .create-success-progress {
+    display: none;
+  }
+
   .support-chat-panel,
   .support-hint,
   .support-chip,
