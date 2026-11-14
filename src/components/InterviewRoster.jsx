@@ -36,6 +36,8 @@ export function InterviewRosterRow({
   yourRole = null,
   onOpen,
   openLabel = 'Open interview',
+  // A flat list (sorted by name or scholarship) has no day heading above it.
+  showDate = false,
 }) {
   const where = entry.mode === 'online'
     ? (entry.meetingUrl
@@ -52,7 +54,7 @@ export function InterviewRosterRow({
             {entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}
           </p>
           <p className="mt-0.5 text-xs text-app-muted">
-            {formatInterviewTimeRange(entry)} · {where}
+            {showDate && entry.dateKey ? `${formatInterviewDay(entry.dateKey)} · ` : ''}{formatInterviewTimeRange(entry)} · {where}
           </p>
           <p className="mt-0.5 truncate text-xs text-app-muted">
             {describePanel(panel)}

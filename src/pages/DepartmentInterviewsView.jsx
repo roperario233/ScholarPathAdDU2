@@ -1,10 +1,12 @@
 import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CalendarClock } from 'lucide-react';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import { InterviewDayGroup, InterviewRosterRow } from '../components/InterviewRoster';
-import { Card, EmptyState, StatusBadge } from '../components/ui';
+import FilterChips from '../components/FilterChips';
+import InterviewFilterBar from '../components/InterviewFilterBar';
+import { Button, Card, EmptyState } from '../components/ui';
 import {
   getInterviewEntries,
   getNextInterviewTile,
@@ -12,9 +14,18 @@ import {
   getPanelForApplication,
   getNoteCountForApplication,
   getUpcomingInterviews,
-  groupInterviewsByDate,
 } from '../lib/interviewRoster';
-import { REVIEW_ROLE_LABELS, getReviewScopeLabel } from '../lib/reviewScope';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
+import {
+  DEFAULT_INTERVIEW_FILTERS,
+  INTERVIEW_SORTS,
+  filterInterviewItems,
+  getInterviewFacets,
+  groupInterviewsForSort,
+  hasInterviewRefinement,
+  isInterviewDaySort,
+} from '../lib/interviewFilters';
+import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getReviewScopeLabel } from '../lib/reviewScope';
 
 // SOP step 5 for the Department Chair: panel work only. Scheduling belongs to the
 // Admissions Office, so this page opens the Interview tab and never writes a
@@ -42,6 +53,7 @@ export default function DepartmentInterviewsView({
   const now = new Date();
   const [filter, setFilter] = useState('panel');
   const [selectedId, setSelectedId] = useState(null);
+  const [filters, setFilters] = useState(DEFAULT_INTERVIEW_FILTERS);
 
   const panelists = interviewWorkspace?.panelists || [];
   const notes = interviewWorkspace?.notes || [];
@@ -61,15 +73,34 @@ export default function DepartmentInterviewsView({
     return row.isLead ? 'lead' : 'member';
   };
 
-  const visibleEntries = (() => {
-    if (filter === 'panel') return panelEntries.filter((entry) => entry.live && entry.state === 'scheduled');
-    if (filter === 'department') return scheduled;
+  const isHeld = (entry) => entry.live && entry.state === 'scheduled';
+  const categories = {
+    panel: panelEntries.filter(isHeld),
+    department: scheduled,
     // Panel history: the panel's interviews that no longer hold a slot — a
     // cancelled schedule, or a legacy outcome recorded before attendance was
     // removed.
-    return panelEntries.filter((entry) => !(entry.live && entry.state === 'scheduled'));
-  })();
-  const groups = groupInterviewsByDate(visibleEntries);
+    history: panelEntries.filter((entry) => !isHeld(entry)),
+  };
+  const categoryEntries = categories[filter] || [];
+  const programIndex = useMemo(
+    () => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []),
+    [interviewWorkspace?.academicPrograms],
+  );
+  // Search, sort, and the extra filters narrow whichever category is open. The
+  // search also reads the panel's names.
+  const settledQuery = useDebouncedValue(filters.query, 250);
+  const settledFilters = { ...filters, query: settledQuery };
+  const facets = getInterviewFacets(entries, programIndex);
+  const visibleEntries = filterInterviewItems(categoryEntries, settledFilters, {
+    programIndex,
+    now,
+    extraTextOf: (item) => getPanelForApplication(panelists, item.applicationId).map((member) => member.name).join(' '),
+  });
+  const groups = groupInterviewsForSort(visibleEntries, filters.sort);
+  const isRefined = hasInterviewRefinement(settledFilters);
+  const updateFilters = (patch) => setFilters((current) => ({ ...current, ...patch }));
+  const resetFilters = () => setFilters(DEFAULT_INTERVIEW_FILTERS);
   // After a stage move the case's row glows, or a notice says where it went.
   const moved = useMovedCase(visibleEntries.map((entry) => entry.applicationId));
 
@@ -88,24 +119,33 @@ export default function DepartmentInterviewsView({
 
       <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} />
 
-      <Card
-        title="Interviews"
-        action={(
-          <div className="w-[13rem] max-w-full">
-            <select
-              value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              aria-label="Filter interviews"
-              className="min-h-10 w-full"
-            >
-              {FILTERS.map((entry) => <option key={entry.key} value={entry.key}>{entry.label}</option>)}
-            </select>
-          </div>
-        )}
-      >
+      <Card title="Interviews">
+        <FilterChips
+          name="reviewer-interview-filter"
+          legend="Filter interviews"
+          className="mb-3"
+          value={filter}
+          onChange={setFilter}
+          options={FILTERS.map((entry) => ({
+            value: entry.key,
+            label: entry.label,
+            count: categories[entry.key].length,
+            alert: entry.key === 'panel' && categories.panel.length > 0,
+          }))}
+        />
+        <InterviewFilterBar
+          filters={filters}
+          onChange={updateFilters}
+          onReset={resetFilters}
+          facets={facets}
+          sorts={INTERVIEW_SORTS}
+          shown={visibleEntries.length}
+          total={categoryEntries.length}
+        />
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
-          {groups.length ? groups.map((group) => (
-            <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>
+          {groups.length ? groups.map((group) => {
+            const dayHeading = Boolean(group.dateKey) && isInterviewDaySort(filters.sort);
+            const rows = (
               <div className="grid gap-3">
                 {group.entries.map((entry) => {
                   const yourRole = yourRoleFor(entry.applicationId);
@@ -117,15 +157,25 @@ export default function DepartmentInterviewsView({
                       notesCount={getNoteCountForApplication(notes, entry.applicationId)}
                       yourRole={yourRole}
                       openLabel={yourRole === 'observer' ? 'View interview' : 'Open interview'}
+                      showDate={!dayHeading}
                       onOpen={setSelectedId}
                     />
                   );
                 })}
-                </div>
-              </InterviewDayGroup>
-            )) : <EmptyState title="No interviews here" />}
-          </div>
-        </Card>
+              </div>
+            );
+            return dayHeading
+              ? <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>{rows}</InterviewDayGroup>
+              : <div key={group.dateKey || 'flat'}>{rows}</div>;
+          }) : categoryEntries.length && isRefined ? (
+            <EmptyState
+              title="No interviews match"
+              description="Clear the search or a filter to see the rest of this list."
+              action={<div className="mt-3 flex justify-center"><Button type="button" onClick={resetFilters}>Reset search and filters</Button></div>}
+            />
+          ) : <EmptyState title="No interviews here" />}
+        </div>
+      </Card>
 
       {selected && (
         <ApplicationReviewModal

@@ -153,7 +153,7 @@ describe('AdminReviewQueue', () => {
       <AdminReviewQueue applications={[application()]} role="admissions_office" currentUserId="officer-a" onOpenWorkspace={() => undefined} />,
     );
 
-    expect(html).toContain('No cases in your review queue yet');
+    expect(html).toContain('No cases in the review queue yet');
     expect(html).toContain('Open intake pool');
   });
 });

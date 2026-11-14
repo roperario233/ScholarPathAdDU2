@@ -5,6 +5,7 @@ import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { InterviewDayGroup, InterviewRosterRow } from '../../components/InterviewRoster';
 import FilterChips from '../../components/FilterChips';
+import InterviewFilterBar from '../../components/InterviewFilterBar';
 import { getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
 import {
@@ -14,9 +15,19 @@ import {
   getNoteCountForApplication,
   getPanelForApplication,
   getUpcomingInterviews,
-  groupInterviewsByDate,
 } from '../../lib/interviewRoster';
 import { getInterviewSchedulers } from '../../lib/admissionsOffice';
+import { useDebouncedValue } from '../../lib/useDebouncedValue';
+import {
+  DEFAULT_INTERVIEW_FILTERS,
+  INTERVIEW_SORTS,
+  SCHEDULE_SORTS,
+  filterInterviewItems,
+  getInterviewFacets,
+  groupInterviewsForSort,
+  hasInterviewRefinement,
+  isInterviewDaySort,
+} from '../../lib/interviewFilters';
 import { isAdmissionsAdminRole } from '../../lib/constants';
 import { findRosterConflicts, formatInterviewDateShort } from '../../lib/interview';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getReviewScopeLabel } from '../../lib/reviewScope';
@@ -128,6 +139,7 @@ export default function AdminInterviews({
   // it, so the board never lands on an empty list while work waits elsewhere.
   const [chosenFilter, setFilter] = useState(FILTERS.some((entry) => entry.key === initialFilter) ? initialFilter : null);
   const [selectedId, setSelectedId] = useState(null);
+  const [filters, setFilters] = useState(DEFAULT_INTERVIEW_FILTERS);
 
   const entries = getInterviewEntries(applications);
   const upcoming = getUpcomingInterviews(applications, { now });
@@ -149,17 +161,35 @@ export default function AdminInterviews({
     && !interviewWorkspace.calendarChecking
     && (!interviewWorkspace.calendarConfigured || interviewWorkspace.calendarReauthRequired);
 
-  const visibleEntries = (() => {
+  const categoryEntries = (() => {
     if (filter === 'upcoming') return upcoming;
     if (filter === 'cancelled') return cancelled;
     if (filter === 'all') return entries;
     return [];
   })();
-  const groups = groupInterviewsByDate(visibleEntries);
   const showScheduleList = filter === 'needs-scheduling';
+  const panelists = interviewWorkspace?.panelists || [];
+  // Search, sort, and the extra filters narrow whichever category is open. The
+  // search also reads the panel's names, so an interviewer's interviews are findable.
+  const settledQuery = useDebouncedValue(filters.query, 250);
+  const filterOptions = {
+    programIndex,
+    now,
+    extraTextOf: (item) => getPanelForApplication(panelists, item.applicationId || item.id).map((member) => member.name).join(' '),
+  };
+  const settledFilters = { ...filters, query: settledQuery };
+  const facets = getInterviewFacets([...entries, ...needsSchedule], programIndex);
+  const visibleEntries = filterInterviewItems(categoryEntries, settledFilters, filterOptions);
+  const visibleSchedule = filterInterviewItems(needsSchedule, settledFilters, filterOptions);
+  const groups = groupInterviewsForSort(visibleEntries, filters.sort);
+  const sourceCount = showScheduleList ? needsSchedule.length : categoryEntries.length;
+  const shownCount = showScheduleList ? visibleSchedule.length : visibleEntries.length;
+  const isRefined = hasInterviewRefinement(settledFilters);
+  const updateFilters = (patch) => setFilters((current) => ({ ...current, ...patch }));
+  const resetFilters = () => setFilters(DEFAULT_INTERVIEW_FILTERS);
   // After a stage move the case's row glows, or a notice says where it went.
   const moved = useMovedCase(showScheduleList
-    ? needsSchedule.map((entry) => entry.id)
+    ? visibleSchedule.map((entry) => entry.id)
     : visibleEntries.map((entry) => entry.applicationId));
   // Opening a case pins the category on screen, so a schedule recorded inside
   // the case never switches the filter chip under the reader.
@@ -220,9 +250,20 @@ export default function AdminInterviews({
             alert: entry.key === 'needs-scheduling' && counts[entry.key] > 0,
           }))}
         />
+        <InterviewFilterBar
+          filters={filters}
+          onChange={updateFilters}
+          onReset={resetFilters}
+          facets={facets}
+          sorts={showScheduleList ? SCHEDULE_SORTS : INTERVIEW_SORTS}
+          showScheduleFilters={!showScheduleList}
+          shown={shownCount}
+          total={sourceCount}
+          noun={showScheduleList ? 'applicant' : 'interview'}
+        />
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pr-1">
           {showScheduleList ? (
-            needsSchedule.length ? needsSchedule.map((entry) => (
+            visibleSchedule.length ? visibleSchedule.map((entry) => (
               <ScheduleRow
                 key={entry.id}
                 application={entry}
@@ -230,22 +271,39 @@ export default function AdminInterviews({
                 isAdmin={isAdmin}
                 onOpen={openCase}
               />
-            )) : <EmptyState title="Nothing to schedule" description={describeOtherCategories(otherWithItems, counts)} />
-          ) : groups.length ? groups.map((group) => (
-            <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>
+            )) : needsSchedule.length && isRefined ? (
+              <EmptyState
+                title="No applicants match"
+                description="Clear the search or a filter to see the rest of this list."
+                action={<div className="mt-3 flex justify-center"><Button type="button" onClick={resetFilters}>Reset search and filters</Button></div>}
+              />
+            ) : <EmptyState title="Nothing to schedule" description={describeOtherCategories(otherWithItems, counts)} />
+          ) : groups.length ? groups.map((group) => {
+            const dayHeading = Boolean(group.dateKey) && isInterviewDaySort(filters.sort);
+            const rows = (
               <div className="grid gap-3">
                 {group.entries.map((entry) => (
                   <InterviewRosterRow
                     key={entry.applicationId}
                     entry={entry}
-                    panel={getPanelForApplication(interviewWorkspace?.panelists || [], entry.applicationId)}
+                    panel={getPanelForApplication(panelists, entry.applicationId)}
                     notesCount={getNoteCountForApplication(interviewWorkspace?.notes || [], entry.applicationId)}
+                    showDate={!dayHeading}
                     onOpen={openCase}
                   />
                 ))}
               </div>
-            </InterviewDayGroup>
-          )) : (
+            );
+            return dayHeading
+              ? <InterviewDayGroup key={group.dateKey} dateKey={group.dateKey}>{rows}</InterviewDayGroup>
+              : <div key={group.dateKey || 'flat'}>{rows}</div>;
+          }) : categoryEntries.length && isRefined ? (
+            <EmptyState
+              title="No interviews match"
+              description="Clear the search or a filter to see the rest of this list."
+              action={<div className="mt-3 flex justify-center"><Button type="button" onClick={resetFilters}>Reset search and filters</Button></div>}
+            />
+          ) : (
             <EmptyState
               title={filter === 'upcoming' ? 'No upcoming interviews' : 'No interviews here'}
               description={describeOtherCategories(otherWithItems, counts)}
