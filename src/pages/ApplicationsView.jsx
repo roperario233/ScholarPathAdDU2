@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowRight, Award, Bell, CalendarClock, Check, CheckCircle2, CircleAlert, ClipboardList, FileEdit, FileText, Eye, History as HistoryIcon, Hourglass, Info, Paperclip, PenLine, Search, ShieldCheck, TriangleAlert, UserRound, Users, X } from 'lucide-react';
+import { ArrowRight, Award, Bell, CalendarClock, Check, CheckCircle2, CircleAlert, ClipboardList, FileEdit, FileText, Eye, History as HistoryIcon, Hourglass, Info, Paperclip, PenLine, ShieldCheck, TriangleAlert, UserRound, Users, X } from 'lucide-react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
+import ListToolbar from '../components/ListToolbar';
 import { SkeletonRegion, SkeletonText } from '../components/Skeleton';
 import ApplicationPrintButton from '../components/ApplicationPrintSheet';
 import ApplicationWorkspaceModal from '../components/ApplicationWorkspaceModal';
@@ -222,6 +223,25 @@ function SubmittedConfirmation({ application, onClose }) {
   );
 }
 
+const APPLICATION_SORTS = [
+  { value: 'recent', label: 'Recently updated' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'name', label: 'Scholarship A–Z' },
+  { value: 'stage', label: 'Furthest along first' },
+];
+
+const applicationTime = (entry) => {
+  const time = Date.parse(entry?.updatedAt || entry?.submittedAt || '');
+  return Number.isFinite(time) ? time : 0;
+};
+
+const APPLICATION_SORTERS = {
+  recent: (left, right) => applicationTime(right) - applicationTime(left),
+  oldest: (left, right) => applicationTime(left) - applicationTime(right),
+  name: (left, right) => String(left.scholarshipTitle || '').localeCompare(String(right.scholarshipTitle || ''), undefined, { sensitivity: 'base' }),
+  stage: (left, right) => (getApplicationProgress(right.status) - getApplicationProgress(left.status)) || (applicationTime(right) - applicationTime(left)),
+};
+
 export default function ApplicationsView({
   applications,
   documents,
@@ -260,6 +280,7 @@ export default function ApplicationsView({
 }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
+  const [sort, setSort] = useState('recent');
   const [selectedId, setSelectedId] = useState(null);
   const [preview, setPreview] = useState(null);
   // The application just submitted (its confirmation is open), the card to glow
@@ -292,7 +313,7 @@ export default function ApplicationsView({
   const filtered = useMemo(() => applications.filter((entry) => {
     const matchesQuery = !query.trim() || entry.scholarshipTitle.toLowerCase().includes(query.trim().toLowerCase());
     return matchesQuery && (status === 'all' || entry.status === status);
-  }), [applications, query, status]);
+  }).sort(APPLICATION_SORTERS[sort] || APPLICATION_SORTERS.recent), [applications, query, status, sort]);
   // Only the statuses the student's own applications hold (plus the one chosen),
   // in pipeline order, so the filter never lists a word they cannot be shown.
   const filterStatuses = useMemo(() => {
@@ -447,8 +468,29 @@ export default function ApplicationsView({
     </section>
 
     <Card title="Your applications" className="application-list-card">
-      <div className="grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4"><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find an application</span><span className="relative block"><Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-app-muted" aria-hidden="true" /><input className="!pl-10" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search applications" aria-label="Search applications" /></span></label><label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Application status</span><select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Filter applications by status"><option value="all">All statuses</option>{filterStatuses.map((item) => <option key={item} value={item}>{getStudentApplicationStatusLabel(item)}</option>)}</select></label></div>
-      <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3"><p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'application' : 'applications'} found</p><span className="text-xs text-app-muted">Attach the required documents, then submit</span></div>
+      <ListToolbar
+        name="application-status"
+        legend="Filter applications by status"
+        chips={[
+          { value: 'all', label: 'All applications', count: applications.length },
+          ...filterStatuses.map((item) => ({
+            value: item,
+            label: getStudentApplicationStatusLabel(item),
+            count: applications.filter((entry) => entry.status === item).length,
+          })),
+        ]}
+        status={status}
+        onStatusChange={setStatus}
+        query={query}
+        onQueryChange={setQuery}
+        searchLabel="Search applications"
+        searchPlaceholder="Search applications"
+        sorts={APPLICATION_SORTS}
+        sort={sort}
+        onSortChange={setSort}
+        onReset={query || status !== 'all' || sort !== 'recent' ? () => { setQuery(''); setStatus('all'); setSort('recent'); } : null}
+      />
+      <div className="mt-5 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3"><p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'application' : 'applications'} found</p><span className="text-xs text-app-muted">Attach the required documents, then submit</span></div>
       <div className="mt-4 grid max-h-[560px] gap-4 overflow-y-auto pr-2">
         {filtered.length ? filtered.map((entry) => {
           const scholarship = scholarshipById[entry.scholarshipId];

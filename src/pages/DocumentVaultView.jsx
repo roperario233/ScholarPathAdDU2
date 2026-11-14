@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Clock, Eye, FileImage, FileText, Layers, Lock, RotateCcw, Search, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { Clock, Eye, FileImage, FileText, Layers, Lock, RotateCcw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { Card, EmptyState } from '../components/pageParts';
 import { Button, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import DocumentUploadForm from '../components/DocumentUploadForm';
+import ListToolbar from '../components/ListToolbar';
 import { DocumentDecisionRecord, DocumentRejectionReason } from '../components/ApplicationParts';
 import { fmtDate } from '../lib/formatters';
 import { getDocumentStatusLabel, getDocumentTypeLabel, DOCUMENT_REPLACEMENT_STATUSES } from '../lib/constants';
@@ -26,6 +27,26 @@ const DOCUMENT_STATUS_STYLES = {
   Rejected: { tone: 'danger', bar: 'before:bg-rose-500', tile: 'bg-rose-500/15 text-rose-700 dark:text-rose-300', icon: RotateCcw },
 };
 
+const DOCUMENT_SORTS = [
+  { value: 'newest', label: 'Newest upload' },
+  { value: 'oldest', label: 'Oldest upload' },
+  { value: 'name', label: 'Name A–Z' },
+  { value: 'type', label: 'Document type A–Z' },
+];
+
+const uploadTime = (doc) => {
+  const time = Date.parse(doc?.uploadedAt || '');
+  return Number.isFinite(time) ? time : 0;
+};
+
+const DOCUMENT_SORTERS = {
+  newest: (left, right) => uploadTime(right) - uploadTime(left),
+  oldest: (left, right) => uploadTime(left) - uploadTime(right),
+  name: (left, right) => String(left.title || left.fileName || '').localeCompare(String(right.title || right.fileName || ''), undefined, { sensitivity: 'base' }),
+  type: (left, right) => String(left.documentType || '').localeCompare(String(right.documentType || ''), undefined, { sensitivity: 'base' })
+    || String(left.title || '').localeCompare(String(right.title || ''), undefined, { sensitivity: 'base' }),
+};
+
 const IMAGE_FILE_PATTERN = /\.(jpe?g|png|webp|gif|heic)$/i;
 
 function VaultMetric({ icon: Icon, label, value, note, tone }) {
@@ -42,6 +63,7 @@ function VaultMetric({ icon: Icon, label, value, note, tone }) {
 export default function DocumentVaultView({ documents, applications = [], profile = null, onUpload, onDelete, onResolveDocument, presetAttribute = '', presetDocumentType = '', onOpenPrivacyDocument = null }) {
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('all');
+  const [sort, setSort] = useState('newest');
   const [preview, setPreview] = useState(null);
   // Usage is derived from the applications that attach each file, so the count
   // always matches the application workspace. A file a submitted application
@@ -82,7 +104,8 @@ export default function DocumentVaultView({ documents, applications = [], profil
     const matchesStatus = status === 'all'
       || (status === 'outdated' ? outdatedByDocument[doc.id]?.length > 0 : doc.verificationStatus === status);
     return (!query.trim() || text.includes(query.trim().toLowerCase())) && matchesStatus;
-  }), [documents, query, status, outdatedByDocument]);
+  }).sort(DOCUMENT_SORTERS[sort] || DOCUMENT_SORTERS.newest), [documents, query, status, sort, outdatedByDocument]);
+  const outdatedCount = documents.filter((doc) => outdatedByDocument[doc.id]?.length > 0).length;
 
   const countByStatus = (value) => documents.filter((doc) => doc.verificationStatus === value).length;
 
@@ -123,11 +146,28 @@ export default function DocumentVaultView({ documents, applications = [], profil
       </Card>
 
       <Card title="Your documents" className="document-list-card">
-        <div className="document-filter-toolbar grid gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-3 md:grid-cols-[minmax(0,1fr)_14rem] md:gap-4">
-          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Find a file</span><span className="relative block"><Search size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-app-muted" aria-hidden="true" /><input className="!pl-10" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search documents" aria-label="Search documents" /></span></label>
-          <label className="grid gap-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-app-muted">Verification status</span><select value={status} onChange={(event) => setStatus(event.target.value)} aria-label="Filter documents"><option value="all">All statuses</option><option>Verified</option><option>Pending</option><option value="Rejected">Reverted for resubmission</option><option value="outdated">Outdated proof</option></select></label>
-        </div>
-        <div className="mt-6 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3">
+        <ListToolbar
+          name="document-status"
+          legend="Filter documents by verification status"
+          chips={[
+            { value: 'all', label: 'All documents', count: documents.length },
+            { value: 'Verified', label: getDocumentStatusLabel('Verified'), count: countByStatus('Verified') },
+            { value: 'Pending', label: getDocumentStatusLabel('Pending'), count: countByStatus('Pending'), alert: countByStatus('Pending') > 0 },
+            { value: 'Rejected', label: getDocumentStatusLabel('Rejected'), count: countByStatus('Rejected'), alert: countByStatus('Rejected') > 0 },
+            ...(outdatedCount || status === 'outdated' ? [{ value: 'outdated', label: 'Outdated proof', count: outdatedCount, alert: outdatedCount > 0 }] : []),
+          ]}
+          status={status}
+          onStatusChange={setStatus}
+          query={query}
+          onQueryChange={setQuery}
+          searchLabel="Search documents"
+          searchPlaceholder="Search documents"
+          sorts={DOCUMENT_SORTS}
+          sort={sort}
+          onSortChange={setSort}
+          onReset={query || status !== 'all' || sort !== 'newest' ? () => { setQuery(''); setStatus('all'); setSort('newest'); } : null}
+        />
+        <div className="mt-5 flex items-center justify-between gap-3 border-b border-app-border/70 px-1 pb-3">
           <p className="m-0 text-sm font-semibold text-app-text">{filtered.length} {filtered.length === 1 ? 'document' : 'documents'} found</p>
           <span className="text-xs text-app-muted">Reusable across applications</span>
         </div>
