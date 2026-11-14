@@ -1,3 +1,5 @@
+import { useSummaryCards } from '../lib/summaryCardsContext';
+
 const clsx = (...values) => values.flat(Infinity).filter(Boolean).join(' ');
 
 // Placeholder shapes shown while data loads, so a page keeps its layout instead
@@ -45,7 +47,11 @@ export function SkeletonTitleBar() {
   );
 }
 
+// Placeholders for the summary cards, which are hidden by default, so none is drawn
+// while the user has them hidden.
 export function SkeletonMetrics({ count = 3 }) {
+  const { visible } = useSummaryCards();
+  if (!visible) return null;
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
       {Array.from({ length: count }, (_, index) => (

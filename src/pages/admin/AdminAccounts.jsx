@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock3, UserCheck, UserX } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ReasonModal from '../../components/ReasonModal';
-import { StatCard } from '../../components/pageParts';
+import { StatCard, SummaryCards } from '../../components/pageParts';
 import { SkeletonMetrics, SkeletonRegion, SkeletonRows } from '../../components/Skeleton';
 import { Button, Card, EmptyState, FormField, ModalShell, StatusBadge } from '../../components/ui';
 import {
@@ -329,12 +329,12 @@ export function AccountsWorkspace({
       )}
 
       {loading ? <SkeletonMetrics count={4} /> : (
-      <section className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4" aria-label="Account totals">
+      <SummaryCards label="Account totals" className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
         <StatCard icon={UserCheck} tone="success" label="Active" value={summary.active} note="Can sign in with their role" />
         <StatCard icon={Clock3} tone="info" label="Invited" value={summary.invited} note="Waiting for first sign-in" />
         <StatCard icon={Clock3} tone="warning" label="Expired" value={summary.expired} note="Renew or revoke" />
         <StatCard icon={UserX} tone="neutral" label="Deactivated" value={summary.deactivated} note="Role removed, history kept" />
-      </section>
+      </SummaryCards>
       )}
 
       <Card

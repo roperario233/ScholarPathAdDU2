@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Award, Bell, CalendarClock, Check, CheckCircle2, CircleAlert, ClipboardList, FileEdit, FileText, Eye, History as HistoryIcon, Hourglass, Info, Paperclip, PenLine, ShieldCheck, TriangleAlert, UserRound, Users, X } from 'lucide-react';
-import { Card, EmptyState } from '../components/pageParts';
+import { Card, EmptyState, SummaryCards } from '../components/pageParts';
 import { Button, ModalShell, Panel, StatusBadge } from '../components/ui';
 import ListToolbar from '../components/ListToolbar';
 import { SkeletonRegion, SkeletonText } from '../components/Skeleton';
@@ -460,12 +460,12 @@ export default function ApplicationsView({
       </div>
     </section>
 
-    <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+    <SummaryCards label="Application totals">
       <ApplicationMetric icon={FileEdit} label="Drafts" value={summary.drafts} note="Ready to continue" tone="bg-slate-500/15 text-slate-700 dark:text-slate-300" />
       <ApplicationMetric icon={Hourglass} label="In review" value={summary.inReview} note="With the Admissions Office" tone="bg-blue-500/15 text-blue-700 dark:text-blue-300" />
       <ApplicationMetric icon={TriangleAlert} label="Action needed" value={summary.actionNeeded} note="Files to replace or awards to confirm" tone="bg-rose-500/15 text-rose-700 dark:text-rose-300" />
       <ApplicationMetric icon={Award} label="Accepted" value={summary.decided} note="Results are in" tone="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" />
-    </section>
+    </SummaryCards>
 
     <Card title="Your applications" className="application-list-card">
       <ListToolbar

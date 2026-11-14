@@ -50,6 +50,17 @@ describe('createInitialState', () => {
     });
   });
 
+  it('hides the summary cards until an account opts in, and keeps only real choices', () => {
+    installStorage(undefined);
+    expect(createInitialState().summaryCardsByOwner).toEqual({});
+
+    installStorage({ summaryCardsByOwner: { 'user-1': true, 'user-2': false, 'user-3': 'yes' } });
+    expect(createInitialState().summaryCardsByOwner).toEqual({ 'user-1': true });
+
+    installStorage({ summaryCardsByOwner: ['user-1'] });
+    expect(createInitialState().summaryCardsByOwner).toEqual({});
+  });
+
   it('defaults the staff student directory to an empty object', () => {
     installStorage(undefined);
     expect(createInitialState().students).toEqual({});

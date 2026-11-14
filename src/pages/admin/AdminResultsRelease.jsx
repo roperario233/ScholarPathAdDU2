@@ -7,7 +7,7 @@ import { STAGE_BAR_TONES, STAGE_LABEL_TONES, StageIcon } from '../../components/
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import ReasonModal from '../../components/ReasonModal';
 import ReleasedResultsModal from '../../components/ReleasedResultsModal';
-import { StatCard, getCaseCardClass } from '../../components/pageParts';
+import { StatCard, SummaryCards, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, ExportButton, ModalShell, Panel, StatusBadge } from '../../components/ui';
 import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue, getFinalCheckHints } from '../../lib/admissionsOffice';
 import { getActorRoleLabel } from '../../lib/applicationRequirements';
@@ -772,12 +772,12 @@ export default function AdminResultsRelease({
 
       <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It is no longer awaiting a decision, a release, or an answer here." />
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      <SummaryCards>
         <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Listed in the Review queue" />
         <StatCard icon={Award} tone="info" label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
         <StatCard icon={ListOrdered} tone="warning" label="Waitlisted" value={waitlistedCount} note={openSlotCount ? `${plural(openSlotCount, 'slot')} open` : 'Offered a slot when one opens'} />
         <StatCard icon={Hourglass} tone="info" label="Offers awaiting an answer" value={unansweredCount} note="Accepted applicants to confirm" />
-      </section>
+      </SummaryCards>
 
       {!scholarshipOffersReady ? (
         <p className="m-0 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">

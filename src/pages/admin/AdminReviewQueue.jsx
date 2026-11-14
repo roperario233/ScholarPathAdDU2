@@ -4,7 +4,7 @@ import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHead
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { SopStageTrack } from '../../components/ApplicationParts';
-import { StatCard, getCaseCardClass } from '../../components/pageParts';
+import { StatCard, SummaryCards, getCaseCardClass } from '../../components/pageParts';
 import AcademicYearSelect from '../../components/AcademicYearSelect';
 import FilterChips from '../../components/FilterChips';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
@@ -230,12 +230,12 @@ export default function AdminReviewQueue({
       )}
 
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      <SummaryCards>
         <StatCard icon={ClipboardList} tone="info" label="In my review queue" value={myQueue.length} note="Cases you opened" />
         <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimedSubmissions} note="Waiting in the intake pool" />
         <StatCard icon={FileSearch} tone="warning" label="Documents awaiting verification" value={blockingDocuments.length} note="Files in your queue" />
         <StatCard icon={FileCheck2} tone="success" label="For verification" value={awaitingVerification.length} note="Awaiting document decisions" />
-      </section>
+      </SummaryCards>
 
       <section className="grid gap-4">
         <Card

@@ -128,6 +128,11 @@ const createDefaultState = () => ({
   isAuthenticated: false,
   hasLoggedInBefore: false,
   studentSupportHintSeen: false,
+  // Which accounts have turned the summary cards at the top of each page on (every
+  // page except the Dashboards, which always show their figures), keyed by account
+  // id. Hidden until an account opts in. It survives a sign-out so the choice is
+  // there at the next sign-in on this browser.
+  summaryCardsByOwner: {},
   // The browser-storage notice choice (cookies and storage policy). It is a device
   // preference, not identity: an unanswered record means the notice has not been
   // shown yet, and a version mismatch asks again.
@@ -225,6 +230,14 @@ const createDefaultState = () => ({
   academicPrograms,
 });
 
+// The per-account summary-card choice: only `true` entries under a string id survive,
+// so an older record, a hand-edited one, or a stray value reads as "hidden".
+export const normalizeSummaryCardsByOwner = (value) => (
+  value && typeof value === 'object' && !Array.isArray(value)
+    ? Object.fromEntries(Object.entries(value).filter(([id, shown]) => id && shown === true))
+    : {}
+);
+
 export const createInitialState = () => {
   const stored = readStoredState();
   const defaults = createDefaultState();
@@ -271,6 +284,7 @@ export const createInitialState = () => {
     authUser,
     hasLoggedInBefore: stored.hasLoggedInBefore ?? defaults.hasLoggedInBefore,
     studentSupportHintSeen: stored.studentSupportHintSeen ?? defaults.studentSupportHintSeen,
+    summaryCardsByOwner: normalizeSummaryCardsByOwner(stored.summaryCardsByOwner),
     privacyChoice: normalizeConsentChoice(stored.privacyChoice),
     showFirstLoginWelcome: stored.showFirstLoginWelcome ?? defaults.showFirstLoginWelcome,
     rememberMe: stored.rememberMe ?? defaults.rememberMe,
@@ -344,7 +358,7 @@ export const createInitialState = () => {
 // of staying prefilled on a shared testing machine (RA 10173). The storage-notice
 // choice stays because it is a preference with no identity in it, and re-asking
 // the same browser on every sign-out would be noise rather than consent.
-export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore', 'studentSupportHintSeen', 'privacyChoice'];
+export const DEVICE_PREFERENCE_KEYS = ['theme', 'hasLoggedInBefore', 'studentSupportHintSeen', 'summaryCardsByOwner', 'privacyChoice'];
 
 // A fresh state for sign-out: every session-scoped slice resets to its default
 // (including `ownerId`), while the caller's device preferences carry over.

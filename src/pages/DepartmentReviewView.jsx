@@ -12,7 +12,7 @@ import {
   hasReviewQueueRefinement,
 } from '../lib/reviewQueue';
 import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
-import { StatCard, getCaseCardClass } from '../components/pageParts';
+import { StatCard, SummaryCards, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import FilterChips from '../components/FilterChips';
@@ -268,14 +268,14 @@ export default function DepartmentReviewView({
 
       <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It stays listed under All applications." />
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      <SummaryCards>
         <StatCard icon={CalendarClock} tone="warning" label="Waiting for an interview" value={awaitingInterview.length} />
         <StatCard icon={UserCheck} tone="info" label="Interviews on your panel" value={panelInterviews.length} />
         {isInterviewer
           ? <StatCard icon={SendHorizontal} tone="success" label="Recommendations sent" value={decidedInScope.length} />
           : <StatCard icon={ClipboardCheck} tone="warning" label="Awaiting your approval" value={awaitingApproval.length} />}
         <StatCard icon={Layers} tone="neutral" label="Review scope" value={getReviewScopeLabel(profile) || 'Unassigned'} />
-      </section>
+      </SummaryCards>
 
       <Card title="Applications in your scope" className="min-w-0">
         <FilterChips

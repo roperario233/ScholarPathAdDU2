@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell, X } from 'lucide-react';
+import { useSummaryCards } from '../lib/summaryCardsContext';
 import { getApplicationProgress, getScholarshipAcademicDisplay, isAdduInternalProgram } from '../lib/eligibility';
 import { fmtCurrency, fmtDate, toPercent } from '../lib/formatters';
 import { Button, EmptyState, StatusBadge } from './ui';
@@ -29,6 +30,15 @@ export function StatCard({ label, value, note, icon: Icon, tone = 'info' }) {
       {note ? <p className="text-[11px] leading-snug text-app-muted sm:text-xs">{note}</p> : null}
     </article>
   );
+}
+
+// The row of summary cards at the top of a page. Whether it shows is one setting per
+// account (Settings, hidden by default, `SummaryCardsContext`), so the row carries no
+// toggle of its own. The Admissions Office and student Dashboards do not use this
+// wrapper, so their figures always show.
+export function SummaryCards({ label = 'Summary figures', className = 'grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4', children }) {
+  const { visible } = useSummaryCards();
+  return visible ? <section aria-label={label} className={className}>{children}</section> : null;
 }
 
 // The card surface for one application row in a staff queue: the student pages'

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Clock, Eye, FileImage, FileText, Layers, Lock, RotateCcw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
-import { Card, EmptyState } from '../components/pageParts';
+import { Card, EmptyState, SummaryCards } from '../components/pageParts';
 import { Button, StatusBadge } from '../components/ui';
 import DocumentPreviewModal from '../components/DocumentPreviewModal';
 import DocumentUploadForm from '../components/DocumentUploadForm';
@@ -129,12 +129,12 @@ export default function DocumentVaultView({ documents, applications = [], profil
         ) : null}
       </section>
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      <SummaryCards label="Document totals">
         <VaultMetric icon={Layers} label="Total documents" value={documents.length} note="Stored in your Document Vault" tone="bg-blue-500/15 text-blue-700 dark:text-blue-300" />
         <VaultMetric icon={ShieldCheck} label="Verified" value={countByStatus('Verified')} note="Ready to reuse" tone="bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" />
         <VaultMetric icon={Clock} label="Pending review" value={countByStatus('Pending')} note="Awaiting Admissions Office review" tone="bg-amber-500/15 text-amber-700 dark:text-amber-300" />
         <VaultMetric icon={RotateCcw} label="Needs resubmission" value={countByStatus('Rejected')} note="Reverted for resubmission" tone="bg-rose-500/15 text-rose-700 dark:text-rose-300" />
-      </section>
+      </SummaryCards>
 
       <Card title="Upload a document">
         <DocumentUploadForm

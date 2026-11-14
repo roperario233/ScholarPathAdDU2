@@ -7,7 +7,7 @@ import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice'
 import AcademicYearSelect from '../../components/AcademicYearSelect';
 import FilterChips from '../../components/FilterChips';
 import OpenApplicationForStudentModal from '../../components/OpenApplicationForStudentModal';
-import { StatCard, getCaseCardClass } from '../../components/pageParts';
+import { StatCard, SummaryCards, getCaseCardClass } from '../../components/pageParts';
 import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { describeApplicantAcademic } from '../../lib/applicationRequirements';
 import {
@@ -293,12 +293,12 @@ export default function AdminIntakePool({
         </div>
       )}
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
+      <SummaryCards>
         <StatCard icon={Inbox} tone="warning" label="Unclaimed submissions" value={unclaimed.filter((entry) => entry.status === 'Submitted').length} note="Nobody has opened these yet" />
         <StatCard icon={Clock} tone="danger" label="Oldest waiting" value={oldestWait == null ? '—' : `${oldestWait}d`} note="First come, first served" />
         <StatCard icon={Users} tone="info" label="In progress, no officer" value={unclaimedInProgress.length} note="Moving without an officer" />
         <StatCard icon={UserCheck} tone="success" label="With officers" value={taken.length} note="Taken and discoverable below" />
-      </section>
+      </SummaryCards>
 
       <section>
         <Card

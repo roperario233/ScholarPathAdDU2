@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Activity, Award, BarChart3, CalendarClock, ChevronDown, FileCheck2, FileWarning, Gavel, Inbox, ListChecks, SendHorizontal, Timer, Users, XCircle } from 'lucide-react';
 import AdminPageHeader, { AdminHeaderTile } from './AdminPageHeader';
-import { StatCard } from './pageParts';
+import { StatCard, SummaryCards } from './pageParts';
 import { Button, Card, EmptyState, ExportButton, FormField, StatusBadge } from './ui';
 import {
   ALL_FILTER_VALUE,
@@ -438,9 +438,9 @@ export default function StatisticsWorkspace({
         </p>
       </Card>
 
-      <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4" aria-label="Headline figures">
+      <SummaryCards label="Headline figures">
         <HeadlineCards headline={headline} outcomes={outcomes} documents={stats.documents} />
-      </section>
+      </SummaryCards>
 
       {!inView.length ? (
         <EmptyState

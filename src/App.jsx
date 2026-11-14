@@ -57,6 +57,7 @@ import logoImage from '../pictures/logo.png';
 import { memoizeLast } from './lib/memoizeLast';
 import { CaseDetailsContext } from './lib/caseDetailsContext';
 import { DocumentRequestsContext } from './lib/documentRequestsContext';
+import { SummaryCardsContext } from './lib/summaryCardsContext';
 import WorkspaceSyncNotice from './components/WorkspaceSyncNotice';
 import { classifySupabaseError, describeWriteError, isTransientErrorKind } from './lib/errorKinds';
 import { canRequestDocuments } from './lib/documentRequests';
@@ -289,6 +290,7 @@ const devicePreferencesOf = (state) => ({
   theme: state.theme,
   hasLoggedInBefore: state.hasLoggedInBefore,
   studentSupportHintSeen: state.studentSupportHintSeen,
+  summaryCardsByOwner: state.summaryCardsByOwner,
   // The cookie and storage notice choice is a preference with no identity in it, so
   // the same browser is not asked again on every sign-out.
   privacyChoice: state.privacyChoice,
@@ -4252,9 +4254,25 @@ function App() {
     onCancel: cancelDocumentRequest,
   };
 
+  // The summary-card toggle shared by every page (see src/lib/summaryCardsContext.js).
+  // One choice per account, kept by account id and hidden until the account opts in.
+  const summaryCardsOwnerId = state.authUser?.id || null;
+  const summaryCardsContextValue = {
+    visible: Boolean(summaryCardsOwnerId && state.summaryCardsByOwner?.[summaryCardsOwnerId] === true),
+    onChange: summaryCardsOwnerId
+      ? (shown) => updateState((previous) => {
+        const next = { ...(previous.summaryCardsByOwner || {}) };
+        if (shown) next[summaryCardsOwnerId] = true;
+        else delete next[summaryCardsOwnerId];
+        return { summaryCardsByOwner: next };
+      })
+      : null,
+  };
+
   return (
     <CaseDetailsContext.Provider value={ensureCaseDetails}>
     <DocumentRequestsContext.Provider value={documentRequestsContextValue}>
+    <SummaryCardsContext.Provider value={summaryCardsContextValue}>
     <div className={`min-h-screen max-w-[100vw] overflow-x-clip bg-app-bg p-3 text-app-text sm:p-5 ${themeClass}`}>
       {sessionTimeoutState && (
         <SessionTimeoutModal
@@ -4893,6 +4911,7 @@ function App() {
         <LegalDocumentDialog doc={legalDocDialog} onClose={() => setLegalDocDialog(null)} />
       )}
     </div>
+    </SummaryCardsContext.Provider>
     </DocumentRequestsContext.Provider>
     </CaseDetailsContext.Provider>
   );

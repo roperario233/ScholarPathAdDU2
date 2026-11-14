@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { AlarmClock, BellRing, CalendarClock, CalendarDays, CalendarRange, CircleAlert, CircleCheck, Hourglass, Mail, MessageSquare, Send, ShieldCheck, Smartphone, Timer } from 'lucide-react';
+import { AlarmClock, BellRing, LayoutDashboard, CalendarClock, CalendarDays, CalendarRange, CircleAlert, CircleCheck, Hourglass, Mail, MessageSquare, Send, ShieldCheck, Smartphone, Timer } from 'lucide-react';
 import { Button, Card, SettingToggle, StatusBadge } from '../components/ui';
+import { useSummaryCards } from '../lib/summaryCardsContext';
 import { maskPhilippineMobile } from '../../supabase/functions/_shared/sms.js';
 import { formatSessionDuration } from '../lib/sessionTimeout';
 import { getLegalDocumentSummaries } from '../lib/legalDocs';
@@ -56,6 +57,7 @@ function SectionHeading({ icon: Icon, title, description, badge = null }) {
 }
 
 export default function SettingsView({ notificationPreferences, onUpdatePreferences, isEmailDeliveryAvailable = false, onSendTestEmail, onSendTestSms = null, mobileNumber = '', sessionTimeoutConfig, profilePageLabel = 'My Profile', privacyChoice = null, privacyConsent = null, privacyNoticeVersion = '', onOpenPrivacyDocument = null, onResetPrivacyChoice = null }) {
+  const summaryCards = useSummaryCards();
   const [testEmail, setTestEmail] = useState({ status: 'idle', message: '' });
   const [testSms, setTestSms] = useState({ status: 'idle', message: '' });
   const preferences = notificationPreferences || {
@@ -241,6 +243,17 @@ export default function SettingsView({ notificationPreferences, onUpdatePreferen
           <p className="mb-0 mt-3 text-sm text-app-muted">You are warned shortly before either limit ends your session.</p>
         </Card>
       </div>
+
+      <Card>
+        <SectionHeading icon={LayoutDashboard} title="Page summaries" description="Choose whether the summary cards at the top of each page are shown." />
+        <SettingToggle
+          icon={LayoutDashboard}
+          checked={summaryCards.visible}
+          onChange={(value) => summaryCards.onChange?.(value)}
+          title="Show summary cards"
+          description="Applies to every page for this account except the Dashboard, which always shows its figures. Hidden by default."
+        />
+      </Card>
 
       <Card>
         <SectionHeading icon={ShieldCheck} title="Privacy and data" description="What ScholarPath collects, who can read it, and what is stored in this browser." />
