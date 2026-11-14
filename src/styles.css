@@ -2107,7 +2107,74 @@ a:focus-visible {
   from { opacity: 0; transform: translateX(14px); }
 }
 
+/* Student support chat. The panel grows out of the launcher (bottom-left) and
+   shrinks back into it; StudentSupportChat keeps it mounted for
+   SUPPORT_PANEL_CLOSE_MS (200ms) while data-state is "closed" so the exit plays.
+   The first-use hint rises in and fades out the same way, the quick-reply chips
+   follow the panel one after another, a new message eases in from its own side,
+   and the unread badge pops each time the count changes. */
+.support-chat-panel,
+.support-hint {
+  transform-origin: bottom left;
+}
+
+.support-chat-panel[data-state='open'] {
+  animation: support-chat-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.support-chat-panel[data-state='closed'] {
+  animation: support-chat-out 200ms cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+.support-hint[data-state='open'] {
+  animation: support-chat-in 220ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.support-hint[data-state='closed'] {
+  animation: support-chat-out 160ms ease-in forwards;
+  pointer-events: none;
+}
+
+.support-chip {
+  animation: support-chip-in 300ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(150ms + var(--i, 0) * 55ms);
+}
+
+.support-message-enter {
+  animation: support-message-in 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+.support-badge-pop {
+  animation: support-badge-pop 340ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+@keyframes support-chat-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.94); }
+}
+
+@keyframes support-chat-out {
+  to { opacity: 0; transform: translateY(10px) scale(0.95); }
+}
+
+@keyframes support-chip-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+@keyframes support-message-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+}
+
+@keyframes support-badge-pop {
+  from { opacity: 0; transform: scale(0.4); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .support-chat-panel,
+  .support-hint,
+  .support-chip,
+  .support-message-enter,
+  .support-badge-pop,
   .notification-dropdown,
   .mobile-nav-backdrop,
   .mobile-nav-panel,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { MessageCircle, X } from 'lucide-react';
 import SupportConversation from './SupportConversation';
 import { SupportMessagesSkeleton } from './Skeleton';
@@ -6,8 +6,21 @@ import { Button, StatusBadge } from './ui';
 import { getStudentSupportPhase, getSupportAvailabilityLabel } from '../lib/supportMessages';
 import { SUPPORT_QUICK_REPLIES } from '../lib/supportAssistant';
 
+// How long the chat panel and the help hint play their exits before unmounting
+// (styles.css, `.support-chat-panel` / `.support-hint`).
+const SUPPORT_PANEL_CLOSE_MS = 200;
+const SUPPORT_HINT_EXIT_MS = 160;
+
+const prefersReducedMotion = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
+
 export default function StudentSupportChat({ thread = null, messages = [], unreadCount = 0, ready = true, loaded = true, messagesLoaded = true, showHint = false, assistantEnabled = true, assistantReady = null, availability = {}, initialOpen = false, onSend, onRequestLiveAgent, onResolve, onStartNewTopic, onMarkRead, onOpenChange, onDismissHint }) {
   const [open, setOpen] = useState(initialOpen);
+  // The panel and the hint stay mounted while they play their exit animation.
+  const [closing, setClosing] = useState(false);
+  const [hintExiting, setHintExiting] = useState(false);
+  const closeTimerRef = useRef(null);
+  const hintTimerRef = useRef(null);
+  const isShown = open && !closing;
   const [actionError, setActionError] = useState('');
   const [actionBusy, setActionBusy] = useState('');
   const hintVisible = showHint && !open;
@@ -24,27 +37,58 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
     setActionBusy('');
   };
   const linkButtonClass = 'text-xs font-bold text-ateneo underline-offset-2 hover:underline disabled:opacity-60 dark:text-sky-200';
+  useEffect(() => () => {
+    window.clearTimeout(closeTimerRef.current);
+    window.clearTimeout(hintTimerRef.current);
+  }, []);
+
+  // Dismissing tells the parent at once and lets the hint fade out in place.
+  const dismissHint = useCallback(() => {
+    if (!prefersReducedMotion()) {
+      window.clearTimeout(hintTimerRef.current);
+      setHintExiting(true);
+      hintTimerRef.current = window.setTimeout(() => setHintExiting(false), SUPPORT_HINT_EXIT_MS);
+    }
+    onDismissHint?.();
+  }, [onDismissHint]);
+
   useEffect(() => {
     if (!hintVisible) return undefined;
     const dismissOnEscape = (event) => {
-      if (event.key === 'Escape') onDismissHint?.();
+      if (event.key === 'Escape') dismissHint();
     };
     document.addEventListener('keydown', dismissOnEscape);
     return () => document.removeEventListener('keydown', dismissOnEscape);
-  }, [hintVisible, onDismissHint]);
+  }, [hintVisible, dismissHint]);
 
   const toggle = () => {
-    const nextOpen = !open;
-    setOpen(nextOpen);
-    onOpenChange?.(nextOpen);
-    if (nextOpen && showHint) onDismissHint?.();
-    if (nextOpen && thread?.id) onMarkRead?.(thread.id);
+    if (isShown) {
+      onOpenChange?.(false);
+      if (prefersReducedMotion()) {
+        setOpen(false);
+        return;
+      }
+      setClosing(true);
+      closeTimerRef.current = window.setTimeout(() => {
+        setOpen(false);
+        setClosing(false);
+      }, SUPPORT_PANEL_CLOSE_MS);
+      return;
+    }
+    // Closed, or still sliding shut: (re)open.
+    window.clearTimeout(closeTimerRef.current);
+    setClosing(false);
+    setOpen(true);
+    onOpenChange?.(true);
+    if (showHint) dismissHint();
+    if (thread?.id) onMarkRead?.(thread.id);
   };
   return (
     <>
-      {hintVisible && (
+      {(hintVisible || hintExiting) && (
         <aside
-          className="fixed bottom-24 left-4 z-20 w-[min(20rem,calc(100vw-2rem))] rounded-app border border-app-border bg-app-card p-4 shadow-2xl animate-[notificationMenuIn_160ms_ease-out] sm:bottom-28 sm:left-5"
+          className="support-hint fixed bottom-24 left-4 z-20 w-[min(20rem,calc(100vw-2rem))] rounded-app border border-app-border bg-app-card p-4 shadow-2xl sm:bottom-28 sm:left-5"
+          data-state={hintVisible && !hintExiting ? 'open' : 'closed'}
           role="region"
           aria-label="Chat help"
           aria-live="polite"
@@ -62,19 +106,19 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
             <button
               type="button"
               className="-mr-2 -mt-2 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-app-muted hover:bg-app-surface hover:text-app-text focus:outline-none focus:ring-4 focus:ring-blue-500/20"
-              onClick={onDismissHint}
+              onClick={dismissHint}
               aria-label="Dismiss chat help"
             >
               <X size={16} aria-hidden="true" />
             </button>
           </div>
-          <Button type="button" variant="primary" className="mt-3 min-h-9 w-full" onClick={onDismissHint}>
+          <Button type="button" variant="primary" className="mt-3 min-h-9 w-full" onClick={dismissHint}>
             Got it
           </Button>
         </aside>
       )}
       {open && (
-        <section className="fixed bottom-20 left-3 z-20 flex max-h-[min(80dvh,40rem)] min-h-[min(26rem,80dvh)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-2xl dark:bg-[#0a1c3a] sm:bottom-24 sm:left-5" aria-label="Admissions Office support chat">
+        <section className="support-chat-panel fixed bottom-20 left-3 z-20 flex max-h-[min(80dvh,40rem)] min-h-[min(26rem,80dvh)] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-2xl border border-app-border bg-white shadow-2xl dark:bg-[#0a1c3a] sm:bottom-24 sm:left-5" data-state={closing ? 'closed' : 'open'} aria-label="Admissions Office support chat">
           <header className="flex items-center gap-3 bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-3 text-white">
             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-white/15">
               <MessageCircle size={20} aria-hidden="true" />
@@ -108,8 +152,8 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
                 recentLimit={2}
                 suggestions={assistantActive ? (
                   <div className={messages.length === 0 ? 'flex flex-wrap gap-2' : '-mx-1 flex gap-2 overflow-x-auto px-1 pb-1'} aria-label="Suggested support questions">
-                    {SUPPORT_QUICK_REPLIES.map((suggestion) => (
-                      <button key={suggestion} type="button" className="shrink-0 whitespace-nowrap rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-semibold text-app-text hover:border-blue-500/40" onClick={() => onSend?.(suggestion)}>
+                    {SUPPORT_QUICK_REPLIES.map((suggestion, index) => (
+                      <button key={suggestion} type="button" style={{ '--i': index }} className="support-chip shrink-0 whitespace-nowrap rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-semibold text-app-text hover:border-blue-500/40" onClick={() => onSend?.(suggestion)}>
                         {suggestion}
                       </button>
                     ))}
@@ -162,14 +206,18 @@ export default function StudentSupportChat({ thread = null, messages = [], unrea
       )}
       <button
         type="button"
-        className="fixed bottom-4 left-4 z-20 grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-xl focus:outline-none focus:ring-4 focus:ring-blue-500/30 sm:bottom-5 sm:left-5"
+        className="fixed bottom-4 left-4 z-20 grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-xl transition duration-200 hover:-translate-y-0.5 hover:shadow-2xl active:scale-95 focus:outline-none focus:ring-4 focus:ring-blue-500/30 sm:bottom-5 sm:left-5"
         onClick={toggle}
-        aria-expanded={open}
-        aria-label={open ? 'Close support chat' : 'Chat with the Admissions Office'}
-        title={open ? 'Close support chat' : 'Chat with the Admissions Office'}
+        aria-expanded={isShown}
+        aria-label={isShown ? 'Close support chat' : 'Chat with the Admissions Office'}
+        title={isShown ? 'Close support chat' : 'Chat with the Admissions Office'}
       >
-        {open ? <X size={19} aria-hidden="true" /> : <MessageCircle size={19} aria-hidden="true" />}
-        {unreadCount > 0 && <span className="absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-app-bg bg-rose-500 px-1 text-[10px] font-extrabold text-white">{unreadCount > 99 ? '99+' : unreadCount}</span>}
+        {/* The two glyphs cross-rotate instead of swapping. */}
+        <span className="relative grid h-5 w-5 place-items-center" aria-hidden="true">
+          <MessageCircle size={19} className={`absolute transition duration-200 ease-out ${isShown ? '-rotate-90 scale-50 opacity-0' : 'rotate-0 scale-100 opacity-100'}`} />
+          <X size={19} className={`absolute transition duration-200 ease-out ${isShown ? 'rotate-0 scale-100 opacity-100' : 'rotate-90 scale-50 opacity-0'}`} />
+        </span>
+        {unreadCount > 0 && <span key={unreadCount} className="support-badge-pop absolute -right-1 -top-1 grid min-h-5 min-w-5 place-items-center rounded-full border-2 border-app-bg bg-rose-500 px-1 text-[10px] font-extrabold text-white">{unreadCount > 99 ? '99+' : unreadCount}</span>}
       </button>
     </>
   );

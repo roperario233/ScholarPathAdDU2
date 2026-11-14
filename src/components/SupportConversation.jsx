@@ -150,7 +150,7 @@ export default function SupportConversation({
               : 'Admissions Office Staff';
           const assistant = message.senderRole === 'assistant';
           return (
-            <article key={message.id} ref={isLatest ? latestRef : undefined} className={`max-w-[92%] scroll-mt-2 rounded-2xl px-3.5 py-2.5 ${own ? 'ml-auto rounded-br-md bg-ateneo text-white' : assistant ? 'mr-auto rounded-bl-md border border-violet-500/25 bg-violet-500/10' : 'mr-auto rounded-bl-md border border-app-border bg-app-card'}`}>
+            <article key={message.id} ref={isLatest ? latestRef : undefined} className={`support-message-enter max-w-[92%] scroll-mt-2 rounded-2xl px-3.5 py-2.5 ${own ? 'origin-bottom-right' : 'origin-bottom-left'} ${own ? 'ml-auto rounded-br-md bg-ateneo text-white' : assistant ? 'mr-auto rounded-bl-md border border-violet-500/25 bg-violet-500/10' : 'mr-auto rounded-bl-md border border-app-border bg-app-card'}`}>
               <div className={`flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5 text-[11px] ${own ? 'text-white/80' : 'text-app-muted'}`}>
                 <strong className={own ? 'text-white' : 'text-app-text'}>{label}</strong>
                 <time dateTime={message.createdAt}>{formatMessageTime(message.createdAt)}</time>
@@ -197,7 +197,7 @@ export default function SupportConversation({
           />
           <button
             type="submit"
-            className="absolute bottom-2.5 right-2.5 grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-md transition disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus:ring-4 focus:ring-blue-500/30"
+            className="absolute bottom-2.5 right-2.5 grid h-9 w-9 place-items-center rounded-full bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-md transition enabled:hover:scale-105 enabled:active:scale-90 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus:ring-4 focus:ring-blue-500/30"
             disabled={!canSend}
             aria-label={sending ? 'Sending message' : 'Send message'}
             title="Send (Enter)"
