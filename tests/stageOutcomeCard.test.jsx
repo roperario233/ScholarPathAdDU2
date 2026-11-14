@@ -14,12 +14,20 @@ const application = {
 describe('StageOutcomeCard', () => {
   it('states the move, who holds the case now, and what is next', () => {
     const outcome = describeStageOutcome({ application, fromStatus: 'Recommended', toStatus: 'Approved' });
-    const html = renderToStaticMarkup(<StageOutcomeCard outcome={outcome} onDone={() => undefined} />);
+    const html = renderToStaticMarkup(<StageOutcomeCard outcome={outcome} onDone={() => undefined} onDismiss={() => undefined} />);
     expect(html).toContain('role="status"');
     expect(html).toContain('Recommended');
     expect(html).toContain('With the Admissions Office Admin for the final check.');
     expect(html).toContain('Final check and release');
-    expect(html).toContain('Done');
+    expect(html).toContain('Close application');
+    expect(html).toContain('Okay');
+  });
+
+  it('offers Okay only when the host can keep the modal open', () => {
+    const outcome = describeStageOutcome({ application, fromStatus: 'Recommended', toStatus: 'Approved' });
+    const html = renderToStaticMarkup(<StageOutcomeCard outcome={outcome} onDone={() => undefined} />);
+    expect(html).toContain('Close application');
+    expect(html).not.toContain('Okay');
   });
 
   it('shows the calendar warning a recommendation returned', () => {
@@ -37,7 +45,7 @@ describe('StageMoveStrip', () => {
     expect(html).toContain('Continued to verification.');
     expect(html).toContain('3 attached files');
     expect(html).toContain('Dismiss stage change message');
-    expect(html).not.toContain('Done');
+    expect(html).not.toContain('Close application');
   });
 });
 

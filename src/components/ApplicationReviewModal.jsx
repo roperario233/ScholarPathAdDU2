@@ -875,7 +875,7 @@ export default function ApplicationReviewModal({
         aria-labelledby={`review-tab-${visibleActiveTab}`}
       >
         {showingOutcome ? (
-          <StageOutcomeCard outcome={stageOutcome} onDone={closeReview} />
+          <StageOutcomeCard outcome={stageOutcome} onDone={closeReview} onDismiss={() => setShowStageMove(false)} />
         ) : null}
         {movedInPlace ? (
           <StageMoveStrip outcome={stageOutcome} onDismiss={() => setShowStageMove(false)} />

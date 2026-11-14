@@ -16,7 +16,9 @@ const BADGE_TONES = { success: 'success', info: 'info', neutral: 'neutral' };
 // used to follow such a move. A move whose next work stays in the modal lands on
 // that tab under a StageMoveStrip instead. `describeStageOutcome()`
 // (src/lib/stageOutcome.js) supplies every line.
-export default function StageOutcomeCard({ outcome, onDone }) {
+// **Close application** closes the modal (`onDone`); **Okay** (`onDismiss`) only
+// dismisses the card and leaves the modal open on the tab underneath.
+export default function StageOutcomeCard({ outcome, onDone, onDismiss }) {
   const headingRef = useRef(null);
   // The action button that ran the move no longer exists (the footer changes
   // with the stage), so focus moves to the result instead of being lost.
@@ -63,7 +65,8 @@ export default function StageOutcomeCard({ outcome, onDone }) {
       ) : null}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-        <Button type="button" variant="primary" onClick={onDone}>Done</Button>
+        <Button type="button" variant="secondary" onClick={onDone}>Close application</Button>
+        {onDismiss ? <Button type="button" variant="primary" onClick={onDismiss}>Okay</Button> : null}
       </div>
     </section>
   );
