@@ -32,9 +32,10 @@ const NAV_ICONS = {
   legal: ShieldCheck,
 };
 
-const getNavIcon = (item) => {
-  if (item.view === 'profile') return item.label === 'Application Form' ? ClipboardList : UserRound;
-  return NAV_ICONS[item.view] || LayoutDashboard;
+const renderNavIcon = (item) => {
+  let Icon = NAV_ICONS[item.view] || LayoutDashboard;
+  if (item.view === 'profile') Icon = item.label === 'Application Form' ? ClipboardList : UserRound;
+  return <Icon size={16} />;
 };
 
 // The page links. Active routes get the Ateneo gradient (the same treatment as a
@@ -58,40 +59,66 @@ export function SidebarNavAction({ icon: Icon, label, onClick }) {
   );
 }
 
+// Consecutive items that share a `group` become one labelled section; items with
+// no group (a student's list, the office Dashboard) stay flat, so only the long
+// office list pays for headings. A group with no visible item renders no heading.
+const buildNavSections = (items) => items.reduce((sections, item) => {
+  const last = sections[sections.length - 1];
+  if (last && (last.label || '') === (item.group || '')) last.items.push(item);
+  else sections.push({ label: item.group || '', items: [item] });
+  return sections;
+}, []);
+
+function SidebarNavLink({ item, isActive, onNavigate }) {
+  return (
+    <button
+      type="button"
+      className={`group flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${
+        isActive
+          ? 'bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-sm'
+          : 'text-app-muted hover:bg-blue-500/10 hover:text-app-text'
+      }`}
+      onClick={() => onNavigate(item.view)}
+      aria-current={isActive ? 'page' : undefined}
+    >
+      <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors ${isActive ? 'bg-white/15 text-white' : 'bg-app-muted-surface text-app-muted group-hover:bg-blue-500/15 group-hover:text-blue-600 dark:group-hover:text-blue-200'}`} aria-hidden="true">
+        {renderNavIcon(item)}
+      </span>
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{item.label}</span>
+      {Number(item.badge) > 0 && (
+        <span
+          className="shrink-0 rounded-full bg-rose-500 px-2 py-0.5 text-xs font-extrabold leading-5 text-white"
+          aria-label={`${item.badge} unread support message${Number(item.badge) === 1 ? '' : 's'}`}
+          title={`${item.badge} unread support message${Number(item.badge) === 1 ? '' : 's'}`}
+        >
+          {Number(item.badge) > 99 ? '99+' : item.badge}
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function SidebarNav({ items, activeView, onNavigate, className = '', children = null }) {
+  const sections = buildNavSections(items);
   return (
     <nav className={`grid gap-1 ${className}`} aria-label="Page navigation">
-      {items.map((item) => {
-        const Icon = getNavIcon(item);
-        const isActive = activeView === item.view;
-        return (
-          <button
-            key={item.view}
-            type="button"
-            className={`group flex min-h-11 w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 ${
-              isActive
-                ? 'bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright text-white shadow-sm'
-                : 'text-app-muted hover:bg-blue-500/10 hover:text-app-text'
-            }`}
-            onClick={() => onNavigate(item.view)}
-            aria-current={isActive ? 'page' : undefined}
-          >
-            <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg transition-colors ${isActive ? 'bg-white/15 text-white' : 'bg-app-muted-surface text-app-muted group-hover:bg-blue-500/15 group-hover:text-blue-600 dark:group-hover:text-blue-200'}`} aria-hidden="true">
-              <Icon size={16} />
-            </span>
-            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{item.label}</span>
-            {Number(item.badge) > 0 && (
-              <span
-                className="shrink-0 rounded-full bg-rose-500 px-2 py-0.5 text-xs font-extrabold leading-5 text-white"
-                aria-label={`${item.badge} unread support message${Number(item.badge) === 1 ? '' : 's'}`}
-                title={`${item.badge} unread support message${Number(item.badge) === 1 ? '' : 's'}`}
-              >
-                {Number(item.badge) > 99 ? '99+' : item.badge}
-              </span>
-            )}
-          </button>
-        );
-      })}
+      {sections.map((section, sectionIndex) => (
+        <div
+          key={section.label || `section-${sectionIndex}`}
+          className={`grid gap-1 ${section.label ? 'mt-2' : ''}`}
+          role={section.label ? 'group' : undefined}
+          aria-label={section.label || undefined}
+        >
+          {section.label ? (
+            <p className="m-0 px-2.5 pb-0.5 pt-1 text-[0.68rem] font-extrabold uppercase tracking-[0.08em] text-app-muted/80" aria-hidden="true">
+              {section.label}
+            </p>
+          ) : null}
+          {section.items.map((item) => (
+            <SidebarNavLink key={item.view} item={item} isActive={activeView === item.view} onNavigate={onNavigate} />
+          ))}
+        </div>
+      ))}
       {children}
     </nav>
   );

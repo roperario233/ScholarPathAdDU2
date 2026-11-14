@@ -3963,21 +3963,21 @@ function App() {
   const admissionsWorkspaceItems = isAdmissionsReviewerRole(state.viewerRole)
     ? [
       { view: 'admin', label: 'Dashboard', visible: true },
-      { view: 'admin-intake', label: 'Intake pool', visible: true },
+      { view: 'admin-intake', label: 'Intake pool', group: 'Applications', visible: true },
       // Staff keep a read-only office view; the personal review queue is the
       // Admin's, because only the Admin opens a case into review.
-      { view: 'admin-review', label: 'Review queue', visible: isAdmissionsAdmin },
-      { view: 'admin-interviews', label: 'Interviews', visible: true },
-      { view: 'admin-release', label: 'Final check and release', visible: isAdmissionsAdmin },
-      { view: 'admin-calendar', label: 'Calendar', visible: true },
-      { view: 'admin-support', label: 'Support inbox', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
-      // Office oversight and management, after the case pipeline and the shared
-      // tools. Statistics is for both lanes (Staff see volume only); the catalog,
-      // announcements, and accounts are the Admin's.
-      { view: 'admin-statistics', label: 'Statistics', visible: true },
-      { view: 'admin-catalog', label: 'Scholarship catalog', visible: isAdmissionsAdmin },
-      { view: 'admin-announcements', label: 'Announcements', visible: isAdmissionsAdmin },
-      { view: 'admin-accounts', label: 'Accounts', visible: isAdmissionsAdmin },
+      { view: 'admin-review', label: 'Review queue', group: 'Applications', visible: isAdmissionsAdmin },
+      { view: 'admin-interviews', label: 'Interviews', group: 'Applications', visible: true },
+      { view: 'admin-release', label: 'Final check and release', group: 'Applications', visible: isAdmissionsAdmin },
+      { view: 'admin-calendar', label: 'Calendar', group: 'Office', visible: true },
+      { view: 'admin-support', label: 'Support inbox', group: 'Office', visible: true, badge: getSupportUnreadTotal(supportInbox.threads, 'office', supportInbox.messages) },
+      // Sidebar sections: Applications (the case pipeline), Office (shared tools;
+      // Statistics is for both lanes, Staff see volume only), Administration (the
+      // Admin's catalog, announcements, and accounts), then Account.
+      { view: 'admin-statistics', label: 'Statistics', group: 'Office', visible: true },
+      { view: 'admin-catalog', label: 'Scholarship catalog', group: 'Administration', visible: isAdmissionsAdmin },
+      { view: 'admin-announcements', label: 'Announcements', group: 'Administration', visible: isAdmissionsAdmin },
+      { view: 'admin-accounts', label: 'Accounts', group: 'Administration', visible: isAdmissionsAdmin },
     ]
     : [];
 
@@ -3988,6 +3988,9 @@ function App() {
 
   // Dashboard belongs to the student only: each staff, Admin, and Chair role has
   // its own landing workspace (the office Dashboard, or Department Review).
+  // Only the long Admissions Office list is sectioned; the other roles' lists are
+  // short enough to stay flat.
+  const officeNavGroup = (label) => (isAdmissionsReviewerRole(state.viewerRole) ? label : undefined);
   const navigationItems = [
     { view: 'dashboard', label: 'Dashboard', visible: state.viewerRole === 'student' },
     { view: 'profile', label: profilePageLabel, visible: state.viewerRole === 'student' },
@@ -4000,8 +4003,8 @@ function App() {
     { view: 'chair-interviews', label: 'Interviews', visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-calendar', label: 'Calendar', visible: isReviewerRole(state.viewerRole) },
     { view: 'chair-statistics', label: 'Statistics', visible: isReviewerRole(state.viewerRole) },
-    { view: 'profile', label: profilePageLabel, visible: state.viewerRole !== 'student' },
-    { view: 'settings', label: 'Settings', visible: true },
+    { view: 'profile', label: profilePageLabel, group: officeNavGroup('Account'), visible: state.viewerRole !== 'student' },
+    { view: 'settings', label: 'Settings', group: officeNavGroup('Account'), visible: true },
   ].filter((item) => item.visible);
 
   const renderNavigation = (className = '', extraRows = null) => (
