@@ -1198,6 +1198,24 @@ export const replaceSupabaseInterviewPanel = async (applicationId, panel = [], n
   return { data: (inserted.data || []).map((row) => toInterviewPanelist(row, nameById)), error: inserted.error };
 };
 
+// A reviewer in scope adds themselves to the panel of a scheduled interview
+// (join_interview_panel, 20261115000000). The function writes only the caller's own
+// row and never touches applications.interview, so the revision stays put and no
+// "interview changed" notice goes out.
+export const joinSupabaseInterviewPanel = async (applicationId, nameById = {}) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.rpc('join_interview_panel', { p_application_id: applicationId });
+  return { data: result.data ? toInterviewPanelist(result.data, nameById) : null, error: result.error };
+};
+
+// The reviewer takes their own seat back (leave_interview_panel, 20261115000001).
+// The row comes back soft-removed, like every other panel change.
+export const leaveSupabaseInterviewPanel = async (applicationId, nameById = {}) => {
+  if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
+  const result = await supabase.rpc('leave_interview_panel', { p_application_id: applicationId });
+  return { data: result.data ? toInterviewPanelist(result.data, nameById) : null, error: result.error };
+};
+
 export const createSupabaseInterviewNote = async ({ applicationId, authorId, authorRole, authorName, recommendationLevel = null, rating = null, body }) => {
   if (!ensureReady()) return { data: null, error: { message: 'Supabase is not configured.' } };
   const result = await supabase.from('application_interview_notes').insert({

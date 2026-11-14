@@ -391,6 +391,104 @@ describe('ApplicationReviewModal interview recommendation levels', () => {
   });
 });
 
+// A Dean, Assistant Dean, Chairperson, or interviewer whose scope covers the
+// applicant but who was left off the panel can add themselves. The two tabs word
+// it for what the reviewer is doing there (App.jsx answers canJoinPanel).
+describe('Join panel', () => {
+  const otherMember = { id: 'p-1', applicationId: 'app-1', profileId: 'chair-sea', name: 'Ana Reyes', isLead: true, removedAt: null };
+  const dean = (initialTab, overrides = {}) => render({
+    application: application({ status: 'Interview', interview: pastInterview }),
+    role: 'dean',
+    initialTab,
+    interviewWorkspace: workspace({
+      viewerId: 'dean-sea',
+      panelists: [otherMember],
+      staffDirectory: [{ userId: 'chair-sea', fullName: 'Ana Reyes', role: 'department_chair', department: SEA }],
+      canCoordinate: () => true,
+      canJoinPanel: () => true,
+      onJoinPanel: () => ({ ok: true }),
+      ...overrides,
+    }),
+  });
+
+  it('offers it on the Interview tab, beside the panel, and says it changes nothing for anyone else', () => {
+    const html = dean('interview');
+    expect(html).toContain('You are not on this panel');
+    expect(html).toContain('The schedule stays the same and no one is notified.');
+    expect(buttonLabels(html)).toContain('Join panel');
+    // The callout sits under the panel list it is about.
+    expect(html.indexOf('Ana Reyes')).toBeLessThan(html.indexOf('You are not on this panel'));
+    expect(html).not.toContain('Panel evaluation notes');
+  });
+
+  it('offers it on the Evaluation tab in place of the note form', () => {
+    const html = dean('evaluation');
+    expect(html).toContain('Panel evaluation notes');
+    expect(html).toContain('You can read these notes, but not add one');
+    expect(html).toContain('Notes stay private to staff.');
+    expect(buttonLabels(html)).toContain('Join panel to add a note');
+    expect(buttonLabels(html)).not.toContain('Add recommendation');
+    expect(html).not.toContain('Add an evaluation note');
+  });
+
+  it('is gone once the reviewer is on the panel, and the panel marks them as "You"', () => {
+    const onPanel = [otherMember, { id: 'p-2', applicationId: 'app-1', profileId: 'dean-sea', name: 'Dean Lopez', isLead: false, removedAt: null }];
+    const options = { panelists: onPanel, canJoinPanel: () => false };
+    const schedule = dean('interview', options);
+    expect(schedule).not.toContain('You are not on this panel');
+    expect(buttonLabels(schedule)).not.toContain('Join panel');
+    expect(schedule).toContain('>You</span>');
+    const evaluation = dean('evaluation', options);
+    expect(evaluation).not.toContain('You can read these notes, but not add one');
+    expect(buttonLabels(evaluation)).toContain('Add recommendation');
+  });
+
+  it('explains the missing form to an in-scope reviewer who can no longer join', () => {
+    const html = render({
+      application: application({ status: 'Recommended', interview: pastInterview }),
+      role: 'dean',
+      initialTab: 'evaluation',
+      interviewWorkspace: workspace({
+        viewerId: 'dean-sea',
+        panelists: [otherMember],
+        canCoordinate: () => true,
+        canJoinPanel: () => false,
+        onJoinPanel: () => ({ ok: true }),
+      }),
+    });
+    expect(html).toContain('these notes are read-only for you');
+    expect(buttonLabels(html)).not.toContain('Join panel to add a note');
+    expect(buttonLabels(html)).not.toContain('Add recommendation');
+  });
+
+  it('offers Leave panel beside the panel list to a panelist who may leave, and not otherwise', () => {
+    const onPanel = [otherMember, { id: 'p-2', applicationId: 'app-1', profileId: 'dean-sea', name: 'Dean Lopez', isLead: false, removedAt: null }];
+    const leaving = dean('interview', { panelists: onPanel, canJoinPanel: () => false, canLeavePanel: () => true, onLeavePanel: () => ({ ok: true }) });
+    expect(buttonLabels(leaving)).toContain('Leave panel');
+    // The confirmation only opens on a press.
+    expect(leaving).not.toContain('Leave this panel?');
+    // The lead, or someone who recorded a note, is not offered it.
+    const staying = dean('interview', { panelists: onPanel, canJoinPanel: () => false, canLeavePanel: () => false, onLeavePanel: () => ({ ok: true }) });
+    expect(buttonLabels(staying)).not.toContain('Leave panel');
+    // Not on the panel yet: the way in is offered, never the way out.
+    expect(buttonLabels(dean('interview'))).not.toContain('Leave panel');
+  });
+
+  it('says nothing about the panel to a reviewer outside the scope or to the office', () => {
+    const outside = dean('evaluation', { canCoordinate: () => false, canJoinPanel: () => false });
+    expect(outside).not.toContain('read-only for you');
+    expect(outside).not.toContain('You can read these notes, but not add one');
+    const admin = render({
+      application: application({ status: 'Interview', interview: pastInterview }),
+      role: 'admissions_admin',
+      initialTab: 'interview',
+      interviewWorkspace: workspace({ panelists: [otherMember] }),
+    });
+    expect(admin).not.toContain('You are not on this panel');
+    expect(buttonLabels(admin)).not.toContain('Join panel');
+  });
+});
+
 describe('StudentInterviewCard', () => {
   it('shows the schedule and the school, never the panel members', () => {
     const html = renderToStaticMarkup(

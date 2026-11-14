@@ -17,6 +17,7 @@ import {
   isoToManilaInputs,
 } from './interview';
 import { aggregateCalendarMarks } from './calendarMarks';
+import { isReviewerRole } from './reviewScope';
 
 const asList = (value) => (Array.isArray(value) ? value : []);
 
@@ -82,6 +83,52 @@ export const getPanelApplicationIds = (panelists = [], viewerId = '') => new Set
 
 export const getPanelForApplication = (panelists = [], applicationId = '') => asList(panelists)
   .filter((row) => row.applicationId === applicationId && !row.removedAt);
+
+// Whether the signed-in reviewer may add themselves to this interview's panel
+// (the database repeats it in join_interview_panel()). Only a panel member records
+// evaluation notes and the recommendation, and the panel is set by whoever
+// schedules, so an in-scope Dean, Assistant Dean, Chairperson, or interviewer who
+// was left off can join instead of asking for a reschedule. The panel closes with
+// the recommendation: the case must still be at Interview with a scheduled
+// interview, so the approving level cannot join an evaluation it is about to
+// decide on. `inScope` is the caller's own scope check (the same predicate that
+// lets a reviewer schedule); the Admin and Staff never join, because the Admin
+// already records notes as an override and Staff are read-only.
+export const canJoinInterviewPanel = ({
+  role = '',
+  application = null,
+  panelists = [],
+  viewerId = '',
+  inScope = false,
+} = {}) => {
+  if (!isReviewerRole(role) || !inScope || !viewerId || !application) return false;
+  if (application.status !== 'Interview') return false;
+  if (!isStructuredInterview(application.interview) || application.interview.state !== 'scheduled') return false;
+  return !asList(panelists).some((row) => (
+    row.applicationId === application.id && !row.removedAt && row.profileId === viewerId
+  ));
+};
+
+// The counterpart: whether the signed-in reviewer may take their seat back
+// (leave_interview_panel repeats it). The lead cannot leave, because the panel
+// keeps exactly one and only a reschedule changes it, and a reviewer who has
+// recorded a note stays, because the append-only notes name their author. Like
+// joining, it is closed once the case moves past Interview.
+export const canLeaveInterviewPanel = ({
+  role = '',
+  application = null,
+  panelists = [],
+  notes = [],
+  viewerId = '',
+} = {}) => {
+  if (!isReviewerRole(role) || !viewerId || !application) return false;
+  if (application.status !== 'Interview') return false;
+  const seat = asList(panelists).find((row) => (
+    row.applicationId === application.id && !row.removedAt && row.profileId === viewerId
+  ));
+  if (!seat || seat.isLead) return false;
+  return !asList(notes).some((note) => note.applicationId === application.id && note.authorId === viewerId);
+};
 
 export const getNoteCountForApplication = (notes = [], applicationId = '') => asList(notes)
   .filter((note) => note.applicationId === applicationId).length;

@@ -11,7 +11,7 @@ import { academicPrograms, getAcademicProgram, getAcademicProgramGroups } from '
 import { APPLICATION_ELIGIBILITY_EXCEPTION_PREFIX, APPLICATION_REJECTION_NOTICE, APPLICATION_REJECTION_REASON_PREFIX, APPLICATION_WAITLIST_NOTE_PREFIX, APPLICATION_WAITLIST_NOTICE, DOCUMENT_REPLACEMENT_STATUSES, CASE_OFFICER_JOINABLE_STATUSES, getNextApplicationStatuses, isAdmissionsAdminRole, isAdmissionsReviewerRole, maskApplicationForStudent } from './lib/constants';
 import { getProfileAccountStatus, getProfileAvatar, getProfileDetails, getProfilePrivacyConsent, getProfileReviewScope, getSupabaseSession, getUserProfile, recordProfilePrivacyConsent, resetPasswordForEmail, signInWithEmailPassword, signOutFromSupabase, signUpWithEmailPassword, subscribeToSupabaseAuth, updateAccountPassword, updateProfileAvatar, updateProfileFields, updateUserProfile, validateSupabaseSession } from './lib/auth';
 import { getDocumentsAwaitingReview, getIntakePool, getReleaseQueue, isCaseOfficer } from './lib/admissionsOffice';
-import { getUpcomingInterviews } from './lib/interviewRoster';
+import { canJoinInterviewPanel, canLeaveInterviewPanel, getUpcomingInterviews } from './lib/interviewRoster';
 import { normalizeFinancialAnswers } from './lib/financialDetails';
 import { ACCOUNT_FIELD_KEYS, PROFILE_DETAIL_KEYS, PROFILE_DRAFT_KEYS, STAFF_EDITABLE_FIELD_KEYS, VERIFIABLE_ATTRIBUTE_KEYS, deriveYearStanding, getApplicationProfileGate, getAttestedValue, getDocumentTitle, getProvenAttributes, getStandingRequirements, getVerifiableAttributeOption, isComparableAttribute, mergeProfileDetails, pickEligibilityAttributes, pickFields, requiresStudentNumber } from './lib/profile';
 import { deriveAttributeVerifications, getNewlyOutdatedAttributes, getOutdatedAttributeAlerts } from './lib/verification';
@@ -19,7 +19,9 @@ import { DOCUMENT_MAX_BYTES } from './lib/documentStorage';
 import { AVATAR_MAX_BYTES } from './lib/avatarStorage';
 import { buildPhotoFileName, normalizeImageFile } from './lib/photoGuide';
 import { INTERVIEW_STAGE_CLOSED, buildCancelledInterview, buildInterviewRecord, getInterviewDateKey, getInterviewReminderKey, getLatestPanelRecommendation, INTERVIEW_RECOMMENDATION_LEVELS, isInterviewLive, isStructuredInterview, summarizeInterview, validateInterviewSchedule } from './lib/interview';
-import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, loadSupabaseWorkspaceChanges, loadSupabaseWorkspaceDetails, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, releaseSupabaseScholarshipResults, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, requestSupabaseApplicationDocuments, cancelSupabaseDocumentRequest, fulfillSupabaseDocumentRequest, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
+import { attachSupabaseApplicationDocument, createSupabaseAnnouncement, createSupabaseInterviewNote, invokeSupabaseInterviewEvent, notifySupabaseInterviewUpdate, replaceSupabaseInterviewPanel,
+  joinSupabaseInterviewPanel,
+  leaveSupabaseInterviewPanel, saveSupabaseInterviewLocation, updateSupabaseApplicationStage, createSupabaseApplication, createSupabaseCustomDeadline, createSupabaseDocument, createSupabaseOfficeCalendarEntry, createSupabaseScholarship, deleteSupabaseCustomDeadline, deleteSupabaseAvatar, deleteSupabaseDocument, deleteSupabaseOfficeCalendarEntry, detachSupabaseApplicationDocument, getSupabaseAvatarUrl, joinSupabaseApplicationReview, leaveSupabaseApplicationReview, loadSupabaseAcademicPrograms, loadSupabaseApplicationCaseOfficers, loadSupabaseFinancialAnswers, loadSupabaseFinancialProfile, loadSupabaseNotifications, loadSupabaseSupportInbox, loadSupabaseWorkspace, loadSupabaseWorkspaceChanges, loadSupabaseWorkspaceDetails, markSupabaseNotificationRead, markSupabaseSupportThreadRead, notifySupabaseApplicationStatus, notifySupabaseResultsRelease, openSupabaseApplicationForStudent, releaseSupabaseScholarshipResults, closeSupabaseResultsRound, setSupabaseWaitlistOrder, respondSupabaseScholarshipOffer, withdrawSupabaseFromWaitlist, saveSupabaseApprovalLevel, deleteSupabaseApprovalLevel, notifySupabaseDocumentVerification, replaceSupabaseApplicationDocument, requestSupabaseApplicationDocuments, cancelSupabaseDocumentRequest, fulfillSupabaseDocumentRequest, saveSupabaseFinancialAnswers, saveSupabaseFinancialProfile, sendSupabaseSupportMessage, sendSupabaseTestEmail, sendSupabaseTestSms, setSupabaseSupportThreadStatus, submitSupabaseApplication, updateSupabaseApplicationDraft, updateSupabaseApplicationStatus, updateSupabaseDocumentStatus, updateSupabaseNotificationPreferences, updateSupabaseScholarship, uploadSupabaseAvatar, createSupabaseReviewComment, saveSupabaseGrantAmount, postSupabaseAssistantSupportMessage, escalateSupabaseSupportThread, resolveSupabaseSupportThread, startNewSupabaseSupportTopic, getOrCreateSupabaseSupportThread, touchSupabaseOfficeSupportPresence, getSupabaseAdmissionsOfficeAvailability } from './lib/supabaseData';
 import { ENDORSEMENT_BLOCKED_STATUSES, buildProfileSnapshot, getApplicationAttributeVerifications, getApplicationReadiness, getScholarshipRequirements, isApplicationVerifiedForEndorsement, pickDefaultAttachments } from './lib/applicationRequirements';
 import AcademicProfileModal from './components/AcademicProfileModal';
 import ProfileAvatar from './components/ProfileAvatar';
@@ -2872,6 +2874,79 @@ function App() {
     return { ok: true };
   };
 
+  // A reviewer in scope who was left off the panel adds themselves instead of
+  // asking for a reschedule. It changes only their own panel row: the interview
+  // record keeps its revision, so neither the applicant nor the panel is told the
+  // interview changed, and the panel stays out of the student-readable record. The
+  // Google invitation is not re-sent, so the reviewer reads the link or venue from
+  // the schedule. The database repeats every check (join_interview_panel).
+  const joinInterviewPanel = async (applicationId) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!canJoinInterviewPanel({
+      role: state.viewerRole,
+      application,
+      panelists: state.interviewPanelists,
+      viewerId: currentProfile.id,
+      inScope: Boolean(application) && isInViewerScope(application),
+    })) {
+      return { error: 'You can join the panel only while the interview is scheduled and this applicant is in your review scope.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the panel could not be joined.' };
+    }
+    const result = await joinSupabaseInterviewPanel(applicationId, {
+      ...staffNameById,
+      [currentProfile.id]: currentProfile.fullName || staffNameById[currentProfile.id] || 'Reviewer',
+    });
+    if (result.error || !result.data) {
+      return { error: result.error?.message || 'The panel could not be joined. Confirm the join-panel migration is applied.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      interviewPanelists: [
+        ...(previous.interviewPanelists || []).filter((row) => row.id !== result.data.id),
+        result.data,
+      ],
+    }));
+    return { ok: true };
+  };
+
+  // The counterpart: a reviewer takes their own seat back without a reschedule. The
+  // lead and anyone who already recorded a note stay (canLeaveInterviewPanel), and
+  // the database repeats both rules (leave_interview_panel). The row comes back
+  // soft-removed, so it replaces the local seat and drops out of every panel list.
+  const canLeaveInterviewPanelOn = (application) => canLeaveInterviewPanel({
+    role: state.viewerRole,
+    application,
+    panelists: state.interviewPanelists,
+    notes: state.interviewNotes,
+    viewerId: currentProfile.id,
+  });
+  const leaveInterviewPanel = async (applicationId) => {
+    const application = state.applications.find((entry) => entry.id === applicationId);
+    if (!canLeaveInterviewPanelOn(application)) {
+      return { error: 'You can leave the panel only while the interview is open, and not as its lead or after recording a note.' };
+    }
+    if (!isSupabaseWorkspaceLoaded) {
+      return { error: 'Supabase is not configured, so the panel could not be left.' };
+    }
+    const result = await leaveSupabaseInterviewPanel(applicationId, {
+      ...staffNameById,
+      [currentProfile.id]: currentProfile.fullName || staffNameById[currentProfile.id] || 'Reviewer',
+    });
+    if (result.error || !result.data) {
+      return { error: result.error?.message || 'The panel could not be left. Confirm the leave-panel migration is applied.' };
+    }
+    setState((previous) => ({
+      ...previous,
+      interviewPanelists: [
+        ...(previous.interviewPanelists || []).filter((row) => row.id !== result.data.id),
+        result.data,
+      ],
+    }));
+    return { ok: true };
+  };
+
   // Venues for on-site interviews are managed by the Admissions Office Admin.
   const saveInterviewLocation = async (location) => {
     if (!isAdmissionsAdminRole(state.viewerRole)) {
@@ -2919,6 +2994,17 @@ function App() {
     onReschedule: rescheduleInterview,
     onCancel: cancelInterview,
     onAddNote: addInterviewNote,
+    // Whether the viewer, an in-scope reviewer off the panel, may add themselves.
+    canJoinPanel: (application) => canJoinInterviewPanel({
+      role: state.viewerRole,
+      application,
+      panelists: state.interviewPanelists,
+      viewerId: currentProfile.id,
+      inScope: Boolean(application) && isInViewerScope(application),
+    }),
+    onJoinPanel: joinInterviewPanel,
+    canLeavePanel: canLeaveInterviewPanelOn,
+    onLeavePanel: leaveInterviewPanel,
     onSaveLocation: isAdmissionsAdminRole(state.viewerRole) ? saveInterviewLocation : undefined,
     // Who may schedule this applicant's interview (an interviewer or ladder
     // account in scope, or the Admin), and the case facts the action bar reads.

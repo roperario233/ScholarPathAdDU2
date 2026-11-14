@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canJoinInterviewPanel,
+  canLeaveInterviewPanel,
   getInterviewEntries,
   getInterviewMarksByDate,
   getInterviewsNeedingReschedule,
@@ -165,6 +167,109 @@ describe('calendar marks', () => {
       { '2026-11-03': [{ kind: 'deadline', label: '2 scholarship deadlines' }] },
     );
     expect(merged['2026-11-03'].map((mark) => mark.kind)).toEqual(['interview', 'deadline']);
+  });
+});
+
+describe('canJoinInterviewPanel', () => {
+  const base = () => ({
+    role: 'dean',
+    application: application({ status: 'Interview', interview: interview() }),
+    panelists: [{ id: 'p-1', applicationId: 'app-1', profileId: 'chair-sea', isLead: true, removedAt: null }],
+    viewerId: 'dean-sea',
+    inScope: true,
+  });
+
+  it('lets an in-scope reviewer off the panel join a scheduled interview', () => {
+    for (const role of ['dean', 'assistant_dean', 'department_chair', 'interviewer']) {
+      expect(canJoinInterviewPanel({ ...base(), role })).toBe(true);
+    }
+  });
+
+  it('never offers it to the office lanes or a student', () => {
+    expect(canJoinInterviewPanel({ ...base(), role: 'admissions_admin' })).toBe(false);
+    expect(canJoinInterviewPanel({ ...base(), role: 'admissions_office' })).toBe(false);
+    expect(canJoinInterviewPanel({ ...base(), role: 'student' })).toBe(false);
+  });
+
+  it("needs the applicant to be in the reviewer's scope", () => {
+    expect(canJoinInterviewPanel({ ...base(), inScope: false })).toBe(false);
+  });
+
+  it('is closed once the viewer is on the panel, but a removed row or another panel does not count', () => {
+    const onPanel = [...base().panelists, { id: 'p-2', applicationId: 'app-1', profileId: 'dean-sea', removedAt: null }];
+    expect(canJoinInterviewPanel({ ...base(), panelists: onPanel })).toBe(false);
+    const removed = [...base().panelists, { id: 'p-2', applicationId: 'app-1', profileId: 'dean-sea', removedAt: '2026-11-01T00:00:00.000Z' }];
+    expect(canJoinInterviewPanel({ ...base(), panelists: removed })).toBe(true);
+    const elsewhere = [{ id: 'p-3', applicationId: 'app-2', profileId: 'dean-sea', removedAt: null }];
+    expect(canJoinInterviewPanel({ ...base(), panelists: elsewhere })).toBe(true);
+  });
+
+  it('closes with the recommendation: only a scheduled interview at Interview can be joined', () => {
+    for (const status of ['Endorsed', 'Recommended', 'Approved', 'Released', 'Rejected']) {
+      expect(canJoinInterviewPanel({ ...base(), application: application({ status, interview: interview() }) })).toBe(false);
+    }
+    expect(canJoinInterviewPanel({ ...base(), application: application({ status: 'Interview', interview: interview({ state: 'cancelled' }) }) })).toBe(false);
+    expect(canJoinInterviewPanel({ ...base(), application: application({ status: 'Interview', interview: null }) })).toBe(false);
+    // A record from before structured scheduling is history, not a slot.
+    expect(canJoinInterviewPanel({ ...base(), application: application({ status: 'Interview', interview: { panel: 'Old panel' } }) })).toBe(false);
+  });
+
+  it('answers false for missing input instead of throwing', () => {
+    expect(canJoinInterviewPanel()).toBe(false);
+    expect(canJoinInterviewPanel({ ...base(), viewerId: '' })).toBe(false);
+    expect(canJoinInterviewPanel({ ...base(), application: null })).toBe(false);
+  });
+});
+
+describe('canLeaveInterviewPanel', () => {
+  const base = () => ({
+    role: 'dean',
+    application: application({ status: 'Interview', interview: interview() }),
+    panelists: [
+      { id: 'p-1', applicationId: 'app-1', profileId: 'chair-sea', isLead: true, removedAt: null },
+      { id: 'p-2', applicationId: 'app-1', profileId: 'dean-sea', isLead: false, removedAt: null },
+    ],
+    notes: [],
+    viewerId: 'dean-sea',
+  });
+
+  it('lets a non-lead reviewer who has recorded nothing take their seat back', () => {
+    for (const role of ['dean', 'assistant_dean', 'department_chair', 'interviewer']) {
+      expect(canLeaveInterviewPanel({ ...base(), role })).toBe(true);
+    }
+  });
+
+  it('keeps the lead on the panel, because only a reschedule changes the lead', () => {
+    const lead = base().panelists.map((row) => (row.profileId === 'dean-sea' ? { ...row, isLead: true } : row));
+    expect(canLeaveInterviewPanel({ ...base(), panelists: lead })).toBe(false);
+  });
+
+  it('keeps a reviewer who recorded a note, but not one whose note is on another application', () => {
+    const own = [{ id: 'n-1', applicationId: 'app-1', authorId: 'dean-sea' }];
+    expect(canLeaveInterviewPanel({ ...base(), notes: own })).toBe(false);
+    const elsewhere = [{ id: 'n-2', applicationId: 'app-2', authorId: 'dean-sea' }];
+    expect(canLeaveInterviewPanel({ ...base(), notes: elsewhere })).toBe(true);
+    const someoneElse = [{ id: 'n-3', applicationId: 'app-1', authorId: 'chair-sea' }];
+    expect(canLeaveInterviewPanel({ ...base(), notes: someoneElse })).toBe(true);
+  });
+
+  it('needs an active seat on this panel', () => {
+    expect(canLeaveInterviewPanel({ ...base(), viewerId: 'dean-other' })).toBe(false);
+    const removed = base().panelists.map((row) => (row.profileId === 'dean-sea' ? { ...row, removedAt: '2026-11-01T00:00:00.000Z' } : row));
+    expect(canLeaveInterviewPanel({ ...base(), panelists: removed })).toBe(false);
+  });
+
+  it('is closed once the case moves past Interview, and for the office lanes', () => {
+    for (const status of ['Endorsed', 'Recommended', 'Approved', 'Released', 'Rejected']) {
+      expect(canLeaveInterviewPanel({ ...base(), application: application({ status, interview: interview() }) })).toBe(false);
+    }
+    expect(canLeaveInterviewPanel({ ...base(), role: 'admissions_admin' })).toBe(false);
+    expect(canLeaveInterviewPanel({ ...base(), role: 'admissions_office' })).toBe(false);
+  });
+
+  it('answers false for missing input instead of throwing', () => {
+    expect(canLeaveInterviewPanel()).toBe(false);
+    expect(canLeaveInterviewPanel({ ...base(), application: null })).toBe(false);
   });
 });
 

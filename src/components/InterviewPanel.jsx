@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { CalendarDays, Check, Copy, ExternalLink, Info, MapPin, Users, Video } from 'lucide-react';
-import { Button, EmptyState, Panel, StatusBadge } from './ui';
+import { CalendarDays, Check, Copy, ExternalLink, Info, MapPin, UserPlus, Users, Video } from 'lucide-react';
+import { Button, EmptyState, ModalShell, Panel, StatusBadge } from './ui';
 import ReasonModal from './ReasonModal';
 import InterviewLocationsModal from './InterviewLocationsModal';
 import { fmtDate } from '../lib/formatters';
@@ -113,7 +113,63 @@ function FormStep({ number, id, title, description, children }) {
   );
 }
 
-function PanelList({ panel, roleById = {} }) {
+// A reviewer in scope who is not on the panel can add themselves (join_interview_panel).
+// The two tabs word it for what the reviewer is doing there: the Interview tab is
+// about the schedule and who sits on it, the Evaluation tab about being able to
+// write. Joining never changes the schedule, so neither the applicant nor the rest
+// of the panel is told.
+const JOIN_PANEL_COPY = {
+  interview: {
+    title: 'You are not on this panel',
+    body: 'Join to add your own evaluation and recommendation. The schedule stays the same and no one is notified.',
+    action: 'Join panel',
+  },
+  evaluation: {
+    title: 'You can read these notes, but not add one',
+    body: 'Join the panel to record your own note and recommendation. Notes stay private to staff.',
+    action: 'Join panel to add a note',
+  },
+};
+
+function JoinPanelCallout({ variant = 'interview', busy = false, onJoin }) {
+  const copy = JOIN_PANEL_COPY[variant] || JOIN_PANEL_COPY.interview;
+  return (
+    <div
+      role="group"
+      aria-label="Join the interview panel"
+      className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-l-4 border-app-border border-l-ateneo bg-app-card p-3"
+    >
+      <div className="grid min-w-0 flex-1 gap-1 sm:min-w-[16rem]">
+        <p className="m-0 flex items-center gap-2 text-sm font-semibold text-app-text">
+          <UserPlus size={16} aria-hidden="true" />
+          {copy.title}
+        </p>
+        <p className="m-0 text-sm text-app-muted">{copy.body}</p>
+      </div>
+      <Button type="button" variant="primary" disabled={busy} onClick={onJoin}>{busy ? 'Joining…' : copy.action}</Button>
+    </div>
+  );
+}
+
+// Taking the seat back is quiet and reversible while the interview is scheduled, so
+// the dialog is a plain confirmation with no reason to record.
+function LeavePanelModal({ busy = false, onConfirm, onClose }) {
+  return (
+    <ModalShell title="Leave this panel?" onClose={busy ? undefined : onClose} className="w-[min(480px,100%)]">
+      <div className="grid gap-4">
+        <p className="m-0 text-sm text-app-muted">
+          You will no longer be able to add notes or record the recommendation. You can join again while the interview is scheduled.
+        </p>
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-3">
+          <Button type="button" onClick={onClose} disabled={busy}>Cancel</Button>
+          <Button type="button" variant="danger" disabled={busy} onClick={() => onConfirm?.()}>{busy ? 'Leaving…' : 'Leave panel'}</Button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function PanelList({ panel, roleById = {}, viewerId = '' }) {
   if (!panel.length) return <p className="m-0 text-sm text-app-muted">No panel members recorded.</p>;
   return (
     <ul className="m-0 grid gap-2 p-0 sm:grid-cols-2">
@@ -128,6 +184,7 @@ function PanelList({ panel, roleById = {} }) {
                 : `Faculty guest${member.guestEmail ? ` · ${member.guestEmail}` : ''}`}
             </span>
           </span>
+          {viewerId && member.profileId === viewerId ? <StatusBadge tone="neutral">You</StatusBadge> : null}
           {member.isLead ? <StatusBadge tone="info">Lead</StatusBadge> : null}
         </li>
       ))}
@@ -508,7 +565,7 @@ function CopyIconButton({ value, label }) {
 const CopyMeetingLinkButton = ({ value }) => <CopyIconButton value={value} label="Copy meeting link" />;
 const CopyLocationButton = ({ value }) => <CopyIconButton value={value} label="Copy location" />;
 
-function ScheduleSummary({ application, interview, panel, scholarshipTitle, roleById = {} }) {
+function ScheduleSummary({ application, interview, panel, scholarshipTitle, roleById = {}, viewerId = '', panelFooter = null, panelAction = null }) {
   const templateUrl = buildGoogleCalendarTemplateUrl({ interview, scholarshipTitle });
   // What the provider actually holds for this interview. `removedAt` is null on a
   // cancelled interview whose Google event could not be deleted, which is exactly
@@ -586,11 +643,15 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, role
       </div>
 
       <div className="grid gap-2">
-        <p className="m-0 flex items-center gap-2 text-sm font-semibold text-app-muted">
-          <Users size={16} aria-hidden="true" />
-          Panel · {interview.school || application?.studentSchool || 'Applicant school'}
-        </p>
-        <PanelList panel={panel} roleById={roleById} />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="m-0 flex items-center gap-2 text-sm font-semibold text-app-muted">
+            <Users size={16} aria-hidden="true" />
+            Panel · {interview.school || application?.studentSchool || 'Applicant school'}
+          </p>
+          {panelAction}
+        </div>
+        <PanelList panel={panel} roleById={roleById} viewerId={viewerId} />
+        {panelFooter}
       </div>
 
       {interview.instructions ? (
@@ -616,7 +677,10 @@ function ScheduleSummary({ application, interview, panel, scholarshipTitle, role
   );
 }
 
-function InterviewNotes({ notes, canAdd, onAddNote }) {
+// `joinSlot` takes the place of the note form for a reviewer who could join the
+// panel; `readOnlyNote` explains the absent form to one who cannot (the interview
+// is no longer scheduled), so the missing form never reads as a fault.
+function InterviewNotes({ notes, canAdd, onAddNote, joinSlot = null, readOnlyNote = '' }) {
   const [body, setBody] = useState('');
   const [recommendationLevel, setRecommendationLevel] = useState('');
   const [error, setError] = useState('');
@@ -702,7 +766,7 @@ function InterviewNotes({ notes, canAdd, onAddNote }) {
           </div>
           {error ? <p className="m-0 text-sm text-rose-700 dark:text-rose-200" role="alert">{error}</p> : null}
         </form>
-      ) : null}
+      ) : (joinSlot || (readOnlyNote ? <p className="m-0 text-sm text-app-muted">{readOnlyNote}</p> : null))}
     </div>
   );
 }
@@ -776,6 +840,7 @@ export default function InterviewPanel({
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [locationsOpen, setLocationsOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   // Consultation 2: the interviewer schedules its own interviews, and a
   // Chairperson, Assistant Dean, or Dean whose scope covers the applicant may run
@@ -804,6 +869,45 @@ export default function InterviewPanel({
   const canRepairCalendar = mayCoordinate && needsCalendarRepair
     && Boolean(workspace.calendarConfigured) && Boolean(workspace.onRepairCalendar);
   const showForm = canCoordinate && (application.status === 'Endorsed' || editing);
+  // An in-scope reviewer left off the panel may add themselves while the interview is
+  // scheduled (App.jsx joinInterviewPanel answers canJoinPanel). `mayCoordinate` is
+  // the same scope check, so a reviewer who cannot join still learns why the note
+  // form is missing, and one outside the scope sees nothing about it.
+  const canJoinPanel = Boolean(workspace.onJoinPanel) && Boolean(workspace.canJoinPanel?.(application));
+  const readOnlyEvaluationNote = isReviewerRole(role) && mayCoordinate && !isPanelist && !canJoinPanel && Boolean(interview)
+    ? 'You are not on this panel, so these notes are read-only for you.'
+    : '';
+
+  const joinPanel = async () => {
+    setBusy(true);
+    setFeedback(null);
+    const result = await workspace.onJoinPanel(application.id);
+    setBusy(false);
+    setFeedback(result?.error
+      ? { tone: 'error', message: result.error }
+      : { tone: 'success', message: 'You joined the panel. You can now record evaluation notes and the recommendation.' });
+  };
+
+  // The way back out: shown to a panelist who may still leave (App.jsx answers
+  // canLeavePanel: not the lead, no note recorded, case still at Interview).
+  const canLeavePanel = Boolean(workspace.onLeavePanel) && Boolean(workspace.canLeavePanel?.(application));
+  const leavePanel = async () => {
+    setBusy(true);
+    setFeedback(null);
+    const result = await workspace.onLeavePanel(application.id);
+    setBusy(false);
+    setLeaveOpen(false);
+    setFeedback(result?.error
+      ? { tone: 'error', message: result.error }
+      : { tone: 'success', message: 'You left the panel.' });
+  };
+
+  const feedbackLine = feedback ? (
+    <p
+      className={`m-0 rounded-[14px] border px-3 py-2 text-sm ${feedback.tone === 'error' ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200' : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'}`}
+      role={feedback.tone === 'error' ? 'alert' : 'status'}
+    >{feedback.message}</p>
+  ) : null;
 
   const run = async (action, successMessage) => {
     setBusy(true);
@@ -839,10 +943,13 @@ export default function InterviewPanel({
             <h4 className={sectionHeading}>Panel evaluation notes</h4>
             <p className="m-0 text-sm text-app-muted">Private to staff. Applicants never see panel notes or recommendations.</p>
           </div>
+          {feedbackLine}
           <InterviewNotes
             notes={notes}
             canAdd={canAddNotes && Boolean(interview)}
             onAddNote={(note) => workspace.onAddNote(application.id, note)}
+            joinSlot={canJoinPanel ? <JoinPanelCallout variant="evaluation" busy={busy} onJoin={joinPanel} /> : null}
+            readOnlyNote={readOnlyEvaluationNote}
           />
         </Panel>
       </div>
@@ -852,12 +959,7 @@ export default function InterviewPanel({
   return (
     <div className={`grid gap-4 ${fieldScope}`}>
       {isAdmin && canCoordinate ? <ScheduleOverrideNotice application={application} workspace={workspace} /> : null}
-      {feedback ? (
-        <p
-          className={`m-0 rounded-[14px] border px-3 py-2 text-sm ${feedback.tone === 'error' ? 'border-rose-400/40 bg-rose-500/10 text-rose-700 dark:text-rose-200' : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'}`}
-          role={feedback.tone === 'error' ? 'alert' : 'status'}
-        >{feedback.message}</p>
-      ) : null}
+      {feedbackLine}
 
       {interview && !showForm ? (
         <Panel className="grid gap-3">
@@ -897,6 +999,9 @@ export default function InterviewPanel({
               panel={panel}
               scholarshipTitle={scholarshipTitle}
               roleById={roleById}
+              viewerId={workspace.viewerId}
+              panelFooter={canJoinPanel ? <JoinPanelCallout variant="interview" busy={busy} onJoin={joinPanel} /> : null}
+              panelAction={canLeavePanel ? <Button type="button" variant="ghost" disabled={busy} onClick={() => setLeaveOpen(true)}>Leave panel</Button> : null}
             />
           ) : (
             <p className="m-0 text-sm text-app-muted">
@@ -988,6 +1093,9 @@ export default function InterviewPanel({
           }}
           onClose={() => setReasonFor(null)}
         />
+      ) : null}
+      {leaveOpen && canLeavePanel ? (
+        <LeavePanelModal busy={busy} onConfirm={leavePanel} onClose={() => setLeaveOpen(false)} />
       ) : null}
       {locationsOpen && workspace.onSaveLocation ? (
         <InterviewLocationsModal
