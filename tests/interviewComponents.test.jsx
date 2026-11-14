@@ -221,12 +221,12 @@ describe('ApplicationReviewModal Interview tab', () => {
     // The schedule and the evaluation are separate tabs.
     const schedule = chairOnPanel('interview');
     expect(schedule).toContain('Interview Room A');
-    expect(schedule).not.toContain('Panel evaluation notes');
-    expect(buttonLabels(schedule)).not.toContain('Add recommendation');
+    expect(schedule).not.toContain('Panel evaluation');
+    expect(buttonLabels(schedule)).not.toContain('Add evaluation');
     const html = chairOnPanel('evaluation');
-    expect(html).toContain('Panel evaluation notes');
+    expect(html).toContain('Panel evaluation');
     expect(html).not.toContain('Interview Room A');
-    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add recommendation']));
+    expect(buttonLabels(html)).toEqual(expect.arrayContaining(['Add evaluation']));
     expect(buttonLabels(html)).not.toContain('Mark attended');
     expect(buttonLabels(html)).not.toContain('Mark did not attend');
     expect(html).not.toContain('Outcome due');
@@ -246,7 +246,7 @@ describe('ApplicationReviewModal Interview tab', () => {
     });
     expect(html).toContain('Clear goals.');
     expect(buttonLabels(html)).not.toContain('Mark attended');
-    expect(buttonLabels(html)).not.toContain('Add recommendation');
+    expect(buttonLabels(html)).not.toContain('Add evaluation');
   });
 
   it('offers the recommendation as a normal stage action', () => {
@@ -418,17 +418,17 @@ describe('Join panel', () => {
     expect(buttonLabels(html)).toContain('Join panel');
     // The callout sits under the panel list it is about.
     expect(html.indexOf('Ana Reyes')).toBeLessThan(html.indexOf('You are not on this panel'));
-    expect(html).not.toContain('Panel evaluation notes');
+    expect(html).not.toContain('Panel evaluation');
   });
 
   it('offers it on the Evaluation tab in place of the note form', () => {
     const html = dean('evaluation');
-    expect(html).toContain('Panel evaluation notes');
-    expect(html).toContain('You can read these notes, but not add one');
-    expect(html).toContain('Notes stay private to staff.');
-    expect(buttonLabels(html)).toContain('Join panel to add a note');
-    expect(buttonLabels(html)).not.toContain('Add recommendation');
-    expect(html).not.toContain('Add an evaluation note');
+    expect(html).toContain('Panel evaluation');
+    expect(html).toContain('You can read the evaluations, but not add one');
+    expect(html).toContain('Evaluations stay private to staff.');
+    expect(buttonLabels(html)).toContain('Join panel to add an evaluation');
+    expect(buttonLabels(html)).not.toContain('Add evaluation');
+    expect(html).not.toContain('Add an evaluation');
   });
 
   it('is gone once the reviewer is on the panel, and the panel marks them as "You"', () => {
@@ -439,8 +439,8 @@ describe('Join panel', () => {
     expect(buttonLabels(schedule)).not.toContain('Join panel');
     expect(schedule).toContain('>You</span>');
     const evaluation = dean('evaluation', options);
-    expect(evaluation).not.toContain('You can read these notes, but not add one');
-    expect(buttonLabels(evaluation)).toContain('Add recommendation');
+    expect(evaluation).not.toContain('You can read the evaluations, but not add one');
+    expect(buttonLabels(evaluation)).toContain('Add evaluation');
   });
 
   it('explains the missing form to an in-scope reviewer who can no longer join', () => {
@@ -456,9 +456,9 @@ describe('Join panel', () => {
         onJoinPanel: () => ({ ok: true }),
       }),
     });
-    expect(html).toContain('these notes are read-only for you');
-    expect(buttonLabels(html)).not.toContain('Join panel to add a note');
-    expect(buttonLabels(html)).not.toContain('Add recommendation');
+    expect(html).toContain('these evaluations are read-only for you');
+    expect(buttonLabels(html)).not.toContain('Join panel to add an evaluation');
+    expect(buttonLabels(html)).not.toContain('Add evaluation');
   });
 
   it('offers Leave panel beside the panel list to a panelist who may leave, and not otherwise', () => {
@@ -477,7 +477,7 @@ describe('Join panel', () => {
   it('says nothing about the panel to a reviewer outside the scope or to the office', () => {
     const outside = dean('evaluation', { canCoordinate: () => false, canJoinPanel: () => false });
     expect(outside).not.toContain('read-only for you');
-    expect(outside).not.toContain('You can read these notes, but not add one');
+    expect(outside).not.toContain('You can read the evaluations, but not add one');
     const admin = render({
       application: application({ status: 'Interview', interview: pastInterview }),
       role: 'admissions_admin',

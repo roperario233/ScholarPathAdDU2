@@ -125,9 +125,9 @@ const JOIN_PANEL_COPY = {
     action: 'Join panel',
   },
   evaluation: {
-    title: 'You can read these notes, but not add one',
-    body: 'Join the panel to record your own note and recommendation. Notes stay private to staff.',
-    action: 'Join panel to add a note',
+    title: 'You can read the evaluations, but not add one',
+    body: 'Join the panel to record your own evaluation and recommendation. Evaluations stay private to staff.',
+    action: 'Join panel to add an evaluation',
   },
 };
 
@@ -158,7 +158,7 @@ function LeavePanelModal({ busy = false, onConfirm, onClose }) {
     <ModalShell title="Leave this panel?" onClose={busy ? undefined : onClose} className="w-[min(480px,100%)]">
       <div className="grid gap-4">
         <p className="m-0 text-sm text-app-muted">
-          You will no longer be able to add notes or record the recommendation. You can join again while the interview is scheduled.
+          You will no longer be able to add an evaluation or record the recommendation. You can join again while the interview is scheduled.
         </p>
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border pt-3">
           <Button type="button" onClick={onClose} disabled={busy}>Cancel</Button>
@@ -687,7 +687,7 @@ function InterviewNotes({ notes, canAdd, onAddNote, joinSlot = null, readOnlyNot
   const [busy, setBusy] = useState(false);
   const submit = async (event) => {
     event.preventDefault();
-    if (!body.trim()) { setError('Write the evaluation note first.'); return; }
+    if (!body.trim()) { setError('Write the evaluation first.'); return; }
     setBusy(true);
     setError('');
     // The level is the panel's recommendation; the note may record observations
@@ -726,10 +726,10 @@ function InterviewNotes({ notes, canAdd, onAddNote, joinSlot = null, readOnlyNot
             );
           })}
         </ul>
-      ) : <EmptyState title="No evaluation notes yet" description="The panel records its evaluation here after the interview." />}
+      ) : <EmptyState title="No evaluations yet" description="The panel records its evaluation here after the interview." />}
       {canAdd ? (
         <form className="grid gap-4 border-t border-app-border pt-4" onSubmit={submit}>
-          <h5 className="m-0 text-base font-semibold text-app-text">Add an evaluation note</h5>
+          <h5 className="m-0 text-base font-semibold text-app-text">Add an evaluation</h5>
           <fieldset className="grid gap-2">
             <legend className="mb-1 text-sm font-semibold text-app-text">Recommendation</legend>
             <div role="radiogroup" aria-label="Recommendation" className="flex flex-wrap gap-2">
@@ -757,12 +757,12 @@ function InterviewNotes({ notes, canAdd, onAddNote, joinSlot = null, readOnlyNot
             <span className={fieldHint}>The panel&rsquo;s overall view of the applicant. Select it again to clear.</span>
           </fieldset>
           <label className="grid content-start gap-1 text-app-text">
-            <span className={fieldLabel}>Evaluation note</span>
+            <span className={fieldLabel}>Evaluation summary</span>
             <textarea rows="4" maxLength={2000} value={body} onChange={(event) => setBody(event.target.value)} placeholder="Summarize the interview: communication, financial need, commitment, and the panel’s observations." />
             <span className={`text-right ${fieldHint}`}>{body.length}/2000</span>
           </label>
           <div className="flex justify-end">
-            <Button type="submit" variant="primary" disabled={busy || !body.trim()}>{busy ? 'Saving…' : 'Add recommendation'}</Button>
+            <Button type="submit" variant="primary" disabled={busy || !body.trim()}>{busy ? 'Saving…' : 'Add evaluation'}</Button>
           </div>
           {error ? <p className="m-0 text-sm text-rose-700 dark:text-rose-200" role="alert">{error}</p> : null}
         </form>
@@ -875,7 +875,7 @@ export default function InterviewPanel({
   // form is missing, and one outside the scope sees nothing about it.
   const canJoinPanel = Boolean(workspace.onJoinPanel) && Boolean(workspace.canJoinPanel?.(application));
   const readOnlyEvaluationNote = isReviewerRole(role) && mayCoordinate && !isPanelist && !canJoinPanel && Boolean(interview)
-    ? 'You are not on this panel, so these notes are read-only for you.'
+    ? 'You are not on this panel, so these evaluations are read-only for you.'
     : '';
 
   const joinPanel = async () => {
@@ -885,7 +885,7 @@ export default function InterviewPanel({
     setBusy(false);
     setFeedback(result?.error
       ? { tone: 'error', message: result.error }
-      : { tone: 'success', message: 'You joined the panel. You can now record evaluation notes and the recommendation.' });
+      : { tone: 'success', message: 'You joined the panel. You can now record your evaluation and recommendation.' });
   };
 
   // The way back out: shown to a panelist who may still leave (App.jsx answers
@@ -940,8 +940,8 @@ export default function InterviewPanel({
       <div className={`grid gap-4 ${fieldScope}`}>
         <Panel className="grid gap-3">
           <div className="grid gap-0.5">
-            <h4 className={sectionHeading}>Panel evaluation notes</h4>
-            <p className="m-0 text-sm text-app-muted">Private to staff. Applicants never see panel notes or recommendations.</p>
+            <h4 className={sectionHeading}>Panel evaluation</h4>
+            <p className="m-0 text-sm text-app-muted">Private to staff. Applicants never see the panel evaluation or recommendation.</p>
           </div>
           {feedbackLine}
           <InterviewNotes

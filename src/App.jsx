@@ -2842,9 +2842,9 @@ function App() {
   const addInterviewNote = async (applicationId, { body, recommendationLevel = null, rating = null } = {}) => {
     const allowed = isAdmissionsAdminRole(state.viewerRole)
       || (isReviewerRole(state.viewerRole) && isPanelistOn(applicationId));
-    if (!allowed) return { error: 'Only the interview panel or the Admissions Office Admin can add an evaluation note.' };
+    if (!allowed) return { error: 'Only the interview panel or the Admissions Office Admin can add an evaluation.' };
     const trimmed = String(body || '').trim();
-    if (!trimmed) return { error: 'Write the evaluation note first.' };
+    if (!trimmed) return { error: 'Write the evaluation first.' };
     if (trimmed.length > 2000) return { error: 'Keep the note to 2,000 characters or fewer.' };
     // The level is the panel's recommendation (SOP step 6 input). A note may hold
     // observations only, so it is optional; an unknown value is refused rather
@@ -3041,7 +3041,7 @@ function App() {
       (state.interviewNotes || []).filter((entry) => entry.applicationId === applicationId),
     );
     if (!panelRecommendation) {
-      return { error: 'Record a recommendation level with an evaluation note in the Evaluation tab first.' };
+      return { error: 'Record a recommendation level with an evaluation in the Evaluation tab first.' };
     }
     let base = application;
     let closeWarning = '';

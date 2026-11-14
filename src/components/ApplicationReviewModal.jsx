@@ -780,7 +780,7 @@ export default function ApplicationReviewModal({
       return { tone: 'warning', title: requestBlockReason, detail: 'Verify the new files when the student adds them, or cancel the request, before the case can go to interview.', tab: 'documents', action: 'Open documents' };
     }
     if (recommendationDue && evaluationTabVisible) {
-      return { tone: 'warning', title: 'Your recommendation is due', detail: 'Add an evaluation note and choose a recommendation level before the case can move on.', tab: 'evaluation', action: 'Open evaluation' };
+      return { tone: 'warning', title: 'Your recommendation is due', detail: 'Add an evaluation and choose a recommendation level before the case can move on.', tab: 'evaluation', action: 'Open evaluation' };
     }
     if (application.status === 'Endorsed' && canCoordinateInterview && !isAdmissionsAdmin && interviewUnlocked) {
       return { tone: 'warning', title: 'Schedule the interview', detail: 'Choose the date, mode, and panel in the Interview tab, then confirm with Schedule interview.', tab: 'interview', action: 'Open interview' };
@@ -1182,7 +1182,7 @@ export default function ApplicationReviewModal({
             ) : (
               <p className="m-0 flex items-start gap-2 rounded-[14px] border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-100" role="note">
                 <TriangleAlert size={16} aria-hidden="true" className="mt-0.5 shrink-0" />
-                <span className="min-w-0">No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Evaluation tab, add an evaluation note and choose a recommendation level.</span>
+                <span className="min-w-0">No panel recommendation recorded yet, so Recommend for approval is unavailable. In the Evaluation tab, add an evaluation and choose a recommendation level.</span>
               </p>
             )}
           </div>
