@@ -120,7 +120,7 @@ function OutcomeTabs({ tabs, active, onChange }) {
               if (event.key === 'ArrowRight') { event.preventDefault(); focusTab(event, 1); }
               if (event.key === 'ArrowLeft') { event.preventDefault(); focusTab(event, -1); }
             }}
-            className={`-mb-px inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-9 ${selected ? 'border-ateneo text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:text-app-text'}`}
+            className={`underline-tab -mb-px inline-flex min-h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3 text-sm font-semibold transition-colors duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-10 ${selected ? 'border-ateneo bg-blue-500/10 text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:bg-blue-500/5 hover:text-app-text'}`}
           >
             {tab.label}
             <span className={`rounded-full px-2 py-0.5 text-[11px] ${tab.alert ? 'bg-amber-400/15 text-amber-700 dark:text-amber-200' : 'bg-app-surface text-app-muted'}`}>{tab.badge}</span>
@@ -918,16 +918,10 @@ export default function AdminResultsRelease({
           <ModalShell
             title={`${round.title} results`}
             onClose={() => setOpenRoundId(null)}
-            className="application-detail-modal !h-[min(88vh,800px)] !w-[min(960px,100%)]"
+            className="application-detail-modal results-round-modal !h-[min(92dvh,900px)] !max-h-[min(92dvh,900px)] !w-[min(1120px,100%)]"
             header={(
-              <div className="card-header mb-3 flex min-w-0 flex-wrap items-center justify-between gap-3">
-                <div className="grid min-w-0 flex-1 gap-1">
-                  <h2 className="m-0">{round.title}</h2>
-                  <p className="m-0 text-sm text-app-muted">
-                    Academic year {view.yearLabel} · Application deadline {view.deadlineLabel} · {plural(round.applicantCount, 'applicant')}
-                    {round.lastReleasedAt ? ` · Released ${fmtDate(round.lastReleasedAt)}` : ''}
-                  </p>
-                </div>
+              <div className="card-header mb-4 flex min-w-0 flex-wrap items-center justify-between gap-3">
+                <h2 className="m-0 min-w-0 flex-1">{round.title} results</h2>
                 <div className="flex shrink-0 items-center gap-2">
                   <ExportButton onClick={() => exportRound(round)} />
                   <Button variant="secondary" type="button" onClick={() => setOpenRoundId(null)}>Close</Button>
@@ -935,7 +929,22 @@ export default function AdminResultsRelease({
               </div>
             )}
           >
-            <div className="grid shrink-0 gap-3 pb-3">
+            {/* The same framed card as the review modal's applicant block: the
+                scholarship in place of the applicant, then the step track and the
+                facts that were the subtitle. */}
+            <header className="mb-3 grid shrink-0 gap-3 rounded-2xl border border-app-border bg-gradient-to-br from-blue-500/10 via-app-surface to-app-surface p-4">
+              <div className="flex min-w-0 items-center gap-3">
+                <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-ateneo-bright to-ateneo-strong text-white shadow-md shadow-blue-900/20">
+                  <Award size={22} />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="m-0 text-lg font-semibold leading-tight [overflow-wrap:anywhere]">{round.title}</h3>
+                  <p className="m-0 mt-0.5 text-sm text-app-muted">
+                    Academic year {view.yearLabel} · Application deadline {view.deadlineLabel} · {plural(round.applicantCount, 'applicant')}
+                    {round.lastReleasedAt ? ` · Released ${fmtDate(round.lastReleasedAt)}` : ''}
+                  </p>
+                </div>
+              </div>
               <RoundStageTrack current={view.step} />
               {feedback ? (
                 <p
@@ -943,10 +952,12 @@ export default function AdminResultsRelease({
                   role={feedback.tone === 'error' ? 'alert' : 'status'}
                 >{feedback.message}</p>
               ) : null}
-            </div>
+            </header>
             <OutcomeTabs tabs={tabs} active={activeTab} onChange={setRoundTab} />
             <div className="application-detail-modal-body pt-4" role="tabpanel" id="results-panel" aria-labelledby={`results-tab-${activeTab}`}>
-              <div className="grid content-start gap-3">
+              {/* Keyed by tab, so a new tab eases in from the top of its panel exactly
+                  like the review modal's. */}
+              <div key={activeTab} className="profile-section-enter grid content-start gap-3">
                 {activeTab === 'accepted' ? (
                   <>
                     <p className={NOTE_CLASS}>

@@ -137,7 +137,7 @@ function ReviewTabs({ tabs, active, onChange }) {
               if (event.key === 'Home') { event.preventDefault(); focusTab(0); }
               if (event.key === 'End') { event.preventDefault(); focusTab(tabs.length - 1); }
             }}
-            className={`-mb-px inline-flex min-h-10 shrink-0 snap-start items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3 text-sm font-semibold transition-colors duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-10 ${selected ? 'border-ateneo bg-blue-500/10 text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:bg-blue-500/5 hover:text-app-text'}`}
+            className={`underline-tab -mb-px inline-flex min-h-10 shrink-0 snap-start items-center gap-2 whitespace-nowrap rounded-t-lg border-b-2 px-3 text-sm font-semibold transition-colors duration-200 focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20 lg:min-h-10 ${selected ? 'border-ateneo bg-blue-500/10 text-app-text dark:border-sky-400' : 'border-transparent text-app-muted hover:bg-blue-500/5 hover:text-app-text'}`}
           >
             {TabIcon ? <TabIcon size={15} aria-hidden="true" className={`shrink-0 transition-colors duration-200 ${selected ? 'text-ateneo dark:text-sky-300' : 'text-app-muted'}`} /> : null}
             {tab.label}

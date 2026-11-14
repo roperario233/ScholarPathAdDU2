@@ -107,7 +107,7 @@ button.bg-app-card:hover {
    Dashboard call to action (`.hero-action`, a white button on its own navy
    banner), and the Dashboard card's disclosure row (`.disclosure-action`, a
    card-surface row that opens a dialog) stay untouched. */
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]) {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, .underline-tab, [class*="from-rose"], [class*="from-amber"]) {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
@@ -124,8 +124,8 @@ button.bg-app-card:hover {
   box-shadow: 0 6px 16px rgba(0, 8, 25, 0.18);
 }
 
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
-.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, .underline-tab, [class*="from-rose"], [class*="from-amber"]):hover,
+.blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, .underline-tab, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: color-mix(in srgb, var(--primary) 62%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--primary) 18%, var(--surface)) !important;
 }
@@ -226,7 +226,7 @@ button.bg-app-card:hover {
 
 /* Light mode can carry the brighter Ateneo blue; dark mode keeps controls
    lower-contrast so they do not glow against the navy application surface. */
-.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]) {
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, .underline-tab, [class*="from-rose"], [class*="from-amber"]) {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
@@ -254,6 +254,13 @@ button.bg-app-card:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+/* Underline tabs (the review modal and the results release page) are left out of
+   the palette so the selected tab keeps its own tint and underline. Their
+   `border-b-2` was undrawn by the same reset; draw it. */
+.underline-tab {
+  border-style: solid;
+}
+
 /* The top bar's theme toggle, bell, menu and sign-out buttons (and the mobile
    drawer's toggle and close button) sit outside the shell palette and carry the
    same undrawn `border border-app-border`. Draw it. The bell keeps its Tailwind
@@ -264,8 +271,8 @@ button.bg-app-card:hover {
   border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
-.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):focus-visible {
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, .underline-tab, [class*="from-rose"], [class*="from-amber"]):hover,
+.theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, .underline-tab, [class*="from-rose"], [class*="from-amber"]):focus-visible {
   border-color: #4d8dff !important;
   background: color-mix(in srgb, var(--primary) 10%, var(--surface)) !important;
 }
@@ -1476,13 +1483,15 @@ main article > .flex > :last-child {
    label in the Close row and the applicant block follows it directly instead of
    floating below the taller button row. Scoped to the direct child so the shared
    ModalShell header keeps its spacing everywhere else. */
-.application-review-modal > .card-header {
+.application-review-modal > .card-header,
+.results-round-modal > .card-header {
   flex: 0 0 auto;
   margin-bottom: 0.375rem;
   align-items: center;
   gap: 0.75rem;
 }
-.application-review-modal > .card-header h2 {
+.application-review-modal > .card-header h2,
+.results-round-modal > .card-header h2 {
   font-size: 0.95rem;
   font-weight: 600;
   letter-spacing: 0.01em;
