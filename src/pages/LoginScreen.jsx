@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { ArrowLeft, Check, ChevronDown, Eye, EyeOff, LoaderCircle, Moon, Search, Sun } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, CircleAlert, CircleCheck, Eye, EyeOff, Info, LoaderCircle, Moon, Search, Sun, X } from 'lucide-react';
 import bgImage from '../../pictures/background.jpg';
 import logoImage from '../../pictures/logo.png';
 import { signInWithGoogle } from '../lib/auth';
@@ -146,6 +146,42 @@ function SelectPicker({ label, value, onChange, options, idPrefix, error = '', r
 // own; the progress bar under its button runs for the same time.
 const CREATE_SUCCESS_REDIRECT_MS = 2400;
 
+const AUTH_NOTICE_TONES = {
+  error: { Icon: CircleAlert, role: 'alert', border: 'border-rose-400/50', icon: 'text-rose-600 dark:text-rose-300' },
+  success: { Icon: CircleCheck, role: 'status', border: 'border-emerald-400/50', icon: 'text-emerald-600 dark:text-emerald-300' },
+  info: { Icon: Info, role: 'status', border: 'border-sky-400/50', icon: 'text-sky-600 dark:text-sky-300' },
+};
+
+// The one place the login screen reports anything (a session notice, a sign-in
+// error, a Google or reset-link message). It floats over the top of the screen, so
+// it never takes room in the card: the card keeps its size whether or not there is
+// something to say. Progress ("Signing in", "Redirecting") lives in the buttons.
+function AuthNotice({ message, tone = 'info', onDismiss }) {
+  if (!message) return null;
+  const { Icon, role, border, icon } = AUTH_NOTICE_TONES[tone] || AUTH_NOTICE_TONES.info;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-3 z-20 flex justify-center px-3 sm:top-5">
+      <div
+        key={message}
+        role={role}
+        className={`auth-notice pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-xl border bg-app-surface py-3 pl-3.5 pr-2 text-sm text-app-text shadow-app backdrop-blur ${border}`}
+      >
+        <Icon className={`mt-0.5 shrink-0 ${icon}`} size={18} aria-hidden="true" />
+        <p className="m-0 min-w-0 flex-1 font-semibold leading-snug [overflow-wrap:anywhere]">{message}</p>
+        <button
+          type="button"
+          className="-my-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-transparent p-0 text-app-muted transition hover:bg-blue-500/10 hover:text-app-text focus:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/20"
+          onClick={onDismiss}
+          aria-label="Dismiss message"
+          title="Dismiss"
+        >
+          <X size={16} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, rememberedEmail, isRemembered, theme, onToggleTheme, sessionNotice = '', onOpenLegalDocument = null, initialMode = 'signin', onBackToHome = null }) {
   const [email, setEmail] = useState(rememberedEmail || '');
   const [password, setPassword] = useState('');
@@ -156,6 +192,10 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
   const [feedbackTone, setFeedbackTone] = useState('info');
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  // Stays true once Google accepts the request: the page is about to navigate away.
+  const [isGoogleRedirecting, setIsGoogleRedirecting] = useState(false);
+  const [isSignedIn, setIsSignedIn] = useState(false);
+  const [dismissedSessionNotice, setDismissedSessionNotice] = useState('');
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetSent, setResetSent] = useState(false);
   const [isSendingReset, setIsSendingReset] = useState(false);
@@ -182,6 +222,39 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     setFeedbackTone('error');
     clearAuthRedirectParams();
   }, []);
+
+  // Coming back to this page from Google with the back button restores it from the
+  // browser's cache with the "Redirecting" state still set; release it.
+  useEffect(() => {
+    const handlePageShow = (event) => {
+      if (!event.persisted) return;
+      clearPendingSessionStart();
+      setIsGoogleRedirecting(false);
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
+  // One notice at a time: what the person just did (feedback) wins over the notice
+  // the app passed in about why they were signed out. The reset dialog and the
+  // "Account created" card report in their own place, so the floating one steps aside.
+  const sessionNoticeVisible = Boolean(sessionNotice) && sessionNotice !== dismissedSessionNotice && !showCreateAccount;
+  const notice = showForgotPassword || (showCreateAccount && createAccountSuccess)
+    ? null
+    : feedbackMessage
+      ? { message: feedbackMessage, tone: feedbackTone }
+      : sessionNoticeVisible
+        ? { message: sessionNotice, tone: 'info' }
+        : null;
+
+  const dismissNotice = () => {
+    if (feedbackMessage) {
+      setFeedbackMessage('');
+      setFeedbackTone('info');
+      return;
+    }
+    setDismissedSessionNotice(sessionNotice);
+  };
 
   // Sign-in and create-account are two different cards. Where the browser has View
   // Transitions the card morphs from one shape to the other (its content cross-fades);
@@ -213,13 +286,14 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
     setIsSubmitting(true);
     setFeedbackMessage('');
     setFeedbackTone('info');
+    setDismissedSessionNotice(sessionNotice);
 
     try {
       const result = await onLogin({ email, password, rememberMe });
 
       if (result?.success) {
-        setFeedbackMessage('Signed in successfully.');
-        setFeedbackTone('success');
+        // The button reads "Signed in" while the workspace loads.
+        setIsSignedIn(true);
       } else {
         setFeedbackMessage(result?.message || 'Unable to sign in. Please check your credentials.');
         setFeedbackTone('error');
@@ -337,10 +411,11 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
    };
 
    const handleGoogleSignIn = async () => {
-     if (isGoogleLoading) return;
+     if (isGoogleLoading || isGoogleRedirecting) return;
      setIsGoogleLoading(true);
      setFeedbackMessage('');
      setFeedbackTone('info');
+     setDismissedSessionNotice(sessionNotice);
 
      try {
         markPendingSessionStart();
@@ -355,8 +430,8 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
          );
          setFeedbackTone('info');
        } else if (result?.success) {
-         setFeedbackMessage('Redirecting to Google sign-in...');
-         setFeedbackTone('success');
+         // The Google button reads "Redirecting…"; no banner needed.
+         setIsGoogleRedirecting(true);
        } else {
           clearPendingSessionStart();
          const errorMsg = result?.message || 'Unable to sign in with Google.';
@@ -407,6 +482,7 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           {theme === 'light' ? <Moon className="icon-moon" size={20} /> : <Sun className="icon-sun" size={20} />}
         </span>
       </button>
+      <AuthNotice message={notice?.message} tone={notice?.tone} onDismiss={dismissNotice} />
       <div className="login-content">
       {!showCreateAccount ? (
          <section className="auth-card grid w-full max-w-5xl gap-5 rounded-app border border-app-border bg-app-card p-5 shadow-app backdrop-blur sm:p-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -429,7 +505,6 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
           </div>
 
            <form className="grid content-center gap-4 p-1 sm:p-3" onSubmit={submitLogin}>
-             {sessionNotice && <div className="feedback-banner feedback-banner--info w-full rounded-xl border px-3 py-3 text-sm" role="status">{sessionNotice}</div>}
              <label className="grid gap-2">
                <span className="text-sm font-semibold text-app-text">Email</span>
               <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" placeholder="Email" />
@@ -463,13 +538,18 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
               </label>
                <button type="button" className="text-sm font-semibold text-app-primary dark:text-sky-300 hover:opacity-80" onClick={openForgotPassword}>Forgot password?</button>
             </div>
-            {feedbackMessage && (
-               <div className={`feedback-banner w-full rounded-xl border px-3 py-3 text-sm ${feedbackTone === 'error' ? 'feedback-banner--error border-rose-400/30 bg-rose-500/10 text-rose-200' : feedbackTone === 'success' ? 'feedback-banner--success border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'feedback-banner--info border-sky-400/30 bg-sky-500/10 text-sky-200'}`} role="status">
-                {feedbackMessage}
-              </div>
-            )}
-            <button className="inline-flex min-h-10 items-center justify-center rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 full-width" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Signing in...' : 'Sign in'}
+            <button className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-ateneo-strong via-ateneo to-ateneo-bright px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60 full-width" type="submit" disabled={isSubmitting || isSignedIn}>
+              {isSubmitting ? (
+                <>
+                  <LoaderCircle className="spinner-icon" size={18} aria-hidden="true" />
+                  Signing in...
+                </>
+              ) : isSignedIn ? (
+                <>
+                  <Check size={18} aria-hidden="true" />
+                  Signed in
+                </>
+              ) : 'Sign in'}
             </button>
              <div className="flex items-center gap-3 text-sm text-app-muted before:h-px before:flex-1 before:bg-app-border after:h-px after:flex-1 after:bg-app-border">
                <span>or</span>
@@ -479,12 +559,12 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
                type="button"
                className="segmented-auth-action segmented-auth-action--google inline-flex min-h-10 min-w-0 flex-1 items-center justify-center gap-2 border-r border-app-border bg-transparent px-3 py-2 text-sm font-semibold text-app-text transition hover:bg-blue-500/10 focus:outline-none focus:ring-4 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
                onClick={handleGoogleSignIn}
-               disabled={isGoogleLoading}
+               disabled={isGoogleLoading || isGoogleRedirecting}
              >
-               {isGoogleLoading ? (
+               {isGoogleLoading || isGoogleRedirecting ? (
                   <span className="inline-flex items-center gap-2">
                    <LoaderCircle className="spinner-icon" size={20} />
-                    Signing in...
+                    {isGoogleRedirecting ? 'Redirecting...' : 'Connecting...'}
                  </span>
                ) : (
                  <>
@@ -520,12 +600,6 @@ export default function LoginScreen({ onLogin, onSignUp, onForgotPassword, remem
             </button>
              <h1 className="m-0 text-center text-2xl font-bold text-app-text">Create your account</h1>
           </div>
-
-          {feedbackMessage && !createAccountSuccess && (
-             <div className={`feedback-banner w-full rounded-xl border px-3 py-3 text-sm ${feedbackTone === 'error' ? 'feedback-banner--error border-rose-400/30 bg-rose-500/10 text-rose-200' : feedbackTone === 'success' ? 'feedback-banner--success border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'feedback-banner--info border-sky-400/30 bg-sky-500/10 text-sky-200'}`} role="status">
-              {feedbackMessage}
-            </div>
-          )}
 
           {createAccountSuccess ? (
             <div className="grid place-items-center gap-4 p-4 text-center" role="status">

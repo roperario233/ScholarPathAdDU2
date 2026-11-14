@@ -2181,7 +2181,22 @@ a:focus-visible {
   to { transform: scaleX(1); }
 }
 
+/* Login screen notice (AuthNotice in LoginScreen.jsx): it floats over the top of
+   the screen, so it eases in without moving anything else. */
+.auth-notice {
+  animation: auth-notice-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes auth-notice-in {
+  from { opacity: 0; transform: translateY(-10px) scale(0.98); }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .auth-notice,
+  .create-success-progress {
+    animation: none;
+  }
+
   .create-success-progress {
     display: none;
   }
