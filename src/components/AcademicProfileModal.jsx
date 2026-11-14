@@ -206,7 +206,7 @@ export default function AcademicProfileModal({
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-control border border-blue-500/20 bg-app-surface p-1 shadow-card">
             <img className="h-full w-full object-contain" src={logoImage} alt="Ateneo de Davao University logo" />
           </div>
-          <span className="inline-flex w-fit items-center rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-app-primary">Smart Eligibility Checker</span>
+          <span className="inline-flex w-fit items-center rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-app-primary dark:text-sky-300">Smart Eligibility Checker</span>
         </div>
         <h2 id="academic-profile-title" className="m-0 text-[clamp(1.55rem,4vw,2rem)] font-bold tracking-tight text-app-text">Tell us about your studies</h2>
         <p className="mt-2 text-sm leading-relaxed text-app-muted">
@@ -274,15 +274,15 @@ export default function AcademicProfileModal({
           {program && selectedProgram && (
             <div className="rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3">
               <span className="mb-1 block text-xs uppercase tracking-[0.08em] text-app-muted">School</span>
-              <strong className="text-app-primary">{selectedProgram.school}</strong>
+              <strong className="text-app-primary dark:text-sky-300">{selectedProgram.school}</strong>
               {selectedProgram.cluster && (
                 <>
                   <span className="mb-1 mt-2 block text-xs uppercase tracking-[0.08em] text-app-muted">Cluster</span>
-                  <strong className="text-app-primary">{selectedProgram.cluster}</strong>
+                  <strong className="text-app-primary dark:text-sky-300">{selectedProgram.cluster}</strong>
                 </>
               )}
               <span className="mb-1 mt-2 block text-xs uppercase tracking-[0.08em] text-app-muted">Academic department</span>
-              <strong className="text-app-primary">{selectedProgram.department}</strong>
+              <strong className="text-app-primary dark:text-sky-300">{selectedProgram.department}</strong>
             </div>
           )}
           <div className="rounded-control border border-blue-500/20 bg-blue-500/5 px-4 py-3 text-sm leading-relaxed text-app-muted">

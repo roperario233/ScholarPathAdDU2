@@ -111,13 +111,17 @@ button.bg-app-card:hover {
   border-color: color-mix(in srgb, var(--primary) 34%, var(--card-border)) !important;
   background: color-mix(in srgb, var(--surface) 78%, #020817 22%) !important;
   color: var(--text) !important;
-  box-shadow: 0 6px 16px rgba(0, 8, 25, 0.18);
+  /* The 1px ring is the control's visible edge. The global `button { border: 0 }`
+     reset also sets `border-style: none`, so the `border border-…` utilities on
+     these buttons never draw and the border-color above does nothing on its own. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 6px 16px rgba(0, 8, 25, 0.18);
 }
 
 .blue-action-view button.bg-gradient-to-br.from-ateneo-strong.via-ateneo.to-ateneo-bright:not(.select-picker-option) {
   border-color: #315ca8 !important;
   background: linear-gradient(135deg, #172554 0%, #1e3a8a 52%, #2563b8 100%) !important;
   color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(0, 8, 25, 0.18);
 }
 
 .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
@@ -226,12 +230,38 @@ button.bg-app-card:hover {
   border-color: #174fc4 !important;
   background: color-mix(in srgb, var(--surface) 84%, white 16%) !important;
   color: var(--text) !important;
-  box-shadow: 0 6px 16px rgba(23, 70, 130, 0.12);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 6px 16px rgba(23, 70, 130, 0.12);
 }
 
 .theme-light .blue-action-view button.bg-gradient-to-br.from-ateneo-strong.via-ateneo.to-ateneo-bright:not(.select-picker-option) {
   background: linear-gradient(135deg, #002776 0%, #0033a0 52%, #0a4bd1 100%) !important;
   color: #ffffff !important;
+  box-shadow: 0 6px 16px rgba(23, 70, 130, 0.12);
+}
+
+/* Card-surface rows excluded from the palette above (the Dashboard's required-
+   documents row, the Admissions Office Dashboard tiles, the Export button) carry
+   `border border-app-border`, which the same reset left undrawn. Draw it, a little
+   stronger than the card border so the row reads as a control on the card. The
+   hover colour is restated because this rule is as specific as the utility. */
+.disclosure-action.border-app-border {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.disclosure-action.border-app-border:hover,
+.disclosure-action.border-app-border:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+/* The top bar's theme toggle, bell, menu and sign-out buttons (and the mobile
+   drawer's toggle and close button) sit outside the shell palette and carry the
+   same undrawn `border border-app-border`. Draw it. The bell keeps its Tailwind
+   unread ring, which is why this is a border and not a box-shadow. */
+.app-header button.border-app-border,
+.mobile-nav-panel > div:first-child button.border-app-border {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .theme-light .blue-action-view button:not(.profile-menu-item, .select-picker-option, .fixed, .calendar-cell, .hero-action, .disclosure-action, .proof-action, [class*="from-rose"], [class*="from-amber"]):hover,
@@ -841,11 +871,16 @@ main article > .flex > :last-child {
 
 .select-picker-group {
   padding: 0.55rem 0.8rem 0.25rem;
-  color: var(--primary);
+  /* --primary is navy in both themes, which vanishes on the dark dialog. */
+  color: var(--accent);
   font-size: 0.7rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.theme-light .select-picker-group {
+  color: var(--primary);
 }
 
 .select-picker-group:not(:first-child) {

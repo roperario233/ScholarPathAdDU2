@@ -1233,17 +1233,17 @@ export function AcademicSection({ profile, academicPrograms, academicProgramGrou
           <dl className={`m-0 grid gap-x-6 gap-y-3 ${selectedProgram.cluster ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
             <div className="min-w-0">
               <dt className="text-xs text-app-muted">School</dt>
-              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.school}</dd>
+              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary dark:text-sky-300 [overflow-wrap:anywhere]">{selectedProgram.school}</dd>
             </div>
             {selectedProgram.cluster && (
               <div className="min-w-0">
                 <dt className="text-xs text-app-muted">Cluster</dt>
-                <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.cluster}</dd>
+                <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary dark:text-sky-300 [overflow-wrap:anywhere]">{selectedProgram.cluster}</dd>
               </div>
             )}
             <div className="min-w-0">
               <dt className="text-xs text-app-muted">Academic department</dt>
-              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary [overflow-wrap:anywhere]">{selectedProgram.department}</dd>
+              <dd className="m-0 mt-0.5 text-sm font-semibold text-app-primary dark:text-sky-300 [overflow-wrap:anywhere]">{selectedProgram.department}</dd>
             </div>
           </dl>
         </div>
