@@ -37,9 +37,11 @@ const updatedTime = (entry = {}) => timeOf(entry.updatedAt || entry.submittedAt)
 const byId = (left, right) => String(left?.id || '').localeCompare(String(right?.id || ''));
 const text = (value) => String(value || '').trim();
 const compareText = (left, right) => text(left).localeCompare(text(right), undefined, { sensitivity: 'base' });
+// SOP order, with the retired hand-off stage between verification and the interview.
+const STAGE_ORDER = [...sopStages.slice(0, 3), 'For Endorsement', ...sopStages.slice(3)];
 const stageRank = (entry = {}) => {
-  const index = sopStages.indexOf(entry.status);
-  return index === -1 ? sopStages.length : index;
+  const index = STAGE_ORDER.indexOf(entry.status);
+  return index === -1 ? STAGE_ORDER.length : index;
 };
 
 const SORTERS = {
@@ -117,8 +119,8 @@ export const countActiveReviewQueueFilters = (filters = {}) => (
     .filter((key) => (filters[key] ?? 'all') !== DEFAULT_REVIEW_QUEUE_FILTERS[key]).length
 );
 
-export const hasReviewQueueRefinement = (filters = {}) => (
+export const hasReviewQueueRefinement = (filters = {}, defaults = DEFAULT_REVIEW_QUEUE_FILTERS) => (
   Boolean(text(filters.query))
   || countActiveReviewQueueFilters(filters) > 0
-  || (filters.sort ?? DEFAULT_REVIEW_QUEUE_FILTERS.sort) !== DEFAULT_REVIEW_QUEUE_FILTERS.sort
+  || (filters.sort ?? defaults.sort) !== defaults.sort
 );

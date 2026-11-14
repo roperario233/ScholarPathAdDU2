@@ -1,27 +1,40 @@
-import { CheckCircle2, ClipboardList, FileCheck2, FileSearch, Inbox, Search, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ClipboardList, FileCheck2, FileSearch, Gavel, Inbox, Search, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import AdminPageHeader, { AdminHeaderTile } from '../../components/AdminPageHeader';
 import ApplicationReviewModal from '../../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../../components/MovedCaseNotice';
 import { SopStageTrack } from '../../components/ApplicationParts';
 import { StatCard, getCaseCardClass } from '../../components/pageParts';
-import { Button, Card, EmptyState, StatusBadge } from '../../components/ui';
+import FilterChips from '../../components/FilterChips';
+import { Button, Card, EmptyState, FormField, StatusBadge } from '../../components/ui';
 import { areDocumentsReviewable, describeApplicantAcademic, getDocumentVerificationReadiness } from '../../lib/applicationRequirements';
 import {
-  DEFAULT_REVIEW_QUEUE_FILTERS,
-  REVIEW_QUEUE_SORTS,
-  filterReviewQueue,
+  getApprovalQueue,
   getCaseOfficers,
   getDocumentsAwaitingReview,
   getIntakePool,
   getMyReviewQueue,
   getSubmissionWaitDays,
 } from '../../lib/admissionsOffice';
+import {
+  DEFAULT_REVIEW_QUEUE_FILTERS,
+  REVIEW_QUEUE_SORTS,
+  countActiveReviewQueueFilters,
+  filterReviewQueue,
+  getReviewQueueFacets,
+  hasReviewQueueRefinement,
+} from '../../lib/reviewQueue';
+import { formatInterviewDateShort, getInterviewModeLabel, isInterviewLive } from '../../lib/interview';
+import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApproverRoleForApplication } from '../../lib/reviewScope';
+import { getLatestPanelRecommendation } from '../../lib/interview';
 import { useDebouncedValue } from '../../lib/useDebouncedValue';
 import { getApplicationStatusLabel, getStatusTone, isAdmissionsAdminRole } from '../../lib/constants';
 import { fmtDate, plural } from '../../lib/formatters';
 
 const REVIEW_QUEUE_PAGE_SIZE = 50;
+const EMPTY_LIST = [];
+// The office queue reads oldest first, because first come, first served.
+const DEFAULT_FILTERS = { ...DEFAULT_REVIEW_QUEUE_FILTERS, sort: 'oldest' };
 
 // SOP steps 2-6 for the Admissions Office, as each officer sees it: the cases the
 // signed-in account has opened. The office-wide list lives in the intake pool's
@@ -63,20 +76,59 @@ export default function AdminReviewQueue({
     () => getMyReviewQueue(applications, caseOfficers, currentUserId),
     [applications, caseOfficers, currentUserId],
   );
-  const [filters, setFilters] = useState(DEFAULT_REVIEW_QUEUE_FILTERS);
+  const programIndex = useMemo(() => buildProgramScopeIndex(interviewWorkspace?.academicPrograms || []), [interviewWorkspace?.academicPrograms]);
+  const approvalLevels = interviewWorkspace?.approvalLevels || EMPTY_LIST;
+  // One list over the whole office, ordered by stage chips: the cases this officer
+  // opened, every interview (applicants waiting for a schedule and interviews under
+  // way), and the recommendations waiting on the school. A row says when it is not
+  // the officer's own or is waiting on the school.
+  const queueCases = useMemo(() => {
+    const seen = new Set();
+    return [
+      ...myQueue,
+      ...applications.filter((entry) => ['Endorsed', 'Interview'].includes(entry.status)),
+      ...getApprovalQueue(applications),
+    ].filter((entry) => {
+      if (seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    });
+  }, [myQueue, applications]);
+  const myCaseIds = useMemo(() => new Set(myQueue.map((entry) => entry.id)), [myQueue]);
+
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const settledQuery = useDebouncedValue(filters.query, 250);
+  const settledFilters = useMemo(() => ({ ...filters, query: settledQuery }), [filters, settledQuery]);
+  const facets = useMemo(() => getReviewQueueFacets(queueCases, programIndex), [queueCases, programIndex]);
+  // Stage chips count what is left once the search and the other filters apply,
+  // so a chip never promises cases the list would then hide.
+  const beforeStage = useMemo(
+    () => filterReviewQueue(queueCases, { ...settledFilters, stage: 'all' }, programIndex),
+    [queueCases, settledFilters, programIndex],
+  );
+  const stageChips = useMemo(() => {
+    const counts = new Map();
+    beforeStage.forEach((entry) => counts.set(entry.status, (counts.get(entry.status) || 0) + 1));
+    const present = facets.stages;
+    return [
+      { value: 'all', label: 'All stages', count: beforeStage.length },
+      ...present.map((option) => ({ value: option.value, label: option.label, count: counts.get(option.value) || 0 })),
+    ];
+  }, [beforeStage, facets.stages]);
+  const stage = stageChips.some((chip) => chip.value === filters.stage) ? filters.stage : 'all';
   const filteredQueue = useMemo(
-    () => filterReviewQueue(myQueue, { ...filters, query: settledQuery }),
-    [myQueue, filters, settledQuery],
+    () => (stage === 'all' ? beforeStage : beforeStage.filter((entry) => entry.status === stage)),
+    [beforeStage, stage],
   );
-  // Only the stages the queue actually holds are offered, so no option is empty.
-  const stageOptions = useMemo(
-    () => [...new Set(myQueue.map((entry) => entry.status))],
-    [myQueue],
-  );
-  const hasActiveFilters = filters.query.trim() !== '' || filters.stage !== 'all' || filters.sort !== DEFAULT_REVIEW_QUEUE_FILTERS.sort;
+  const isRefined = hasReviewQueueRefinement({ ...settledFilters, stage }, DEFAULT_FILTERS);
+  const activeFilterCount = countActiveReviewQueueFilters(filters);
   const updateFilter = (patch) => {
     setFilters((current) => ({ ...current, ...patch }));
+    setVisibleQueueCount(REVIEW_QUEUE_PAGE_SIZE);
+  };
+  const resetFilters = () => {
+    setFilters(DEFAULT_FILTERS);
     setVisibleQueueCount(REVIEW_QUEUE_PAGE_SIZE);
   };
   const visibleQueue = filteredQueue.slice(0, visibleQueueCount);
@@ -93,7 +145,7 @@ export default function AdminReviewQueue({
   );
   const unclaimedSubmissions = intakePool.filter((entry) => entry.status === 'Submitted').length;
   // After a stage move the case's row glows, or a notice says where it went.
-  const moved = useMovedCase(myQueue.map((entry) => entry.id));
+  const moved = useMovedCase(queueCases.map((entry) => entry.id));
 
   const openReview = (applicationId, tab = null) => {
     setReviewTab(tab);
@@ -118,7 +170,7 @@ export default function AdminReviewQueue({
       <AdminPageHeader
         title="Review queue"
         description={isAdmin
-          ? 'The cases you opened, through every stage you decide.'
+          ? 'The cases you opened, every interview, and the recommendations waiting on the school.'
           : 'The cases you opened. Pick up more from the intake pool.'}
       >
         {myQueue.length ? (
@@ -180,13 +232,13 @@ export default function AdminReviewQueue({
 
       <section className="grid gap-4">
         <Card
-          title="Your cases"
+          title="Review queue"
           action={(
             <div className="flex flex-wrap items-center gap-2">
-              <StatusBadge tone={myQueue.length ? 'warning' : 'success'}>
-                {filteredQueue.length === myQueue.length
-                  ? `${myQueue.length} in your queue`
-                  : `${filteredQueue.length} of ${myQueue.length} shown`}
+              <StatusBadge tone={queueCases.length ? 'warning' : 'success'}>
+                {filteredQueue.length === queueCases.length
+                  ? plural(queueCases.length, 'case')
+                  : `${filteredQueue.length} of ${queueCases.length} shown`}
               </StatusBadge>
               {onOpenWorkspace ? (
                 <Button type="button" variant="ghost" onClick={() => onOpenWorkspace('admin-intake')}>
@@ -196,33 +248,31 @@ export default function AdminReviewQueue({
             </div>
           )}
         >
-          {myQueue.length ? (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <div className="relative min-w-0 flex-1 basis-48">
-                <Search size={14} aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-app-muted" />
-                <input
-                  type="search"
-                  value={filters.query}
-                  placeholder="Search student, program, scholarship"
-                  aria-label="Search your cases"
-                  className="min-h-9 py-1.5 pl-8 text-sm"
-                  onChange={(event) => updateFilter({ query: event.target.value })}
-                />
-              </div>
-              <select
-                aria-label="Filter by stage"
-                className="min-h-9 w-auto py-1.5 text-sm"
-                value={filters.stage}
-                onChange={(event) => updateFilter({ stage: event.target.value })}
-              >
-                <option value="all">All stages</option>
-                {stageOptions.map((status) => (
-                  <option key={status} value={status}>{getApplicationStatusLabel(status)}</option>
-                ))}
-              </select>
+          <FilterChips
+            name="review-queue-stage"
+            legend="Filter by stage"
+            className="mb-3"
+            value={stage}
+            onChange={(value) => updateFilter({ stage: value })}
+            options={stageChips}
+          />
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <div className="relative min-w-0 flex-1 basis-56">
+              <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted" />
+              <input
+                type="search"
+                value={filters.query}
+                placeholder="Search student, program, scholarship"
+                aria-label="Search the review queue"
+                className="min-h-10 py-2 pl-9 text-sm"
+                onChange={(event) => updateFilter({ query: event.target.value })}
+              />
+            </div>
+            <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-app-text">
+              <span className="shrink-0 text-xs text-app-muted">Sort by</span>
               <select
                 aria-label="Sort cases"
-                className="min-h-9 w-auto py-1.5 text-sm"
+                className="min-h-10 py-2 text-sm"
                 value={filters.sort}
                 onChange={(event) => updateFilter({ sort: event.target.value })}
               >
@@ -230,18 +280,65 @@ export default function AdminReviewQueue({
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
-              {hasActiveFilters ? (
-                <Button type="button" variant="ghost" onClick={() => updateFilter({ ...DEFAULT_REVIEW_QUEUE_FILTERS })}>Reset</Button>
+            </label>
+            <Button
+              type="button"
+              aria-expanded={showMoreFilters}
+              aria-controls="review-queue-more-filters"
+              onClick={() => setShowMoreFilters((open) => !open)}
+            >
+              <span className="inline-flex items-center gap-1.5">
+                More filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+                <ChevronDown size={16} aria-hidden="true" className={showMoreFilters ? 'rotate-180 transition-transform' : 'transition-transform'} />
+              </span>
+            </Button>
+            {isRefined ? <Button type="button" variant="ghost" onClick={resetFilters}>Reset</Button> : null}
+          </div>
+          {showMoreFilters ? (
+            <div id="review-queue-more-filters" className="mb-3 grid gap-2 border-t border-app-border pt-3 sm:grid-cols-2 lg:grid-cols-3">
+              <FormField label="Scholarship" className="gap-1 [&_span]:text-xs">
+                <select className="min-h-10 py-2 text-sm" value={filters.scholarshipId} onChange={(event) => updateFilter({ scholarshipId: event.target.value })}>
+                  <option value="all">All scholarships</option>
+                  {facets.scholarships.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </FormField>
+              {facets.departments.length > 1 ? (
+                <FormField label="Department" className="gap-1 [&_span]:text-xs">
+                  <select className="min-h-10 py-2 text-sm" value={filters.department} onChange={(event) => updateFilter({ department: event.target.value })}>
+                    <option value="all">All departments</option>
+                    {facets.departments.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </FormField>
+              ) : null}
+              {facets.programs.length > 1 ? (
+                <FormField label="Program" className="gap-1 [&_span]:text-xs">
+                  <select className="min-h-10 py-2 text-sm" value={filters.program} onChange={(event) => updateFilter({ program: event.target.value })}>
+                    <option value="all">All programs</option>
+                    {facets.programs.map((option) => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </FormField>
               ) : null}
             </div>
           ) : null}
+          <p className="mb-3 text-xs text-app-muted" aria-live="polite">
+            {isRefined
+              ? `Showing ${filteredQueue.length} of ${plural(queueCases.length, 'case')} in this list.`
+              : `${plural(filteredQueue.length, 'case')}.`}
+          </p>
           <div className="grid max-h-[720px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-            {myQueue.length && !filteredQueue.length ? (
+            {queueCases.length && !filteredQueue.length ? (
               <EmptyState
                 title="No cases match these filters"
-                description="Clear the search or the stage filter to see the rest of your queue."
+                description="Clear the search or a filter to see the rest of this list."
+                action={<div className="mt-3 flex justify-center"><Button type="button" onClick={resetFilters}>Reset search and filters</Button></div>}
               />
-            ) : myQueue.length ? visibleQueue.map((entry) => {
+            ) : filteredQueue.length ? visibleQueue.map((entry) => {
               const { outstanding } = getDocumentVerificationReadiness(entry, documents);
               // Document Vault review begins at the verification stage, so a case
               // before it reports what is attached instead of promising work the
@@ -253,8 +350,25 @@ export default function AdminReviewQueue({
               const officerChips = officers.map((officer) => (
                 officer.officerId && officer.officerId === currentUserId ? 'You' : officer.officerName
               ));
+              const isMine = myCaseIds.has(entry.id);
+              const awaitingApproval = entry.status === 'Recommended';
+              const isInterview = ['Endorsed', 'Interview'].includes(entry.status);
+              const approver = awaitingApproval
+                ? getApproverRoleForApplication(entry, approvalLevels, programIndex)
+                : null;
+              const recommendation = awaitingApproval
+                ? getLatestPanelRecommendation((interviewWorkspace?.notes || EMPTY_LIST).filter((note) => note.applicationId === entry.id))
+                : null;
+              const interview = entry.interview;
+              const interviewLine = entry.status === 'Interview' && isInterviewLive(interview)
+                ? `${getInterviewModeLabel(interview.mode)} interview · ${formatInterviewDateShort(interview.startsAt)}${interview.locationLabel ? ` · ${interview.locationLabel}` : ''}`
+                : entry.status === 'Endorsed' ? 'Documents verified. Waiting for the interview to be scheduled.' : '';
               return (
-                <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass(getStatusTone(entry.status))}>
+                <article
+                  key={entry.id}
+                  data-application-id={entry.id}
+                  className={getCaseCardClass(awaitingApproval ? 'warning' : getStatusTone(entry.status))}
+                >
                   <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-4">
                     <div className="min-w-0 w-full flex-1">
                       <h3>{entry.studentName}</h3>
@@ -263,7 +377,14 @@ export default function AdminReviewQueue({
                         {describeApplicantAcademic(entry)} · Income ₱{Number(entry.studentHouseholdIncome || 0).toLocaleString()} · Submitted {fmtDate(entry.submittedAt || entry.updatedAt)}{days == null ? '' : ` · waiting ${days} day${days === 1 ? '' : 's'}`}
                       </p>
                     </div>
-                    <StatusBadge tone={getStatusTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
+                    <div className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+                      {awaitingApproval ? (
+                        <StatusBadge tone="warning" className="whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1"><Gavel size={12} aria-hidden="true" />Awaiting school approval</span>
+                        </StatusBadge>
+                      ) : null}
+                      <StatusBadge tone={getStatusTone(entry.status)}>{getApplicationStatusLabel(entry.status)}</StatusBadge>
+                    </div>
                   </div>
                   <SopStageTrack status={entry.status} />
                   <div className="flex flex-wrap items-center gap-2 border-t border-app-border pt-3">
@@ -273,25 +394,40 @@ export default function AdminReviewQueue({
                       <Button type="button" onClick={() => openReview(entry.id, 'endorsement')}>
                         {isAdmin ? 'Forward to interview' : 'Open case notes'}
                       </Button>
+                    ) : isInterview ? (
+                      <Button type="button" onClick={() => openReview(entry.id, 'interview')}>
+                        {entry.status === 'Endorsed' ? 'Schedule interview' : 'Open interview'}
+                      </Button>
                     ) : (
                       <Button type="button" onClick={() => openReview(entry.id)}>Open case</Button>
                     )}
-                    {documentsUnlocked && outstanding ? (
+                    {documentsUnlocked && outstanding && !awaitingApproval ? (
                       <StatusBadge tone="warning">{outstanding} document{outstanding === 1 ? '' : 's'} to verify</StatusBadge>
                     ) : null}
                     {!documentsUnlocked && attachedCount ? (
                       <StatusBadge tone="neutral">{attachedCount} attached document{attachedCount === 1 ? '' : 's'}</StatusBadge>
                     ) : null}
+                    {awaitingApproval ? (
+                      <StatusBadge tone="info">With the {REVIEW_ROLE_LABELS[approver] || 'Chairperson'}</StatusBadge>
+                    ) : null}
                     {officerChips.length > 1 ? (
                       <StatusBadge tone="info">{officerChips.join(' · ')}</StatusBadge>
+                    ) : null}
+                    {!isMine ? <StatusBadge tone="neutral">Not opened by you</StatusBadge> : null}
+                    {awaitingApproval ? (
+                      <span className="min-w-0 flex-1 text-left text-xs text-app-muted">
+                        {recommendation?.label || 'Recommended'} · the school approves, waitlists, or does not accept; you can override from the case.
+                      </span>
+                    ) : interviewLine ? (
+                      <span className="min-w-0 flex-1 text-left text-xs text-app-muted">{interviewLine}</span>
                     ) : null}
                   </div>
                 </article>
               );
             }) : (
               <EmptyState
-                title="No cases in your review queue yet"
-                description="Open a case from the intake pool and it is added here. Any officer who opens a case joins it."
+                title="No cases in the review queue yet"
+                description="Open a case from the intake pool and it is added here. Interviews and recommendations waiting on the school appear here too."
                 action={onOpenWorkspace
                   ? <Button type="button" onClick={() => onOpenWorkspace('admin-intake')}>Open intake pool</Button>
                   : undefined}

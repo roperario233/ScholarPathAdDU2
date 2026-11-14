@@ -11,7 +11,7 @@ import { Button, Card, EmptyState, ExportButton, ModalShell, Panel, StatusBadge 
 import { downloadApplicantSummary, getApplicantSummaryFileName, getApprovalQueue, getFinalCheckHints } from '../../lib/admissionsOffice';
 import { getActorRoleLabel } from '../../lib/applicationRequirements';
 import { getApplicationStatusLabel, isEarlyClosure } from '../../lib/constants';
-import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getApproverRoleForApplication } from '../../lib/reviewScope';
+import { buildProgramScopeIndex, getApplicationScope } from '../../lib/reviewScope';
 import { getLatestPanelRecommendation } from '../../lib/interview';
 import FinalCheckToggle from '../../components/FinalCheckToggle';
 import { describeGrantAmount } from '../../lib/grantAmount';
@@ -301,7 +301,6 @@ export default function AdminResultsRelease({
   };
 
   const programIndex = useMemo(() => buildProgramScopeIndex(academicPrograms), [academicPrograms]);
-  const approvalLevels = interviewWorkspace?.approvalLevels || [];
   const notesByApplication = useMemo(() => {
     const grouped = new Map();
     (interviewWorkspace?.notes || EMPTY_LIST).forEach((note) => {
@@ -343,7 +342,6 @@ export default function AdminResultsRelease({
     const ids = new Set(openRelease.applicationIds || []);
     return applications.filter((entry) => ids.has(entry.id));
   }, [openRelease, applications]);
-  const visibleAwaitingSchool = visibleRowsFor('all', 'awaiting-school', awaitingSchool);
   const visibleReleasedHistory = visibleRowsFor('all', 'released-history', releasedHistory);
   const titleById = useMemo(() => Object.fromEntries(scholarships.map((entry) => [entry.id, entry.title])), [scholarships]);
   const grantAmounts = interviewWorkspace?.grantAmounts || EMPTY_LIST;
@@ -725,7 +723,7 @@ export default function AdminResultsRelease({
       <MovedCaseNotice notice={moved.notice} onDismiss={moved.dismiss} offListNote="It is no longer awaiting a decision, a release, or an answer here." />
 
       <section className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-4">
-        <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Decided by the configured level" />
+        <StatCard icon={Gavel} tone="warning" label="Awaiting the school's approval" value={awaitingSchool.length} note="Listed in the Review queue" />
         <StatCard icon={Award} tone="info" label="Approved — final check" value={approvedCount} note="Siblings on a grant, pending cases" />
         <StatCard icon={ListOrdered} tone="warning" label="Waitlisted" value={waitlistedCount} note={openSlotCount ? `${plural(openSlotCount, 'slot')} open` : 'Offered a slot when one opens'} />
         <StatCard icon={Hourglass} tone="info" label="Offers awaiting an answer" value={unansweredCount} note="Accepted applicants to confirm" />
@@ -804,27 +802,6 @@ export default function AdminResultsRelease({
             );
           }) : <EmptyState title="Nothing to release yet" description="Approved and waitlisted applications appear here after the school's decision." />}
         </div>
-      </Card>
-
-      <Card title="Awaiting the school's approval" action={<StatusBadge tone={awaitingSchool.length ? 'info' : 'success'}>{awaitingSchool.length} with the schools</StatusBadge>}>
-        <div className="grid max-h-[520px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {awaitingSchool.length ? visibleAwaitingSchool.map((entry) => {
-            const approver = getApproverRoleForApplication(entry, approvalLevels, programIndex);
-            return (
-              <article key={entry.id} data-application-id={entry.id} className={getCaseCardClass('warning')}>
-                <div className="flex min-w-0 flex-col items-start gap-2 sm:flex-row sm:justify-between sm:gap-3">
-                  <div className="min-w-0 w-full"><h3 className="truncate">{entry.studentName}</h3><p className="text-sm text-app-muted">{entry.scholarshipTitle} · {entry.studentProgram || 'Program on file'}</p></div>
-                  <StatusBadge tone="info">With the {REVIEW_ROLE_LABELS[approver] || 'Chairperson'}</StatusBadge>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 border-t border-app-border pt-2">
-                  <Button type="button" variant="secondary" onClick={() => openCase(entry.id)}>Open case</Button>
-                  <span className="min-w-0 flex-1 text-left text-xs text-app-muted">{recommendationOf(entry)?.label || 'Recommended'} · the school approves, waitlists, or does not accept; you can override from the case.</span>
-                </div>
-              </article>
-            );
-          }) : <EmptyState title="No recommendations with the schools" />}
-        </div>
-        {showMoreRows('all', 'awaiting-school', visibleAwaitingSchool.length, awaitingSchool.length)}
       </Card>
 
       {releasedHistory.length ? (
