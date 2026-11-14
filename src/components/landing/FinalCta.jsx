@@ -9,7 +9,7 @@ export default function FinalCta({ pointerOn, onGetStarted, onSignIn }) {
   return (
       <section className="lp-final" aria-labelledby="lp-final-title">
         <div className="lp-final-aurora" aria-hidden="true">
-          <CampusBackdrop className="lp-campus--final" />
+          <CampusBackdrop className="lp-campus--final" variant="footer" />
           <span className="lp-blob lp-blob--a" />
           <span className="lp-blob lp-blob--c" />
           <span className="lp-grain" />
