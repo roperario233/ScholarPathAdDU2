@@ -250,6 +250,9 @@
 }
 .lp-section { position: relative; padding: clamp(4.5rem, 3rem + 6vw, 8rem) 0; }
 .lp-section-head { max-width: 48rem; margin-bottom: clamp(2rem, 1.5rem + 2vw, 3.5rem); }
+/* The grants intro runs wider so its description reads in two or three lines. */
+.lp-section-head--wide { max-width: 64rem; }
+.lp-section-head--wide .lp-lede { max-width: 58rem; }
 
 /* ---- Pills, glass, mock cards ------------------------------------------- */
 .lp-pill {

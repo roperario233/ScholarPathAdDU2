@@ -86,9 +86,9 @@ export default function GrantCards({ pointerOn }) {
   return (
     <section id="grants" className="lp-section" aria-labelledby="lp-grants-title">
       <div className="lp-shell">
-        <header className="lp-section-head" data-reveal>
+        <header className="lp-section-head lp-section-head--wide" data-reveal>
           <p className="lp-eyebrow">The three AdDU grants</p>
-          <h2 id="lp-grants-title" className="lp-h2">Three ways in. <span className="lp-serif">One application path.</span></h2>
+          <h2 id="lp-grants-title" className="lp-h2">Three ways in. <br /><span className="lp-serif">One application path.</span></h2>
           <p className="lp-lede">
             Grant-in-Aid, the Working Scholar Program and the Jubilee Scholarship, as the Office of Admission and Aid describes them. Academic floors, income ceilings and deadlines come from the live catalog once you sign in.
           </p>
