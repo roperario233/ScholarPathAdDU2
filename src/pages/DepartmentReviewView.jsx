@@ -1,11 +1,20 @@
 import { useMemo, useState } from 'react';
-import { CalendarClock, CheckCircle2, ClipboardCheck, Layers, SendHorizontal, UserCheck } from 'lucide-react';
+import { CalendarClock, CheckCircle2, ChevronDown, ClipboardCheck, Layers, Search, SendHorizontal, UserCheck } from 'lucide-react';
+import { useDebouncedValue } from '../lib/useDebouncedValue';
+import {
+  DEFAULT_REVIEW_QUEUE_FILTERS,
+  REVIEW_QUEUE_SORTS,
+  countActiveReviewQueueFilters,
+  filterReviewQueue,
+  getReviewQueueFacets,
+  hasReviewQueueRefinement,
+} from '../lib/reviewQueue';
 import AdminPageHeader, { AdminHeaderTile } from '../components/AdminPageHeader';
 import { StatCard, getCaseCardClass } from '../components/pageParts';
 import ApplicationReviewModal from '../components/ApplicationReviewModal';
 import MovedCaseNotice, { useMovedCase } from '../components/MovedCaseNotice';
 import FilterChips from '../components/FilterChips';
-import { Button, Card, EmptyState, ExportButton, StatusBadge } from '../components/ui';
+import { Button, Card, EmptyState, ExportButton, FormField, StatusBadge } from '../components/ui';
 import { getApplicationStatusLabel } from '../lib/constants';
 import { REVIEW_ROLE_LABELS, buildProgramScopeIndex, getApplicationScope, getReviewScopeLabel, isInterviewerRole } from '../lib/reviewScope';
 import { areEndorsementRecordsVisible, describeApplicantAcademic, getActorRoleLabel, getDocumentVerificationReadiness } from '../lib/applicationRequirements';
@@ -58,6 +67,8 @@ export default function DepartmentReviewView({
   // whole scope when nothing is waiting. Opening a case pins the pick so the chip
   // never switches under the reader.
   const [chosenFilter, setChosenFilter] = useState(null);
+  const [refine, setRefine] = useState(DEFAULT_REVIEW_QUEUE_FILTERS);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const role = profile.role || 'department_chair';
   const isInterviewer = isInterviewerRole(role);
   const selected = queue.find((entry) => entry.id === selectedId);
@@ -100,13 +111,32 @@ export default function DepartmentReviewView({
   const filter = filters.some((entry) => entry.key === chosenFilter)
     ? chosenFilter
     : needsAction.length ? 'action' : 'all';
-  const activeEntries = filters.find((entry) => entry.key === filter).entries;
+  const laneEntries = filters.find((entry) => entry.key === filter).entries;
+  // Search, facets, and sorting narrow whatever the chosen lane holds. The facets
+  // read the whole scope so a pick stays valid when the lane changes.
+  const settledQuery = useDebouncedValue(refine.query, 250);
+  const settledRefine = useMemo(() => ({ ...refine, query: settledQuery }), [refine, settledQuery]);
+  const facets = useMemo(() => getReviewQueueFacets(queue, programIndex), [queue, programIndex]);
+  const activeEntries = useMemo(
+    () => filterReviewQueue(laneEntries, settledRefine, programIndex),
+    [laneEntries, settledRefine, programIndex],
+  );
   const visibleEntries = activeEntries.slice(0, visibleCount);
+  const activeFilterCount = countActiveReviewQueueFilters(refine);
+  const isRefined = hasReviewQueueRefinement(settledRefine);
   // After a stage move the case's row glows, or a notice says where it went.
   const moved = useMovedCase(activeEntries.map((entry) => entry.id));
 
   const changeFilter = (key) => {
     setChosenFilter(key);
+    setVisibleCount(REVIEW_LIST_PAGE_SIZE);
+  };
+  const updateRefine = (patch) => {
+    setRefine((previous) => ({ ...previous, ...patch }));
+    setVisibleCount(REVIEW_LIST_PAGE_SIZE);
+  };
+  const resetRefine = () => {
+    setRefine(DEFAULT_REVIEW_QUEUE_FILTERS);
     setVisibleCount(REVIEW_LIST_PAGE_SIZE);
   };
 
@@ -251,8 +281,97 @@ export default function DepartmentReviewView({
             alert: entry.alert && entry.entries.length > 0,
           }))}
         />
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="relative min-w-0 flex-1 basis-56">
+            <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-muted" />
+            <input
+              type="search"
+              value={refine.query}
+              placeholder="Search applicant, scholarship, program"
+              aria-label="Search applications in your scope"
+              className="min-h-10 py-2 pl-9 text-sm"
+              onChange={(event) => updateRefine({ query: event.target.value })}
+            />
+          </div>
+          <label className="flex min-w-0 items-center gap-2 text-sm font-semibold text-app-text">
+            <span className="shrink-0 text-xs text-app-muted">Sort by</span>
+            <select
+              aria-label="Sort applications"
+              className="min-h-10 py-2 text-sm"
+              value={refine.sort}
+              onChange={(event) => updateRefine({ sort: event.target.value })}
+            >
+              {REVIEW_QUEUE_SORTS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <Button
+            type="button"
+            aria-expanded={showMoreFilters}
+            aria-controls="review-more-filters"
+            onClick={() => setShowMoreFilters((open) => !open)}
+          >
+            <span className="inline-flex items-center gap-1.5">
+              Filters{activeFilterCount ? ` (${activeFilterCount})` : ''}
+              <ChevronDown size={16} aria-hidden="true" className={showMoreFilters ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            </span>
+          </Button>
+          {hasReviewQueueRefinement(refine) ? <Button type="button" variant="ghost" onClick={resetRefine}>Reset</Button> : null}
+        </div>
+        {showMoreFilters ? (
+          <div id="review-more-filters" className="mb-3 grid gap-2 border-t border-app-border pt-3 sm:grid-cols-2 lg:grid-cols-4">
+            <FormField label="Stage" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={refine.stage} onChange={(event) => updateRefine({ stage: event.target.value })}>
+                <option value="all">All stages</option>
+                {facets.stages.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label="Scholarship" className="gap-1 [&_span]:text-xs">
+              <select className="min-h-10 py-2 text-sm" value={refine.scholarshipId} onChange={(event) => updateRefine({ scholarshipId: event.target.value })}>
+                <option value="all">All scholarships</option>
+                {facets.scholarships.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </FormField>
+            {facets.departments.length > 1 ? (
+              <FormField label="Department" className="gap-1 [&_span]:text-xs">
+                <select className="min-h-10 py-2 text-sm" value={refine.department} onChange={(event) => updateRefine({ department: event.target.value })}>
+                  <option value="all">All departments</option>
+                  {facets.departments.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </FormField>
+            ) : null}
+            {facets.programs.length > 1 ? (
+              <FormField label="Program" className="gap-1 [&_span]:text-xs">
+                <select className="min-h-10 py-2 text-sm" value={refine.program} onChange={(event) => updateRefine({ program: event.target.value })}>
+                  <option value="all">All programs</option>
+                  {facets.programs.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </FormField>
+            ) : null}
+          </div>
+        ) : null}
+        <p className="mb-3 text-xs text-app-muted" aria-live="polite">
+          {isRefined
+            ? `Showing ${activeEntries.length} of ${plural(laneEntries.length, 'application')} in this list.`
+            : `${plural(activeEntries.length, 'application')}.`}
+        </p>
         <div className="grid max-h-[720px] gap-3 overflow-y-auto pb-14 pr-1 sm:pb-1">
-          {activeEntries.length ? visibleEntries.map(renderRow) : (
+          {activeEntries.length ? visibleEntries.map(renderRow) : isRefined && laneEntries.length ? (
+            <EmptyState
+              title="No applications match"
+              description="Clear the search or a filter to see the rest of this list."
+              action={<div className="mt-3 flex justify-center"><Button type="button" onClick={resetRefine}>Reset search and filters</Button></div>}
+            />
+          ) : (
             <EmptyState
               title={EMPTY_COPY[filter].title}
               description={EMPTY_COPY[filter].description}
