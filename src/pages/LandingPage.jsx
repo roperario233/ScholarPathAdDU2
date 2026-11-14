@@ -39,7 +39,7 @@
  *          content is ever hidden behind an animation, and the story never
  *          takes over the scrollbar.
  */
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import logoImage from '../../pictures/logo.png';
 import LandingHeader from '../components/landing/LandingHeader';
 import LandingHero from '../components/landing/LandingHero';
@@ -51,8 +51,21 @@ import AudienceSection from '../components/landing/AudienceSection';
 import HonestyStrip from '../components/landing/HonestyStrip';
 import LandingFaq from '../components/landing/LandingFaq';
 import FinalCta, { LandingFooter } from '../components/landing/FinalCta';
+import { NAV_LINKS } from '../components/landing/content';
 import { useFinePointer, usePrefersReducedMotion, useRevealObserver } from '../components/landing/motion';
 import '../landing.css';
+
+// The in-page anchors this page owns. Only these are cleared when the page
+// goes away, so an auth return in the hash (access_token, error, …) is never
+// touched.
+const LANDING_ANCHORS = new Set(['lp-top', 'lp-main', ...NAV_LINKS.map((link) => link.id)]);
+
+function clearLandingAnchor() {
+  if (typeof window === 'undefined') return;
+  const anchor = window.location.hash.replace(/^#/, '');
+  if (!LANDING_ANCHORS.has(anchor)) return;
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}`);
+}
 
 export default function LandingPage({ theme, onToggleTheme, onGetStarted, onSignIn, onOpenLegalDocument }) {
   const rootRef = useRef(null);
@@ -63,6 +76,10 @@ export default function LandingPage({ theme, onToggleTheme, onGetStarted, onSign
   const motionOn = !reducedMotion && typeof IntersectionObserver !== 'undefined';
   const pointerOn = motionOn && finePointer;
   useRevealObserver(rootRef, motionOn);
+
+  // Section links (#faq …) belong to this page; drop them once it unmounts so
+  // the sign-in screen and the signed-in app don't keep them in the address bar.
+  useEffect(() => clearLandingAnchor, []);
 
   return (
     <div ref={rootRef} className="lp" data-motion={motionOn ? 'on' : 'off'}>
